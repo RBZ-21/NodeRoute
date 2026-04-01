@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>DeliverHub</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg:       #0f1117;
+      --surface:  #1a1d27;
+      --border:   #2a2d3a;
+      --accent:   #4f8ef7;
+      --green:    #22c55e;
+      --yellow:   #f59e0b;
+      --red:      #ef4444;
+      --muted:    #6b7280;
+      --text:     #e5e7eb;
+      --text-sub: #9ca3af;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100dvh;
+    }
+
+    /* ── Header ── */
+    header {
+      position: sticky; top: 0; z-index: 10;
+      background: var(--surface);
+      border-bottom: 1px solid var(--border);
+      padding: 14px 16px;
+      display: flex; align-items: center; justify-content: space-between;
+    }
+    .logo { font-size: 1.1rem; font-weight: 700; color: var(--accent); letter-spacing: -.3px; }
+    .logo span { color: var(--text); }
+    .refresh-btn {
+      background: none; border: 1px solid var(--border);
+      color: var(--text-sub); padding: 6px 12px; border-radius: 8px;
+      font-size: .8rem; cursor: pointer;
+    }
+    .refresh-btn:active { opacity: .7; }
+
+    /* ── Nav tabs ── */
+    nav {
+      display: flex;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+    }
+    nav button {
+      flex: 1; padding: 12px 0;
+      background: none; border: none; border-bottom: 2px solid transparent;
+      color: var(--muted); font-size: .85rem; cursor: pointer;
+      transition: color .2s, border-color .2s;
+    }
+    nav button.active { color: var(--accent); border-bottom-color: var(--accent); }
+
+    /* ── Main ── */
+    main { padding: 16px; max-width: 600px; margin: 0 auto; }
+
+    /* ── Stat cards ── */
+    .stats-grid {
+      display: grid; grid-template-columns: 1fr 1fr;
+      gap: 10px; margin-bottom: 20px;
+    }
+    .stat-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px 16px;
+    }
+    .stat-card .label { font-size: .75rem; color: var(--text-sub); margin-bottom: 4px; }
+    .stat-card .value { font-size: 1.7rem; font-weight: 700; }
+    .stat-card .sub   { font-size: .75rem; color: var(--text-sub); margin-top: 2px; }
+    .value.green { color: var(--green); }
+    .value.yellow { color: var(--yellow); }
+    .value.red { color: var(--red); }
+    .value.blue { color: var(--accent); }
+
+    /* ── Section header ── */
+    .section-title {
+      font-size: .8rem; font-weight: 600; color: var(--text-sub);
+      text-transform: uppercase; letter-spacing: .6px;
+      margin-bottom: 10px; margin-top: 4px;
+    }
+
+    /* ── Delivery cards ── */
+    .delivery-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px; margin-bottom: 10px;
+    }
+    .delivery-row { display: flex; justify-content: space-between; align-items: flex-start; }
+    .delivery-id  { font-size: .75rem; color: var(--text-sub); margin-bottom: 2px; }
+    .delivery-customer { font-weight: 600; font-size: .95rem; }
+    .delivery-address  { font-size: .8rem; color: var(--text-sub); margin-top: 2px; }
+    .delivery-meta     { font-size: .78rem; color: var(--text-sub); margin-top: 8px; }
+    .delivery-meta span { margin-right: 12px; }
+
+    /* ── Status badge ── */
+    .badge {
+      display: inline-block; padding: 3px 8px; border-radius: 20px;
+      font-size: .72rem; font-weight: 600; white-space: nowrap;
+    }
+    .badge-delivered  { background: #14532d; color: var(--green); }
+    .badge-transit    { background: #1e3a5f; color: var(--accent); }
+    .badge-pending    { background: #451a03; color: var(--yellow); }
+    .badge-failed     { background: #450a0a; color: var(--red); }
+    .badge-on-duty    { background: #14532d; color: var(--green); }
+    .badge-off-duty   { background: #1f2937; color: var(--muted); }
+
+    /* ── Driver cards ── */
+    .driver-card {
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 12px; padding: 14px; margin-bottom: 10px;
+      display: flex; align-items: center; gap: 12px;
+    }
+    .avatar {
+      width: 40px; height: 40px; border-radius: 50%;
+      background: var(--accent); display: flex; align-items: center;
+      justify-content: center; font-weight: 700; font-size: .9rem;
+      flex-shrink: 0; color: #fff;
+    }
+    .driver-info { flex: 1; }
+    .driver-name { font-weight: 600; font-size: .95rem; }
+    .driver-sub  { font-size: .78rem; color: var(--text-sub); margin-top: 2px; }
+
+    /* ── Filter row ── */
+    .filter-row {
+      display: flex; gap: 8px; overflow-x: auto;
+      padding-bottom: 4px; margin-bottom: 14px;
+      scrollbar-width: none;
+    }
+    .filter-row::-webkit-scrollbar { display: none; }
+    .filter-btn {
+      flex-shrink: 0; padding: 5px 13px;
+      border: 1px solid var(--border); border-radius: 20px;
+      background: none; color: var(--text-sub); font-size: .8rem; cursor: pointer;
+    }
+    .filter-btn.active { border-color: var(--accent); color: var(--accent); background: #1e3a5f; }
+
+    /* ── Empty state ── */
+    .empty { text-align: center; padding: 40px 0; color: var(--muted); font-size: .9rem; }
+
+    /* ── Loading spinner ── */
+    .spinner {
+      display: inline-block; width: 18px; height: 18px;
+      border: 2px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin .6s linear infinite;
+      vertical-align: middle; margin-right: 6px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    .hidden { display: none !important; }
+  </style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Deliver<span>Hub</span></div>
+  <button class="refresh-btn" onclick="loadAll()">⟳ Refresh</button>
+</header>
+
+<nav>
+  <button class="active" onclick="showTab('dashboard', this)">Dashboard</button>
+  <button onclick="showTab('deliveries', this)">Deliveries</button>
+  <button onclick="showTab('drivers', this)">Drivers</button>
+</nav>
+
+<main>
+
+  <!-- ── Dashboard tab ── -->
+  <div id="tab-dashboard">
+    <div id="stats-grid" class="stats-grid">
+      <div class="stat-card"><div class="label">Total Orders</div><div class="value blue" id="s-total">–</div></div>
+      <div class="stat-card"><div class="label">Delivered</div><div class="value green" id="s-delivered">–</div></div>
+      <div class="stat-card"><div class="label">In Transit</div><div class="value blue" id="s-transit">–</div></div>
+      <div class="stat-card"><div class="label">Pending</div><div class="value yellow" id="s-pending">–</div></div>
+      <div class="stat-card"><div class="label">Failed</div><div class="value red" id="s-failed">–</div></div>
+      <div class="stat-card"><div class="label">Drivers On Duty</div><div class="value green" id="s-drivers">–</div></div>
+    </div>
+
+    <div class="section-title">Active Deliveries</div>
+    <div id="active-list"></div>
+  </div>
+
+  <!-- ── Deliveries tab ── -->
+  <div id="tab-deliveries" class="hidden">
+    <div class="filter-row">
+      <button class="filter-btn active" onclick="filterDeliveries('All', this)">All</button>
+      <button class="filter-btn" onclick="filterDeliveries('In Transit', this)">In Transit</button>
+      <button class="filter-btn" onclick="filterDeliveries('Delivered', this)">Delivered</button>
+      <button class="filter-btn" onclick="filterDeliveries('Pending', this)">Pending</button>
+      <button class="filter-btn" onclick="filterDeliveries('Failed', this)">Failed</button>
+    </div>
+    <div id="deliveries-list"></div>
+  </div>
+
+  <!-- ── Drivers tab ── -->
+  <div id="tab-drivers" class="hidden">
+    <div class="filter-row">
+      <button class="filter-btn active" onclick="filterDrivers('All', this)">All</button>
+      <button class="filter-btn" onclick="filterDrivers('On Duty', this)">On Duty</button>
+      <button class="filter-btn" onclick="filterDrivers('Off Duty', this)">Off Duty</button>
+    </div>
+    <div id="drivers-list"></div>
+  </div>
+
+</main>
+
+<script>
+  let allDeliveries = [];
+  let allDrivers = [];
+
+  // ── Fetch helpers ──────────────────────────────────────────
+  async function loadAll() {
+    try {
+      const API = 'http://localhost:3001';
+      const [stats, deliveries, drivers] = await Promise.all([
+        fetch(`${API}/api/stats`).then(r => r.json()),
+        fetch(`${API}/api/deliveries`).then(r => r.json()),
+        fetch(`${API}/api/drivers`).then(r => r.json()),
+      ]);
+      allDeliveries = deliveries;
+      allDrivers    = drivers;
+      renderStats(stats);
+      renderActive(deliveries);
+      renderDeliveries(deliveries);
+      renderDrivers(drivers);
+    } catch (e) {
+      console.error('Load failed', e);
+    }
+  }
+
+  // ── Renderers ──────────────────────────────────────────────
+  function badgeClass(status) {
+    return { 'Delivered': 'badge-delivered', 'In Transit': 'badge-transit',
+             'Pending': 'badge-pending', 'Failed': 'badge-failed' }[status] || '';
+  }
+
+  function deliveryCard(d) {
+    const meta = d.driver ? `<span>👤 ${d.driver}</span>` : '<span>Unassigned</span>';
+    const time  = d.time ? `<span>✓ ${d.time}</span>` : (d.eta ? `<span>ETA ${d.eta}</span>` : '');
+    return `
+      <div class="delivery-card">
+        <div class="delivery-row">
+          <div>
+            <div class="delivery-id">${d.id}</div>
+            <div class="delivery-customer">${d.customer}</div>
+            <div class="delivery-address">📍 ${d.address}</div>
+          </div>
+          <span class="badge ${badgeClass(d.status)}">${d.status}</span>
+        </div>
+        <div class="delivery-meta">${meta}${time}</div>
+      </div>`;
+  }
+
+  function renderStats(s) {
+    document.getElementById('s-total').textContent     = s.total;
+    document.getElementById('s-delivered').textContent = s.delivered;
+    document.getElementById('s-transit').textContent   = s.inTransit;
+    document.getElementById('s-pending').textContent   = s.pending;
+    document.getElementById('s-failed').textContent    = s.failed;
+    document.getElementById('s-drivers').textContent   = s.driversOnDuty;
+  }
+
+  function renderActive(deliveries) {
+    const active = deliveries.filter(d => d.status === 'In Transit' || d.status === 'Pending');
+    const el = document.getElementById('active-list');
+    el.innerHTML = active.length ? active.map(deliveryCard).join('') : '<div class="empty">No active deliveries</div>';
+  }
+
+  function renderDeliveries(deliveries) {
+    const el = document.getElementById('deliveries-list');
+    el.innerHTML = deliveries.length ? deliveries.map(deliveryCard).join('') : '<div class="empty">No deliveries found</div>';
+  }
+
+  function renderDrivers(drivers) {
+    const el = document.getElementById('drivers-list');
+    el.innerHTML = drivers.map(d => {
+      const initials = d.name.split(' ').map(w => w[0]).join('');
+      const dutyClass = d.status === 'On Duty' ? 'badge-on-duty' : 'badge-off-duty';
+      return `
+        <div class="driver-card">
+          <div class="avatar">${initials}</div>
+          <div class="driver-info">
+            <div class="driver-name">${d.name}</div>
+            <div class="driver-sub">📍 ${d.location} &nbsp;·&nbsp; ${d.deliveries} deliveries today</div>
+          </div>
+          <span class="badge ${dutyClass}">${d.status}</span>
+        </div>`;
+    }).join('');
+  }
+
+  // ── Filters ────────────────────────────────────────────────
+  function filterDeliveries(status, btn) {
+    document.querySelectorAll('#tab-deliveries .filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const filtered = status === 'All' ? allDeliveries : allDeliveries.filter(d => d.status === status);
+    renderDeliveries(filtered);
+  }
+
+  function filterDrivers(status, btn) {
+    document.querySelectorAll('#tab-drivers .filter-btn').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    const filtered = status === 'All' ? allDrivers : allDrivers.filter(d => d.status === status);
+    renderDrivers(filtered);
+  }
+
+  // ── Tab switching ──────────────────────────────────────────
+  function showTab(name, btn) {
+    document.querySelectorAll('nav button').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    ['dashboard', 'deliveries', 'drivers'].forEach(t => {
+      document.getElementById('tab-' + t).classList.toggle('hidden', t !== name);
+    });
+  }
+
+  // ── Boot ───────────────────────────────────────────────────
+  loadAll();
+</script>
+</body>
+</html>
