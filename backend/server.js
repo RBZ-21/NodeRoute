@@ -430,7 +430,8 @@ app.put('/api/notifications/read-all', auth, requireRole('admin', 'manager'), (r
 });
 
 // ── Start ─────────────────────────────────────────────────────────
-app.listen(3001, () => {
-  console.log('BackPin backend running on http://localhost:3001');
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+  console.log(`BackPin backend running on http://localhost:${PORT}`);
   console.log('Admin login: ryandb21@gmail.com / ***REDACTED***4!');
 });
