@@ -3,610 +3,1210 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BackPin — Real-Time Delivery Intelligence for Restaurants</title>
+  <title>DeliverEase — Know Exactly When Your Deliveries Arrive</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --navy:       #0b1426;
-      --navy-mid:   #112040;
-      --navy-light: #1a2e52;
-      --teal:       #0ea5a0;
-      --teal-light: #14c8c2;
-      --teal-glow:  rgba(14,165,160,.18);
-      --orange:     #f97316;
-      --text:       #e2e8f0;
-      --text-sub:   #94a3b8;
-      --text-muted: #64748b;
-      --border:     rgba(255,255,255,.08);
-      --card:       rgba(255,255,255,.04);
-      --card-hover: rgba(255,255,255,.07);
-      --radius:     14px;
+      --navy: #0f172a;
+      --navy-800: #1e293b;
+      --navy-700: #253347;
+      --navy-600: #334155;
+      --teal: #0d9488;
+      --teal-light: #14b8a6;
+      --teal-dark: #0f766e;
+      --teal-muted: rgba(13,148,136,0.12);
+      --text: #f8fafc;
+      --text-muted: #94a3b8;
+      --text-subtle: #64748b;
+      --border: rgba(255,255,255,0.08);
+      --card-bg: rgba(30,41,59,0.6);
+      --radius: 16px;
+      --radius-sm: 10px;
     }
 
     html { scroll-behavior: smooth; }
 
     body {
+      font-family: 'Inter', system-ui, sans-serif;
       background: var(--navy);
       color: var(--text);
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Inter', sans-serif;
       line-height: 1.6;
-      overflow-x: hidden;
+      -webkit-font-smoothing: antialiased;
     }
 
-    /* ── Utility ── */
-    .container { max-width: 1100px; margin: 0 auto; padding: 0 24px; }
-    .tag {
-      display: inline-block;
-      background: var(--teal-glow);
-      color: var(--teal-light);
-      border: 1px solid rgba(14,165,160,.3);
-      padding: 5px 14px; border-radius: 20px;
-      font-size: .78rem; font-weight: 600; letter-spacing: .5px;
-      text-transform: uppercase; margin-bottom: 18px;
+    /* ─── SCROLLBAR ─── */
+    ::-webkit-scrollbar { width: 6px; }
+    ::-webkit-scrollbar-track { background: var(--navy); }
+    ::-webkit-scrollbar-thumb { background: var(--navy-600); border-radius: 3px; }
+
+    /* ─── UTILITIES ─── */
+    .container {
+      max-width: 1120px;
+      margin: 0 auto;
+      padding: 0 24px;
     }
-    .section-title {
-      font-size: clamp(1.8rem, 4vw, 2.6rem);
-      font-weight: 800; line-height: 1.2;
-      margin-bottom: 16px;
-    }
-    .section-sub {
-      font-size: 1.05rem; color: var(--text-sub);
-      max-width: 560px; margin-bottom: 52px;
-    }
+
+    .teal { color: var(--teal-light); }
+
     .btn {
-      display: inline-block;
-      padding: 14px 32px; border-radius: 10px;
-      font-size: .95rem; font-weight: 700;
-      text-decoration: none; cursor: pointer;
-      border: none; transition: all .2s;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 28px;
+      border-radius: 8px;
+      font-weight: 600;
+      font-size: 15px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      text-decoration: none;
+      border: none;
     }
+
     .btn-primary {
       background: var(--teal);
       color: #fff;
-      box-shadow: 0 0 28px rgba(14,165,160,.35);
     }
-    .btn-primary:hover { background: var(--teal-light); transform: translateY(-1px); box-shadow: 0 0 36px rgba(14,165,160,.5); }
+    .btn-primary:hover {
+      background: var(--teal-light);
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px rgba(13,148,136,0.35);
+    }
+
     .btn-outline {
       background: transparent;
+      color: var(--text);
+      border: 1.5px solid var(--border);
+    }
+    .btn-outline:hover {
+      border-color: var(--teal);
       color: var(--teal-light);
-      border: 1px solid rgba(14,165,160,.4);
+      background: var(--teal-muted);
     }
-    .btn-outline:hover { background: var(--teal-glow); }
 
-    /* ── Nav ── */
+    .section-label {
+      display: inline-block;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--teal-light);
+      background: var(--teal-muted);
+      padding: 5px 14px;
+      border-radius: 100px;
+      margin-bottom: 20px;
+      border: 1px solid rgba(13,148,136,0.25);
+    }
+
+    .section-title {
+      font-size: clamp(28px, 4vw, 44px);
+      font-weight: 800;
+      line-height: 1.18;
+      letter-spacing: -0.03em;
+      margin-bottom: 16px;
+    }
+
+    .section-subtitle {
+      font-size: 17px;
+      color: var(--text-muted);
+      max-width: 560px;
+      line-height: 1.7;
+    }
+
+    /* ─── NAV ─── */
     nav {
-      position: sticky; top: 0; z-index: 100;
-      background: rgba(11,20,38,.85);
-      backdrop-filter: blur(16px);
-      border-bottom: 1px solid var(--border);
-      padding: 16px 0;
-    }
-    nav .inner {
-      display: flex; align-items: center; justify-content: space-between;
-    }
-    .logo {
-      font-size: 1.35rem; font-weight: 800;
-      color: var(--teal-light); letter-spacing: -.5px;
-    }
-    .logo span { color: var(--text); }
-    .nav-links { display: flex; gap: 32px; list-style: none; }
-    .nav-links a { color: var(--text-sub); text-decoration: none; font-size: .9rem; transition: color .2s; }
-    .nav-links a:hover { color: var(--text); }
-    .nav-cta { display: flex; gap: 12px; align-items: center; }
-    @media (max-width: 680px) {
-      .nav-links { display: none; }
-      .nav-cta .btn-outline { display: none; }
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      z-index: 100;
+      padding: 0;
+      transition: background 0.3s, backdrop-filter 0.3s, box-shadow 0.3s;
     }
 
-    /* ── Hero ── */
-    #hero {
-      padding: 110px 0 90px;
-      text-align: center;
+    nav.scrolled {
+      background: rgba(15,23,42,0.92);
+      backdrop-filter: blur(16px);
+      box-shadow: 0 1px 0 var(--border);
+    }
+
+    .nav-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 20px 0;
+    }
+
+    .nav-logo {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      text-decoration: none;
+    }
+
+    .logo-icon {
+      width: 36px;
+      height: 36px;
+      background: var(--teal);
+      border-radius: 9px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .logo-icon svg { width: 20px; height: 20px; }
+
+    .logo-text {
+      font-size: 20px;
+      font-weight: 700;
+      color: var(--text);
+      letter-spacing: -0.03em;
+    }
+
+    .logo-text span { color: var(--teal-light); }
+
+    .nav-links {
+      display: flex;
+      align-items: center;
+      gap: 32px;
+      list-style: none;
+    }
+
+    .nav-links a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 14px;
+      font-weight: 500;
+      transition: color 0.2s;
+    }
+
+    .nav-links a:hover { color: var(--text); }
+
+    .nav-actions { display: flex; align-items: center; gap: 12px; }
+
+    .hamburger {
+      display: none;
+      flex-direction: column;
+      gap: 5px;
+      cursor: pointer;
+      padding: 4px;
+      background: none;
+      border: none;
+    }
+    .hamburger span {
+      display: block;
+      width: 22px;
+      height: 2px;
+      background: var(--text);
+      border-radius: 2px;
+      transition: all 0.3s;
+    }
+    .hamburger.open span:nth-child(1) { transform: rotate(45deg) translate(5px, 5px); }
+    .hamburger.open span:nth-child(2) { opacity: 0; }
+    .hamburger.open span:nth-child(3) { transform: rotate(-45deg) translate(5px, -5px); }
+
+    .mobile-menu {
+      display: none;
+      flex-direction: column;
+      gap: 0;
+      background: var(--navy-800);
+      border-top: 1px solid var(--border);
+      padding: 16px 24px 24px;
+    }
+    .mobile-menu.open { display: flex; }
+    .mobile-menu a {
+      color: var(--text-muted);
+      text-decoration: none;
+      font-size: 15px;
+      font-weight: 500;
+      padding: 12px 0;
+      border-bottom: 1px solid var(--border);
+      transition: color 0.2s;
+    }
+    .mobile-menu a:hover { color: var(--text); }
+    .mobile-menu a:last-child { border-bottom: none; }
+    .mobile-menu .btn { margin-top: 16px; justify-content: center; }
+
+    @media (max-width: 768px) {
+      .nav-links, .nav-actions { display: none; }
+      .hamburger { display: flex; }
+    }
+
+    /* ─── HERO ─── */
+    .hero {
+      padding: 160px 0 100px;
       position: relative;
       overflow: hidden;
     }
-    #hero::before {
-      content: '';
-      position: absolute; top: -120px; left: 50%; transform: translateX(-50%);
-      width: 700px; height: 700px;
-      background: radial-gradient(circle, rgba(14,165,160,.12) 0%, transparent 70%);
+
+    .hero-bg {
+      position: absolute;
+      inset: 0;
       pointer-events: none;
     }
+
+    .hero-bg-circle {
+      position: absolute;
+      border-radius: 50%;
+      filter: blur(100px);
+      opacity: 0.15;
+    }
+    .hero-bg-circle:nth-child(1) {
+      width: 600px; height: 600px;
+      background: var(--teal);
+      top: -200px; right: -100px;
+    }
+    .hero-bg-circle:nth-child(2) {
+      width: 400px; height: 400px;
+      background: #6366f1;
+      bottom: -100px; left: -100px;
+    }
+
+    /* Grid dots */
+    .hero-bg::after {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background-image: radial-gradient(rgba(255,255,255,0.04) 1px, transparent 1px);
+      background-size: 28px 28px;
+      mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black, transparent);
+    }
+
+    .hero-content {
+      position: relative;
+      text-align: center;
+      max-width: 800px;
+      margin: 0 auto;
+    }
+
     .hero-badge {
-      display: inline-flex; align-items: center; gap: 8px;
-      background: rgba(14,165,160,.1); border: 1px solid rgba(14,165,160,.25);
-      padding: 6px 16px; border-radius: 20px;
-      font-size: .82rem; color: var(--teal-light); font-weight: 600;
-      margin-bottom: 28px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--teal-muted);
+      border: 1px solid rgba(13,148,136,0.3);
+      border-radius: 100px;
+      padding: 6px 16px 6px 8px;
+      font-size: 13px;
+      font-weight: 500;
+      color: var(--teal-light);
+      margin-bottom: 32px;
     }
-    .hero-badge .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--teal); animation: pulse 2s infinite; }
-    @keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.6;transform:scale(1.3)} }
 
-    .hero-title {
-      font-size: clamp(2.4rem, 6vw, 4rem);
-      font-weight: 900; line-height: 1.1;
-      letter-spacing: -.5px; margin-bottom: 20px;
+    .hero-badge-dot {
+      width: 6px; height: 6px;
+      background: var(--teal-light);
+      border-radius: 50%;
+      animation: pulse 2s infinite;
     }
-    .hero-title .accent { color: var(--teal-light); }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(0.85); }
+    }
+
+    .hero-headline {
+      font-size: clamp(40px, 6vw, 72px);
+      font-weight: 800;
+      line-height: 1.1;
+      letter-spacing: -0.04em;
+      margin-bottom: 24px;
+    }
+
+    .hero-headline .highlight {
+      background: linear-gradient(135deg, var(--teal-light) 0%, #22d3ee 100%);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
     .hero-sub {
-      font-size: clamp(1rem, 2.5vw, 1.2rem);
-      color: var(--text-sub); max-width: 560px;
-      margin: 0 auto 40px;
+      font-size: 19px;
+      color: var(--text-muted);
+      line-height: 1.65;
+      margin-bottom: 40px;
+      max-width: 600px;
+      margin-left: auto;
+      margin-right: auto;
     }
-    .hero-actions { display: flex; gap: 14px; justify-content: center; flex-wrap: wrap; }
 
-    .hero-visual {
-      margin: 64px auto 0;
-      max-width: 720px;
-      background: var(--navy-light);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 28px;
-      box-shadow: 0 40px 80px rgba(0,0,0,.4), 0 0 0 1px rgba(14,165,160,.08);
+    .hero-ctas {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 16px;
+      flex-wrap: wrap;
     }
-    .mock-header {
-      display: flex; align-items: center; gap: 10px; margin-bottom: 20px;
-    }
-    .mock-dot { width: 10px; height: 10px; border-radius: 50%; }
-    .mock-title { font-size: .85rem; font-weight: 600; color: var(--text-sub); margin-left: 4px; }
-    .mock-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; margin-bottom: 16px; }
-    .mock-stat {
-      background: var(--navy-mid);
-      border: 1px solid var(--border);
-      border-radius: 10px; padding: 14px;
-    }
-    .mock-stat .ms-label { font-size: .7rem; color: var(--text-muted); margin-bottom: 4px; }
-    .mock-stat .ms-val { font-size: 1.5rem; font-weight: 800; }
-    .mock-row {
-      display: flex; align-items: center; justify-content: space-between;
-      background: var(--navy-mid); border: 1px solid var(--border);
-      border-radius: 10px; padding: 12px 14px; margin-bottom: 8px;
-    }
-    .mock-row:last-child { margin-bottom: 0; }
-    .mock-row-left { display: flex; flex-direction: column; gap: 2px; }
-    .mock-row .name { font-size: .85rem; font-weight: 600; }
-    .mock-row .addr { font-size: .72rem; color: var(--text-muted); }
-    .pill {
-      padding: 3px 10px; border-radius: 20px;
-      font-size: .7rem; font-weight: 700; white-space: nowrap;
-    }
-    .pill-green  { background: #14532d; color: #4ade80; }
-    .pill-teal   { background: rgba(14,165,160,.15); color: var(--teal-light); }
-    .pill-yellow { background: #451a03; color: #fbbf24; }
 
-    /* ── Problem ── */
-    #problem {
+    .hero-stats {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 48px;
+      margin-top: 72px;
+      padding-top: 48px;
+      border-top: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+
+    .stat-item { text-align: center; }
+    .stat-number {
+      font-size: 32px;
+      font-weight: 800;
+      color: var(--teal-light);
+      letter-spacing: -0.04em;
+    }
+    .stat-label {
+      font-size: 13px;
+      color: var(--text-subtle);
+      margin-top: 4px;
+    }
+
+    /* ─── PAIN POINTS ─── */
+    .pain {
       padding: 96px 0;
-      background: linear-gradient(180deg, var(--navy) 0%, var(--navy-mid) 100%);
+      background: linear-gradient(180deg, var(--navy) 0%, var(--navy-800) 100%);
     }
-    .problem-grid {
+
+    .pain-header { text-align: center; margin-bottom: 56px; }
+    .pain-header .section-subtitle { margin: 0 auto; }
+
+    .pain-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
-      gap: 20px;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
     }
-    .problem-card {
-      background: var(--card);
+
+    @media (max-width: 900px) { .pain-grid { grid-template-columns: 1fr; } }
+
+    .pain-card {
+      background: var(--card-bg);
       border: 1px solid var(--border);
       border-radius: var(--radius);
-      padding: 28px;
-      transition: background .2s, border-color .2s;
-    }
-    .problem-card:hover { background: var(--card-hover); border-color: rgba(14,165,160,.2); }
-    .problem-icon { font-size: 2rem; margin-bottom: 14px; }
-    .problem-card h3 { font-size: 1rem; font-weight: 700; margin-bottom: 8px; }
-    .problem-card p { font-size: .88rem; color: var(--text-sub); line-height: 1.65; }
-
-    /* ── About ── */
-    #about {
-      padding: 96px 0;
-    }
-    .about-inner {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 60px;
-      align-items: center;
-    }
-    @media (max-width: 760px) { .about-inner { grid-template-columns: 1fr; } }
-    .about-text .section-sub { margin-bottom: 28px; }
-    .about-stat-row { display: flex; gap: 32px; margin-top: 36px; flex-wrap: wrap; }
-    .about-stat .num { font-size: 2.2rem; font-weight: 900; color: var(--teal-light); }
-    .about-stat .lbl { font-size: .78rem; color: var(--text-sub); margin-top: 2px; }
-    .about-card {
-      background: var(--navy-light);
-      border: 1px solid var(--border);
-      border-radius: 20px;
-      padding: 36px;
+      padding: 36px 32px;
+      backdrop-filter: blur(8px);
+      transition: border-color 0.3s, transform 0.3s;
       position: relative;
       overflow: hidden;
     }
-    .about-card::before {
+
+    .pain-card::before {
       content: '';
-      position: absolute; top: -60px; right: -60px;
-      width: 200px; height: 200px;
-      background: radial-gradient(circle, rgba(14,165,160,.15) 0%, transparent 70%);
-    }
-    .quote {
-      font-size: 1.05rem; color: var(--text);
-      font-style: italic; line-height: 1.7;
-      margin-bottom: 24px;
-      position: relative;
-    }
-    .quote::before { content: '\201C'; font-size: 3rem; color: var(--teal); line-height: 0; vertical-align: -0.4em; margin-right: 4px; }
-    .quote-attr { font-size: .82rem; color: var(--text-sub); }
-    .quote-attr strong { color: var(--text); display: block; }
-    .badge-row { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 24px; }
-    .about-badge {
-      background: var(--teal-glow);
-      border: 1px solid rgba(14,165,160,.25);
-      color: var(--teal-light);
-      padding: 5px 12px; border-radius: 20px;
-      font-size: .75rem; font-weight: 600;
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, transparent, var(--teal), transparent);
+      opacity: 0;
+      transition: opacity 0.3s;
     }
 
-    /* ── Pricing ── */
-    #pricing {
-      padding: 96px 0;
-      background: linear-gradient(180deg, var(--navy-mid) 0%, var(--navy) 100%);
-      text-align: center;
+    .pain-card:hover {
+      border-color: rgba(13,148,136,0.4);
+      transform: translateY(-4px);
     }
-    #pricing .section-sub { margin-left: auto; margin-right: auto; }
+    .pain-card:hover::before { opacity: 1; }
+
+    .pain-icon {
+      width: 52px; height: 52px;
+      background: var(--teal-muted);
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 24px;
+      border: 1px solid rgba(13,148,136,0.2);
+    }
+    .pain-icon svg { width: 24px; height: 24px; color: var(--teal-light); }
+
+    .pain-card h3 {
+      font-size: 18px;
+      font-weight: 700;
+      margin-bottom: 12px;
+      letter-spacing: -0.02em;
+    }
+
+    .pain-card p {
+      font-size: 15px;
+      color: var(--text-muted);
+      line-height: 1.7;
+    }
+
+    /* ─── ABOUT ─── */
+    .about {
+      padding: 96px 0;
+    }
+
+    .about-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 80px;
+      align-items: center;
+    }
+
+    @media (max-width: 900px) {
+      .about-grid {
+        grid-template-columns: 1fr;
+        gap: 48px;
+      }
+    }
+
+    .about-visual {
+      position: relative;
+    }
+
+    .about-card-main {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 40px;
+      backdrop-filter: blur(8px);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .about-card-main::before {
+      content: '';
+      position: absolute;
+      top: 0; left: 0; right: 0;
+      height: 3px;
+      background: linear-gradient(90deg, var(--teal), var(--teal-light), #22d3ee);
+    }
+
+    .founder-avatar {
+      width: 72px; height: 72px;
+      background: linear-gradient(135deg, var(--teal-dark), var(--teal-light));
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 24px;
+      font-size: 28px;
+      font-weight: 700;
+      color: #fff;
+    }
+
+    .founder-name {
+      font-size: 20px;
+      font-weight: 700;
+      margin-bottom: 4px;
+    }
+
+    .founder-title {
+      font-size: 13px;
+      color: var(--teal-light);
+      font-weight: 500;
+      margin-bottom: 20px;
+    }
+
+    .founder-quote {
+      font-size: 15px;
+      color: var(--text-muted);
+      line-height: 1.75;
+      font-style: italic;
+      border-left: 3px solid var(--teal);
+      padding-left: 16px;
+    }
+
+    .journey-pills {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+      margin-top: 24px;
+    }
+
+    .journey-pill {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: rgba(15,23,42,0.6);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 12px 16px;
+      font-size: 13px;
+      font-weight: 500;
+    }
+
+    .journey-pill-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      background: var(--teal);
+      flex-shrink: 0;
+    }
+
+    .about-content .section-subtitle {
+      margin-bottom: 28px;
+    }
+
+    .about-body {
+      font-size: 15px;
+      color: var(--text-muted);
+      line-height: 1.8;
+      margin-bottom: 20px;
+    }
+
+    .about-body strong { color: var(--text); font-weight: 600; }
+
+    /* ─── PRICING ─── */
+    .pricing {
+      padding: 96px 0;
+      background: linear-gradient(180deg, var(--navy) 0%, var(--navy-800) 50%, var(--navy) 100%);
+    }
+
+    .pricing-header { text-align: center; margin-bottom: 56px; }
+    .pricing-header .section-subtitle { margin: 0 auto; }
+
     .pricing-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-      gap: 20px;
-      text-align: left;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 24px;
+      align-items: stretch;
     }
+
+    @media (max-width: 900px) {
+      .pricing-grid { grid-template-columns: 1fr; max-width: 420px; margin: 0 auto; }
+    }
+
     .pricing-card {
-      background: var(--card);
+      background: var(--card-bg);
       border: 1px solid var(--border);
-      border-radius: 20px;
+      border-radius: var(--radius);
       padding: 36px 32px;
+      backdrop-filter: blur(8px);
+      display: flex;
+      flex-direction: column;
+      transition: transform 0.3s, box-shadow 0.3s;
       position: relative;
-      transition: transform .2s, border-color .2s;
     }
-    .pricing-card:hover { transform: translateY(-4px); }
+
+    .pricing-card:hover {
+      transform: translateY(-4px);
+    }
+
     .pricing-card.featured {
-      background: var(--navy-light);
       border-color: var(--teal);
-      box-shadow: 0 0 40px rgba(14,165,160,.2);
+      background: linear-gradient(145deg, rgba(13,148,136,0.08) 0%, var(--card-bg) 100%);
+      box-shadow: 0 0 0 1px var(--teal), 0 24px 64px rgba(13,148,136,0.2);
     }
-    .featured-badge {
-      position: absolute; top: -13px; left: 50%; transform: translateX(-50%);
-      background: var(--teal); color: #fff;
-      padding: 4px 16px; border-radius: 20px;
-      font-size: .72rem; font-weight: 700; white-space: nowrap;
-    }
-    .tier-name { font-size: .8rem; font-weight: 700; text-transform: uppercase; letter-spacing: .8px; color: var(--text-sub); margin-bottom: 8px; }
-    .tier-desc { font-size: .82rem; color: var(--text-muted); margin-bottom: 20px; }
-    .tier-price { display: flex; align-items: flex-end; gap: 4px; margin-bottom: 6px; }
-    .tier-price .dollar { font-size: 1.3rem; font-weight: 700; color: var(--text-sub); line-height: 2; }
-    .tier-price .amount { font-size: 3.2rem; font-weight: 900; line-height: 1; }
-    .tier-price .per { font-size: .82rem; color: var(--text-sub); margin-bottom: 6px; }
-    .tier-margin { font-size: .75rem; color: var(--text-muted); margin-bottom: 28px; }
-    .tier-divider { border: none; border-top: 1px solid var(--border); margin-bottom: 22px; }
-    .feature-list { list-style: none; display: flex; flex-direction: column; gap: 11px; margin-bottom: 32px; }
-    .feature-list li { display: flex; align-items: flex-start; gap: 10px; font-size: .88rem; color: var(--text-sub); }
-    .feature-list li::before { content: '✓'; color: var(--teal-light); font-weight: 700; flex-shrink: 0; margin-top: 1px; }
-    .feature-list li.dim::before { content: '–'; color: var(--text-muted); }
-    .feature-list li.dim { color: var(--text-muted); }
-    .pricing-card .btn { width: 100%; text-align: center; }
 
-    /* ── Footer ── */
+    .pricing-card.featured:hover {
+      box-shadow: 0 0 0 1px var(--teal-light), 0 32px 80px rgba(13,148,136,0.3);
+    }
+
+    .popular-badge {
+      position: absolute;
+      top: -14px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--teal);
+      color: #fff;
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 4px 18px;
+      border-radius: 100px;
+      white-space: nowrap;
+    }
+
+    .pricing-tier {
+      font-size: 13px;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--teal-light);
+      margin-bottom: 12px;
+    }
+
+    .pricing-size {
+      font-size: 15px;
+      color: var(--text-subtle);
+      margin-bottom: 24px;
+    }
+
+    .pricing-price {
+      display: flex;
+      align-items: flex-end;
+      gap: 4px;
+      margin-bottom: 8px;
+    }
+
+    .price-dollar {
+      font-size: 22px;
+      font-weight: 700;
+      color: var(--text-muted);
+      line-height: 1;
+      padding-bottom: 6px;
+    }
+
+    .price-amount {
+      font-size: 52px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: -0.04em;
+    }
+
+    .price-period {
+      font-size: 15px;
+      color: var(--text-subtle);
+      padding-bottom: 8px;
+    }
+
+    .pricing-divider {
+      height: 1px;
+      background: var(--border);
+      margin: 28px 0;
+    }
+
+    .pricing-features {
+      list-style: none;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+      flex: 1;
+      margin-bottom: 32px;
+    }
+
+    .pricing-features li {
+      display: flex;
+      align-items: flex-start;
+      gap: 12px;
+      font-size: 14px;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    .feature-check {
+      width: 18px; height: 18px;
+      border-radius: 50%;
+      background: var(--teal-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      margin-top: 1px;
+      border: 1px solid rgba(13,148,136,0.25);
+    }
+
+    .feature-check svg { width: 10px; height: 10px; color: var(--teal-light); }
+
+    .pricing-cta { width: 100%; justify-content: center; }
+
+    /* ─── FOOTER ─── */
     footer {
-      background: var(--navy-mid);
+      padding: 48px 0 36px;
       border-top: 1px solid var(--border);
-      padding: 48px 0 32px;
     }
-    .footer-inner {
-      display: flex; justify-content: space-between; align-items: flex-start;
-      flex-wrap: wrap; gap: 32px; margin-bottom: 36px;
-    }
-    .footer-brand .logo { font-size: 1.2rem; margin-bottom: 8px; display: block; }
-    .footer-brand p { font-size: .83rem; color: var(--text-muted); max-width: 240px; }
-    .footer-links h4 { font-size: .78rem; font-weight: 700; text-transform: uppercase; letter-spacing: .6px; color: var(--text-sub); margin-bottom: 14px; }
-    .footer-links ul { list-style: none; display: flex; flex-direction: column; gap: 9px; }
-    .footer-links a { font-size: .85rem; color: var(--text-muted); text-decoration: none; transition: color .2s; }
-    .footer-links a:hover { color: var(--teal-light); }
-    .footer-bottom {
-      border-top: 1px solid var(--border); padding-top: 24px;
-      display: flex; justify-content: space-between; align-items: center;
-      flex-wrap: wrap; gap: 12px;
-      font-size: .78rem; color: var(--text-muted);
-    }
-    .footer-bottom a { color: var(--text-muted); text-decoration: none; }
-    .footer-bottom a:hover { color: var(--teal-light); }
 
-    /* ── Scroll reveal ── */
-    .reveal { opacity: 0; transform: translateY(24px); transition: opacity .6s, transform .6s; }
-    .reveal.visible { opacity: 1; transform: none; }
+    .footer-inner {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+
+    .footer-brand { display: flex; flex-direction: column; gap: 8px; }
+
+    .footer-tagline {
+      font-size: 13px;
+      color: var(--text-subtle);
+    }
+
+    .footer-right {
+      font-size: 13px;
+      color: var(--text-subtle);
+    }
+
+    /* ─── MISC ANIMATIONS ─── */
+    .fade-in {
+      opacity: 0;
+      transform: translateY(24px);
+      transition: opacity 0.6s ease, transform 0.6s ease;
+    }
+
+    .fade-in.visible {
+      opacity: 1;
+      transform: translateY(0);
+    }
+
+    .fade-in-delay-1 { transition-delay: 0.1s; }
+    .fade-in-delay-2 { transition-delay: 0.2s; }
+    .fade-in-delay-3 { transition-delay: 0.3s; }
   </style>
 </head>
 <body>
 
-<!-- ── Nav ─────────────────────────────────────────────── -->
-<nav>
-  <div class="container inner">
-    <div class="logo">Back<span>Pin</span></div>
-    <ul class="nav-links">
-      <li><a href="#problem">Why BackPin</a></li>
-      <li><a href="#about">Our Story</a></li>
-      <li><a href="#pricing">Pricing</a></li>
-    </ul>
-    <div class="nav-cta">
-      <a href="#pricing" class="btn btn-outline">See Plans</a>
-      <a href="#pricing" class="btn btn-primary">Get Started</a>
+<!-- ─── NAV ─── -->
+<nav id="navbar">
+  <div class="container">
+    <div class="nav-inner">
+      <a href="#" class="nav-logo">
+        <div class="logo-icon">
+          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+            <path d="M3 6l7-3 7 3v8l-7 3-7-3V6z" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
+            <path d="M10 3v11M3 6l7 3 7-3" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
+          </svg>
+        </div>
+        <span class="logo-text">Deliver<span>Ease</span></span>
+      </a>
+
+      <ul class="nav-links">
+        <li><a href="#pain">The Problem</a></li>
+        <li><a href="#about">Our Story</a></li>
+        <li><a href="#pricing">Pricing</a></li>
+      </ul>
+
+      <div class="nav-actions">
+        <a href="#pricing" class="btn btn-primary">Get Started</a>
+      </div>
+
+      <button class="hamburger" id="hamburger" aria-label="Menu">
+        <span></span><span></span><span></span>
+      </button>
     </div>
+  </div>
+  <div class="mobile-menu" id="mobileMenu">
+    <a href="#pain" onclick="closeMobile()">The Problem</a>
+    <a href="#about" onclick="closeMobile()">Our Story</a>
+    <a href="#pricing" onclick="closeMobile()">Pricing</a>
+    <a href="#pricing" class="btn btn-primary" onclick="closeMobile()">Get Started</a>
   </div>
 </nav>
 
-<!-- ── Hero ────────────────────────────────────────────── -->
-<section id="hero">
-  <div class="container">
-    <div class="hero-badge"><span class="dot"></span> Built for Charleston's finest restaurants</div>
-    <h1 class="hero-title">
-      Know exactly when<br>
-      your delivery is <span class="accent">arriving.</span>
-    </h1>
-    <p class="hero-sub">
-      BackPin gives upscale restaurants real-time visibility into every delivery —
-      so your kitchen stays in rhythm and nothing shows up at the wrong door, at the wrong time.
-    </p>
-    <div class="hero-actions">
-      <a href="#pricing" class="btn btn-primary">Start Free Trial</a>
-      <a href="#about" class="btn btn-outline">Our Story</a>
-    </div>
-
-    <div class="hero-visual reveal">
-      <div class="mock-header">
-        <div class="mock-dot" style="background:#ef4444"></div>
-        <div class="mock-dot" style="background:#f59e0b"></div>
-        <div class="mock-dot" style="background:#22c55e"></div>
-        <span class="mock-title">BackPin Dashboard — Live View</span>
-      </div>
-      <div class="mock-grid">
-        <div class="mock-stat"><div class="ms-label">Active Deliveries</div><div class="ms-val" style="color:var(--teal-light)">6</div></div>
-        <div class="mock-stat"><div class="ms-label">Delivered Today</div><div class="ms-val" style="color:#4ade80">14</div></div>
-        <div class="mock-stat"><div class="ms-label">Drivers On Duty</div><div class="ms-val" style="color:#fbbf24">3</div></div>
-      </div>
-      <div class="mock-row">
-        <div class="mock-row-left">
-          <span class="name">The Ocean Room</span>
-          <span class="addr">55 Market St · Marcus Johnson · ETA 11:30 AM</span>
-        </div>
-        <span class="pill pill-teal">In Transit</span>
-      </div>
-      <div class="mock-row">
-        <div class="mock-row-left">
-          <span class="name">Husk Restaurant</span>
-          <span class="addr">76 Queen St · James Rivera · Delivered 10:45 AM</span>
-        </div>
-        <span class="pill pill-green">Delivered</span>
-      </div>
-      <div class="mock-row">
-        <div class="mock-row-left">
-          <span class="name">FIG</span>
-          <span class="addr">232 Meeting St · ETA 12:00 PM</span>
-        </div>
-        <span class="pill pill-yellow">Pending</span>
-      </div>
-    </div>
+<!-- ─── HERO ─── -->
+<section class="hero" id="hero">
+  <div class="hero-bg">
+    <div class="hero-bg-circle"></div>
+    <div class="hero-bg-circle"></div>
   </div>
-</section>
 
-<!-- ── Problem ──────────────────────────────────────────── -->
-<section id="problem">
   <div class="container">
-    <div class="reveal" style="text-align:center">
-      <div class="tag">The Problem</div>
-      <h2 class="section-title">Deliveries shouldn't be a guessing game.</h2>
-      <p class="section-sub" style="margin:0 auto 52px">Every minute your kitchen is stuck waiting — or scrambling because something arrived unannounced — is a minute that costs you.</p>
-    </div>
-    <div class="problem-grid">
-      <div class="problem-card reveal">
-        <div class="problem-icon">⏰</div>
-        <h3>Deliveries at the worst possible time</h3>
-        <p>A 40-lb produce order rolls in during the Friday dinner rush. Nobody's ready. The kitchen grinds to a halt. There was no warning, no ETA, no heads up.</p>
+    <div class="hero-content">
+      <div class="hero-badge">
+        <span class="hero-badge-dot"></span>
+        Real-time delivery tracking — built by operators, for operators
       </div>
-      <div class="problem-card reveal">
-        <div class="problem-icon">🚪</div>
-        <h3>Wrong door, every time</h3>
-        <p>Drivers new to your restaurant ring the front door during service. Instructions get lost. The dock is blocked. Your staff has to stop what they're doing — again.</p>
-      </div>
-      <div class="problem-card reveal">
-        <div class="problem-icon">📵</div>
-        <h3>Zero visibility until it's too late</h3>
-        <p>You call the distributor. They transfer you twice. Nobody knows where the driver is. By the time you get an answer, the prep window has closed.</p>
-      </div>
-      <div class="problem-card reveal">
-        <div class="problem-icon">📋</div>
-        <h3>Manual chaos, no accountability</h3>
-        <p>Paper logs. Missed calls. Drivers with no route plan. When something goes wrong, there's no trail — just finger-pointing and a missing order no one can explain.</p>
-      </div>
-    </div>
-  </div>
-</section>
 
-<!-- ── About ────────────────────────────────────────────── -->
-<section id="about">
-  <div class="container">
-    <div class="about-inner">
-      <div class="about-text reveal">
-        <div class="tag">Our Story</div>
-        <h2 class="section-title">Built by someone who lived the problem.</h2>
-        <p class="section-sub">
-          Twenty years working in high-end restaurants — on the line, managing receiving, coordinating with vendors — teaches you exactly how much a single late or unannounced delivery can derail a service. Then came time on the other side: logistics and distribution at a seafood wholesale company, planning routes, running deliveries, and watching the exact same breakdowns happen from the driver's seat.
-        </p>
-        <p style="color:var(--text-sub);font-size:.9rem;line-height:1.8;margin-bottom:28px">
-          BackPin was built because we knew what was broken — not from a product roadmap, but from lived experience on both ends of the delivery chain. We're based in the greater Charleston, SC area and we understand the expectations that come with serving the region's most discerning restaurants.
-        </p>
-        <div class="about-stat-row">
-          <div class="about-stat">
-            <div class="num">20+</div>
-            <div class="lbl">Years restaurant experience</div>
-          </div>
-          <div class="about-stat">
-            <div class="num">2</div>
-            <div class="lbl">Sides of the supply chain</div>
-          </div>
-          <div class="about-stat">
-            <div class="num">CHS</div>
-            <div class="lbl">Charleston, SC based</div>
-          </div>
-        </div>
+      <h1 class="hero-headline">
+        Know <span class="highlight">exactly</span> when<br/>
+        your deliveries arrive.
+      </h1>
+
+      <p class="hero-sub">
+        Stop playing phone tag with drivers. Stop prepping around a mystery window.
+        DeliverEase gives your team live ETA updates and arrival alerts — so the right
+        people are at the right door, every time.
+      </p>
+
+      <div class="hero-ctas">
+        <a href="#pricing" class="btn btn-primary">
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+          Start Free Trial
+        </a>
+        <a href="#about" class="btn btn-outline">Learn Our Story</a>
       </div>
-      <div class="about-card reveal">
-        <p class="quote">
-          I've been on the receiving dock when three vendors showed up at once during a Saturday prep. I've been in the driver's seat when there were no delivery instructions and I couldn't find the right entrance. I built BackPin so neither of those things ever has to happen again.
-        </p>
-        <div class="quote-attr">
-          <strong>Ryan B.</strong>
-          Founder, BackPin · Charleston, SC
+
+      <div class="hero-stats">
+        <div class="stat-item">
+          <div class="stat-number">94%</div>
+          <div class="stat-label">On-time delivery accuracy</div>
         </div>
-        <div class="badge-row">
-          <span class="about-badge">20 yrs hospitality</span>
-          <span class="about-badge">Seafood logistics</span>
-          <span class="about-badge">Route optimization</span>
-          <span class="about-badge">Charleston local</span>
+        <div class="stat-item">
+          <div class="stat-number">3 min</div>
+          <div class="stat-label">Average ETA precision</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-number">2 min</div>
+          <div class="stat-label">Setup time to go live</div>
         </div>
       </div>
     </div>
   </div>
 </section>
 
-<!-- ── Pricing ──────────────────────────────────────────── -->
-<section id="pricing">
+<!-- ─── PAIN POINTS ─── -->
+<section class="pain" id="pain">
   <div class="container">
-    <div class="reveal">
-      <div class="tag">Pricing</div>
-      <h2 class="section-title">Simple, honest pricing.</h2>
-      <p class="section-sub">
-        No per-driver fees. No hidden overages. Pick the plan that fits your operation and get full access from day one.
+    <div class="pain-header">
+      <span class="section-label">The Problem</span>
+      <h2 class="section-title">Sound familiar?</h2>
+      <p class="section-subtitle">
+        Every day, receiving teams and delivery drivers play the same exhausting guessing game.
+        We've been on both sides of that door.
       </p>
     </div>
+
+    <div class="pain-grid">
+      <div class="pain-card fade-in">
+        <div class="pain-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+          </svg>
+        </div>
+        <h3>Deliveries at the worst time</h3>
+        <p>
+          Trucks show up mid-service, during rush, or when your receiving team is slammed.
+          No warning, no way to prepare. Just chaos at the back door.
+        </p>
+      </div>
+
+      <div class="pain-card fade-in fade-in-delay-1">
+        <div class="pain-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/><path d="M12 8v4M12 16h.01"/>
+          </svg>
+        </div>
+        <h3>No idea when they're coming</h3>
+        <p>
+          "Sometime between 7 and 2" isn't a schedule — it's a hostage situation.
+          Your team can't plan, can't prep, can't get anything else done.
+        </p>
+      </div>
+
+      <div class="pain-card fade-in fade-in-delay-2">
+        <div class="pain-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+          </svg>
+        </div>
+        <h3>Wrong door, every time</h3>
+        <p>
+          Drivers who don't know the property. Deliveries left at the front, the wrong
+          dock, or unattended in a hallway. Every misdelivery costs you time and product.
+        </p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ─── ABOUT ─── -->
+<section class="about" id="about">
+  <div class="container">
+    <div class="about-grid">
+
+      <div class="about-visual fade-in">
+        <div class="about-card-main">
+          <div class="founder-avatar">R</div>
+          <div class="founder-name">Ryan D.</div>
+          <div class="founder-title">Founder &amp; CEO, DeliverEase</div>
+          <p class="founder-quote">
+            "I've stood on the receiving dock waiting for a truck that was supposedly
+            'five minutes away' for two hours. I've also been the driver who couldn't
+            find the right entrance in the dark. I built DeliverEase because I knew
+            exactly how broken this was — from both ends."
+          </p>
+
+          <div class="journey-pills">
+            <div class="journey-pill">
+              <div class="journey-pill-dot"></div>
+              20 years in Charleston fine dining &amp; hospitality
+            </div>
+            <div class="journey-pill">
+              <div class="journey-pill-dot"></div>
+              Seafood wholesale logistics &amp; delivery operations
+            </div>
+            <div class="journey-pill">
+              <div class="journey-pill-dot"></div>
+              Managed both inbound receiving and outbound routes
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="about-content">
+        <span class="section-label">Our Story</span>
+        <h2 class="section-title">Built from both sides of the dock</h2>
+
+        <p class="about-body">
+          For <strong>20 years</strong>, I worked in some of the finest restaurants in the greater
+          Charleston, SC area. Every morning started the same way: wondering when the
+          produce truck would show up, whether the fish delivery would land before lunch
+          service, and whether today would be the day a driver showed up to the wrong
+          entrance again.
+        </p>
+
+        <p class="about-body">
+          Then I made the jump to the other side — joining a <strong>seafood wholesale distributor</strong>
+          that supplied the same upscale restaurants I'd spent two decades working in.
+          Suddenly I was the one building routes, dispatching drivers, and fielding calls
+          from receiving managers who just wanted a straight answer on ETAs.
+        </p>
+
+        <p class="about-body">
+          The frustration was identical from both positions. Restaurants couldn't plan
+          around deliveries they couldn't predict. Distributors couldn't communicate live
+          location without a dozen phone calls. <strong>The tools to fix this existed —
+          nobody had connected them.</strong>
+        </p>
+
+        <p class="about-body">
+          DeliverEase is what I wish I'd had in both jobs: a simple, real-time link between
+          the driver on the road and the person waiting at the dock. No app installs for
+          customers. No complex setup. Just clarity.
+        </p>
+
+        <a href="#pricing" class="btn btn-primary">See How It Works</a>
+      </div>
+
+    </div>
+  </div>
+</section>
+
+<!-- ─── PRICING ─── -->
+<section class="pricing" id="pricing">
+  <div class="container">
+    <div class="pricing-header">
+      <span class="section-label">Pricing</span>
+      <h2 class="section-title">Simple, honest pricing</h2>
+      <p class="section-subtitle">
+        No per-delivery fees. No hidden charges. Scale up as your operation grows,
+        or start small and see results in your first week.
+      </p>
+    </div>
+
     <div class="pricing-grid">
 
-      <!-- Starter -->
-      <div class="pricing-card reveal">
-        <div class="tier-name">Starter</div>
-        <p class="tier-desc">Small teams, 2–10 staff. Perfect for independent restaurants getting started.</p>
-        <div class="tier-price">
-          <span class="dollar">$</span>
-          <span class="amount">29</span>
-          <span class="per">/mo</span>
+      <!-- Small -->
+      <div class="pricing-card fade-in">
+        <div class="pricing-tier">Small</div>
+        <div class="pricing-size">2–10 employees</div>
+        <div class="pricing-price">
+          <span class="price-dollar">$</span>
+          <span class="price-amount">29</span>
+          <span class="price-period">/month</span>
         </div>
-        <p class="tier-margin">~$8/mo infrastructure cost · ~65% margin</p>
-        <hr class="tier-divider">
-        <ul class="feature-list">
-          <li>Up to 3 active drivers</li>
-          <li>50 deliveries tracked/month</li>
-          <li>Real-time delivery status</li>
-          <li>Stop-level delivery instructions</li>
-          <li>Driver mobile view</li>
-          <li>Email support (48hr response)</li>
-          <li class="dim">Route optimization</li>
-          <li class="dim">Manager notifications</li>
-          <li class="dim">Multi-route management</li>
+        <div class="pricing-divider"></div>
+        <ul class="pricing-features">
+          <li>
+            <span class="feature-check">
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M2 5l2.5 2.5L8 3"/>
+              </svg>
+            </span>
+            Up to 5 drivers
+          </li>
+          <li>
+            <span class="feature-check">
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M2 5l2.5 2.5L8 3"/>
+              </svg>
+            </span>
+            100 deliveries / month
+          </li>
+          <li>
+            <span class="feature-check">
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M2 5l2.5 2.5L8 3"/>
+              </svg>
+            </span>
+            Real-time GPS tracking
+          </li>
+          <li>
+            <span class="feature-check">
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M2 5l2.5 2.5L8 3"/>
+              </svg>
+            </span>
+            Customer ETA notifications
+          </li>
+          <li>
+            <span class="feature-check">
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M2 5l2.5 2.5L8 3"/>
+              </svg>
+            </span>
+            Email support
+          </li>
         </ul>
-        <a href="#" class="btn btn-outline">Start Free Trial</a>
+        <a href="#" class="btn btn-outline pricing-cta">Get Started</a>
       </div>
 
-      <!-- Pro (featured) -->
-      <div class="pricing-card featured reveal">
-        <div class="featured-badge">Most Popular</div>
-        <div class="tier-name" style="color:var(--teal-light)">Pro</div>
-        <p class="tier-desc">Mid-size operations, 11–50 staff. Built for restaurants running multiple routes.</p>
-        <div class="tier-price">
-          <span class="dollar">$</span>
-          <span class="amount" style="color:var(--teal-light)">59</span>
-          <span class="per">/mo</span>
+      <!-- Medium (featured) -->
+      <div class="pricing-card featured fade-in fade-in-delay-1">
+        <div class="popular-badge">Most Popular</div>
+        <div class="pricing-tier">Medium</div>
+        <div class="pricing-size">11–50 employees</div>
+        <div class="pricing-price">
+          <span class="price-dollar">$</span>
+          <span class="price-amount">59</span>
+          <span class="price-period">/month</span>
         </div>
-        <p class="tier-margin">~$18/mo infrastructure cost · ~69% margin</p>
-        <hr class="tier-divider">
-        <ul class="feature-list">
-          <li>Up to 10 active drivers</li>
-          <li>Unlimited deliveries tracked</li>
-          <li>Real-time delivery status</li>
-          <li>Stop-level delivery instructions</li>
-          <li>Driver mobile view</li>
-          <li>Priority email support (24hr)</li>
-          <li>Route optimization (AI-assisted)</li>
-          <li>Manager notifications & audit log</li>
-          <li class="dim">Multi-location management</li>
+        <div class="pricing-divider"></div>
+        <ul class="pricing-features">
+          <li>
+            <span class="feature-check">
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M2 5l2.5 2.5L8 3"/>
+              </svg>
+            </span>
+            Up to 15 drivers
+          </li>
+          <li>
+            <span class="feature-check">
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M2 5l2.5 2.5L8 3"/>
+              </svg>
+            </span>
+            500 deliveries / month
+          </li>
+          <li>
+            <span class="feature-check">
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M2 5l2.5 2.5L8 3"/>
+              </svg>
+            </span>
+            Real-time GPS tracking
+          </li>
+          <li>
+            <span class="feature-check">
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M2 5l2.5 2.5L8 3"/>
+              </svg>
+            </span>
+            Delivery analytics dashboard
+          </li>
+          <li>
+            <span class="feature-check">
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M2 5l2.5 2.5L8 3"/>
+              </svg>
+            </span>
+            Route optimization
+          </li>
+          <li>
+            <span class="feature-check">
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M2 5l2.5 2.5L8 3"/>
+              </svg>
+            </span>
+            Priority support
+          </li>
         </ul>
-        <a href="#" class="btn btn-primary">Start Free Trial</a>
+        <a href="#" class="btn btn-primary pricing-cta">Get Started</a>
       </div>
 
-      <!-- Enterprise -->
-      <div class="pricing-card reveal">
-        <div class="tier-name">Enterprise</div>
-        <p class="tier-desc">Large operations, 51+ staff. For restaurant groups and distribution partners.</p>
-        <div class="tier-price">
-          <span class="dollar">$</span>
-          <span class="amount">119</span>
-          <span class="per">/mo</span>
+      <!-- Large -->
+      <div class="pricing-card fade-in fade-in-delay-2">
+        <div class="pricing-tier">Large</div>
+        <div class="pricing-size">51+ employees</div>
+        <div class="pricing-price">
+          <span class="price-dollar">$</span>
+          <span class="price-amount">119</span>
+          <span class="price-period">/month</span>
         </div>
-        <p class="tier-margin">~$35/mo infrastructure cost · ~71% margin</p>
-        <hr class="tier-divider">
-        <ul class="feature-list">
-          <li>Unlimited drivers</li>
-          <li>Unlimited deliveries tracked</li>
-          <li>Real-time delivery status</li>
-          <li>Stop-level delivery instructions</li>
-          <li>Driver mobile view</li>
-          <li>Dedicated support + onboarding call</li>
-          <li>Route optimization (AI-assisted)</li>
-          <li>Manager notifications & audit log</li>
-          <li>Multi-location management</li>
+        <div class="pricing-divider"></div>
+        <ul class="pricing-features">
+          <li>
+            <span class="feature-check">
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M2 5l2.5 2.5L8 3"/>
+              </svg>
+            </span>
+            Unlimited drivers
+          </li>
+          <li>
+            <span class="feature-check">
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M2 5l2.5 2.5L8 3"/>
+              </svg>
+            </span>
+            Unlimited deliveries
+          </li>
+          <li>
+            <span class="feature-check">
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M2 5l2.5 2.5L8 3"/>
+              </svg>
+            </span>
+            Full analytics &amp; reporting
+          </li>
+          <li>
+            <span class="feature-check">
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M2 5l2.5 2.5L8 3"/>
+              </svg>
+            </span>
+            REST API access
+          </li>
+          <li>
+            <span class="feature-check">
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M2 5l2.5 2.5L8 3"/>
+              </svg>
+            </span>
+            Custom integrations
+          </li>
+          <li>
+            <span class="feature-check">
+              <svg viewBox="0 0 10 10" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round">
+                <path d="M2 5l2.5 2.5L8 3"/>
+              </svg>
+            </span>
+            Dedicated support &amp; onboarding
+          </li>
         </ul>
-        <a href="#" class="btn btn-outline">Contact Us</a>
+        <a href="#" class="btn btn-outline pricing-cta">Contact Sales</a>
       </div>
 
     </div>
 
-    <p style="text-align:center;color:var(--text-muted);font-size:.82rem;margin-top:32px">
-      All plans include a 14-day free trial. No credit card required. Cancel anytime.
+    <p style="text-align:center; margin-top: 32px; font-size: 13px; color: var(--text-subtle);">
+      All plans include a 14-day free trial. No credit card required.
     </p>
   </div>
 </section>
 
-<!-- ── Footer ───────────────────────────────────────────── -->
+<!-- ─── FOOTER ─── -->
 <footer>
   <div class="container">
     <div class="footer-inner">
       <div class="footer-brand">
-        <span class="logo">Back<span>Pin</span></span>
-        <p>Real-time delivery intelligence for upscale restaurants. Built in Charleston, SC.</p>
+        <a href="#" class="nav-logo" style="text-decoration:none;">
+          <div class="logo-icon">
+            <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
+              <path d="M3 6l7-3 7 3v8l-7 3-7-3V6z" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
+              <path d="M10 3v11M3 6l7 3 7-3" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
+            </svg>
+          </div>
+          <span class="logo-text">Deliver<span>Ease</span></span>
+        </a>
+        <span class="footer-tagline">Know exactly when your deliveries arrive.</span>
       </div>
-      <div class="footer-links">
-        <h4>Product</h4>
-        <ul>
-          <li><a href="#problem">Why BackPin</a></li>
-          <li><a href="#pricing">Pricing</a></li>
-          <li><a href="#about">Our Story</a></li>
-        </ul>
-      </div>
-      <div class="footer-links">
-        <h4>Contact</h4>
-        <ul>
-          <li><a href="mailto:hello@backpin.app">hello@backpin.app</a></li>
-          <li><a href="#">Charleston, SC</a></li>
-        </ul>
-      </div>
-    </div>
-    <div class="footer-bottom">
-      <span>© 2026 BackPin. All rights reserved.</span>
-      <span><a href="#">Privacy Policy</a> · <a href="#">Terms of Service</a></span>
+      <div class="footer-right">&copy; 2026 DeliverEase. All rights reserved.</div>
     </div>
   </div>
 </footer>
 
 <script>
-  // Scroll reveal
-  const observer = new IntersectionObserver(entries => {
-    entries.forEach(e => { if (e.isIntersecting) { e.target.classList.add('visible'); observer.unobserve(e.target); } });
-  }, { threshold: 0.1 });
-  document.querySelectorAll('.reveal').forEach(el => observer.observe(el));
+  // Nav scroll effect
+  const navbar = document.getElementById('navbar');
+  window.addEventListener('scroll', () => {
+    navbar.classList.toggle('scrolled', window.scrollY > 20);
+  });
+
+  // Mobile menu
+  const hamburger = document.getElementById('hamburger');
+  const mobileMenu = document.getElementById('mobileMenu');
+  hamburger.addEventListener('click', () => {
+    hamburger.classList.toggle('open');
+    mobileMenu.classList.toggle('open');
+  });
+  function closeMobile() {
+    hamburger.classList.remove('open');
+    mobileMenu.classList.remove('open');
+  }
+
+  // Intersection observer for fade-in animations
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        entry.target.classList.add('visible');
+      }
+    });
+  }, { threshold: 0.12 });
+
+  document.querySelectorAll('.fade-in').forEach(el => observer.observe(el));
 </script>
 
 </body>
