@@ -1,0 +1,19 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(netstat -ano)",
+      "Bash(taskkill /F /PID 8424)",
+      "Bash(curl -s http://localhost:3001/api/stats)",
+      "Bash(cmd.exe /c 'taskkill /F /PID 8424' sleep 2 netstat -ano)",
+      "Bash(powershell.exe -Command 'Stop-Process -Id 8424 -Force' 2)",
+      "Bash(1 sleep:*)",
+      "Bash(curl -s http://localhost:3001/api/drivers)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f''''{len\\(d\\)} drivers: {[x[\"\"name\"\"] for x in d]}''''\\)\" curl -s http://localhost:3001/api/deliveries)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f''''{len\\(d\\)} deliveries''''\\)\" curl -s http://localhost:3001/api/analytics)",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f''''avgStop={d[\"\"avgStopTime\"\"]} avgSpeed={d[\"\"avgSpeed\"\"]} onTime={d[\"\"onTimeRate\"\"]}%''''\\)\")",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(curl -s -o /dev/null -w \"%{http_code}\" http://localhost:3000/)",
+      "Bash(node -e \"require\\(''http''\\)\")"
+    ]
+  }
+}
