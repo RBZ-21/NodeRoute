@@ -3,25 +3,26 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>BackPin — Real-Time Delivery Tracking for Your Fleet</title>
+  <title>NodeRoute Delivery Systems — Real-Time Delivery Tracking for Your Fleet</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
     :root {
-      --navy: #0f172a;
-      --navy-800: #1e293b;
-      --navy-700: #253347;
-      --navy-600: #334155;
-      --teal: #0d9488;
-      --teal-light: #14b8a6;
-      --teal-dark: #0f766e;
-      --teal-muted: rgba(13,148,136,0.12);
-      --text: #f8fafc;
-      --text-muted: #94a3b8;
-      --text-subtle: #64748b;
-      --border: rgba(255,255,255,0.08);
-      --card-bg: rgba(30,41,59,0.6);
+      --navy: #050d2a;
+      --navy-800: #0d1b3e;
+      --navy-700: #0f2040;
+      --navy-600: #1a2f5e;
+      --teal: #00e5a0;
+      --teal-light: #00e5a0;
+      --teal-dark: #00b87a;
+      --teal-muted: rgba(0,229,160,0.12);
+      --purple: #7c3aed;
+      --text: #ffffff;
+      --text-muted: #8899bb;
+      --text-subtle: #5a6a8a;
+      --border: #1a2f5e;
+      --card-bg: rgba(13,27,62,0.8);
       --radius: 16px;
       --radius-sm: 10px;
     }
@@ -66,12 +67,12 @@
 
     .btn-primary {
       background: var(--teal);
-      color: #fff;
+      color: #050d2a;
     }
     .btn-primary:hover {
       background: var(--teal-light);
       transform: translateY(-1px);
-      box-shadow: 0 8px 24px rgba(13,148,136,0.35);
+      box-shadow: 0 8px 24px rgba(0,229,160,0.35);
     }
 
     .btn-outline {
@@ -96,7 +97,7 @@
       padding: 5px 14px;
       border-radius: 100px;
       margin-bottom: 20px;
-      border: 1px solid rgba(13,148,136,0.25);
+      border: 1px solid rgba(0,229,160,0.25);
     }
 
     .section-title {
@@ -126,7 +127,7 @@
     }
 
     nav.scrolled {
-      background: rgba(15,23,42,0.92);
+      background: rgba(5,13,42,0.92);
       backdrop-filter: blur(16px);
       box-shadow: 0 1px 0 var(--border);
     }
@@ -259,7 +260,7 @@
     }
     .hero-bg-circle:nth-child(2) {
       width: 400px; height: 400px;
-      background: #6366f1;
+      background: #7c3aed;
       bottom: -100px; left: -100px;
     }
 
@@ -285,7 +286,7 @@
       align-items: center;
       gap: 8px;
       background: var(--teal-muted);
-      border: 1px solid rgba(13,148,136,0.3);
+      border: 1px solid rgba(0,229,160,0.3);
       border-radius: 100px;
       padding: 6px 16px 6px 8px;
       font-size: 13px;
@@ -315,7 +316,7 @@
     }
 
     .hero-headline .highlight {
-      background: linear-gradient(135deg, var(--teal-light) 0%, #22d3ee 100%);
+      background: linear-gradient(135deg, var(--teal-light) 0%, #a78bfa 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
@@ -402,7 +403,7 @@
     }
 
     .pain-card:hover {
-      border-color: rgba(13,148,136,0.4);
+      border-color: rgba(0,229,160,0.4);
       transform: translateY(-4px);
     }
     .pain-card:hover::before { opacity: 1; }
@@ -415,7 +416,7 @@
       align-items: center;
       justify-content: center;
       margin-bottom: 24px;
-      border: 1px solid rgba(13,148,136,0.2);
+      border: 1px solid rgba(0,229,160,0.2);
     }
     .pain-icon svg { width: 24px; height: 24px; color: var(--teal-light); }
 
@@ -470,12 +471,12 @@
       position: absolute;
       top: 0; left: 0; right: 0;
       height: 3px;
-      background: linear-gradient(90deg, var(--teal), var(--teal-light), #22d3ee);
+      background: linear-gradient(90deg, var(--teal), var(--purple), #a78bfa);
     }
 
     .founder-avatar {
       width: 72px; height: 72px;
-      background: linear-gradient(135deg, var(--teal-dark), var(--teal-light));
+      background: linear-gradient(135deg, var(--teal-dark), var(--purple));
       border-radius: 50%;
       display: flex;
       align-items: center;
@@ -585,12 +586,12 @@
 
     .pricing-card.featured {
       border-color: var(--teal);
-      background: linear-gradient(145deg, rgba(13,148,136,0.08) 0%, var(--card-bg) 100%);
-      box-shadow: 0 0 0 1px var(--teal), 0 24px 64px rgba(13,148,136,0.2);
+      background: linear-gradient(145deg, rgba(0,229,160,0.08) 0%, var(--card-bg) 100%);
+      box-shadow: 0 0 0 1px var(--teal), 0 24px 64px rgba(0,229,160,0.2);
     }
 
     .pricing-card.featured:hover {
-      box-shadow: 0 0 0 1px var(--teal-light), 0 32px 80px rgba(13,148,136,0.3);
+      box-shadow: 0 0 0 1px var(--teal-light), 0 32px 80px rgba(0,229,160,0.3);
     }
 
     .popular-badge {
@@ -685,7 +686,7 @@
       justify-content: center;
       flex-shrink: 0;
       margin-top: 1px;
-      border: 1px solid rgba(13,148,136,0.25);
+      border: 1px solid rgba(0,229,160,0.25);
     }
 
     .feature-check svg { width: 10px; height: 10px; color: var(--teal-light); }
@@ -748,7 +749,7 @@
             <path d="M10 3v11M3 6l7 3 7-3" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
           </svg>
         </div>
-        <span class="logo-text">Back<span>Pin</span></span>
+        <span class="logo-text">Node<span>Route</span></span>
       </a>
 
       <ul class="nav-links">
@@ -794,7 +795,7 @@
       </h1>
 
       <p class="hero-sub">
-        BackPin gives delivery companies live GPS tracking, accurate ETAs, and automatic
+        NodeRoute gives delivery companies live GPS tracking, accurate ETAs, and automatic
         customer notifications — so your dispatchers stay in control and your customers
         always know what's coming.
       </p>
@@ -832,7 +833,7 @@
       <span class="section-label">The Problem</span>
       <h2 class="section-title">Sound familiar?</h2>
       <p class="section-subtitle">
-        Running a delivery operation is hard enough. These are the problems BackPin was built to eliminate.
+        Running a delivery operation is hard enough. These are the problems NodeRoute was built to eliminate.
       </p>
     </div>
 
@@ -888,10 +889,10 @@
         <div class="about-card-main">
           <div class="founder-avatar">R</div>
           <div class="founder-name">Ryan D.</div>
-          <div class="founder-title">Founder &amp; CEO, BackPin</div>
+          <div class="founder-title">Founder &amp; CEO, NodeRoute Delivery Systems</div>
           <p class="founder-quote">
             "I've dispatched drivers and built routes. I've also been the one fielding
-            calls from customers who had no idea where their order was. I built BackPin
+            calls from customers who had no idea where their order was. I built NodeRoute
             because I knew exactly how broken this was — from both ends of the truck."
           </p>
 
@@ -938,7 +939,7 @@
         </p>
 
         <p class="about-body">
-          BackPin is what I wish I'd had: a simple, real-time layer between your dispatcher,
+          NodeRoute is what I wish I'd had: a simple, real-time layer between your dispatcher,
           your drivers, and your customers. No complexity. No per-stop fees. Just your
           whole operation running with clarity.
         </p>
@@ -1166,11 +1167,11 @@
               <path d="M10 3v11M3 6l7 3 7-3" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
             </svg>
           </div>
-          <span class="logo-text">Back<span>Pin</span></span>
+          <span class="logo-text">Node<span>Route</span></span>
         </a>
         <span class="footer-tagline">Total visibility for your delivery operation.</span>
       </div>
-      <div class="footer-right">&copy; 2026 BackPin. All rights reserved.</div>
+      <div class="footer-right">&copy; 2026 NodeRoute Delivery Systems. All rights reserved.</div>
     </div>
   </div>
 </footer>
