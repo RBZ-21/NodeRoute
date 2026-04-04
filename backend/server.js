@@ -1,4 +1,5 @@
 const express = require('express');
+const path = require('path');
 const app = express();
 const PORT = 3001;
 
@@ -8,6 +9,10 @@ app.use((req, res, next) => {
   res.header('Access-Control-Allow-Headers', 'Content-Type');
   next();
 });
+
+const frontendDir = path.join(__dirname, '../frontend');
+app.use(express.static(frontendDir));
+app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
 
 const today = new Date();
 const d = (h, m) => { const dt = new Date(today); dt.setHours(h, m, 0, 0); return dt.toISOString(); };
