@@ -13,10 +13,10 @@
       --navy-800: #0d1b3e;
       --navy-700: #0f2040;
       --navy-600: #1a2f5e;
-      --teal: #00e5a0;
-      --teal-light: #00e5a0;
-      --teal-dark: #00b87a;
-      --teal-muted: rgba(0,229,160,0.12);
+      --teal: #ff6b35;
+      --teal-light: #ff6b35;
+      --teal-dark: #e05520;
+      --teal-muted: rgba(255,107,53,0.12);
       --purple: #7c3aed;
       --text: #ffffff;
       --text-muted: #8899bb;
@@ -35,6 +35,16 @@
       color: var(--text);
       line-height: 1.6;
       -webkit-font-smoothing: antialiased;
+    }
+
+    body::before {
+      content: '';
+      position: fixed;
+      inset: 0;
+      background: url('NodeRoute_wbackground.svg') center/cover no-repeat;
+      opacity: 0.08;
+      z-index: 0;
+      pointer-events: none;
     }
 
     /* ─── SCROLLBAR ─── */
@@ -67,12 +77,12 @@
 
     .btn-primary {
       background: var(--teal);
-      color: #050d2a;
+      color: #ffffff;
     }
     .btn-primary:hover {
       background: var(--teal-light);
       transform: translateY(-1px);
-      box-shadow: 0 8px 24px rgba(0,229,160,0.35);
+      box-shadow: 0 8px 24px rgba(255,107,53,0.35);
     }
 
     .btn-outline {
@@ -97,7 +107,7 @@
       padding: 5px 14px;
       border-radius: 100px;
       margin-bottom: 20px;
-      border: 1px solid rgba(0,229,160,0.25);
+      border: 1px solid rgba(255,107,53,0.25);
     }
 
     .section-title {
@@ -114,6 +124,9 @@
       max-width: 560px;
       line-height: 1.7;
     }
+
+    /* ─── Z-INDEX STACKING ─── */
+    nav, section, footer { position: relative; z-index: 1; }
 
     /* ─── NAV ─── */
     nav {
@@ -286,7 +299,7 @@
       align-items: center;
       gap: 8px;
       background: var(--teal-muted);
-      border: 1px solid rgba(0,229,160,0.3);
+      border: 1px solid rgba(255,107,53,0.3);
       border-radius: 100px;
       padding: 6px 16px 6px 8px;
       font-size: 13px;
@@ -316,7 +329,7 @@
     }
 
     .hero-headline .highlight {
-      background: linear-gradient(135deg, var(--teal-light) 0%, #a78bfa 100%);
+      background: linear-gradient(135deg, var(--teal-light) 0%, #ffad35 100%);
       -webkit-background-clip: text;
       -webkit-text-fill-color: transparent;
       background-clip: text;
@@ -403,7 +416,7 @@
     }
 
     .pain-card:hover {
-      border-color: rgba(0,229,160,0.4);
+      border-color: rgba(255,107,53,0.4);
       transform: translateY(-4px);
     }
     .pain-card:hover::before { opacity: 1; }
@@ -416,7 +429,7 @@
       align-items: center;
       justify-content: center;
       margin-bottom: 24px;
-      border: 1px solid rgba(0,229,160,0.2);
+      border: 1px solid rgba(255,107,53,0.2);
     }
     .pain-icon svg { width: 24px; height: 24px; color: var(--teal-light); }
 
@@ -586,12 +599,12 @@
 
     .pricing-card.featured {
       border-color: var(--teal);
-      background: linear-gradient(145deg, rgba(0,229,160,0.08) 0%, var(--card-bg) 100%);
-      box-shadow: 0 0 0 1px var(--teal), 0 24px 64px rgba(0,229,160,0.2);
+      background: linear-gradient(145deg, rgba(255,107,53,0.08) 0%, var(--card-bg) 100%);
+      box-shadow: 0 0 0 1px var(--teal), 0 24px 64px rgba(255,107,53,0.2);
     }
 
     .pricing-card.featured:hover {
-      box-shadow: 0 0 0 1px var(--teal-light), 0 32px 80px rgba(0,229,160,0.3);
+      box-shadow: 0 0 0 1px var(--teal-light), 0 32px 80px rgba(255,107,53,0.3);
     }
 
     .popular-badge {
@@ -686,7 +699,7 @@
       justify-content: center;
       flex-shrink: 0;
       margin-top: 1px;
-      border: 1px solid rgba(0,229,160,0.25);
+      border: 1px solid rgba(255,107,53,0.25);
     }
 
     .feature-check svg { width: 10px; height: 10px; color: var(--teal-light); }
@@ -743,13 +756,7 @@
   <div class="container">
     <div class="nav-inner">
       <a href="#" class="nav-logo">
-        <div class="logo-icon">
-          <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-            <path d="M3 6l7-3 7 3v8l-7 3-7-3V6z" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
-            <path d="M10 3v11M3 6l7 3 7-3" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
-          </svg>
-        </div>
-        <span class="logo-text">Node<span>Route</span></span>
+        <img src="New_NodeRoute_Logo.svg" height="40" alt="NodeRoute Delivery Systems"/>
       </a>
 
       <ul class="nav-links">
@@ -1161,13 +1168,7 @@
     <div class="footer-inner">
       <div class="footer-brand">
         <a href="#" class="nav-logo" style="text-decoration:none;">
-          <div class="logo-icon">
-            <svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg">
-              <path d="M3 6l7-3 7 3v8l-7 3-7-3V6z" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
-              <path d="M10 3v11M3 6l7 3 7-3" stroke="#fff" stroke-width="1.5" stroke-linejoin="round"/>
-            </svg>
-          </div>
-          <span class="logo-text">Node<span>Route</span></span>
+          <img src="New_NodeRoute_Logo.svg" height="36" alt="NodeRoute Delivery Systems"/>
         </a>
         <span class="footer-tagline">Total visibility for your delivery operation.</span>
       </div>
