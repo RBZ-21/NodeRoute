@@ -11,7 +11,7 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
   --bg:#050d2a;--surface:#0d1b3e;--border:#1a2f5e;
-  --accent:#ff6b35;--purple:#7c3aed;--warn:#f59e0b;--danger:#ef4444;
+  --accent:#ff4620;--purple:#7c3aed;--warn:#f59e0b;--danger:#ef4444;
   --text:#ffffff;--muted:#8899bb;
   --r-card:12px;--r-input:8px;--trans:0.2s ease all;
 }
@@ -31,8 +31,8 @@ a{color:inherit;text-decoration:none}
 .logo-sub{font-size:11px;color:var(--muted);margin-top:2px}
 .nav{flex:1;padding:16px 0}
 .nav-item{display:flex;align-items:center;gap:12px;padding:10px 20px;cursor:pointer;border-radius:0;transition:var(--trans);font-size:14px;font-weight:500;color:var(--muted);position:relative}
-.nav-item:hover{color:var(--text);background:rgba(255,107,53,0.06)}
-.nav-item.active{color:var(--accent);background:rgba(255,107,53,0.1)}
+.nav-item:hover{color:var(--text);background:rgba(255,70,32,0.06)}
+.nav-item.active{color:var(--accent);background:rgba(255,70,32,0.1)}
 .nav-item.active::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent);border-radius:0 2px 2px 0}
 .nav-icon{width:20px;text-align:center;font-size:16px}
 .sidebar-footer{padding:16px 20px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
@@ -97,8 +97,8 @@ thead th .sort-arrow{margin-left:4px;opacity:0.4;font-size:10px}
 thead th.sorted .sort-arrow{opacity:1;color:var(--accent)}
 tbody tr{border-bottom:1px solid var(--border);transition:var(--trans);cursor:pointer}
 tbody tr:last-child{border-bottom:none}
-tbody tr:hover{background:rgba(255,107,53,0.04)}
-tbody tr.expanded{background:rgba(255,107,53,0.06)}
+tbody tr:hover{background:rgba(255,70,32,0.04)}
+tbody tr.expanded{background:rgba(255,70,32,0.06)}
 td{padding:12px 16px;vertical-align:middle}
 .expand-row td{padding:0;cursor:default}
 .expand-row:hover{background:none}
@@ -112,11 +112,11 @@ td{padding:12px 16px;vertical-align:middle}
 /* BADGES */
 .badge-status{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
 .badge-status::before{content:'';width:6px;height:6px;border-radius:50%;flex-shrink:0}
-.badge-delivered{background:rgba(255,107,53,0.12);color:var(--accent)}.badge-delivered::before{background:var(--accent)}
+.badge-delivered{background:rgba(255,70,32,0.12);color:var(--accent)}.badge-delivered::before{background:var(--accent)}
 .badge-in-transit{background:rgba(124,58,237,0.15);color:#a78bfa}.badge-in-transit::before{background:#a78bfa}
 .badge-pending{background:rgba(245,158,11,0.12);color:var(--warn)}.badge-pending::before{background:var(--warn)}
 .badge-failed{background:rgba(239,68,68,0.12);color:var(--danger)}.badge-failed::before{background:var(--danger)}
-.badge-on-duty{background:rgba(255,107,53,0.12);color:var(--accent)}
+.badge-on-duty{background:rgba(255,70,32,0.12);color:var(--accent)}
 .badge-off-duty{background:rgba(136,153,187,0.12);color:var(--muted)}
 
 /* ONTIME */
@@ -203,7 +203,7 @@ td{padding:12px 16px;vertical-align:middle}
 <!-- SIDEBAR -->
 <nav class="sidebar">
   <div class="sidebar-logo">
-    <img src="New_NodeRoute_Logo.svg" height="32" alt="NodeRoute" style="max-width:180px"/>
+    <img src="NodeRoute_wbackground.svg" height="32" alt="NodeRoute" style="max-width:180px"/>
   </div>
   <div class="nav">
     <div class="nav-item active" onclick="showTab('dashboard',this)">
@@ -227,7 +227,7 @@ td{padding:12px 16px;vertical-align:middle}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <img src="New_NodeRoute_Logo.svg" height="28" alt="NodeRoute" style="max-width:160px"/>
+      <img src="NodeRoute_wbackground.svg" height="28" alt="NodeRoute" style="max-width:160px"/>
       <div class="last-updated" id="lastUpdated">Loading…</div>
     </div>
     <div class="topbar-right">
@@ -540,7 +540,7 @@ function renderCharts() {
       datasets: [{
         label: 'Deliveries',
         data: hours.filter((v, i) => v > 0 || (i >= 6 && i <= 14)),
-        backgroundColor: '#ff6b35',
+        backgroundColor: '#ff4620',
         borderRadius: 6,
       }]
     },
@@ -577,7 +577,7 @@ function renderCharts() {
     type: 'doughnut',
     data: {
       labels: ['On Time', 'Late/Failed'],
-      datasets: [{ data: [rate, 100 - rate], backgroundColor: ['#ff6b35', '#ef4444'], borderWidth: 0, hoverOffset: 4 }]
+      datasets: [{ data: [rate, 100 - rate], backgroundColor: ['#ff4620', '#ef4444'], borderWidth: 0, hoverOffset: 4 }]
     },
     options: {
       responsive: true, maintainAspectRatio: false, cutout: '72%',
@@ -618,7 +618,7 @@ function renderCharts() {
     type: 'doughnut',
     data: {
       labels: Object.keys(doorData),
-      datasets: [{ data: Object.values(doorData), backgroundColor: ['#ff6b35','#7c3aed','#f59e0b'], borderWidth: 0, hoverOffset: 4 }]
+      datasets: [{ data: Object.values(doorData), backgroundColor: ['#ff4620','#7c3aed','#f59e0b'], borderWidth: 0, hoverOffset: 4 }]
     },
     options: {
       responsive: true, maintainAspectRatio: false, cutout: '60%',
