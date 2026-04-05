@@ -11,7 +11,7 @@
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
   --bg:#050d2a;--surface:#0d1b3e;--border:#1a2f5e;
-  --accent:#ff6b35;--purple:#7c3aed;--warn:#f59e0b;--danger:#ef4444;
+  --accent:#ff4620;--purple:#7c3aed;--warn:#f59e0b;--danger:#ef4444;
   --text:#ffffff;--muted:#8899bb;
   --r-card:12px;--r-input:8px;--trans:0.2s ease all;
 }
@@ -203,7 +203,7 @@ td{padding:12px 16px;vertical-align:middle}
 <!-- SIDEBAR -->
 <nav class="sidebar">
   <div class="sidebar-logo">
-    <img src="New_NodeRoute_Logo.svg" height="32" alt="NodeRoute" style="max-width:180px"/>
+    <img src="NodeRoute_wbackground.svg" height="32" alt="NodeRoute" style="max-width:180px"/>
   </div>
   <div class="nav">
     <div class="nav-item active" onclick="showTab('dashboard',this)">
@@ -227,7 +227,7 @@ td{padding:12px 16px;vertical-align:middle}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <img src="New_NodeRoute_Logo.svg" height="28" alt="NodeRoute" style="max-width:160px"/>
+      <img src="NodeRoute_wbackground.svg" height="28" alt="NodeRoute" style="max-width:160px"/>
       <div class="last-updated" id="lastUpdated">Loading…</div>
     </div>
     <div class="topbar-right">
@@ -540,7 +540,7 @@ function renderCharts() {
       datasets: [{
         label: 'Deliveries',
         data: hours.filter((v, i) => v > 0 || (i >= 6 && i <= 14)),
-        backgroundColor: '#ff6b35',
+        backgroundColor: '#ff4620',
         borderRadius: 6,
       }]
     },
@@ -577,7 +577,7 @@ function renderCharts() {
     type: 'doughnut',
     data: {
       labels: ['On Time', 'Late/Failed'],
-      datasets: [{ data: [rate, 100 - rate], backgroundColor: ['#ff6b35', '#ef4444'], borderWidth: 0, hoverOffset: 4 }]
+      datasets: [{ data: [rate, 100 - rate], backgroundColor: ['#ff4620', '#ef4444'], borderWidth: 0, hoverOffset: 4 }]
     },
     options: {
       responsive: true, maintainAspectRatio: false, cutout: '72%',
@@ -618,7 +618,7 @@ function renderCharts() {
     type: 'doughnut',
     data: {
       labels: Object.keys(doorData),
-      datasets: [{ data: Object.values(doorData), backgroundColor: ['#ff6b35','#7c3aed','#f59e0b'], borderWidth: 0, hoverOffset: 4 }]
+      datasets: [{ data: Object.values(doorData), backgroundColor: ['#ff4620','#7c3aed','#f59e0b'], borderWidth: 0, hoverOffset: 4 }]
     },
     options: {
       responsive: true, maintainAspectRatio: false, cutout: '60%',
