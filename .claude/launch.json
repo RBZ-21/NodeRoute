@@ -5,7 +5,8 @@
       "name": "Backend API",
       "runtimeExecutable": "node",
       "runtimeArgs": ["backend/server.js"],
-      "port": 3001
+      "port": 3001,
+      "autoPort": true
     },
     {
       "name": "Frontend (static)",
