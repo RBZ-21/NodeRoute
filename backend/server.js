@@ -94,18 +94,25 @@ app.get('/api/users', authenticateToken, requireRole('admin', 'manager'), (req, 
   res.json(readUsers().map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role, status: u.status, createdAt: u.createdAt })));
 });
 
-app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
-  const { name, email } = req.body;
+app.post('/api/users/invite', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
+  const { name, email, role = 'driver' } = req.body;
   if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
+  if (!['admin', 'manager', 'driver'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  if (role === 'admin' && req.user.role !== 'admin') return res.status(403).json({ error: 'Only admins can invite admins' });
   const users = readUsers();
   if (users.find(u => u.email.toLowerCase() === email.toLowerCase())) return res.status(409).json({ error: 'Email already exists' });
   const inviteToken = generateToken();
-  const newUser = { id: 'user-' + Date.now(), name, email, passwordHash: null, role: 'driver', status: 'pending', inviteToken, inviteExpires: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(), createdAt: new Date().toISOString() };
+  const newUser = { id: 'user-' + Date.now(), name, email, passwordHash: null, role, status: 'pending', inviteToken, inviteExpires: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(), createdAt: new Date().toISOString() };
   users.push(newUser);
   writeUsers(users);
-  console.log(`\n📧 INVITE for ${name} (${email}):\nhttp://localhost:${PORT}/setup-password.html?token=${inviteToken}\n`);
-  res.json({ message: `Invite created for ${name}`, userId: newUser.id });
+  console.log(`\n📧 INVITE for ${name} (${email}) as ${role}:\nhttp://localhost:${PORT}/setup-password.html?token=${inviteToken}\n`);
+  res.json({ message: `Invite created for ${name}`, userId: newUser.id, inviteUrl: `http://localhost:${PORT}/setup-password.html?token=${inviteToken}` });
 });
+
+// keep old route as alias
+app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager'), (req, res, next) => {
+  req.body.role = req.body.role || 'driver'; next();
+}, (req, res) => res.redirect(307, '/api/users/invite'));
 
 app.delete('/api/users/:id', authenticateToken, requireRole('admin'), (req, res) => {
   const users = readUsers();
@@ -148,12 +155,47 @@ const drivers = [
   { id: 4, name: "Jordan Martinez", vehicle: "Ford Transit", status: "active", phone: "(843) 555-0104", deliveries: 41, rating: 4.6 }
 ];
 
+app.get('/api/stats', authenticateToken, (req, res) => {
+  const completed = deliveries.filter(d => d.status === 'delivered');
+  const onTimeRate = completed.length ? Math.round((completed.filter(d => d.onTime).length / completed.length) * 100) : 0;
+  const activeDrivers = [...new Set(deliveries.filter(d => d.status === 'in-transit' || d.status === 'pending').map(d => d.driver))].length;
+  res.json({
+    totalDeliveries: deliveries.length,
+    completedToday: completed.length,
+    onTimeRate,
+    activeDrivers,
+    totalDrivers: drivers.length,
+    failed: deliveries.filter(d => d.status === 'failed').length,
+    pendingCount: deliveries.filter(d => d.status === 'pending').length,
+    inTransitCount: deliveries.filter(d => d.status === 'in-transit').length,
+    yesterday: { totalDeliveries: 10, completedToday: 8, onTimeRate: 82, activeDrivers: 3, totalDrivers: 4, failed: 1, pendingCount: 2 }
+  });
+});
+
 app.get('/api/deliveries', authenticateToken, (req, res) => {
   if (req.user.role === 'driver') return res.json(deliveries.filter(d => d.driver === req.user.name));
   res.json(deliveries);
 });
 
-app.get('/api/drivers', authenticateToken, (req, res) => res.json(drivers));
+app.get('/api/drivers', authenticateToken, (req, res) => {
+  const result = drivers.map(d => {
+    const dd = deliveries.filter(del => del.driver === d.name);
+    const completed = dd.filter(del => del.status === 'delivered');
+    const onTimeRate = completed.length ? Math.round(completed.filter(del => del.onTime).length / completed.length * 100) : 100;
+    const milesToday = parseFloat(dd.reduce((s, del) => s + del.distance, 0).toFixed(1));
+    const avgStopMinutes = completed.length ? Math.round(completed.reduce((s, del) => s + del.stopDuration, 0) / completed.length) : 0;
+    const avgSpeedMph = parseFloat((22 + (d.rating - 4.5) * 20).toFixed(1));
+    const active = dd.find(del => del.status === 'in-transit') || dd[dd.length - 1];
+    const isOnDuty = dd.some(del => del.status === 'in-transit' || del.status === 'pending');
+    return {
+      id: d.id, name: d.name, vehicleId: d.vehicle, phone: d.phone,
+      status: isOnDuty ? 'on-duty' : 'off-duty',
+      onTimeRate, totalStopsToday: completed.length, milesToday, avgStopMinutes, avgSpeedMph,
+      lat: active ? active.lat : 32.7765, lng: active ? active.lng : -79.9311
+    };
+  });
+  res.json(result);
+});
 
 app.get('/api/analytics', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
   const completed = deliveries.filter(d => d.status === 'delivered');
@@ -163,13 +205,15 @@ app.get('/api/analytics', authenticateToken, requireRole('admin', 'manager'), (r
     { hour: '8am', count: 3 }, { hour: '9am', count: 4 }, { hour: '10am', count: 3 },
     { hour: '11am', count: 2 }, { hour: '12pm', count: 1 }, { hour: '1pm', count: 1 }
   ];
-  const driverEfficiency = drivers.map(d => {
-    const dd = completed.filter(del => del.driver === d.name);
-    const avgStop = dd.length ? dd.reduce((s, del) => s + del.stopDuration, 0) / dd.length : 0;
-    const onTime = dd.length ? (dd.filter(del => del.onTime).length / dd.length) * 100 : 0;
-    return { name: d.name, deliveries: d.deliveries, avgStopTime: avgStop.toFixed(1), onTimeRate: onTime.toFixed(1), rating: d.rating };
-  }).sort((a, b) => b.rating - a.rating);
-  res.json({ avgStopTime: avgStopTime.toFixed(1), onTimeRate: onTimeRate.toFixed(1), avgSpeed: 28.4, peakHours, driverEfficiency, totalDeliveries: deliveries.length, completedToday: completed.length });
+  const driverRankings = drivers.map(d => {
+    const dd = deliveries.filter(del => del.driver === d.name);
+    const comp = dd.filter(del => del.status === 'delivered');
+    const onTime = comp.length ? parseFloat((comp.filter(del => del.onTime).length / comp.length * 100).toFixed(1)) : 100;
+    const avgStop = comp.length ? parseFloat((comp.reduce((s, del) => s + del.stopDuration, 0) / comp.length).toFixed(1)) : 0;
+    const miles = parseFloat(dd.reduce((s, del) => s + del.distance, 0).toFixed(1));
+    return { name: d.name, stopsPerHour: parseFloat((comp.length / 8).toFixed(1)), avgStopMinutes: avgStop, avgSpeedMph: parseFloat((22 + (d.rating - 4.5) * 20).toFixed(1)), onTimeRate: onTime, milesToday: miles };
+  }).sort((a, b) => b.onTimeRate - a.onTimeRate);
+  res.json({ avgStopTime: avgStopTime.toFixed(1), onTimeRate: onTimeRate.toFixed(1), avgSpeed: 28.4, peakHours, driverRankings, totalDeliveries: deliveries.length, completedToday: completed.length });
 });
 
 app.patch('/api/deliveries/:id/status', authenticateToken, (req, res) => {
@@ -179,6 +223,49 @@ app.patch('/api/deliveries/:id/status', authenticateToken, (req, res) => {
   delivery.status = req.body.status;
   res.json(delivery);
 });
+
+// ── STOPS ──────────────────────────────────────────────
+const stopsData = [];
+app.get('/api/stops', authenticateToken, (req, res) => res.json(stopsData));
+app.post('/api/stops', authenticateToken, (req, res) => {
+  const { name, address, lat, lng, notes } = req.body;
+  if (!name || !address) return res.status(400).json({ error: 'Name and address required' });
+  const stop = { id: 'stop-' + Date.now(), name, address, lat: parseFloat(lat)||0, lng: parseFloat(lng)||0, notes: notes||'', createdAt: new Date().toISOString() };
+  stopsData.push(stop);
+  res.json(stop);
+});
+app.delete('/api/stops/:id', authenticateToken, (req, res) => {
+  const idx = stopsData.findIndex(s => s.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Not found' });
+  stopsData.splice(idx, 1);
+  res.json({ message: 'Deleted' });
+});
+
+// ── ROUTES ─────────────────────────────────────────────
+const routesData = [];
+app.get('/api/routes', authenticateToken, (req, res) => res.json(routesData));
+app.post('/api/routes', authenticateToken, (req, res) => {
+  const { name, stopIds, driver, notes } = req.body;
+  if (!name) return res.status(400).json({ error: 'Route name required' });
+  const route = { id: 'route-' + Date.now(), name, stopIds: stopIds||[], driver: driver||'', notes: notes||'', createdAt: new Date().toISOString() };
+  routesData.push(route);
+  res.json(route);
+});
+app.patch('/api/routes/:id', authenticateToken, (req, res) => {
+  const route = routesData.find(r => r.id === req.params.id);
+  if (!route) return res.status(404).json({ error: 'Not found' });
+  Object.assign(route, req.body);
+  res.json(route);
+});
+app.delete('/api/routes/:id', authenticateToken, (req, res) => {
+  const idx = routesData.findIndex(r => r.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Not found' });
+  routesData.splice(idx, 1);
+  res.json({ message: 'Deleted' });
+});
+
+// ── CUSTOMERS (placeholder) ─────────────────────────────
+app.get('/api/customers', authenticateToken, (req, res) => res.json([]));
 
 app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
 app.get('/dashboard', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));

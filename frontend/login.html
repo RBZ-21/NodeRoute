@@ -7,22 +7,30 @@
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; }
     body { min-height: 100vh; background: #050d2a; display: flex; align-items: center; justify-content: center; font-family: 'Segoe UI', sans-serif; }
-    .card { background: #0d1b3e; border: 1px solid rgba(255,107,53,0.2); border-radius: 16px; padding: 48px 40px; width: 100%; max-width: 420px; box-shadow: 0 8px 40px rgba(0,0,0,0.4); }
+    .card { background: #0d1b3e; border: 1px solid rgba(61,186,127,0.2); border-radius: 16px; padding: 48px 40px; width: 100%; max-width: 420px; box-shadow: 0 8px 40px rgba(0,0,0,0.4); }
     .logo-wrap { text-align: center; margin-bottom: 32px; }
     .logo-wrap img { height: 80px; }
     h2 { text-align: center; color: #fff; font-size: 1.4rem; margin-bottom: 8px; }
     .sub { text-align: center; color: #8899bb; font-size: 0.9rem; margin-bottom: 32px; }
     label { display: block; color: #ccd6f6; font-size: 0.85rem; margin-bottom: 6px; font-weight: 500; }
     input { width: 100%; padding: 12px 16px; background: #0a1530; border: 1px solid #1e3a6e; border-radius: 8px; color: #fff; font-size: 1rem; margin-bottom: 20px; outline: none; transition: border-color .2s; }
-    input:focus { border-color: #ff4620; }
-    .btn { width: 100%; padding: 14px; background: linear-gradient(135deg, #ff4620, #e55a2b); color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
+    input:focus { border-color: #3dba7f; }
+    .btn { width: 100%; padding: 14px; background: linear-gradient(135deg, #3dba7f, #2ea06a); color: #fff; border: none; border-radius: 8px; font-size: 1rem; font-weight: 600; cursor: pointer; }
     .btn:hover { opacity: 0.9; }
-    .error { color: #ff4620; font-size: 0.85rem; margin-bottom: 16px; text-align: center; display: none; }
+    .error { color: #3dba7f; font-size: 0.85rem; margin-bottom: 16px; text-align: center; display: none; }
+    .logo-wrap img { filter: url(#remove-white); }
   </style>
 </head>
 <body>
+<svg style="position:absolute;width:0;height:0" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="remove-white" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  -0.333 -0.333 -0.333 0 1"/>
+    </filter>
+  </defs>
+</svg>
   <div class="card">
-    <div class="logo-wrap"><img src="NodeRoute_wbackground.svg" alt="NodeRoute"></div>
+    <div class="logo-wrap"><img src="noderoute-logo.png" alt="NodeRoute"></div>
     <h2>Welcome Back</h2>
     <p class="sub">NodeRoute Delivery Systems</p>
     <div class="error" id="err"></div>

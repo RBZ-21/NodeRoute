@@ -7,11 +7,13 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
   --bg:#050d2a;--surface:#0d1b3e;--border:#1a2f5e;
-  --accent:#ff6b35;--purple:#7c3aed;--warn:#f59e0b;--danger:#ef4444;
+  --accent:#3dba7f;--purple:#7c3aed;--warn:#f59e0b;--danger:#ef4444;
   --text:#ffffff;--muted:#8899bb;
   --r-card:12px;--r-input:8px;--trans:0.2s ease all;
 }
@@ -19,8 +21,61 @@ body.light{
   --bg:#f0f4ff;--surface:#ffffff;--border:#d1daf0;
   --text:#0d1b3e;--muted:#6677aa;
 }
+svg.logo-filter{position:absolute;width:0;height:0}
+img.logo-img{filter:url(#remove-white)}
+/* STOPS / ROUTES / CUSTOMERS */
+.autocomplete-wrap{position:relative}
+.autocomplete-dropdown{position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;z-index:200;max-height:260px;overflow-y:auto;display:none;box-shadow:0 8px 24px rgba(0,0,0,0.3)}
+.autocomplete-item{padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);transition:var(--trans)}
+.autocomplete-item:last-child{border-bottom:none}
+.autocomplete-item:hover{background:rgba(61,186,127,0.08)}
+.stop-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:16px;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;transition:var(--trans)}
+.stop-card:hover{border-color:var(--accent)}
+.stop-card-info{flex:1;min-width:0}
+.stop-name{font-weight:600;font-size:14px;margin-bottom:3px}
+.stop-address{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.stop-notes{font-size:11px;color:var(--muted);margin-top:4px;font-style:italic}
+.stops-list{display:flex;flex-direction:column;gap:10px}
+.route-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:20px;transition:var(--trans)}
+.route-card:hover{border-color:var(--accent)}
+.route-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.route-name{font-weight:600;font-size:15px}
+.route-meta{font-size:12px;color:var(--muted);margin-top:2px}
+.route-stops-list{display:flex;flex-direction:column;gap:6px;margin-top:12px}
+.route-stop-item{display:flex;align-items:center;gap:10px;font-size:13px;padding:6px 10px;background:rgba(0,0,0,0.12);border-radius:6px}
+.route-stop-num{width:20px;height:20px;border-radius:50%;background:var(--accent);color:#050d2a;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+.empty-state{text-align:center;padding:60px 20px;color:var(--muted)}
+.empty-state-icon{font-size:48px;margin-bottom:16px}
+.empty-state h3{font-size:16px;color:var(--text);margin-bottom:8px}
+.customer-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:400px;text-align:center;color:var(--muted)}
+.db-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:20px;border:1px dashed var(--border);font-size:13px;margin-bottom:24px}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+.section-header .section-title{margin:0}
+.role-badge{display:inline-block;padding:2px 10px;border-radius:20px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:0.4px}
+.role-admin{background:rgba(124,58,237,0.15);color:#a78bfa}
+.role-manager{background:rgba(61,186,127,0.12);color:var(--accent)}
+.role-driver{background:rgba(136,153,187,0.12);color:var(--muted)}
+.status-active{color:var(--accent)}.status-pending{color:var(--warn)}
+.user-action-btn{background:none;border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;transition:var(--trans)}
+.user-action-btn:hover{border-color:var(--accent);color:var(--text)}
+.user-action-btn.danger:hover{border-color:var(--danger);color:var(--danger)}
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:500;align-items:center;justify-content:center}
+.modal-overlay.open{display:flex}
+.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px;width:440px;max-width:90vw}
+.modal-box h3{margin-bottom:8px;font-size:18px}
+.modal-box .modal-sub{color:var(--muted);font-size:13px;margin-bottom:24px}
+.modal-label{font-size:13px;color:var(--muted);display:block;margin-bottom:6px}
+.modal-input{width:100%;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;margin-bottom:16px;transition:var(--trans)}
+.modal-input:focus{border-color:var(--accent)}
+.modal-result{display:none;padding:12px;border-radius:8px;font-size:13px;margin-bottom:16px}
+.modal-result.success{background:rgba(61,186,127,0.12);color:var(--accent)}
+.modal-result.error{background:rgba(239,68,68,0.12);color:#fca5a5}
+.modal-actions{display:flex;gap:12px;justify-content:flex-end}
+#mapContainer{border-radius:12px;overflow:hidden;border:1px solid var(--border);height:520px}
+.map-legend-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
+.map-legend-dot{width:12px;height:12px;border-radius:50%;flex-shrink:0}
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;transition:var(--trans)}
-body::before{content:'';position:fixed;inset:0;background:url('NodeRoute_wbackground.svg') center/cover no-repeat;opacity:0.05;z-index:0;pointer-events:none}
+body::before{content:'';position:fixed;inset:0;background:url('noderoute-bg.png') center/cover no-repeat;opacity:0.35;z-index:0;pointer-events:none}
 a{color:inherit;text-decoration:none}
 
 /* SIDEBAR */
@@ -31,8 +86,8 @@ a{color:inherit;text-decoration:none}
 .logo-sub{font-size:11px;color:var(--muted);margin-top:2px}
 .nav{flex:1;padding:16px 0}
 .nav-item{display:flex;align-items:center;gap:12px;padding:10px 20px;cursor:pointer;border-radius:0;transition:var(--trans);font-size:14px;font-weight:500;color:var(--muted);position:relative}
-.nav-item:hover{color:var(--text);background:rgba(255,107,53,0.06)}
-.nav-item.active{color:var(--accent);background:rgba(255,107,53,0.1)}
+.nav-item:hover{color:var(--text);background:rgba(61,186,127,0.06)}
+.nav-item.active{color:var(--accent);background:rgba(61,186,127,0.1)}
 .nav-item.active::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent);border-radius:0 2px 2px 0}
 .nav-icon{width:20px;text-align:center;font-size:16px}
 .sidebar-footer{padding:16px 20px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
@@ -97,8 +152,8 @@ thead th .sort-arrow{margin-left:4px;opacity:0.4;font-size:10px}
 thead th.sorted .sort-arrow{opacity:1;color:var(--accent)}
 tbody tr{border-bottom:1px solid var(--border);transition:var(--trans);cursor:pointer}
 tbody tr:last-child{border-bottom:none}
-tbody tr:hover{background:rgba(255,107,53,0.04)}
-tbody tr.expanded{background:rgba(255,107,53,0.06)}
+tbody tr:hover{background:rgba(61,186,127,0.04)}
+tbody tr.expanded{background:rgba(61,186,127,0.06)}
 td{padding:12px 16px;vertical-align:middle}
 .expand-row td{padding:0;cursor:default}
 .expand-row:hover{background:none}
@@ -112,11 +167,11 @@ td{padding:12px 16px;vertical-align:middle}
 /* BADGES */
 .badge-status{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
 .badge-status::before{content:'';width:6px;height:6px;border-radius:50%;flex-shrink:0}
-.badge-delivered{background:rgba(255,107,53,0.12);color:var(--accent)}.badge-delivered::before{background:var(--accent)}
+.badge-delivered{background:rgba(61,186,127,0.12);color:var(--accent)}.badge-delivered::before{background:var(--accent)}
 .badge-in-transit{background:rgba(124,58,237,0.15);color:#a78bfa}.badge-in-transit::before{background:#a78bfa}
 .badge-pending{background:rgba(245,158,11,0.12);color:var(--warn)}.badge-pending::before{background:var(--warn)}
 .badge-failed{background:rgba(239,68,68,0.12);color:var(--danger)}.badge-failed::before{background:var(--danger)}
-.badge-on-duty{background:rgba(255,107,53,0.12);color:var(--accent)}
+.badge-on-duty{background:rgba(61,186,127,0.12);color:var(--accent)}
 .badge-off-duty{background:rgba(136,153,187,0.12);color:var(--muted)}
 
 /* ONTIME */
@@ -199,11 +254,18 @@ td{padding:12px 16px;vertical-align:middle}
 </style>
 </head>
 <body>
+<svg class="logo-filter" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="remove-white" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  -0.333 -0.333 -0.333 0 1"/>
+    </filter>
+  </defs>
+</svg>
 
 <!-- SIDEBAR -->
 <nav class="sidebar">
   <div class="sidebar-logo">
-    <img src="New_NodeRoute_Logo.svg" height="32" alt="NodeRoute" style="max-width:180px"/>
+    <img src="noderoute-logo.png" class="logo-img" height="32" alt="NodeRoute" style="max-width:180px"/>
   </div>
   <div class="nav">
     <div class="nav-item active" onclick="showTab('dashboard',this)">
@@ -218,6 +280,21 @@ td{padding:12px 16px;vertical-align:middle}
     <div class="nav-item" onclick="showTab('analytics',this)">
       <span class="nav-icon">📈</span>Analytics
     </div>
+    <div class="nav-item" onclick="showTab('map',this)">
+      <span class="nav-icon">🗺️</span>Live Map
+    </div>
+    <div class="nav-item" id="usersNavItem" style="display:none" onclick="showTab('users',this)">
+      <span class="nav-icon">👥</span>Users
+    </div>
+    <div class="nav-item" onclick="showTab('stops',this)">
+      <span class="nav-icon">📍</span>Stops
+    </div>
+    <div class="nav-item" onclick="showTab('routes',this)">
+      <span class="nav-icon">🛣️</span>Routes
+    </div>
+    <div class="nav-item" onclick="showTab('customers',this)">
+      <span class="nav-icon">🏢</span>Customers
+    </div>
   </div>
   <div class="sidebar-footer">NodeRoute DS v2.0<br>Charleston, SC</div>
 </nav>
@@ -227,15 +304,16 @@ td{padding:12px 16px;vertical-align:middle}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <img src="New_NodeRoute_Logo.svg" height="28" alt="NodeRoute" style="max-width:160px"/>
+      <img src="noderoute-logo.png" class="logo-img" height="28" alt="NodeRoute" style="max-width:160px"/>
       <div class="last-updated" id="lastUpdated">Loading…</div>
     </div>
     <div class="topbar-right">
+      <img src="noderoute-logo.png" class="logo-img" height="36" alt="NodeRoute" style="max-height:36px;width:auto;object-fit:contain"/>
       <button class="icon-btn" id="themeToggle" title="Toggle theme" onclick="toggleTheme()">🌙</button>
       <button class="icon-btn" title="Alerts" id="alertBell">
         🔔<span class="badge" id="alertBadge" style="display:none">0</span>
       </button>
-      <button onclick="doLogout()" style="background:rgba(255,70,32,0.15);color:#ff4620;border:1px solid rgba(255,70,32,0.4);padding:8px 18px;border-radius:6px;cursor:pointer;font-size:0.85rem;font-weight:600;">Logout</button>
+      <button onclick="doLogout()" style="background:rgba(61,186,127,0.15);color:#3dba7f;border:1px solid rgba(61,186,127,0.4);padding:8px 18px;border-radius:6px;cursor:pointer;font-size:0.85rem;font-weight:600;">Logout</button>
     </div>
   </div>
 
@@ -342,8 +420,44 @@ td{padding:12px 16px;vertical-align:middle}
 
     <!-- TAB: DRIVERS -->
     <div class="tab-pane" id="tab-drivers">
-      <div class="section-title">Driver Scorecards</div>
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div class="section-title" style="margin:0">Driver Scorecards</div>
+        <button class="btn btn-accent" onclick="openInviteModal()">+ Invite Driver</button>
+      </div>
       <div class="drivers-grid" id="driversGrid"></div>
+    </div>
+
+    <!-- TAB: USERS (admin only) -->
+    <div class="tab-pane" id="tab-users">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div class="section-title" style="margin:0">User Management</div>
+        <button class="btn btn-accent" onclick="openUserInviteModal()">+ Invite User</button>
+      </div>
+      <div class="table-card">
+        <table>
+          <thead>
+            <tr>
+              <th>Name</th><th>Email</th><th>Role</th><th>Status</th><th>Joined</th><th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="usersTable"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- TAB: MAP -->
+    <div class="tab-pane" id="tab-map">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div class="section-title" style="margin:0">Live Driver Map</div>
+        <span style="font-size:12px;color:var(--muted)" id="mapUpdated">–</span>
+      </div>
+      <div id="mapContainer"></div>
+      <div style="display:flex;gap:20px;margin-top:14px;flex-wrap:wrap">
+        <div class="map-legend-item"><div class="map-legend-dot" style="background:#3dba7f"></div>Driver (on duty)</div>
+        <div class="map-legend-item"><div class="map-legend-dot" style="background:#8899bb"></div>Driver (off duty)</div>
+        <div class="map-legend-item"><div class="map-legend-dot" style="background:#3dba7f;opacity:0.6"></div>In Transit</div>
+        <div class="map-legend-item"><div class="map-legend-dot" style="background:#f59e0b;opacity:0.6"></div>Pending</div>
+      </div>
     </div>
 
     <!-- TAB: ANALYTICS -->
@@ -376,6 +490,61 @@ td{padding:12px 16px;vertical-align:middle}
       </div>
     </div>
 
+    <!-- TAB: STOPS -->
+    <div class="tab-pane" id="tab-stops">
+      <div class="section-header">
+        <div class="section-title" style="margin:0">Stops</div>
+      </div>
+      <!-- Search + add -->
+      <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:20px;margin-bottom:20px">
+        <div style="font-size:13px;font-weight:600;margin-bottom:12px">Add a Stop</div>
+        <div class="autocomplete-wrap" style="margin-bottom:12px">
+          <input class="search-input" id="stopSearchInput" style="width:100%;font-size:14px;padding:10px 14px"
+            placeholder="Start typing an address or business name…"
+            oninput="handleStopSearch(this)" autocomplete="off">
+          <div class="autocomplete-dropdown" id="stopAutocomplete"></div>
+        </div>
+        <div id="stopPreview" style="display:none;padding:12px;background:rgba(61,186,127,0.06);border:1px solid rgba(61,186,127,0.2);border-radius:8px;margin-bottom:12px">
+          <div style="font-size:13px;font-weight:600" id="stopPreviewName"></div>
+          <div style="font-size:12px;color:var(--muted)" id="stopPreviewAddr"></div>
+          <input class="modal-input" id="stopNotes" placeholder="Notes (optional)" style="margin-top:10px;margin-bottom:0">
+        </div>
+        <button class="btn btn-accent" id="addStopBtn" style="display:none" onclick="addStop()">Add Stop</button>
+      </div>
+      <!-- Stops list -->
+      <div id="stopsList" class="stops-list"></div>
+    </div>
+
+    <!-- TAB: ROUTES -->
+    <div class="tab-pane" id="tab-routes">
+      <div class="section-header">
+        <div class="section-title" style="margin:0">Routes</div>
+        <button class="btn btn-accent" onclick="openNewRouteModal()">+ New Route</button>
+      </div>
+      <div id="routesList"></div>
+    </div>
+
+    <!-- TAB: CUSTOMERS -->
+    <div class="tab-pane" id="tab-customers">
+      <div class="section-header">
+        <div class="section-title" style="margin:0">Customers</div>
+      </div>
+      <div class="customer-placeholder">
+        <div style="font-size:56px;margin-bottom:20px">🏢</div>
+        <div class="db-badge">🔌 Awaiting database connection</div>
+        <h3 style="font-size:18px;color:var(--text);margin-bottom:10px">No customers loaded yet</h3>
+        <p style="max-width:380px;line-height:1.7">Customer data will populate automatically once the database is linked. The table below will show name, contact, address, and order history.</p>
+        <div class="table-card" style="width:100%;margin-top:32px;opacity:0.4;pointer-events:none">
+          <table>
+            <thead><tr>
+              <th>Name</th><th>Email</th><th>Phone</th><th>Address</th><th>Total Orders</th><th>Last Order</th>
+            </tr></thead>
+            <tbody><tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">No data</td></tr></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
   </div><!-- /content -->
 </div><!-- /main -->
 
@@ -394,6 +563,72 @@ td{padding:12px 16px;vertical-align:middle}
     <button class="mobile-tab" onclick="showTab('analytics',this)">
       <span class="mobile-tab-icon">📈</span>Analytics
     </button>
+    <button class="mobile-tab" onclick="showTab('map',this)">
+      <span class="mobile-tab-icon">🗺️</span>Map
+    </button>
+  </div>
+</div>
+
+<!-- NEW ROUTE MODAL -->
+<div class="modal-overlay" id="newRouteModal">
+  <div class="modal-box" style="width:520px">
+    <h3>New Route</h3>
+    <p class="modal-sub">Name your route, assign a driver, and select stops in order.</p>
+    <label class="modal-label">Route Name</label>
+    <input class="modal-input" id="routeName" placeholder="e.g. Morning Run - Zone A">
+    <label class="modal-label">Assigned Driver (optional)</label>
+    <select class="modal-input" id="routeDriver" style="cursor:pointer">
+      <option value="">— Unassigned —</option>
+    </select>
+    <label class="modal-label">Stops (in order)</label>
+    <div id="routeStopPicker" style="border:1px solid var(--border);border-radius:8px;max-height:200px;overflow-y:auto;margin-bottom:12px"></div>
+    <label class="modal-label">Notes</label>
+    <input class="modal-input" id="routeNotes" placeholder="Optional notes">
+    <div class="modal-result" id="routeResult"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeNewRouteModal()">Cancel</button>
+      <button class="btn btn-accent" onclick="submitNewRoute()">Create Route</button>
+    </div>
+  </div>
+</div>
+
+<!-- INVITE USER MODAL -->
+<div class="modal-overlay" id="userInviteModal">
+  <div class="modal-box">
+    <h3>Invite User</h3>
+    <p class="modal-sub">They'll receive an invite link to set up their password.</p>
+    <label class="modal-label">Full Name</label>
+    <input class="modal-input" id="uiName" type="text" placeholder="e.g. Sarah Chen">
+    <label class="modal-label">Email Address</label>
+    <input class="modal-input" id="uiEmail" type="email" placeholder="e.g. sarah@noderoute.com">
+    <label class="modal-label">Role</label>
+    <select class="modal-input" id="uiRole" style="cursor:pointer">
+      <option value="driver">Driver</option>
+      <option value="manager">Manager</option>
+      <option value="admin">Admin</option>
+    </select>
+    <div class="modal-result" id="uiResult"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeUserInviteModal()">Cancel</button>
+      <button class="btn btn-accent" onclick="submitUserInvite()">Send Invite</button>
+    </div>
+  </div>
+</div>
+
+<!-- INVITE DRIVER MODAL -->
+<div class="modal-overlay" id="inviteModal">
+  <div class="modal-box">
+    <h3>Invite Driver</h3>
+    <p class="modal-sub">The driver will receive an invite link to set up their account.</p>
+    <label class="modal-label">Full Name</label>
+    <input class="modal-input" id="inviteName" type="text" placeholder="e.g. James Smith">
+    <label class="modal-label">Email Address</label>
+    <input class="modal-input" id="inviteEmail" type="email" placeholder="e.g. james@noderoute.com">
+    <div class="modal-result" id="inviteResult"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeInviteModal()">Cancel</button>
+      <button class="btn btn-accent" onclick="submitInvite()">Send Invite</button>
+    </div>
   </div>
 </div>
 
@@ -402,6 +637,14 @@ const API = '/api';
 const nrToken = localStorage.getItem('nr_token');
 const nrUser = JSON.parse(localStorage.getItem('nr_user') || 'null');
 if (!nrToken || !nrUser) { window.location.href = '/'; }
+const authHeaders = { headers: { Authorization: `Bearer ${nrToken}` } };
+
+async function doLogout() {
+  try { await fetch('/auth/logout', { method: 'POST', ...authHeaders }); } catch(e) {}
+  localStorage.removeItem('nr_token');
+  localStorage.removeItem('nr_user');
+  window.location.href = '/';
+}
 let allDeliveries = [], allDrivers = [], analyticsData = {}, statsData = {};
 let delivSort = { key: 'orderId', dir: 1 };
 let delivPage = 1;
@@ -432,10 +675,10 @@ function showTab(name, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.querySelectorAll('.mobile-tab').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
-  // sync sidebar + mobile
-  const idx = ['dashboard','deliveries','drivers','analytics'].indexOf(name);
+  const idx = ['dashboard','deliveries','drivers','analytics','map','users','stops','routes','customers'].indexOf(name);
   document.querySelectorAll('.nav-item')[idx]?.classList.add('active');
   document.querySelectorAll('.mobile-tab')[idx]?.classList.add('active');
+  if (name === 'map') { setTimeout(() => { if (leafletMap) leafletMap.invalidateSize(); renderMap(); }, 50); }
 }
 
 // ── ALERT ──────────────────────────────────────────────
@@ -463,10 +706,10 @@ function dismissAlert() {
 async function fetchAll() {
   try {
     const [s, d, dr, a] = await Promise.all([
-      fetch(API+'/stats').then(r=>r.json()),
-      fetch(API+'/deliveries').then(r=>r.json()),
-      fetch(API+'/drivers').then(r=>r.json()),
-      fetch(API+'/analytics').then(r=>r.json()),
+      fetch(API+'/stats', authHeaders).then(r=>r.json()),
+      fetch(API+'/deliveries', authHeaders).then(r=>r.json()),
+      fetch(API+'/drivers', authHeaders).then(r=>r.json()),
+      fetch(API+'/analytics', authHeaders).then(r=>r.json()),
     ]);
     statsData = s; allDeliveries = d; allDrivers = dr; analyticsData = a;
     document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
@@ -476,6 +719,10 @@ async function fetchAll() {
     renderDeliveries();
     renderDrivers();
     renderAnalytics();
+    renderMap();
+    if (nrUser && nrUser.role === 'admin') fetchUsers();
+    fetchStops();
+    fetchRoutes();
     updateAlert(d);
     populateDriverFilter();
   } catch(e) {
@@ -544,7 +791,7 @@ function renderCharts() {
       datasets: [{
         label: 'Deliveries',
         data: hours.filter((v, i) => v > 0 || (i >= 6 && i <= 14)),
-        backgroundColor: '#ff6b35',
+        backgroundColor: '#3dba7f',
         borderRadius: 6,
       }]
     },
@@ -581,7 +828,7 @@ function renderCharts() {
     type: 'doughnut',
     data: {
       labels: ['On Time', 'Late/Failed'],
-      datasets: [{ data: [rate, 100 - rate], backgroundColor: ['#ff6b35', '#ef4444'], borderWidth: 0, hoverOffset: 4 }]
+      datasets: [{ data: [rate, 100 - rate], backgroundColor: ['#3dba7f', '#ef4444'], borderWidth: 0, hoverOffset: 4 }]
     },
     options: {
       responsive: true, maintainAspectRatio: false, cutout: '72%',
@@ -622,7 +869,7 @@ function renderCharts() {
     type: 'doughnut',
     data: {
       labels: Object.keys(doorData),
-      datasets: [{ data: Object.values(doorData), backgroundColor: ['#ff6b35','#7c3aed','#f59e0b'], borderWidth: 0, hoverOffset: 4 }]
+      datasets: [{ data: Object.values(doorData), backgroundColor: ['#3dba7f','#7c3aed','#f59e0b'], borderWidth: 0, hoverOffset: 4 }]
     },
     options: {
       responsive: true, maintainAspectRatio: false, cutout: '60%',
@@ -888,6 +1135,349 @@ function renderAnalytics() {
     Service area: <strong>Charleston, SC metro</strong>
   `;
 }
+
+// ── STOPS TAB ──────────────────────────────────────────
+let allStops = [], allRoutes = [];
+let pendingStop = null;
+let acTimeout = null;
+
+function handleStopSearch(input) {
+  clearTimeout(acTimeout);
+  const q = input.value.trim();
+  document.getElementById('stopPreview').style.display = 'none';
+  document.getElementById('addStopBtn').style.display = 'none';
+  pendingStop = null;
+  if (q.length < 3) { document.getElementById('stopAutocomplete').style.display = 'none'; return; }
+  acTimeout = setTimeout(() => fetchAddresses(q), 320);
+}
+
+async function fetchAddresses(q) {
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&addressdetails=1`, { headers: { 'Accept-Language': 'en-US,en' } });
+    const results = await r.json();
+    const dd = document.getElementById('stopAutocomplete');
+    if (!results.length) { dd.style.display = 'none'; return; }
+    dd.innerHTML = results.map((res, i) => {
+      const name = res.name || res.display_name.split(',')[0];
+      return `<div class="autocomplete-item" onclick="selectAddress(${i})" data-idx="${i}">${
+        `<div style="font-weight:600;font-size:13px">${name}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${res.display_name}</div>`
+      }</div>`;
+    }).join('');
+    dd.__results = results;
+    dd.style.display = 'block';
+  } catch(e) {}
+}
+
+function selectAddress(idx) {
+  const dd = document.getElementById('stopAutocomplete');
+  const res = dd.__results[idx];
+  const name = res.name || res.display_name.split(',')[0];
+  document.getElementById('stopSearchInput').value = name;
+  dd.style.display = 'none';
+  document.getElementById('stopPreviewName').textContent = name;
+  document.getElementById('stopPreviewAddr').textContent = res.display_name;
+  document.getElementById('stopPreview').style.display = 'block';
+  document.getElementById('addStopBtn').style.display = 'inline-flex';
+  document.getElementById('stopNotes').value = '';
+  pendingStop = { name, address: res.display_name, lat: res.lat, lng: res.lon };
+}
+
+document.addEventListener('click', e => {
+  if (!e.target.closest('.autocomplete-wrap')) document.getElementById('stopAutocomplete').style.display = 'none';
+});
+
+async function addStop() {
+  if (!pendingStop) return;
+  pendingStop.notes = document.getElementById('stopNotes').value.trim();
+  try {
+    const r = await fetch('/api/stops', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify(pendingStop) });
+    if (!r.ok) throw new Error((await r.json()).error);
+    const stop = await r.json();
+    allStops.push(stop);
+    renderStops();
+    document.getElementById('stopSearchInput').value = '';
+    document.getElementById('stopPreview').style.display = 'none';
+    document.getElementById('addStopBtn').style.display = 'none';
+    pendingStop = null;
+  } catch(e) { alert(e.message); }
+}
+
+async function deleteStop(id) {
+  if (!confirm('Remove this stop?')) return;
+  await fetch(`/api/stops/${id}`, { method: 'DELETE', ...authHeaders });
+  allStops = allStops.filter(s => s.id !== id);
+  renderStops();
+}
+
+function renderStops() {
+  const el = document.getElementById('stopsList');
+  if (!allStops.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📍</div><h3>No stops yet</h3><p>Search for an address above to add your first stop.</p></div>`;
+    return;
+  }
+  el.innerHTML = allStops.map((s, i) => `
+    <div class="stop-card">
+      <div style="display:flex;align-items:center;gap:12px;margin-right:8px">
+        <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:#050d2a;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i+1}</div>
+      </div>
+      <div class="stop-card-info">
+        <div class="stop-name">${s.name}</div>
+        <div class="stop-address">${s.address}</div>
+        ${s.notes ? `<div class="stop-notes">${s.notes}</div>` : ''}
+      </div>
+      <button class="user-action-btn danger" onclick="deleteStop('${s.id}')" style="flex-shrink:0">Remove</button>
+    </div>
+  `).join('');
+}
+
+async function fetchStops() {
+  try {
+    const r = await fetch('/api/stops', authHeaders);
+    allStops = await r.json();
+    renderStops();
+  } catch(e) {}
+}
+
+// ── ROUTES TAB ─────────────────────────────────────────
+function openNewRouteModal() {
+  document.getElementById('routeName').value = '';
+  document.getElementById('routeNotes').value = '';
+  const r = document.getElementById('routeResult');
+  r.className = 'modal-result'; r.textContent = '';
+  // populate driver select
+  const sel = document.getElementById('routeDriver');
+  sel.innerHTML = '<option value="">— Unassigned —</option>' + allDrivers.map(d => `<option value="${d.name}">${d.name}</option>`).join('');
+  // populate stop picker (checkboxes)
+  const picker = document.getElementById('routeStopPicker');
+  if (!allStops.length) {
+    picker.innerHTML = '<div style="padding:12px;font-size:13px;color:var(--muted)">No stops added yet — go to the Stops tab first.</div>';
+  } else {
+    picker.innerHTML = allStops.map(s => `
+      <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border)">
+        <input type="checkbox" value="${s.id}" style="accent-color:var(--accent)">
+        <div><div style="font-size:13px;font-weight:600">${s.name}</div><div style="font-size:11px;color:var(--muted)">${s.address}</div></div>
+      </label>
+    `).join('');
+  }
+  document.getElementById('newRouteModal').classList.add('open');
+}
+function closeNewRouteModal() { document.getElementById('newRouteModal').classList.remove('open'); }
+
+async function submitNewRoute() {
+  const name = document.getElementById('routeName').value.trim();
+  const r = document.getElementById('routeResult');
+  if (!name) { r.className = 'modal-result error'; r.textContent = 'Route name is required.'; return; }
+  const stopIds = [...document.querySelectorAll('#routeStopPicker input:checked')].map(cb => cb.value);
+  try {
+    const res = await fetch('/api/routes', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ name, stopIds, driver: document.getElementById('routeDriver').value, notes: document.getElementById('routeNotes').value.trim() }) });
+    if (!res.ok) throw new Error((await res.json()).error);
+    const route = await res.json();
+    allRoutes.push(route);
+    renderRoutes();
+    closeNewRouteModal();
+  } catch(e) { r.className = 'modal-result error'; r.textContent = e.message; }
+}
+
+async function deleteRoute(id) {
+  if (!confirm('Delete this route?')) return;
+  await fetch(`/api/routes/${id}`, { method: 'DELETE', ...authHeaders });
+  allRoutes = allRoutes.filter(r => r.id !== id);
+  renderRoutes();
+}
+
+function renderRoutes() {
+  const el = document.getElementById('routesList');
+  if (!allRoutes.length) {
+    el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🛣️</div><h3>No routes yet</h3><p>Create a route to group stops into a delivery run.</p></div>`;
+    return;
+  }
+  el.innerHTML = allRoutes.map(route => {
+    const routeStops = route.stopIds.map(id => allStops.find(s => s.id === id)).filter(Boolean);
+    return `
+    <div class="route-card" style="margin-bottom:12px">
+      <div class="route-header">
+        <div>
+          <div class="route-name">${route.name}</div>
+          <div class="route-meta">${route.driver ? `Driver: ${route.driver} · ` : ''}${routeStops.length} stop${routeStops.length!==1?'s':''}</div>
+        </div>
+        <button class="user-action-btn danger" onclick="deleteRoute('${route.id}')">Delete</button>
+      </div>
+      ${routeStops.length ? `<div class="route-stops-list">${routeStops.map((s,i) => `
+        <div class="route-stop-item">
+          <div class="route-stop-num">${i+1}</div>
+          <div><strong>${s.name}</strong> <span style="color:var(--muted);font-size:11px">${s.address}</span></div>
+        </div>`).join('')}</div>` : ''}
+      ${route.notes ? `<div style="margin-top:10px;font-size:12px;color:var(--muted);font-style:italic">${route.notes}</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+async function fetchRoutes() {
+  try {
+    const r = await fetch('/api/routes', authHeaders);
+    allRoutes = await r.json();
+    renderRoutes();
+  } catch(e) {}
+}
+
+document.getElementById('newRouteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeNewRouteModal(); });
+
+// ── USERS TAB ──────────────────────────────────────────
+let allUsers = [];
+
+if (nrUser && nrUser.role === 'admin') {
+  document.getElementById('usersNavItem').style.display = 'flex';
+}
+
+async function fetchUsers() {
+  try {
+    const r = await fetch('/api/users', authHeaders);
+    allUsers = await r.json();
+    renderUsersTable();
+  } catch(e) {}
+}
+
+function renderUsersTable() {
+  const roleClass = { admin: 'role-admin', manager: 'role-manager', driver: 'role-driver' };
+  const isAdmin = nrUser && nrUser.role === 'admin';
+  document.getElementById('usersTable').innerHTML = allUsers.map(u => `
+    <tr>
+      <td><strong>${u.name}</strong></td>
+      <td style="color:var(--muted)">${u.email}</td>
+      <td><span class="role-badge ${roleClass[u.role]||''}">${u.role}</span></td>
+      <td><span class="${u.status === 'active' ? 'status-active' : 'status-pending'}">${u.status}</span></td>
+      <td style="color:var(--muted)">${u.createdAt ? new Date(u.createdAt).toLocaleDateString() : '–'}</td>
+      <td style="display:flex;gap:6px;align-items:center">
+        ${isAdmin && u.id !== nrUser.id ? `
+          <select class="user-action-btn" style="padding:4px 8px" onchange="changeRole('${u.id}', this.value)">
+            <option value="driver" ${u.role==='driver'?'selected':''}>Driver</option>
+            <option value="manager" ${u.role==='manager'?'selected':''}>Manager</option>
+            <option value="admin" ${u.role==='admin'?'selected':''}>Admin</option>
+          </select>
+          <button class="user-action-btn danger" onclick="deleteUser('${u.id}', '${u.name}')">Remove</button>
+        ` : '<span style="color:var(--muted);font-size:12px">–</span>'}
+      </td>
+    </tr>
+  `).join('');
+}
+
+async function changeRole(id, role) {
+  try {
+    const r = await fetch(`/api/users/${id}/role`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ role }) });
+    if (!r.ok) { const d = await r.json(); alert(d.error); }
+    await fetchUsers();
+  } catch(e) { alert('Failed to update role'); }
+}
+
+async function deleteUser(id, name) {
+  if (!confirm(`Remove ${name} from the system?`)) return;
+  try {
+    const r = await fetch(`/api/users/${id}`, { method: 'DELETE', ...authHeaders });
+    if (!r.ok) { const d = await r.json(); alert(d.error); return; }
+    await fetchUsers();
+  } catch(e) { alert('Failed to remove user'); }
+}
+
+function openUserInviteModal() {
+  document.getElementById('userInviteModal').classList.add('open');
+  document.getElementById('uiName').value = '';
+  document.getElementById('uiEmail').value = '';
+  document.getElementById('uiRole').value = 'driver';
+  const r = document.getElementById('uiResult');
+  r.className = 'modal-result'; r.textContent = '';
+}
+function closeUserInviteModal() { document.getElementById('userInviteModal').classList.remove('open'); }
+async function submitUserInvite() {
+  const name = document.getElementById('uiName').value.trim();
+  const email = document.getElementById('uiEmail').value.trim();
+  const role = document.getElementById('uiRole').value;
+  const r = document.getElementById('uiResult');
+  if (!name || !email) { r.className = 'modal-result error'; r.textContent = 'Please fill in all fields.'; return; }
+  try {
+    const res = await fetch('/api/users/invite', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ name, email, role }) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    r.className = 'modal-result success';
+    r.innerHTML = `Invite sent for <strong>${name}</strong> as <strong>${role}</strong>.<br><span style="font-size:11px;opacity:0.8">Invite link printed to server console.</span>`;
+    document.getElementById('uiName').value = '';
+    document.getElementById('uiEmail').value = '';
+    await fetchUsers();
+  } catch(e) { r.className = 'modal-result error'; r.textContent = e.message || 'Failed to send invite.'; }
+}
+document.getElementById('userInviteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeUserInviteModal(); });
+
+// ── MAP ────────────────────────────────────────────────
+let leafletMap = null;
+const deliveryMarkers = [];
+
+function renderMap() {
+  if (!allDrivers.length) return;
+  if (!leafletMap) {
+    leafletMap = L.map('mapContainer').setView([32.7765, -79.9311], 13);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+      attribution: '© OpenStreetMap contributors', maxZoom: 19
+    }).addTo(leafletMap);
+  }
+  deliveryMarkers.forEach(m => leafletMap.removeLayer(m));
+  deliveryMarkers.length = 0;
+
+  allDeliveries.forEach(d => {
+    if (!d.lat || d.status === 'delivered') return;
+    const color = d.status === 'in-transit' ? '#3dba7f' : '#f59e0b';
+    const m = L.circleMarker([d.lat, d.lng], { radius: 7, fillColor: color, color: '#fff', weight: 2, fillOpacity: 0.75 })
+      .bindPopup(`<b>${d.restaurant}</b><br>${d.address}<br><i>${d.status}</i>`)
+      .addTo(leafletMap);
+    deliveryMarkers.push(m);
+  });
+
+  allDrivers.forEach(d => {
+    if (!d.lat || !d.lng) return;
+    const color = d.status === 'on-duty' ? '#3dba7f' : '#8899bb';
+    const initials = d.name.split(' ').map(n => n[0]).join('');
+    const icon = L.divIcon({
+      html: `<div style="background:${color};border:3px solid #fff;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;box-shadow:0 2px 10px rgba(0,0,0,0.4);font-family:Inter,sans-serif">${initials}</div>`,
+      className: '', iconSize: [36, 36], iconAnchor: [18, 18]
+    });
+    const m = L.marker([d.lat, d.lng], { icon })
+      .bindPopup(`<b>${d.name}</b><br>${d.vehicleId}<br>Status: <b>${d.status}</b><br>On-Time: <b>${d.onTimeRate}%</b><br>Stops: <b>${d.totalStopsToday}</b>`)
+      .addTo(leafletMap);
+    deliveryMarkers.push(m);
+  });
+
+  document.getElementById('mapUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+}
+
+// ── INVITE MODAL ───────────────────────────────────────
+function openInviteModal() {
+  document.getElementById('inviteModal').classList.add('open');
+  document.getElementById('inviteName').value = '';
+  document.getElementById('inviteEmail').value = '';
+  const r = document.getElementById('inviteResult');
+  r.className = 'modal-result'; r.textContent = '';
+}
+function closeInviteModal() {
+  document.getElementById('inviteModal').classList.remove('open');
+}
+async function submitInvite() {
+  const name = document.getElementById('inviteName').value.trim();
+  const email = document.getElementById('inviteEmail').value.trim();
+  const r = document.getElementById('inviteResult');
+  if (!name || !email) { r.className = 'modal-result error'; r.textContent = 'Please fill in both fields.'; return; }
+  try {
+    const res = await fetch('/api/drivers/invite', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+      body: JSON.stringify({ name, email })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    r.className = 'modal-result success';
+    r.textContent = `Invite sent for ${name}! The invite link is printed in the server console.`;
+    document.getElementById('inviteName').value = '';
+    document.getElementById('inviteEmail').value = '';
+  } catch(e) { r.className = 'modal-result error'; r.textContent = e.message || 'Failed to send invite.'; }
+}
+document.getElementById('inviteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeInviteModal(); });
 
 // ── AUTO REFRESH ───────────────────────────────────────
 fetchAll();

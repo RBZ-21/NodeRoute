@@ -13,10 +13,10 @@
       --navy-800: #0d1b3e;
       --navy-700: #0f2040;
       --navy-600: #1a2f5e;
-      --teal: #ff4620;
-      --teal-light: #ff4620;
-      --teal-dark: #e03510;
-      --teal-muted: rgba(255,70,32,0.12);
+      --teal: #3dba7f;
+      --teal-light: #4dcf91;
+      --teal-dark: #2ea06a;
+      --teal-muted: rgba(61,186,127,0.12);
       --purple: #7c3aed;
       --text: #ffffff;
       --text-muted: #8899bb;
@@ -36,6 +36,7 @@
       line-height: 1.6;
       -webkit-font-smoothing: antialiased;
     }
+    body::before{content:'';position:fixed;inset:0;background:url('noderoute-bg.png') center/cover no-repeat;opacity:0.35;z-index:0;pointer-events:none}
 
 
     /* ─── SCROLLBAR ─── */
@@ -741,13 +742,20 @@
   </style>
 </head>
 <body>
+<svg style="position:absolute;width:0;height:0" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <filter id="remove-white" color-interpolation-filters="sRGB">
+      <feColorMatrix type="matrix" values="1 0 0 0 0  0 1 0 0 0  0 0 1 0 0  -0.333 -0.333 -0.333 0 1"/>
+    </filter>
+  </defs>
+</svg>
 
 <!-- ─── NAV ─── -->
 <nav id="navbar">
   <div class="container">
     <div class="nav-inner">
       <a href="#" class="nav-logo">
-        <img src="NodeRoute_wbackground.svg" height="60" alt="NodeRoute Delivery Systems" style="display:block;padding:4px 0"/>
+        <img src="noderoute-logo.png" style="filter:url(#remove-white)" height="60" alt="NodeRoute Delivery Systems" style="display:block;padding:4px 0"/>
       </a>
 
       <ul class="nav-links">
@@ -1159,7 +1167,7 @@
     <div class="footer-inner">
       <div class="footer-brand">
         <a href="#" class="nav-logo" style="text-decoration:none;">
-          <img src="NodeRoute_wbackground.svg" height="36" alt="NodeRoute Delivery Systems"/>
+          <img src="noderoute-logo.png" style="filter:url(#remove-white)" height="36" alt="NodeRoute Delivery Systems"/>
         </a>
         <span class="footer-tagline">Total visibility for your delivery operation.</span>
       </div>
