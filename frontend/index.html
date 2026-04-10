@@ -7,8 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<!-- Google Maps loaded dynamically after auth -->
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
@@ -730,7 +729,7 @@ function showTab(name, el) {
   const idx = ['dashboard','deliveries','drivers','analytics','map','users','stops','routes','customers'].indexOf(name);
   document.querySelectorAll('.nav-item')[idx]?.classList.add('active');
   document.querySelectorAll('.mobile-tab')[idx]?.classList.add('active');
-  if (name === 'map') { setTimeout(() => { if (leafletMap) leafletMap.invalidateSize(); renderMap(); }, 50); }
+  if (name === 'map') { setTimeout(() => renderMap(), 50); }
 }
 
 // ── ALERT ──────────────────────────────────────────────
@@ -1787,44 +1786,113 @@ async function submitUserInvite() {
 }
 document.getElementById('userInviteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeUserInviteModal(); });
 
-// ── MAP ────────────────────────────────────────────────
-let leafletMap = null;
-const deliveryMarkers = [];
+// ── MAP (Google Maps) ───────────────────────────────────
+let googleMap = null;
+const gMapMarkers = [];
+let gmapsLoaded = false;
 
-function renderMap() {
-  if (!allDrivers.length) return;
-  if (!leafletMap) {
-    leafletMap = L.map('mapContainer').setView([32.7765, -79.9311], 13);
-    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-      attribution: '© OpenStreetMap contributors', maxZoom: 19
-    }).addTo(leafletMap);
+async function loadGoogleMaps() {
+  if (gmapsLoaded) return;
+  gmapsLoaded = true;
+  try {
+    const r = await fetch('/api/config/maps-key', authHeaders);
+    const { key } = await r.json();
+    if (!key) return;
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${key}`;
+      s.async = true;
+      s.onload = resolve;
+      s.onerror = reject;
+      document.head.appendChild(s);
+    });
+  } catch(e) { console.warn('Google Maps failed to load', e); gmapsLoaded = false; }
+}
+
+async function renderMap() {
+  await loadGoogleMaps();
+  if (typeof google === 'undefined') return;
+
+  const mapEl = document.getElementById('mapContainer');
+  if (!googleMap) {
+    googleMap = new google.maps.Map(mapEl, {
+      center: { lat: 32.7765, lng: -79.9311 },
+      zoom: 13,
+      mapTypeId: 'roadmap',
+      styles: [
+        { elementType: 'geometry', stylers: [{ color: '#0d1b3e' }] },
+        { elementType: 'labels.text.fill', stylers: [{ color: '#8899bb' }] },
+        { elementType: 'labels.text.stroke', stylers: [{ color: '#050d2a' }] },
+        { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1a2f5e' }] },
+        { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#243d6e' }] },
+        { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#050d2a' }] },
+        { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+        { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+      ],
+      disableDefaultUI: false,
+      zoomControl: true,
+      streetViewControl: false,
+      mapTypeControl: false,
+      fullscreenControl: true,
+    });
   }
-  deliveryMarkers.forEach(m => leafletMap.removeLayer(m));
-  deliveryMarkers.length = 0;
 
+  // Clear old markers
+  gMapMarkers.forEach(m => m.setMap(null));
+  gMapMarkers.length = 0;
+
+  // Delivery markers
   allDeliveries.forEach(d => {
     if (!d.lat || d.status === 'delivered') return;
     const color = d.status === 'in-transit' ? '#3dba7f' : '#f59e0b';
-    const m = L.circleMarker([d.lat, d.lng], { radius: 7, fillColor: color, color: '#fff', weight: 2, fillOpacity: 0.75 })
-      .bindPopup(`<b>${d.restaurant}</b><br>${d.address}<br><i>${d.status}</i>`)
-      .addTo(leafletMap);
-    deliveryMarkers.push(m);
+    const marker = new google.maps.Marker({
+      position: { lat: d.lat, lng: d.lng },
+      map: googleMap,
+      icon: {
+        path: google.maps.SymbolPath.CIRCLE,
+        scale: 8,
+        fillColor: color,
+        fillOpacity: 0.9,
+        strokeColor: '#ffffff',
+        strokeWeight: 2,
+      },
+      title: d.restaurant,
+    });
+    const info = new google.maps.InfoWindow({
+      content: `<div style="font-family:Inter,sans-serif;padding:4px"><b>${d.restaurant}</b><br><span style="color:#666">${d.address}</span><br><i>${d.status}</i></div>`
+    });
+    marker.addListener('click', () => info.open(googleMap, marker));
+    gMapMarkers.push(marker);
   });
 
+  // Driver markers (circular avatar with initials)
   allDrivers.forEach(d => {
     if (!d.lat || !d.lng) return;
     const color = d.status === 'on-duty' ? '#3dba7f' : '#8899bb';
     const initials = d.name.split(' ').map(n => n[0]).join('');
-    const icon = L.divIcon({
-      html: `<div style="background:${color};border:3px solid #fff;border-radius:50%;width:36px;height:36px;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#fff;box-shadow:0 2px 10px rgba(0,0,0,0.4);font-family:Inter,sans-serif">${initials}</div>`,
-      className: '', iconSize: [36, 36], iconAnchor: [18, 18]
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="40" height="40">
+      <circle cx="20" cy="20" r="18" fill="${color}" stroke="#fff" stroke-width="3"/>
+      <text x="20" y="25" text-anchor="middle" font-size="13" font-weight="700" font-family="Inter,sans-serif" fill="#fff">${initials}</text>
+    </svg>`;
+    const marker = new google.maps.Marker({
+      position: { lat: d.lat, lng: d.lng },
+      map: googleMap,
+      icon: {
+        url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(svg),
+        scaledSize: new google.maps.Size(40, 40),
+        anchor: new google.maps.Point(20, 20),
+      },
+      title: d.name,
+      zIndex: 10,
     });
-    const m = L.marker([d.lat, d.lng], { icon })
-      .bindPopup(`<b>${d.name}</b><br>${d.vehicleId}<br>Status: <b>${d.status}</b><br>On-Time: <b>${d.onTimeRate}%</b><br>Stops: <b>${d.totalStopsToday}</b>`)
-      .addTo(leafletMap);
-    deliveryMarkers.push(m);
+    const info = new google.maps.InfoWindow({
+      content: `<div style="font-family:Inter,sans-serif;padding:4px"><b>${d.name}</b><br>${d.vehicleId}<br>Status: <b>${d.status}</b><br>On-Time: <b>${d.onTimeRate}%</b><br>Stops today: <b>${d.totalStopsToday}</b></div>`
+    });
+    marker.addListener('click', () => info.open(googleMap, marker));
+    gMapMarkers.push(marker);
   });
 
+  google.maps.event.trigger(googleMap, 'resize');
   document.getElementById('mapUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
 }
 
