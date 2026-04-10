@@ -327,6 +327,10 @@ app.post('/api/stops/:id/depart', authenticateToken, (req, res) => {
 });
 app.get('/api/dwell', authenticateToken, (req, res) => res.json(dwellRecords));
 
+app.get('/api/config/maps-key', authenticateToken, (req, res) => {
+  res.json({ key: process.env.GOOGLE_MAPS_KEY || '' });
+});
+
 app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
 app.get('/dashboard', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
 app.get('/landing', (req, res) => res.sendFile(path.join(frontendDir, 'landing.html')));
