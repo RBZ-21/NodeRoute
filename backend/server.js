@@ -1,7 +1,11 @@
+require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const { createClient } = require('@supabase/supabase-js');
+
+const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -264,8 +268,64 @@ app.delete('/api/routes/:id', authenticateToken, (req, res) => {
   res.json({ message: 'Deleted' });
 });
 
-// ── CUSTOMERS (placeholder) ─────────────────────────────
-app.get('/api/customers', authenticateToken, (req, res) => res.json([]));
+// ── CUSTOMERS (Supabase: "250 restaurants") ─────────────
+app.get('/api/customers', authenticateToken, async (req, res) => {
+  const { data, error } = await supabase
+    .from('250 restaurants')
+    .select('*')
+    .order('Rank', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+app.post('/api/customers', authenticateToken, async (req, res) => {
+  const { Restaurant, Address, Phone, Area, Cuisine, Rank } = req.body;
+  if (!Restaurant) return res.status(400).json({ error: 'Restaurant name required' });
+  const { data, error } = await supabase
+    .from('250 restaurants')
+    .insert([{ Restaurant, Address: Address||'', Phone: Phone||'', Area: Area||'', Cuisine: Cuisine||'', Rank: Rank||null }])
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+app.patch('/api/customers/:rank', authenticateToken, async (req, res) => {
+  const { data, error } = await supabase
+    .from('250 restaurants')
+    .update(req.body)
+    .eq('Rank', req.params.rank)
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+app.delete('/api/customers/:rank', authenticateToken, async (req, res) => {
+  const { error } = await supabase
+    .from('250 restaurants')
+    .delete()
+    .eq('Rank', req.params.rank);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ message: 'Deleted' });
+});
+
+// ── DWELL TIME (geofence check-in/out) ──────────────────
+const dwellRecords = []; // { id, stopId, routeId, driverId, arrivedAt, departedAt, dwellMs }
+app.post('/api/stops/:id/arrive', authenticateToken, (req, res) => {
+  const { routeId } = req.body;
+  const existing = dwellRecords.find(d => d.stopId === req.params.id && d.routeId === routeId && !d.departedAt);
+  if (existing) return res.json(existing);
+  const record = { id: 'dwell-' + Date.now(), stopId: req.params.id, routeId: routeId||'', driverId: req.user.userId, arrivedAt: new Date().toISOString(), departedAt: null, dwellMs: null };
+  dwellRecords.push(record);
+  res.json(record);
+});
+app.post('/api/stops/:id/depart', authenticateToken, (req, res) => {
+  const { routeId } = req.body;
+  const record = dwellRecords.find(d => d.stopId === req.params.id && d.routeId === routeId && !d.departedAt);
+  if (!record) return res.status(404).json({ error: 'No active arrival found' });
+  record.departedAt = new Date().toISOString();
+  record.dwellMs = new Date(record.departedAt) - new Date(record.arrivedAt);
+  res.json(record);
+});
+app.get('/api/dwell', authenticateToken, (req, res) => res.json(dwellRecords));
 
 app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
 app.get('/dashboard', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));

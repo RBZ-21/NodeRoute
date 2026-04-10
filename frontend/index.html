@@ -36,14 +36,27 @@ img.logo-img{filter:url(#remove-white)}
 .stop-address{font-size:12px;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .stop-notes{font-size:11px;color:var(--muted);margin-top:4px;font-style:italic}
 .stops-list{display:flex;flex-direction:column;gap:10px}
-.route-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:20px;transition:var(--trans)}
-.route-card:hover{border-color:var(--accent)}
+.route-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:20px;transition:var(--trans);cursor:pointer}
+.route-card:hover{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
 .route-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
 .route-name{font-weight:600;font-size:15px}
 .route-meta{font-size:12px;color:var(--muted);margin-top:2px}
 .route-stops-list{display:flex;flex-direction:column;gap:6px;margin-top:12px}
 .route-stop-item{display:flex;align-items:center;gap:10px;font-size:13px;padding:6px 10px;background:rgba(0,0,0,0.12);border-radius:6px}
 .route-stop-num{width:20px;height:20px;border-radius:50%;background:var(--accent);color:#050d2a;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0}
+/* Route detail view */
+.route-detail-header{display:flex;align-items:center;gap:12px;margin-bottom:20px;flex-wrap:wrap}
+.route-detail-stops{display:flex;flex-direction:column;gap:8px}
+.detail-stop{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:14px 16px;display:flex;align-items:center;gap:12px;cursor:grab;transition:var(--trans);user-select:none}
+.detail-stop:active{cursor:grabbing}
+.detail-stop.dragging{opacity:0.4;border-color:var(--accent);border-style:dashed}
+.detail-stop.drag-over{border-color:var(--accent);background:rgba(61,186,127,0.07);transform:scale(1.01)}
+.drag-handle{color:var(--muted);font-size:16px;flex-shrink:0;cursor:grab}
+/* Add to route inline */
+.stop-route-row{display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap}
+.stop-route-select{background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:4px 8px;flex:1;min-width:100px}
+.stop-route-btn{background:rgba(61,186,127,0.12);border:1px solid var(--accent);color:var(--accent);border-radius:6px;font-size:12px;font-weight:600;padding:4px 10px;cursor:pointer;white-space:nowrap}
+.stop-route-btn:hover{background:rgba(61,186,127,0.22)}
 .empty-state{text-align:center;padding:60px 20px;color:var(--muted)}
 .empty-state-icon{font-size:48px;margin-bottom:16px}
 .empty-state h3{font-size:16px;color:var(--text);margin-bottom:8px}
@@ -517,31 +530,45 @@ td{padding:12px 16px;vertical-align:middle}
 
     <!-- TAB: ROUTES -->
     <div class="tab-pane" id="tab-routes">
-      <div class="section-header">
-        <div class="section-title" style="margin:0">Routes</div>
-        <button class="btn btn-accent" onclick="openNewRouteModal()">+ New Route</button>
+      <!-- Routes list view -->
+      <div id="routesListView">
+        <div class="section-header">
+          <div class="section-title" style="margin:0">Routes</div>
+          <button class="btn btn-accent" onclick="openNewRouteModal()">+ New Route</button>
+        </div>
+        <div id="routesList"></div>
       </div>
-      <div id="routesList"></div>
+      <!-- Route detail view -->
+      <div id="routeDetailView" style="display:none">
+        <div class="route-detail-header">
+          <button class="btn" style="background:rgba(255,255,255,0.06);border:1px solid var(--border);font-size:13px;padding:8px 14px" onclick="closeRouteDetail()">← Back</button>
+          <div style="flex:1">
+            <div id="routeDetailName" style="font-size:18px;font-weight:700"></div>
+            <div id="routeDetailMeta" style="font-size:12px;color:var(--muted);margin-top:2px"></div>
+          </div>
+          <button id="geofenceToggleBtn" class="btn" style="background:rgba(61,186,127,0.1);border:1px solid var(--accent);color:var(--accent);font-size:13px;padding:8px 14px" onclick="toggleGeofence()">📡 Start Tracking</button>
+          <button class="btn" style="background:rgba(245,158,11,0.1);border:1px solid var(--warn);color:var(--warn);font-size:13px;padding:8px 14px" onclick="autoSort('distance')">⚡ Shortest Distance</button>
+          <button class="btn btn-accent" style="font-size:13px;padding:8px 14px" onclick="autoSort('fastest')">🚀 Fastest</button>
+        </div>
+        <div id="routeDetailStops" class="route-detail-stops"></div>
+      </div>
     </div>
 
     <!-- TAB: CUSTOMERS -->
     <div class="tab-pane" id="tab-customers">
       <div class="section-header">
-        <div class="section-title" style="margin:0">Customers</div>
+        <div class="section-title" style="margin:0">Restaurants</div>
+        <button class="btn btn-accent" onclick="openAddCustomerModal()">+ Add Restaurant</button>
       </div>
-      <div class="customer-placeholder">
-        <div style="font-size:56px;margin-bottom:20px">🏢</div>
-        <div class="db-badge">🔌 Awaiting database connection</div>
-        <h3 style="font-size:18px;color:var(--text);margin-bottom:10px">No customers loaded yet</h3>
-        <p style="max-width:380px;line-height:1.7">Customer data will populate automatically once the database is linked. The table below will show name, contact, address, and order history.</p>
-        <div class="table-card" style="width:100%;margin-top:32px;opacity:0.4;pointer-events:none">
-          <table>
-            <thead><tr>
-              <th>Name</th><th>Email</th><th>Phone</th><th>Address</th><th>Total Orders</th><th>Last Order</th>
-            </tr></thead>
-            <tbody><tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">No data</td></tr></tbody>
-          </table>
-        </div>
+      <div class="table-card">
+        <table>
+          <thead><tr>
+            <th>#</th><th>Restaurant</th><th>Area</th><th>Cuisine</th><th>Address</th><th>Phone</th><th></th>
+          </tr></thead>
+          <tbody id="customersTable">
+            <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr>
+          </tbody>
+        </table>
       </div>
     </div>
 
@@ -611,6 +638,31 @@ td{padding:12px 16px;vertical-align:middle}
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeUserInviteModal()">Cancel</button>
       <button class="btn btn-accent" onclick="submitUserInvite()">Send Invite</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD CUSTOMER MODAL -->
+<div class="modal-overlay" id="addCustomerModal">
+  <div class="modal-box">
+    <h3>Add Restaurant</h3>
+    <p class="modal-sub">Manually add a restaurant to the list.</p>
+    <label class="modal-label">Restaurant Name *</label>
+    <input class="modal-input" id="custName" type="text" placeholder="e.g. Husk Restaurant">
+    <label class="modal-label">Area</label>
+    <input class="modal-input" id="custArea" type="text" placeholder="e.g. Downtown Charleston">
+    <label class="modal-label">Cuisine</label>
+    <input class="modal-input" id="custCuisine" type="text" placeholder="e.g. Contemporary Southern">
+    <label class="modal-label">Address</label>
+    <input class="modal-input" id="custAddress" type="text" placeholder="76 Queen St, Charleston, SC">
+    <label class="modal-label">Phone</label>
+    <input class="modal-input" id="custPhone" type="tel" placeholder="(843) 555-0100">
+    <label class="modal-label">Rank</label>
+    <input class="modal-input" id="custRank" type="number" placeholder="e.g. 226">
+    <div class="modal-result" id="custResult"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeAddCustomerModal()">Cancel</button>
+      <button class="btn btn-accent" onclick="submitAddCustomer()">Add Restaurant</button>
     </div>
   </div>
 </div>
@@ -723,6 +775,7 @@ async function fetchAll() {
     if (nrUser && nrUser.role === 'admin') fetchUsers();
     fetchStops();
     fetchRoutes();
+    fetchCustomers();
     updateAlert(d);
     populateDriverFilter();
   } catch(e) {
@@ -1215,8 +1268,12 @@ function renderStops() {
     el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📍</div><h3>No stops yet</h3><p>Search for an address above to add your first stop.</p></div>`;
     return;
   }
-  el.innerHTML = allStops.map((s, i) => `
-    <div class="stop-card">
+  el.innerHTML = allStops.map((s, i) => {
+    const routeOptions = allRoutes.length
+      ? allRoutes.map(r => `<option value="${r.id}">${r.name}</option>`).join('')
+      : '<option value="" disabled>No routes yet</option>';
+    return `
+    <div class="stop-card" style="flex-wrap:wrap">
       <div style="display:flex;align-items:center;gap:12px;margin-right:8px">
         <div style="width:28px;height:28px;border-radius:50%;background:var(--accent);color:#050d2a;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;flex-shrink:0">${i+1}</div>
       </div>
@@ -1224,10 +1281,31 @@ function renderStops() {
         <div class="stop-name">${s.name}</div>
         <div class="stop-address">${s.address}</div>
         ${s.notes ? `<div class="stop-notes">${s.notes}</div>` : ''}
+        <div class="stop-route-row">
+          <select class="stop-route-select" id="routeSelect-${s.id}">${routeOptions}</select>
+          <button class="stop-route-btn" onclick="addStopToRoute('${s.id}')">+ Add to Route</button>
+        </div>
       </div>
-      <button class="user-action-btn danger" onclick="deleteStop('${s.id}')" style="flex-shrink:0">Remove</button>
-    </div>
-  `).join('');
+      <button class="user-action-btn danger" onclick="deleteStop('${s.id}')" style="flex-shrink:0;align-self:flex-start">Remove</button>
+    </div>`;
+  }).join('');
+}
+
+async function addStopToRoute(stopId) {
+  const sel = document.getElementById(`routeSelect-${stopId}`);
+  if (!sel || !sel.value) return;
+  const routeId = sel.value;
+  const route = allRoutes.find(r => r.id === routeId);
+  if (!route) return;
+  if (route.stopIds.includes(stopId)) { alert('Stop already in this route.'); return; }
+  const newIds = [...route.stopIds, stopId];
+  try {
+    const res = await fetch(`/api/routes/${routeId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ stopIds: newIds }) });
+    if (!res.ok) throw new Error((await res.json()).error);
+    route.stopIds = newIds;
+    renderStops();
+    renderRoutes();
+  } catch(e) { alert('Failed to add stop: ' + e.message); }
 }
 
 async function fetchStops() {
@@ -1294,13 +1372,13 @@ function renderRoutes() {
   el.innerHTML = allRoutes.map(route => {
     const routeStops = route.stopIds.map(id => allStops.find(s => s.id === id)).filter(Boolean);
     return `
-    <div class="route-card" style="margin-bottom:12px">
+    <div class="route-card" style="margin-bottom:12px" onclick="openRouteDetail('${route.id}')">
       <div class="route-header">
         <div>
-          <div class="route-name">${route.name}</div>
+          <div class="route-name">${route.name} <span style="font-size:12px;color:var(--muted);font-weight:400">— click to open</span></div>
           <div class="route-meta">${route.driver ? `Driver: ${route.driver} · ` : ''}${routeStops.length} stop${routeStops.length!==1?'s':''}</div>
         </div>
-        <button class="user-action-btn danger" onclick="deleteRoute('${route.id}')">Delete</button>
+        <button class="user-action-btn danger" onclick="event.stopPropagation();deleteRoute('${route.id}')">Delete</button>
       </div>
       ${routeStops.length ? `<div class="route-stops-list">${routeStops.map((s,i) => `
         <div class="route-stop-item">
@@ -1312,6 +1390,147 @@ function renderRoutes() {
   }).join('');
 }
 
+// ── ROUTE DETAIL VIEW ──────────────────────────────────
+let currentRouteId = null;
+let dragSrcIdx = null;
+
+function openRouteDetail(routeId) {
+  currentRouteId = routeId;
+  document.getElementById('routesListView').style.display = 'none';
+  document.getElementById('routeDetailView').style.display = 'block';
+  renderRouteDetail();
+}
+
+function closeRouteDetail() {
+  stopGeofencing();
+  currentRouteId = null;
+  document.getElementById('routeDetailView').style.display = 'none';
+  document.getElementById('routesListView').style.display = 'block';
+}
+
+function renderRouteDetail() {
+  const route = allRoutes.find(r => r.id === currentRouteId);
+  if (!route) { closeRouteDetail(); return; }
+  const stops = route.stopIds.map(id => allStops.find(s => s.id === id)).filter(Boolean);
+  document.getElementById('routeDetailName').textContent = route.name;
+  document.getElementById('routeDetailMeta').textContent =
+    `${stops.length} stop${stops.length!==1?'s':''}${route.driver ? ' · Driver: ' + route.driver : ''}`;
+  const container = document.getElementById('routeDetailStops');
+  if (!stops.length) {
+    container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📍</div><h3>No stops in this route</h3><p>Add stops from the Stops tab.</p></div>`;
+    return;
+  }
+  container.innerHTML = stops.map((s, i) => `
+    <div class="detail-stop" draggable="true" data-idx="${i}" data-id="${s.id}"
+      ondragstart="onDragStart(event,${i})" ondragover="onDragOver(event,${i})"
+      ondragleave="onDragLeave(event)" ondrop="onDrop(event,${i})" ondragend="onDragEnd(event)">
+      <span class="drag-handle">⠿</span>
+      <div class="route-stop-num">${i+1}</div>
+      <div style="flex:1;min-width:0">
+        <div style="font-weight:600;font-size:14px">${s.name}</div>
+        <div style="font-size:12px;color:var(--muted)">${s.address}</div>
+      </div>
+      <button class="user-action-btn danger" style="flex-shrink:0" onclick="removeStopFromRoute('${s.id}')">Remove</button>
+    </div>`).join('');
+}
+
+async function removeStopFromRoute(stopId) {
+  const route = allRoutes.find(r => r.id === currentRouteId);
+  if (!route) return;
+  const newIds = route.stopIds.filter(id => id !== stopId);
+  const res = await fetch(`/api/routes/${currentRouteId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ stopIds: newIds }) });
+  if (res.ok) { route.stopIds = newIds; renderRouteDetail(); renderRoutes(); }
+}
+
+// ── DRAG AND DROP ──────────────────────────────────────
+function onDragStart(e, idx) {
+  dragSrcIdx = idx;
+  e.currentTarget.classList.add('dragging');
+  e.dataTransfer.effectAllowed = 'move';
+}
+function onDragOver(e, idx) {
+  e.preventDefault();
+  e.dataTransfer.dropEffect = 'move';
+  document.querySelectorAll('.detail-stop').forEach(el => el.classList.remove('drag-over'));
+  e.currentTarget.classList.add('drag-over');
+}
+function onDragLeave(e) { e.currentTarget.classList.remove('drag-over'); }
+function onDragEnd(e) {
+  e.currentTarget.classList.remove('dragging');
+  document.querySelectorAll('.detail-stop').forEach(el => el.classList.remove('drag-over'));
+}
+async function onDrop(e, targetIdx) {
+  e.preventDefault();
+  if (dragSrcIdx === null || dragSrcIdx === targetIdx) return;
+  const route = allRoutes.find(r => r.id === currentRouteId);
+  if (!route) return;
+  const ids = [...route.stopIds];
+  const [moved] = ids.splice(dragSrcIdx, 1);
+  ids.splice(targetIdx, 0, moved);
+  dragSrcIdx = null;
+  try {
+    const res = await fetch(`/api/routes/${currentRouteId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ stopIds: ids }) });
+    if (res.ok) { route.stopIds = ids; renderRouteDetail(); renderRoutes(); }
+  } catch(e2) {}
+}
+
+// ── AUTO-SORT ──────────────────────────────────────────
+function haversine(a, b) {
+  const R = 6371, toRad = x => x * Math.PI / 180;
+  const dLat = toRad(b.lat - a.lat), dLon = toRad(b.lon - a.lon);
+  const h = Math.sin(dLat/2)**2 + Math.cos(toRad(a.lat))*Math.cos(toRad(b.lat))*Math.sin(dLon/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+function nearestNeighbor(stops, matrix) {
+  const n = stops.length, visited = new Array(n).fill(false);
+  const order = [0]; visited[0] = true;
+  for (let step = 1; step < n; step++) {
+    const last = order[order.length - 1];
+    let best = -1, bestCost = Infinity;
+    for (let j = 0; j < n; j++) {
+      if (!visited[j] && matrix[last][j] < bestCost) { bestCost = matrix[last][j]; best = j; }
+    }
+    order.push(best); visited[best] = true;
+  }
+  return order;
+}
+
+async function autoSort(mode) {
+  const route = allRoutes.find(r => r.id === currentRouteId);
+  if (!route) return;
+  const stops = route.stopIds.map(id => allStops.find(s => s.id === id)).filter(Boolean);
+  if (stops.length < 3) { alert('Need at least 3 stops to auto-sort.'); return; }
+
+  let order;
+  if (mode === 'distance') {
+    const matrix = stops.map(a => stops.map(b => haversine(
+      { lat: a.lat, lon: a.lng }, { lat: b.lat, lon: b.lng }
+    )));
+    order = nearestNeighbor(stops, matrix);
+  } else {
+    // OSRM road duration matrix
+    try {
+      const coords = stops.map(s => `${s.lng},${s.lat}`).join(';');
+      const r = await fetch(`https://router.project-osrm.org/table/v1/driving/${coords}?annotations=duration`);
+      if (!r.ok) throw new Error('OSRM error');
+      const data = await r.json();
+      order = nearestNeighbor(stops, data.durations);
+    } catch(err) {
+      alert('Could not reach routing service. Falling back to shortest distance.');
+      const matrix = stops.map(a => stops.map(b => haversine(
+        { lat: a.lat, lon: a.lng }, { lat: b.lat, lon: b.lng }
+      )));
+      order = nearestNeighbor(stops, matrix);
+    }
+  }
+
+  const newIds = order.map(i => stops[i].id);
+  try {
+    const res = await fetch(`/api/routes/${currentRouteId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ stopIds: newIds }) });
+    if (res.ok) { route.stopIds = newIds; renderRouteDetail(); renderRoutes(); }
+  } catch(e2) { alert('Failed to save sorted order.'); }
+}
+
 async function fetchRoutes() {
   try {
     const r = await fetch('/api/routes', authHeaders);
@@ -1321,6 +1540,168 @@ async function fetchRoutes() {
 }
 
 document.getElementById('newRouteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeNewRouteModal(); });
+document.getElementById('addCustomerModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeAddCustomerModal(); });
+
+// ── CUSTOMERS TAB ──────────────────────────────────────
+let allCustomers = [];
+
+function openAddCustomerModal() {
+  ['custName','custArea','custCuisine','custAddress','custPhone','custRank'].forEach(id => document.getElementById(id).value = '');
+  const r = document.getElementById('custResult'); r.className = 'modal-result'; r.textContent = '';
+  document.getElementById('addCustomerModal').classList.add('open');
+}
+function closeAddCustomerModal() { document.getElementById('addCustomerModal').classList.remove('open'); }
+
+async function submitAddCustomer() {
+  const Restaurant = document.getElementById('custName').value.trim();
+  const r = document.getElementById('custResult');
+  if (!Restaurant) { r.className = 'modal-result error'; r.textContent = 'Restaurant name is required.'; return; }
+  try {
+    const res = await fetch('/api/customers', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({
+      Restaurant,
+      Area: document.getElementById('custArea').value.trim(),
+      Cuisine: document.getElementById('custCuisine').value.trim(),
+      Address: document.getElementById('custAddress').value.trim(),
+      Phone: document.getElementById('custPhone').value.trim(),
+      Rank: document.getElementById('custRank').value ? parseInt(document.getElementById('custRank').value) : null
+    })});
+    if (!res.ok) throw new Error((await res.json()).error);
+    const c = await res.json();
+    allCustomers.push(c);
+    renderCustomersTable();
+    closeAddCustomerModal();
+  } catch(e2) { r.className = 'modal-result error'; r.textContent = e2.message; }
+}
+
+async function deleteCustomer(rank, name) {
+  if (!confirm(`Remove ${name}?`)) return;
+  await fetch(`/api/customers/${rank}`, { method: 'DELETE', ...authHeaders });
+  allCustomers = allCustomers.filter(c => c.Rank !== rank);
+  renderCustomersTable();
+}
+
+function renderCustomersTable() {
+  const tbody = document.getElementById('customersTable');
+  if (!allCustomers.length) {
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">No restaurants yet. Add one above.</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = allCustomers.map(c => `
+    <tr>
+      <td style="color:var(--muted);font-size:12px;font-weight:600">${c.Rank ?? '–'}</td>
+      <td><strong>${c.Restaurant||'–'}</strong></td>
+      <td style="color:var(--muted);font-size:12px">${c.Area||'–'}</td>
+      <td style="color:var(--muted);font-size:12px">${c.Cuisine||'–'}</td>
+      <td style="color:var(--muted);font-size:12px;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.Address||'–'}</td>
+      <td style="color:var(--muted);font-size:12px">${c.Phone||'–'}</td>
+      <td><button class="user-action-btn danger" onclick="deleteCustomer(${c.Rank},'${(c.Restaurant||'').replace(/'/g,"\\'")}')">Remove</button></td>
+    </tr>`).join('');
+}
+
+async function fetchCustomers() {
+  try {
+    const r = await fetch('/api/customers', authHeaders);
+    const data = await r.json();
+    allCustomers = Array.isArray(data) ? data : [];
+    renderCustomersTable();
+  } catch(e) {}
+}
+
+// ── GEOFENCE / DWELL TIME ──────────────────────────────
+// Tracks time spent at each stop using the Geolocation API.
+// When a route is active and driver is within GEOFENCE_RADIUS metres of a stop,
+// an arrival is auto-logged. Departure is logged when they leave the radius.
+const GEOFENCE_RADIUS_M = 100;
+let activeRouteId = null;
+let dwellState = {}; // stopId -> { arrived: bool, recordId }
+let geoWatchId = null;
+
+function startGeofencing(routeId) {
+  if (!navigator.geolocation) { alert('Geolocation not supported by this browser.'); return; }
+  if (geoWatchId !== null) stopGeofencing();
+  activeRouteId = routeId;
+  dwellState = {};
+  geoWatchId = navigator.geolocation.watchPosition(pos => {
+    onGeoUpdate(pos.coords.latitude, pos.coords.longitude);
+  }, err => console.warn('Geo error:', err), { enableHighAccuracy: true, maximumAge: 10000 });
+  updateGeofenceStatus();
+}
+
+function toggleGeofence() {
+  if (geoWatchId !== null) { stopGeofencing(); } else { startGeofencing(currentRouteId); }
+}
+
+function stopGeofencing() {
+  if (geoWatchId !== null) { navigator.geolocation.clearWatch(geoWatchId); geoWatchId = null; }
+  activeRouteId = null; dwellState = {};
+  updateGeofenceStatus();
+}
+
+function geoDistance(lat1, lng1, lat2, lng2) {
+  const R = 6371000, toRad = x => x * Math.PI / 180;
+  const dLat = toRad(lat2 - lat1), dLng = toRad(lng2 - lng1);
+  const a = Math.sin(dLat/2)**2 + Math.cos(toRad(lat1))*Math.cos(toRad(lat2))*Math.sin(dLng/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(a));
+}
+
+async function onGeoUpdate(lat, lng) {
+  if (!activeRouteId) return;
+  const route = allRoutes.find(r => r.id === activeRouteId);
+  if (!route) return;
+  const stops = route.stopIds.map(id => allStops.find(s => s.id === id)).filter(Boolean);
+  for (const stop of stops) {
+    if (!stop.lat || !stop.lng) continue;
+    const dist = geoDistance(lat, lng, stop.lat, stop.lng);
+    const state = dwellState[stop.id] || { arrived: false, recordId: null };
+    if (dist <= GEOFENCE_RADIUS_M && !state.arrived) {
+      // Arrived
+      try {
+        const res = await fetch(`/api/stops/${stop.id}/arrive`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ routeId: activeRouteId }) });
+        const rec = await res.json();
+        dwellState[stop.id] = { arrived: true, recordId: rec.id };
+        showGeofenceToast(`Arrived at ${stop.name}`);
+      } catch(e) {}
+    } else if (dist > GEOFENCE_RADIUS_M && state.arrived) {
+      // Departed
+      try {
+        await fetch(`/api/stops/${stop.id}/depart`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ routeId: activeRouteId }) });
+        const dwell = dwellState[stop.id];
+        dwellState[stop.id] = { arrived: false, recordId: null };
+        showGeofenceToast(`Left ${stop.name}`);
+      } catch(e) {}
+    }
+  }
+}
+
+function showGeofenceToast(msg) {
+  let toast = document.getElementById('geoToast');
+  if (!toast) {
+    toast = document.createElement('div');
+    toast.id = 'geoToast';
+    toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0d1b3e;border:1px solid var(--accent);color:var(--text);padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;transition:opacity 0.4s';
+    document.body.appendChild(toast);
+  }
+  toast.textContent = '📍 ' + msg;
+  toast.style.opacity = '1';
+  clearTimeout(toast._t);
+  toast._t = setTimeout(() => toast.style.opacity = '0', 3000);
+}
+
+function updateGeofenceStatus() {
+  const btn = document.getElementById('geofenceToggleBtn');
+  if (!btn) return;
+  if (geoWatchId !== null) {
+    btn.textContent = '🛑 Stop Tracking';
+    btn.style.background = 'rgba(239,68,68,0.1)';
+    btn.style.borderColor = 'var(--danger)';
+    btn.style.color = 'var(--danger)';
+  } else {
+    btn.textContent = '📡 Start Tracking';
+    btn.style.background = 'rgba(61,186,127,0.1)';
+    btn.style.borderColor = 'var(--accent)';
+    btn.style.color = 'var(--accent)';
+  }
+}
 
 // ── USERS TAB ──────────────────────────────────────────
 let allUsers = [];
