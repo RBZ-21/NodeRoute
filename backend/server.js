@@ -180,6 +180,13 @@ app.patch('/api/deliveries/:id/status', authenticateToken, (req, res) => {
   res.json(delivery);
 });
 
+app.get('/api/stats', authenticateToken, (req, res) => {
+  const completed = deliveries.filter(d => d.status === 'delivered').length;
+  const inProgress = deliveries.filter(d => d.status === 'in-transit').length;
+  const pending = deliveries.filter(d => d.status === 'pending').length;
+  res.json({ completed, inProgress, pending, total: deliveries.length });
+});
+
 app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
 app.get('/dashboard', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
 app.get('/landing', (req, res) => res.sendFile(path.join(frontendDir, 'landing.html')));
