@@ -3,14 +3,25 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const { createClient } = require('@supabase/supabase-js');
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 
 app.use(express.json());
+
+// CORS
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', process.env.CORS_ORIGIN || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 
 const frontendDir = path.join(__dirname, '../frontend');
 app.use(express.static(frontendDir));
@@ -20,12 +31,14 @@ const usersFile = path.join(dataDir, 'users.json');
 
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-const adminHash = crypto.createHash('sha256').update('Admin@123noderoute-salt').digest('hex');
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@noderoute.com';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@123';
 
 if (!fs.existsSync(usersFile)) {
   fs.writeFileSync(usersFile, JSON.stringify([{
-    id: 'admin-001', name: 'Admin', email: 'admin@noderoute.com',
-    passwordHash: adminHash, role: 'admin', status: 'active',
+    id: 'admin-001', name: 'Admin', email: ADMIN_EMAIL,
+    passwordHash: bcrypt.hashSync(ADMIN_PASSWORD, 10),
+    role: 'admin', status: 'active',
     inviteToken: null, inviteExpires: null, createdAt: new Date().toISOString()
   }], null, 2));
 }
@@ -35,7 +48,18 @@ function writeUsers(u) { fs.writeFileSync(usersFile, JSON.stringify(u, null, 2))
 
 const sessions = {};
 
-function hashPassword(pw) { return crypto.createHash('sha256').update(pw + 'noderoute-salt').digest('hex'); }
+function hashPassword(pw) { return bcrypt.hashSync(pw, 10); }
+
+// Auto-migrates legacy SHA256 hashes to bcrypt on login
+function verifyPassword(pw, stored) {
+  if (!stored) return { valid: false, migrate: false };
+  if (!stored.startsWith('$2') && stored.length === 64) {
+    const legacy = crypto.createHash('sha256').update(pw + 'noderoute-salt').digest('hex');
+    return { valid: legacy === stored, migrate: true };
+  }
+  return { valid: bcrypt.compareSync(pw, stored), migrate: false };
+}
+
 function generateToken() { return crypto.randomBytes(32).toString('hex'); }
 
 function authenticateToken(req, res, next) {
@@ -59,12 +83,16 @@ function requireRole(...roles) {
 app.post('/auth/login', (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
-  const user = readUsers().find(u => u.email.toLowerCase() === email.toLowerCase());
-  if (!user || user.status !== 'active') return res.status(401).json({ error: 'Invalid credentials' });
-  if (user.passwordHash !== hashPassword(password)) return res.status(401).json({ error: 'Invalid credentials' });
+  const users = readUsers();
+  const idx = users.findIndex(u => u.email.toLowerCase() === email.toLowerCase());
+  if (idx === -1 || users[idx].status !== 'active') return res.status(401).json({ error: 'Invalid credentials' });
+  const { valid, migrate } = verifyPassword(password, users[idx].passwordHash);
+  if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+  if (migrate) { users[idx].passwordHash = bcrypt.hashSync(password, 10); writeUsers(users); }
   const token = generateToken();
-  sessions[token] = user.id;
-  res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+  sessions[token] = users[idx].id;
+  const u = users[idx];
+  res.json({ token, user: { id: u.id, name: u.name, email: u.email, role: u.role } });
 });
 
 app.post('/auth/setup-password', (req, res) => {
@@ -109,8 +137,9 @@ app.post('/api/users/invite', authenticateToken, requireRole('admin', 'manager')
   const newUser = { id: 'user-' + Date.now(), name, email, passwordHash: null, role, status: 'pending', inviteToken, inviteExpires: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(), createdAt: new Date().toISOString() };
   users.push(newUser);
   writeUsers(users);
-  console.log(`\n📧 INVITE for ${name} (${email}) as ${role}:\nhttp://localhost:${PORT}/setup-password.html?token=${inviteToken}\n`);
-  res.json({ message: `Invite created for ${name}`, userId: newUser.id, inviteUrl: `http://localhost:${PORT}/setup-password.html?token=${inviteToken}` });
+  const inviteUrl = `${BASE_URL}/setup-password.html?token=${inviteToken}`;
+  console.log(`\nINVITE for ${name} (${email}) as ${role}:\n${inviteUrl}\n`);
+  res.json({ message: `Invite created for ${name}`, userId: newUser.id, inviteUrl });
 });
 
 // keep old route as alias
@@ -228,43 +257,59 @@ app.patch('/api/deliveries/:id/status', authenticateToken, (req, res) => {
   res.json(delivery);
 });
 
-// ── STOPS ──────────────────────────────────────────────
-const stopsData = [];
-app.get('/api/stops', authenticateToken, (req, res) => res.json(stopsData));
-app.post('/api/stops', authenticateToken, (req, res) => {
+// ── STOPS (Supabase) ────────────────────────────────────
+app.get('/api/stops', authenticateToken, async (req, res) => {
+  const { data, error } = await supabase.from('stops').select('*').order('created_at', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+app.post('/api/stops', authenticateToken, async (req, res) => {
   const { name, address, lat, lng, notes } = req.body;
   if (!name || !address) return res.status(400).json({ error: 'Name and address required' });
-  const stop = { id: 'stop-' + Date.now(), name, address, lat: parseFloat(lat)||0, lng: parseFloat(lng)||0, notes: notes||'', createdAt: new Date().toISOString() };
-  stopsData.push(stop);
-  res.json(stop);
+  const { data, error } = await supabase
+    .from('stops')
+    .insert([{ name, address, lat: parseFloat(lat)||0, lng: parseFloat(lng)||0, notes: notes||'' }])
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
 });
-app.delete('/api/stops/:id', authenticateToken, (req, res) => {
-  const idx = stopsData.findIndex(s => s.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Not found' });
-  stopsData.splice(idx, 1);
+app.patch('/api/stops/:id', authenticateToken, async (req, res) => {
+  const { data, error } = await supabase.from('stops').update(req.body).eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+app.delete('/api/stops/:id', authenticateToken, async (req, res) => {
+  const { error } = await supabase.from('stops').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
   res.json({ message: 'Deleted' });
 });
 
-// ── ROUTES ─────────────────────────────────────────────
-const routesData = [];
-app.get('/api/routes', authenticateToken, (req, res) => res.json(routesData));
-app.post('/api/routes', authenticateToken, (req, res) => {
+// ── ROUTES (Supabase) ───────────────────────────────────
+app.get('/api/routes', authenticateToken, async (req, res) => {
+  const { data, error } = await supabase.from('routes').select('*').order('created_at', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+app.post('/api/routes', authenticateToken, async (req, res) => {
   const { name, stopIds, driver, notes } = req.body;
   if (!name) return res.status(400).json({ error: 'Route name required' });
-  const route = { id: 'route-' + Date.now(), name, stopIds: stopIds||[], driver: driver||'', notes: notes||'', createdAt: new Date().toISOString() };
-  routesData.push(route);
-  res.json(route);
+  const { data, error } = await supabase
+    .from('routes')
+    .insert([{ name, stop_ids: stopIds||[], driver: driver||'', notes: notes||'' }])
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
 });
-app.patch('/api/routes/:id', authenticateToken, (req, res) => {
-  const route = routesData.find(r => r.id === req.params.id);
-  if (!route) return res.status(404).json({ error: 'Not found' });
-  Object.assign(route, req.body);
-  res.json(route);
+app.patch('/api/routes/:id', authenticateToken, async (req, res) => {
+  const payload = { ...req.body };
+  if (payload.stopIds !== undefined) { payload.stop_ids = payload.stopIds; delete payload.stopIds; }
+  const { data, error } = await supabase.from('routes').update(payload).eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
 });
-app.delete('/api/routes/:id', authenticateToken, (req, res) => {
-  const idx = routesData.findIndex(r => r.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Not found' });
-  routesData.splice(idx, 1);
+app.delete('/api/routes/:id', authenticateToken, async (req, res) => {
+  const { error } = await supabase.from('routes').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
   res.json({ message: 'Deleted' });
 });
 
