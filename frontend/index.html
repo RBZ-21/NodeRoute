@@ -1204,20 +1204,85 @@ function handleStopSearch(input) {
 }
 
 async function fetchAddresses(q) {
-  try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&addressdetails=1`, { headers: { 'Accept-Language': 'en-US,en' } });
-    const results = await r.json();
-    const dd = document.getElementById('stopAutocomplete');
-    if (!results.length) { dd.style.display = 'none'; return; }
-    dd.innerHTML = results.map((res, i) => {
-      const name = res.name || res.display_name.split(',')[0];
-      return `<div class="autocomplete-item" onclick="selectAddress(${i})" data-idx="${i}">${
-        `<div style="font-weight:600;font-size:13px">${name}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${res.display_name}</div>`
-      }</div>`;
-    }).join('');
-    dd.__results = results;
+  const dd = document.getElementById('stopAutocomplete');
+  const ql = q.toLowerCase();
+
+  // 1. Match against loaded customers (250 restaurants) by name, address, or area
+  const custMatches = allCustomers.filter(c =>
+    (c.Restaurant||'').toLowerCase().includes(ql) ||
+    (c.Address||'').toLowerCase().includes(ql) ||
+    (c.Area||'').toLowerCase().includes(ql)
+  ).slice(0, 5);
+
+  // 2. Build customer result items
+  const custItems = custMatches.map((c, i) => `
+    <div class="autocomplete-item" onclick="selectCustomer(${i})" data-cust="${i}">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="font-weight:600;font-size:13px">${c.Restaurant}</div>
+        <span style="font-size:10px;padding:1px 7px;border-radius:10px;background:rgba(255,107,53,0.15);color:var(--accent);font-weight:600">Customer</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">${c.Address || c.Area || ''}</div>
+    </div>`).join('');
+
+  dd.__custMatches = custMatches;
+
+  // Show customer results immediately while Nominatim loads
+  if (custMatches.length) {
+    dd.innerHTML = custItems;
+    dd.__results = [];
     dd.style.display = 'block';
-  } catch(e) {}
+  }
+
+  // 3. Also query Nominatim for generic address lookup
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&addressdetails=1&countrycodes=us`,
+      { headers: { 'Accept-Language': 'en-US,en' } }
+    );
+    const results = await r.json();
+    dd.__results = results;
+
+    const nomItems = results.map((res, i) => {
+      const name = res.name || res.display_name.split(',')[0];
+      return `<div class="autocomplete-item" onclick="selectAddress(${i})" data-idx="${i}">
+        <div style="font-weight:600;font-size:13px">${name}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${res.display_name}</div>
+      </div>`;
+    }).join('');
+
+    if (!custMatches.length && !results.length) { dd.style.display = 'none'; return; }
+    dd.innerHTML = custItems + nomItems;
+    dd.style.display = 'block';
+  } catch(e) {
+    if (!custMatches.length) dd.style.display = 'none';
+  }
+}
+
+async function selectCustomer(idx) {
+  const dd = document.getElementById('stopAutocomplete');
+  const c = dd.__custMatches[idx];
+  const name = c.Restaurant;
+  const address = c.Address || '';
+  dd.style.display = 'none';
+  document.getElementById('stopSearchInput').value = name;
+  document.getElementById('stopPreviewName').textContent = name;
+  document.getElementById('stopPreviewAddr').textContent = address || 'Address not on file';
+  document.getElementById('stopPreview').style.display = 'block';
+  document.getElementById('addStopBtn').style.display = 'inline-flex';
+  document.getElementById('stopNotes').value = '';
+  // Geocode the stored address to get lat/lng
+  let lat = 0, lng = 0;
+  if (address) {
+    try {
+      const r = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`,
+        { headers: { 'Accept-Language': 'en-US,en' } }
+      );
+      const res = await r.json();
+      if (res.length) { lat = res[0].lat; lng = res[0].lon; }
+    } catch(e) {}
+  }
+  pendingStop = { name, address, lat, lng };
 }
 
 function selectAddress(idx) {
