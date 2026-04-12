@@ -263,6 +263,11 @@ td{padding:12px 16px;vertical-align:middle}
   .kpi-row{grid-template-columns:1fr}
   .expand-content{grid-template-columns:1fr}
 }
+/* INVOICES */
+.inv-status-pending{background:rgba(245,158,11,0.12);color:var(--warn);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.inv-status-signed{background:rgba(124,58,237,0.12);color:#a78bfa;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.inv-status-sent{background:rgba(255,107,53,0.12);color:var(--accent);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.ni-line{display:grid;grid-template-columns:1fr 60px 90px 90px 32px;gap:6px;margin-bottom:6px;align-items:center}
 </style>
 </head>
 <body>
@@ -306,6 +311,9 @@ td{padding:12px 16px;vertical-align:middle}
     </div>
     <div class="nav-item" onclick="showTab('customers',this)">
       <span class="nav-icon">🏢</span>Customers
+    </div>
+    <div class="nav-item" onclick="showTab('invoices',this)">
+      <span class="nav-icon">🧾</span>Invoices
     </div>
   </div>
   <div class="sidebar-footer">NodeRoute DS v2.0<br>Charleston, SC</div>
@@ -571,8 +579,104 @@ td{padding:12px 16px;vertical-align:middle}
       </div>
     </div>
 
+    <!-- TAB: INVOICES -->
+    <div class="tab-pane" id="tab-invoices">
+      <div class="section-header">
+        <div class="section-title" style="margin:0">Invoices</div>
+        <button class="btn btn-accent" onclick="openNewInvoiceModal()">+ New Invoice</button>
+      </div>
+      <!-- Filter bar -->
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <input class="search-input" id="invoiceSearch" placeholder="Search customer or invoice #…" oninput="renderInvoices()" style="width:260px"/>
+        <select class="filter-select" id="invoiceStatusFilter" onchange="renderInvoices()">
+          <option value="">All Statuses</option>
+          <option value="pending">Pending Signature</option>
+          <option value="signed">Signed</option>
+          <option value="sent">Sent</option>
+        </select>
+      </div>
+      <div class="table-card">
+        <table>
+          <thead><tr>
+            <th>Invoice #</th><th>Customer</th><th>Driver</th>
+            <th>Total</th><th>Status</th><th>Date</th><th></th>
+          </tr></thead>
+          <tbody id="invoicesTable">
+            <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
   </div><!-- /content -->
 </div><!-- /main -->
+
+<!-- SIGNATURE MODAL -->
+<div id="signModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(96vw,560px);border:1px solid var(--border)">
+    <h3 style="margin-bottom:4px;font-size:18px">Customer Signature</h3>
+    <div id="signInvoiceSummary" style="font-size:13px;color:var(--muted);margin-bottom:16px"></div>
+    <div style="border:2px dashed var(--border);border-radius:10px;background:var(--bg);margin-bottom:12px;position:relative">
+      <canvas id="sigCanvas" style="width:100%;height:200px;display:block;touch-action:none;border-radius:8px;cursor:crosshair"></canvas>
+      <div id="sigHint" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;pointer-events:none">Sign with your finger here</div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-outline" onclick="clearSignature()">Clear</button>
+      <button class="btn btn-outline" onclick="closeSignModal()">Cancel</button>
+      <button class="btn btn-accent" id="signSubmitBtn" onclick="submitSignature()">Complete &amp; Email Invoice</button>
+    </div>
+  </div>
+</div>
+
+<!-- NEW INVOICE MODAL -->
+<div id="newInvoiceModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;overflow-y:auto">
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(96vw,640px);border:1px solid var(--border);margin:20px auto">
+    <h3 style="margin-bottom:16px;font-size:18px">New Invoice</h3>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+      <div>
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Invoice #</label>
+        <input class="search-input" id="ni_number" placeholder="Auto-generated" style="width:100%"/>
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Customer Name *</label>
+        <input class="search-input" id="ni_customer" placeholder="Restaurant name" style="width:100%"/>
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Customer Email</label>
+        <input class="search-input" id="ni_email" type="email" placeholder="invoice@customer.com" style="width:100%"/>
+      </div>
+      <div>
+        <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Driver</label>
+        <input class="search-input" id="ni_driver" placeholder="Driver name" style="width:100%"/>
+      </div>
+    </div>
+    <div style="margin-bottom:12px">
+      <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Delivery Address</label>
+      <input class="search-input" id="ni_address" placeholder="123 Main St, Charleston, SC" style="width:100%"/>
+    </div>
+    <!-- Line items -->
+    <div style="margin-bottom:12px">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+        <label style="font-size:12px;color:var(--muted)">Line Items</label>
+        <button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="addInvoiceLine()">+ Add Line</button>
+      </div>
+      <div id="ni_lines"></div>
+    </div>
+    <div style="display:flex;justify-content:flex-end;gap:16px;font-size:14px;margin-bottom:12px">
+      <span style="color:var(--muted)">Subtotal: <strong id="ni_subtotal">$0.00</strong></span>
+      <span style="color:var(--muted)">Tax: <strong id="ni_tax_display">$0.00</strong></span>
+      <span>Total: <strong id="ni_total" style="color:var(--accent)">$0.00</strong></span>
+    </div>
+    <div style="margin-bottom:16px">
+      <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Notes</label>
+      <input class="search-input" id="ni_notes" placeholder="Optional notes" style="width:100%"/>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="btn btn-outline" onclick="closeNewInvoiceModal()">Cancel</button>
+      <button class="btn btn-accent" onclick="createInvoice()">Create Invoice</button>
+    </div>
+  </div>
+</div>
 
 <!-- MOBILE TABS -->
 <div class="mobile-tabs">
@@ -726,7 +830,7 @@ function showTab(name, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.querySelectorAll('.mobile-tab').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
-  const idx = ['dashboard','deliveries','drivers','analytics','map','users','stops','routes','customers'].indexOf(name);
+  const idx = ['dashboard','deliveries','drivers','analytics','map','users','stops','routes','customers','invoices'].indexOf(name);
   document.querySelectorAll('.nav-item')[idx]?.classList.add('active');
   document.querySelectorAll('.mobile-tab')[idx]?.classList.add('active');
   if (name === 'map') { setTimeout(() => renderMap(), 50); }
@@ -775,6 +879,7 @@ async function fetchAll() {
     fetchStops();
     fetchRoutes();
     fetchCustomers();
+    loadInvoices();
     updateAlert(d);
     populateDriverFilter();
   } catch(e) {
@@ -1204,20 +1309,85 @@ function handleStopSearch(input) {
 }
 
 async function fetchAddresses(q) {
-  try {
-    const r = await fetch(`https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=6&addressdetails=1`, { headers: { 'Accept-Language': 'en-US,en' } });
-    const results = await r.json();
-    const dd = document.getElementById('stopAutocomplete');
-    if (!results.length) { dd.style.display = 'none'; return; }
-    dd.innerHTML = results.map((res, i) => {
-      const name = res.name || res.display_name.split(',')[0];
-      return `<div class="autocomplete-item" onclick="selectAddress(${i})" data-idx="${i}">${
-        `<div style="font-weight:600;font-size:13px">${name}</div><div style="font-size:11px;color:var(--muted);margin-top:2px">${res.display_name}</div>`
-      }</div>`;
-    }).join('');
-    dd.__results = results;
+  const dd = document.getElementById('stopAutocomplete');
+  const ql = q.toLowerCase();
+
+  // 1. Match against loaded customers (250 restaurants) by name, address, or area
+  const custMatches = allCustomers.filter(c =>
+    (c.Restaurant||'').toLowerCase().includes(ql) ||
+    (c.Address||'').toLowerCase().includes(ql) ||
+    (c.Area||'').toLowerCase().includes(ql)
+  ).slice(0, 5);
+
+  // 2. Build customer result items
+  const custItems = custMatches.map((c, i) => `
+    <div class="autocomplete-item" onclick="selectCustomer(${i})" data-cust="${i}">
+      <div style="display:flex;align-items:center;gap:8px">
+        <div style="font-weight:600;font-size:13px">${c.Restaurant}</div>
+        <span style="font-size:10px;padding:1px 7px;border-radius:10px;background:rgba(255,107,53,0.15);color:var(--accent);font-weight:600">Customer</span>
+      </div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">${c.Address || c.Area || ''}</div>
+    </div>`).join('');
+
+  dd.__custMatches = custMatches;
+
+  // Show customer results immediately while Nominatim loads
+  if (custMatches.length) {
+    dd.innerHTML = custItems;
+    dd.__results = [];
     dd.style.display = 'block';
-  } catch(e) {}
+  }
+
+  // 3. Also query Nominatim for generic address lookup
+  try {
+    const r = await fetch(
+      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&addressdetails=1&countrycodes=us`,
+      { headers: { 'Accept-Language': 'en-US,en' } }
+    );
+    const results = await r.json();
+    dd.__results = results;
+
+    const nomItems = results.map((res, i) => {
+      const name = res.name || res.display_name.split(',')[0];
+      return `<div class="autocomplete-item" onclick="selectAddress(${i})" data-idx="${i}">
+        <div style="font-weight:600;font-size:13px">${name}</div>
+        <div style="font-size:11px;color:var(--muted);margin-top:2px">${res.display_name}</div>
+      </div>`;
+    }).join('');
+
+    if (!custMatches.length && !results.length) { dd.style.display = 'none'; return; }
+    dd.innerHTML = custItems + nomItems;
+    dd.style.display = 'block';
+  } catch(e) {
+    if (!custMatches.length) dd.style.display = 'none';
+  }
+}
+
+async function selectCustomer(idx) {
+  const dd = document.getElementById('stopAutocomplete');
+  const c = dd.__custMatches[idx];
+  const name = c.Restaurant;
+  const address = c.Address || '';
+  dd.style.display = 'none';
+  document.getElementById('stopSearchInput').value = name;
+  document.getElementById('stopPreviewName').textContent = name;
+  document.getElementById('stopPreviewAddr').textContent = address || 'Address not on file';
+  document.getElementById('stopPreview').style.display = 'block';
+  document.getElementById('addStopBtn').style.display = 'inline-flex';
+  document.getElementById('stopNotes').value = '';
+  // Geocode the stored address to get lat/lng
+  let lat = 0, lng = 0;
+  if (address) {
+    try {
+      const r = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`,
+        { headers: { 'Accept-Language': 'en-US,en' } }
+      );
+      const res = await r.json();
+      if (res.length) { lat = res[0].lat; lng = res[0].lon; }
+    } catch(e) {}
+  }
+  pendingStop = { name, address, lat, lng };
 }
 
 function selectAddress(idx) {
@@ -1927,6 +2097,313 @@ async function submitInvite() {
   } catch(e) { r.className = 'modal-result error'; r.textContent = e.message || 'Failed to send invite.'; }
 }
 document.getElementById('inviteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeInviteModal(); });
+
+// ── INVOICES ────────────────────────────────────────────
+let allInvoices = [];
+let currentSignInvoiceId = null;
+let sigDrawing = false;
+let sigLastX = 0, sigLastY = 0;
+let sigHasData = false;
+
+async function loadInvoices() {
+  try {
+    const res = await fetch(API + '/invoices', authHeaders);
+    if (res.status === 401) { doLogout(); return; }
+    allInvoices = await res.json();
+    renderInvoices();
+  } catch(e) {
+    const tb = document.getElementById('invoicesTable');
+    if (tb) tb.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">Failed to load invoices</td></tr>';
+  }
+}
+
+function renderInvoices() {
+  const q = (document.getElementById('invoiceSearch')?.value || '').toLowerCase();
+  const sf = (document.getElementById('invoiceStatusFilter')?.value || '');
+  let list = allInvoices.filter(inv => {
+    const matchQ = !q || (inv.invoiceNumber||'').toLowerCase().includes(q) || (inv.customerName||'').toLowerCase().includes(q);
+    const matchS = !sf || inv.status === sf;
+    return matchQ && matchS;
+  });
+  const tb = document.getElementById('invoicesTable');
+  if (!tb) return;
+  if (!list.length) {
+    tb.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">No invoices found</td></tr>';
+    return;
+  }
+  tb.innerHTML = list.map(inv => {
+    const total = typeof inv.total === 'number' ? '$' + inv.total.toFixed(2) : (inv.total || '—');
+    const date = inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : '—';
+    const statusLabel = inv.status === 'pending' ? 'Pending Signature' : inv.status === 'signed' ? 'Signed' : inv.status === 'sent' ? 'Sent' : inv.status || '—';
+    const actions = `
+      ${inv.status === 'pending' ? `<button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="openSignModal('${inv.id}')">Sign</button>` : ''}
+      <button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="downloadInvoicePDF('${inv.id}')">PDF</button>
+      ${inv.status !== 'pending' ? `<button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="resendInvoiceEmail('${inv.id}')">Resend</button>` : ''}
+    `;
+    return `<tr>
+      <td>${inv.invoiceNumber || '—'}</td>
+      <td>${inv.customerName || '—'}</td>
+      <td>${inv.driverName || inv.driver || '—'}</td>
+      <td>${total}</td>
+      <td><span class="inv-status-${inv.status}">${statusLabel}</span></td>
+      <td>${date}</td>
+      <td style="white-space:nowrap">${actions}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── NEW INVOICE MODAL ──────────────────────────────────
+let invoiceLineCount = 0;
+
+function openNewInvoiceModal() {
+  invoiceLineCount = 0;
+  document.getElementById('ni_lines').innerHTML = '';
+  document.getElementById('ni_number').value = '';
+  document.getElementById('ni_customer').value = '';
+  document.getElementById('ni_email').value = '';
+  document.getElementById('ni_driver').value = '';
+  document.getElementById('ni_address').value = '';
+  document.getElementById('ni_notes').value = '';
+  updateInvoiceTotals();
+  addInvoiceLine();
+  const m = document.getElementById('newInvoiceModal');
+  m.style.display = 'flex';
+}
+
+function closeNewInvoiceModal() {
+  document.getElementById('newInvoiceModal').style.display = 'none';
+}
+
+function addInvoiceLine() {
+  const idx = invoiceLineCount++;
+  const container = document.getElementById('ni_lines');
+  const row = document.createElement('div');
+  row.className = 'ni-line';
+  row.id = 'ni_line_' + idx;
+  row.style.cssText = 'display:grid;grid-template-columns:1fr 60px 80px 32px;gap:6px;margin-bottom:6px;align-items:center';
+  row.innerHTML = `
+    <input class="search-input" placeholder="Item description" id="ni_desc_${idx}" oninput="updateInvoiceTotals()" style="width:100%"/>
+    <input class="search-input" type="number" placeholder="Qty" id="ni_qty_${idx}" value="1" min="0" oninput="updateInvoiceTotals()" style="width:100%"/>
+    <input class="search-input" type="number" placeholder="Price" id="ni_price_${idx}" value="0" min="0" step="0.01" oninput="updateInvoiceTotals()" style="width:100%"/>
+    <button class="btn btn-outline" style="padding:4px 6px;font-size:16px;line-height:1" onclick="removeInvoiceLine(${idx})">×</button>
+  `;
+  container.appendChild(row);
+}
+
+function removeInvoiceLine(idx) {
+  const el = document.getElementById('ni_line_' + idx);
+  if (el) el.remove();
+  updateInvoiceTotals();
+}
+
+function updateInvoiceTotals() {
+  let subtotal = 0;
+  for (let i = 0; i < invoiceLineCount; i++) {
+    const qEl = document.getElementById('ni_qty_' + i);
+    const pEl = document.getElementById('ni_price_' + i);
+    if (!qEl || !pEl) continue;
+    subtotal += (parseFloat(qEl.value) || 0) * (parseFloat(pEl.value) || 0);
+  }
+  const taxRate = 0.09; // 9% default — adjust as needed
+  const tax = subtotal * taxRate;
+  const total = subtotal + tax;
+  const el = id => document.getElementById(id);
+  if (el('ni_subtotal')) el('ni_subtotal').textContent = '$' + subtotal.toFixed(2);
+  if (el('ni_tax_display')) el('ni_tax_display').textContent = '$' + tax.toFixed(2);
+  if (el('ni_total')) el('ni_total').textContent = '$' + total.toFixed(2);
+}
+
+async function createInvoice() {
+  const items = [];
+  for (let i = 0; i < invoiceLineCount; i++) {
+    const dEl = document.getElementById('ni_desc_' + i);
+    if (!dEl) continue;
+    const desc = dEl.value.trim();
+    const qty = parseFloat(document.getElementById('ni_qty_' + i)?.value) || 0;
+    const price = parseFloat(document.getElementById('ni_price_' + i)?.value) || 0;
+    if (desc) items.push({ description: desc, quantity: qty, unitPrice: price, total: qty * price });
+  }
+  if (!items.length) { alert('Add at least one line item.'); return; }
+  const customerName = document.getElementById('ni_customer').value.trim();
+  if (!customerName) { alert('Customer name is required.'); return; }
+  const subtotal = items.reduce((s, it) => s + it.total, 0);
+  const tax = subtotal * 0.09;
+  const payload = {
+    invoiceNumber: document.getElementById('ni_number').value.trim() || undefined,
+    customerName,
+    customerEmail: document.getElementById('ni_email').value.trim(),
+    driverName: document.getElementById('ni_driver').value.trim(),
+    deliveryAddress: document.getElementById('ni_address').value.trim(),
+    items,
+    subtotal,
+    tax,
+    total: subtotal + tax,
+    notes: document.getElementById('ni_notes').value.trim(),
+  };
+  try {
+    const res = await fetch(API + '/invoices', {
+      method: 'POST',
+      headers: { ...authHeaders.headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    if (res.status === 401) { doLogout(); return; }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to create invoice');
+    closeNewInvoiceModal();
+    await loadInvoices();
+    showTab('invoices', null);
+  } catch(e) { alert(e.message); }
+}
+
+// ── SIGNATURE MODAL ────────────────────────────────────
+function openSignModal(invoiceId) {
+  currentSignInvoiceId = invoiceId;
+  sigHasData = false;
+  const inv = allInvoices.find(i => i.id === invoiceId);
+  const summary = document.getElementById('signInvoiceSummary');
+  if (summary && inv) {
+    summary.textContent = `Invoice ${inv.invoiceNumber || invoiceId} — ${inv.customerName || ''} — ${typeof inv.total === 'number' ? '$' + inv.total.toFixed(2) : inv.total || ''}`;
+  }
+  const modal = document.getElementById('signModal');
+  modal.style.display = 'flex';
+  // Setup canvas after it's visible so dimensions are correct
+  requestAnimationFrame(initSigCanvas);
+}
+
+function closeSignModal() {
+  document.getElementById('signModal').style.display = 'none';
+  currentSignInvoiceId = null;
+  sigHasData = false;
+}
+
+function initSigCanvas() {
+  const canvas = document.getElementById('sigCanvas');
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * window.devicePixelRatio;
+  canvas.height = rect.height * window.devicePixelRatio;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  ctx.fillStyle = '#0a1530';
+  ctx.fillRect(0, 0, rect.width, rect.height);
+  ctx.strokeStyle = '#3dba7f';
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  document.getElementById('sigHint').style.display = 'flex';
+}
+
+function getSigPos(canvas, e) {
+  const rect = canvas.getBoundingClientRect();
+  const src = e.touches ? e.touches[0] : e;
+  return { x: src.clientX - rect.left, y: src.clientY - rect.top };
+}
+
+function sigStart(e) {
+  e.preventDefault();
+  sigDrawing = true;
+  sigHasData = true;
+  document.getElementById('sigHint').style.display = 'none';
+  const canvas = document.getElementById('sigCanvas');
+  const pos = getSigPos(canvas, e);
+  sigLastX = pos.x; sigLastY = pos.y;
+}
+
+function sigMove(e) {
+  if (!sigDrawing) return;
+  e.preventDefault();
+  const canvas = document.getElementById('sigCanvas');
+  const ctx = canvas.getContext('2d');
+  const pos = getSigPos(canvas, e);
+  ctx.beginPath();
+  ctx.moveTo(sigLastX, sigLastY);
+  ctx.lineTo(pos.x, pos.y);
+  ctx.stroke();
+  sigLastX = pos.x; sigLastY = pos.y;
+}
+
+function sigEnd(e) {
+  e.preventDefault();
+  sigDrawing = false;
+}
+
+function clearSignature() {
+  const canvas = document.getElementById('sigCanvas');
+  if (!canvas) return;
+  initSigCanvas();
+  sigHasData = false;
+}
+
+async function submitSignature() {
+  if (!sigHasData) { alert('Please sign before submitting.'); return; }
+  if (!currentSignInvoiceId) return;
+  const canvas = document.getElementById('sigCanvas');
+  const sigData = canvas.toDataURL('image/png');
+  const btn = document.getElementById('signSubmitBtn');
+  btn.disabled = true;
+  btn.textContent = 'Sending…';
+  try {
+    const res = await fetch(API + '/invoices/' + currentSignInvoiceId + '/sign', {
+      method: 'POST',
+      headers: { ...authHeaders.headers, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ signature: sigData })
+    });
+    if (res.status === 401) { doLogout(); return; }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to submit signature');
+    closeSignModal();
+    await loadInvoices();
+    alert(data.emailSent ? 'Signature saved and invoice emailed successfully!' : 'Signature saved. Email could not be sent — check SMTP settings.');
+  } catch(e) {
+    alert('Error: ' + e.message);
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Complete & Email Invoice';
+  }
+}
+
+async function downloadInvoicePDF(id) {
+  const res = await fetch(API + '/invoices/' + id + '/pdf', authHeaders);
+  if (res.status === 401) { doLogout(); return; }
+  if (!res.ok) { alert('Could not generate PDF'); return; }
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'invoice-' + id + '.pdf';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function resendInvoiceEmail(id) {
+  if (!confirm('Resend invoice email to the customer?')) return;
+  try {
+    const res = await fetch(API + '/invoices/' + id + '/resend', {
+      method: 'POST',
+      headers: { ...authHeaders.headers, 'Content-Type': 'application/json' }
+    });
+    if (res.status === 401) { doLogout(); return; }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to resend');
+    alert('Invoice emailed successfully!');
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+// Wire up canvas events once DOM is ready
+(function() {
+  const canvas = document.getElementById('sigCanvas');
+  if (!canvas) return;
+  canvas.addEventListener('mousedown', sigStart);
+  canvas.addEventListener('mousemove', sigMove);
+  canvas.addEventListener('mouseup', sigEnd);
+  canvas.addEventListener('mouseleave', sigEnd);
+  canvas.addEventListener('touchstart', sigStart, { passive: false });
+  canvas.addEventListener('touchmove', sigMove, { passive: false });
+  canvas.addEventListener('touchend', sigEnd, { passive: false });
+})();
+
+document.getElementById('newInvoiceModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeNewInvoiceModal(); });
+document.getElementById('signModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeSignModal(); });
 
 // ── AUTO REFRESH ───────────────────────────────────────
 fetchAll();

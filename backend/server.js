@@ -3,14 +3,38 @@ const express = require('express');
 const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
+const PDFDocument = require('pdfkit');
+const nodemailer = require('nodemailer');
 const { createClient } = require('@supabase/supabase-js');
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
 
+// Email transporter — configured via SMTP_* env vars
+function createMailer() {
+  if (!process.env.SMTP_HOST) return null;
+  return nodemailer.createTransport({
+    host: process.env.SMTP_HOST,
+    port: parseInt(process.env.SMTP_PORT || '587'),
+    secure: process.env.SMTP_SECURE === 'true',
+    auth: { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS },
+  });
+}
+
 const app = express();
 const PORT = process.env.PORT || 3001;
+const BASE_URL = process.env.BASE_URL || `http://localhost:${PORT}`;
 
 app.use(express.json());
+
+// CORS
+app.use((req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', process.env.CORS_ORIGIN || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
 
 const frontendDir = path.join(__dirname, '../frontend');
 app.use(express.static(frontendDir));
@@ -20,12 +44,14 @@ const usersFile = path.join(dataDir, 'users.json');
 
 if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
 
-const adminHash = crypto.createHash('sha256').update('Admin@123noderoute-salt').digest('hex');
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@noderoute.com';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@123';
 
 if (!fs.existsSync(usersFile)) {
   fs.writeFileSync(usersFile, JSON.stringify([{
-    id: 'admin-001', name: 'Admin', email: 'admin@noderoute.com',
-    passwordHash: adminHash, role: 'admin', status: 'active',
+    id: 'admin-001', name: 'Admin', email: ADMIN_EMAIL,
+    passwordHash: bcrypt.hashSync(ADMIN_PASSWORD, 10),
+    role: 'admin', status: 'active',
     inviteToken: null, inviteExpires: null, createdAt: new Date().toISOString()
   }], null, 2));
 }
@@ -35,7 +61,18 @@ function writeUsers(u) { fs.writeFileSync(usersFile, JSON.stringify(u, null, 2))
 
 const sessions = {};
 
-function hashPassword(pw) { return crypto.createHash('sha256').update(pw + 'noderoute-salt').digest('hex'); }
+function hashPassword(pw) { return bcrypt.hashSync(pw, 10); }
+
+// Auto-migrates legacy SHA256 hashes to bcrypt on login
+function verifyPassword(pw, stored) {
+  if (!stored) return { valid: false, migrate: false };
+  if (!stored.startsWith('$2') && stored.length === 64) {
+    const legacy = crypto.createHash('sha256').update(pw + 'noderoute-salt').digest('hex');
+    return { valid: legacy === stored, migrate: true };
+  }
+  return { valid: bcrypt.compareSync(pw, stored), migrate: false };
+}
+
 function generateToken() { return crypto.randomBytes(32).toString('hex'); }
 
 function authenticateToken(req, res, next) {
@@ -59,12 +96,16 @@ function requireRole(...roles) {
 app.post('/auth/login', (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
-  const user = readUsers().find(u => u.email.toLowerCase() === email.toLowerCase());
-  if (!user || user.status !== 'active') return res.status(401).json({ error: 'Invalid credentials' });
-  if (user.passwordHash !== hashPassword(password)) return res.status(401).json({ error: 'Invalid credentials' });
+  const users = readUsers();
+  const idx = users.findIndex(u => u.email.toLowerCase() === email.toLowerCase());
+  if (idx === -1 || users[idx].status !== 'active') return res.status(401).json({ error: 'Invalid credentials' });
+  const { valid, migrate } = verifyPassword(password, users[idx].passwordHash);
+  if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+  if (migrate) { users[idx].passwordHash = bcrypt.hashSync(password, 10); writeUsers(users); }
   const token = generateToken();
-  sessions[token] = user.id;
-  res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+  sessions[token] = users[idx].id;
+  const u = users[idx];
+  res.json({ token, user: { id: u.id, name: u.name, email: u.email, role: u.role } });
 });
 
 app.post('/auth/setup-password', (req, res) => {
@@ -109,8 +150,9 @@ app.post('/api/users/invite', authenticateToken, requireRole('admin', 'manager')
   const newUser = { id: 'user-' + Date.now(), name, email, passwordHash: null, role, status: 'pending', inviteToken, inviteExpires: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(), createdAt: new Date().toISOString() };
   users.push(newUser);
   writeUsers(users);
-  console.log(`\n📧 INVITE for ${name} (${email}) as ${role}:\nhttp://localhost:${PORT}/setup-password.html?token=${inviteToken}\n`);
-  res.json({ message: `Invite created for ${name}`, userId: newUser.id, inviteUrl: `http://localhost:${PORT}/setup-password.html?token=${inviteToken}` });
+  const inviteUrl = `${BASE_URL}/setup-password.html?token=${inviteToken}`;
+  console.log(`\nINVITE for ${name} (${email}) as ${role}:\n${inviteUrl}\n`);
+  res.json({ message: `Invite created for ${name}`, userId: newUser.id, inviteUrl });
 });
 
 // keep old route as alias
@@ -228,43 +270,59 @@ app.patch('/api/deliveries/:id/status', authenticateToken, (req, res) => {
   res.json(delivery);
 });
 
-// ── STOPS ──────────────────────────────────────────────
-const stopsData = [];
-app.get('/api/stops', authenticateToken, (req, res) => res.json(stopsData));
-app.post('/api/stops', authenticateToken, (req, res) => {
+// ── STOPS (Supabase) ────────────────────────────────────
+app.get('/api/stops', authenticateToken, async (req, res) => {
+  const { data, error } = await supabase.from('stops').select('*').order('created_at', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+app.post('/api/stops', authenticateToken, async (req, res) => {
   const { name, address, lat, lng, notes } = req.body;
   if (!name || !address) return res.status(400).json({ error: 'Name and address required' });
-  const stop = { id: 'stop-' + Date.now(), name, address, lat: parseFloat(lat)||0, lng: parseFloat(lng)||0, notes: notes||'', createdAt: new Date().toISOString() };
-  stopsData.push(stop);
-  res.json(stop);
+  const { data, error } = await supabase
+    .from('stops')
+    .insert([{ name, address, lat: parseFloat(lat)||0, lng: parseFloat(lng)||0, notes: notes||'' }])
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
 });
-app.delete('/api/stops/:id', authenticateToken, (req, res) => {
-  const idx = stopsData.findIndex(s => s.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Not found' });
-  stopsData.splice(idx, 1);
+app.patch('/api/stops/:id', authenticateToken, async (req, res) => {
+  const { data, error } = await supabase.from('stops').update(req.body).eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+app.delete('/api/stops/:id', authenticateToken, async (req, res) => {
+  const { error } = await supabase.from('stops').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
   res.json({ message: 'Deleted' });
 });
 
-// ── ROUTES ─────────────────────────────────────────────
-const routesData = [];
-app.get('/api/routes', authenticateToken, (req, res) => res.json(routesData));
-app.post('/api/routes', authenticateToken, (req, res) => {
+// ── ROUTES (Supabase) ───────────────────────────────────
+app.get('/api/routes', authenticateToken, async (req, res) => {
+  const { data, error } = await supabase.from('routes').select('*').order('created_at', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+app.post('/api/routes', authenticateToken, async (req, res) => {
   const { name, stopIds, driver, notes } = req.body;
   if (!name) return res.status(400).json({ error: 'Route name required' });
-  const route = { id: 'route-' + Date.now(), name, stopIds: stopIds||[], driver: driver||'', notes: notes||'', createdAt: new Date().toISOString() };
-  routesData.push(route);
-  res.json(route);
+  const { data, error } = await supabase
+    .from('routes')
+    .insert([{ name, stop_ids: stopIds||[], driver: driver||'', notes: notes||'' }])
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
 });
-app.patch('/api/routes/:id', authenticateToken, (req, res) => {
-  const route = routesData.find(r => r.id === req.params.id);
-  if (!route) return res.status(404).json({ error: 'Not found' });
-  Object.assign(route, req.body);
-  res.json(route);
+app.patch('/api/routes/:id', authenticateToken, async (req, res) => {
+  const payload = { ...req.body };
+  if (payload.stopIds !== undefined) { payload.stop_ids = payload.stopIds; delete payload.stopIds; }
+  const { data, error } = await supabase.from('routes').update(payload).eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
 });
-app.delete('/api/routes/:id', authenticateToken, (req, res) => {
-  const idx = routesData.findIndex(r => r.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Not found' });
-  routesData.splice(idx, 1);
+app.delete('/api/routes/:id', authenticateToken, async (req, res) => {
+  const { error } = await supabase.from('routes').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
   res.json({ message: 'Deleted' });
 });
 
@@ -331,6 +389,239 @@ app.get('/api/config/maps-key', authenticateToken, (req, res) => {
   res.json({ key: process.env.GOOGLE_MAPS_KEY || '' });
 });
 
+// ── INVOICES ──────────────────────────────────────────────────────────────────
+
+app.get('/api/invoices', authenticateToken, async (req, res) => {
+  const { data, error } = await supabase
+    .from('invoices')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.post('/api/invoices', authenticateToken, async (req, res) => {
+  const { invoice_number, customer_name, customer_email, customer_address, items, subtotal, tax, total, driver_name, notes, entree_invoice_id } = req.body;
+  if (!customer_name) return res.status(400).json({ error: 'Customer name required' });
+  const { data, error } = await supabase
+    .from('invoices')
+    .insert([{ invoice_number, customer_name, customer_email, customer_address, items: items||[], subtotal: subtotal||0, tax: tax||0, total: total||0, status: 'pending', driver_name, notes, entree_invoice_id }])
+    .select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// Entree import — accepts one or many invoices in Entree's export format
+app.post('/api/invoices/import', authenticateToken, async (req, res) => {
+  const raw = Array.isArray(req.body) ? req.body : [req.body];
+  const mapped = raw.map(e => ({
+    invoice_number:   e.InvoiceNumber || e.invoice_number || null,
+    customer_name:    e.CustomerName  || e.customer_name  || e.BillTo || '',
+    customer_email:   e.Email         || e.customer_email || '',
+    customer_address: e.Address       || e.customer_address || '',
+    items: (e.Items || e.LineItems || e.items || []).map(i => ({
+      description: i.Description || i.description || i.Item || '',
+      quantity:    i.Quantity    || i.quantity    || 1,
+      unit_price:  i.UnitPrice   || i.unit_price  || i.Price || 0,
+      total:       i.Total       || i.total       || (i.Quantity * i.UnitPrice) || 0,
+    })),
+    subtotal:          e.Subtotal  || e.subtotal  || 0,
+    tax:               e.Tax       || e.tax       || 0,
+    total:             e.Total     || e.total     || e.InvoiceTotal || 0,
+    driver_name:       e.Driver    || e.driver    || '',
+    notes:             e.Notes     || e.notes     || '',
+    entree_invoice_id: e.InvoiceNumber || e.InvoiceID || null,
+    status: 'pending',
+  }));
+  const { data, error } = await supabase.from('invoices').insert(mapped).select();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ imported: data.length, invoices: data });
+});
+
+// Save signature → generate PDF → email customer
+app.post('/api/invoices/:id/sign', authenticateToken, async (req, res) => {
+  const { signature_data } = req.body; // base64 PNG from canvas
+  if (!signature_data) return res.status(400).json({ error: 'Signature data required' });
+
+  const { data: inv, error: fetchErr } = await supabase
+    .from('invoices').select('*').eq('id', req.params.id).single();
+  if (fetchErr || !inv) return res.status(404).json({ error: 'Invoice not found' });
+
+  // Update invoice as signed
+  const { data: updated, error: updateErr } = await supabase
+    .from('invoices')
+    .update({ signature_data, status: 'signed', signed_at: new Date().toISOString() })
+    .eq('id', req.params.id).select().single();
+  if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+  // Generate PDF
+  const pdfBuffer = await buildInvoicePDF({ ...updated });
+
+  // Send email if customer has one
+  let emailSent = false;
+  if (inv.customer_email) {
+    try {
+      const mailer = createMailer();
+      if (mailer) {
+        await mailer.sendMail({
+          from: process.env.EMAIL_FROM || `NodeRoute Systems <${process.env.SMTP_USER}>`,
+          to: inv.customer_email,
+          subject: `Your Invoice ${inv.invoice_number || inv.id.slice(0,8).toUpperCase()} from NodeRoute`,
+          html: `
+            <div style="font-family:Arial,sans-serif;max-width:600px">
+              <h2 style="color:#ff6b35">NodeRoute Systems</h2>
+              <p>Hi ${inv.customer_name},</p>
+              <p>Thank you for your order. Please find your signed invoice attached.</p>
+              <table style="width:100%;border-collapse:collapse;margin:16px 0">
+                <tr style="background:#f5f5f5"><th style="padding:8px;text-align:left">Item</th><th style="padding:8px;text-align:right">Qty</th><th style="padding:8px;text-align:right">Price</th><th style="padding:8px;text-align:right">Total</th></tr>
+                ${(inv.items||[]).map(i=>`<tr><td style="padding:8px;border-bottom:1px solid #eee">${i.description}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #eee">${i.quantity}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #eee">$${parseFloat(i.unit_price).toFixed(2)}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #eee">$${parseFloat(i.total).toFixed(2)}</td></tr>`).join('')}
+              </table>
+              <p style="text-align:right"><strong>Total: $${parseFloat(inv.total).toFixed(2)}</strong></p>
+              <p style="color:#888;font-size:12px">Signed on ${new Date().toLocaleString()}</p>
+            </div>`,
+          attachments: [{ filename: `invoice-${inv.invoice_number || inv.id.slice(0,8)}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }],
+        });
+        emailSent = true;
+        await supabase.from('invoices').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', req.params.id);
+      }
+    } catch (e) {
+      console.error('Email error:', e.message);
+    }
+  }
+
+  res.json({ ...updated, status: emailSent ? 'sent' : 'signed', emailSent });
+});
+
+// Resend email for an already-signed invoice
+app.post('/api/invoices/:id/resend', authenticateToken, async (req, res) => {
+  const { data: inv, error } = await supabase.from('invoices').select('*').eq('id', req.params.id).single();
+  if (error || !inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!inv.signature_data) return res.status(400).json({ error: 'Invoice not yet signed' });
+  if (!inv.customer_email) return res.status(400).json({ error: 'No email on file for this customer' });
+  const mailer = createMailer();
+  if (!mailer) return res.status(503).json({ error: 'Email not configured on server' });
+  const pdfBuffer = await buildInvoicePDF(inv);
+  await mailer.sendMail({
+    from: `NodeRoute Systems <${process.env.SMTP_USER}>`,
+    to: inv.customer_email,
+    subject: `Invoice ${inv.invoice_number || inv.id.slice(0,8).toUpperCase()} (Resent)`,
+    html: `<p>Hi ${inv.customer_name}, please find your invoice attached.</p>`,
+    attachments: [{ filename: `invoice-${inv.invoice_number || inv.id.slice(0,8)}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }],
+  });
+  await supabase.from('invoices').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', req.params.id);
+  res.json({ message: 'Email resent' });
+});
+
+// Download PDF for any invoice
+app.get('/api/invoices/:id/pdf', authenticateToken, async (req, res) => {
+  const { data: inv, error } = await supabase.from('invoices').select('*').eq('id', req.params.id).single();
+  if (error || !inv) return res.status(404).json({ error: 'Invoice not found' });
+  const pdfBuffer = await buildInvoicePDF(inv);
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="invoice-${inv.invoice_number || inv.id.slice(0,8)}.pdf"`);
+  res.send(pdfBuffer);
+});
+
+// ── PDF BUILDER ───────────────────────────────────────────────────────────────
+function buildInvoicePDF(inv) {
+  return new Promise((resolve, reject) => {
+    const doc = new PDFDocument({ margin: 50, size: 'LETTER' });
+    const buffers = [];
+    doc.on('data', d => buffers.push(d));
+    doc.on('end', () => resolve(Buffer.concat(buffers)));
+    doc.on('error', reject);
+
+    const ACCENT = '#ff6b35';
+    const MUTED  = '#666666';
+    const signedAt = inv.signed_at ? new Date(inv.signed_at).toLocaleString() : new Date().toLocaleString();
+    const invNum = inv.invoice_number || inv.id.slice(0,8).toUpperCase();
+
+    // Header bar
+    doc.rect(0, 0, doc.page.width, 80).fill(ACCENT);
+    doc.fillColor('#ffffff').font('Helvetica-Bold').fontSize(22).text('NodeRoute Systems', 50, 25);
+    doc.fillColor('#ffffff').font('Helvetica').fontSize(11).text('noderoutesystems.com', 50, 52);
+
+    // Invoice title
+    doc.fillColor(ACCENT).font('Helvetica-Bold').fontSize(18).text(`INVOICE #${invNum}`, 350, 25, { align: 'right', width: 200 });
+    doc.fillColor(MUTED).font('Helvetica').fontSize(10).text(`Date: ${signedAt}`, 350, 52, { align: 'right', width: 200 });
+
+    let y = 110;
+
+    // Bill To
+    doc.fillColor('#111').font('Helvetica-Bold').fontSize(11).text('BILL TO', 50, y);
+    y += 16;
+    doc.fillColor('#333').font('Helvetica').fontSize(11).text(inv.customer_name, 50, y);
+    y += 14;
+    if (inv.customer_address) { doc.text(inv.customer_address, 50, y); y += 14; }
+    if (inv.customer_email)   { doc.fillColor(ACCENT).text(inv.customer_email, 50, y); y += 14; }
+    if (inv.driver_name) {
+      doc.fillColor(MUTED).fontSize(10).text(`Driver: ${inv.driver_name}`, 50, y); y += 14;
+    }
+
+    y += 16;
+
+    // Items table header
+    doc.rect(50, y, doc.page.width - 100, 22).fill('#f0f0f0');
+    doc.fillColor('#111').font('Helvetica-Bold').fontSize(10);
+    doc.text('DESCRIPTION', 58, y + 6);
+    doc.text('QTY',         330, y + 6, { width: 50,  align: 'right' });
+    doc.text('UNIT PRICE',  388, y + 6, { width: 80,  align: 'right' });
+    doc.text('TOTAL',       476, y + 6, { width: 74,  align: 'right' });
+    y += 24;
+
+    // Items rows
+    const items = inv.items || [];
+    items.forEach((item, i) => {
+      if (i % 2 === 0) doc.rect(50, y - 2, doc.page.width - 100, 20).fill('#fafafa');
+      doc.fillColor('#222').font('Helvetica').fontSize(10);
+      doc.text(item.description || '', 58, y, { width: 268 });
+      doc.text(String(item.quantity || ''), 330, y, { width: 50, align: 'right' });
+      doc.text(`$${parseFloat(item.unit_price||0).toFixed(2)}`, 388, y, { width: 80, align: 'right' });
+      doc.text(`$${parseFloat(item.total||0).toFixed(2)}`,      476, y, { width: 74, align: 'right' });
+      y += 20;
+    });
+
+    y += 10;
+    // Divider
+    doc.moveTo(50, y).lineTo(doc.page.width - 50, y).strokeColor('#dddddd').stroke();
+    y += 10;
+
+    // Totals
+    const totalsX = 380;
+    doc.fillColor(MUTED).font('Helvetica').fontSize(10).text('Subtotal:', totalsX, y, { width: 90, align: 'right' });
+    doc.fillColor('#222').text(`$${parseFloat(inv.subtotal||0).toFixed(2)}`, 476, y, { width: 74, align: 'right' });
+    y += 16;
+    doc.fillColor(MUTED).text('Tax:', totalsX, y, { width: 90, align: 'right' });
+    doc.fillColor('#222').text(`$${parseFloat(inv.tax||0).toFixed(2)}`, 476, y, { width: 74, align: 'right' });
+    y += 16;
+    doc.rect(totalsX - 10, y - 4, 160, 24).fill(ACCENT);
+    doc.fillColor('#fff').font('Helvetica-Bold').fontSize(12).text('TOTAL:', totalsX, y + 2, { width: 90, align: 'right' });
+    doc.text(`$${parseFloat(inv.total||0).toFixed(2)}`, 476, y + 2, { width: 74, align: 'right' });
+    y += 40;
+
+    // Signature
+    if (inv.signature_data) {
+      doc.moveTo(50, y).lineTo(doc.page.width - 50, y).strokeColor('#dddddd').stroke();
+      y += 14;
+      doc.fillColor('#111').font('Helvetica-Bold').fontSize(10).text('CUSTOMER SIGNATURE', 50, y);
+      y += 12;
+      try {
+        const sigData = inv.signature_data.replace(/^data:image\/\w+;base64,/, '');
+        doc.image(Buffer.from(sigData, 'base64'), 50, y, { width: 200, height: 80 });
+      } catch(e) {}
+      doc.fillColor(MUTED).font('Helvetica').fontSize(9).text(`Signed electronically on ${signedAt}`, 50, y + 86);
+    }
+
+    if (inv.notes) {
+      y += 110;
+      doc.fillColor(MUTED).font('Helvetica').fontSize(9).text(`Notes: ${inv.notes}`, 50, y);
+    }
+
+    doc.end();
+  });
+}
+
+// ── PAGES ─────────────────────────────────────────────────────────────────────
 app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
 app.get('/dashboard', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
 app.get('/landing', (req, res) => res.sendFile(path.join(frontendDir, 'landing.html')));
