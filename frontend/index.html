@@ -267,7 +267,30 @@ td{padding:12px 16px;vertical-align:middle}
 .inv-status-pending{background:rgba(245,158,11,0.12);color:var(--warn);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
 .inv-status-signed{background:rgba(124,58,237,0.12);color:#a78bfa;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
 .inv-status-sent{background:rgba(255,107,53,0.12);color:var(--accent);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
-.ni-line{display:grid;grid-template-columns:1fr 60px 90px 90px 32px;gap:6px;margin-bottom:6px;align-items:center}
+.ni-line{display:grid;grid-template-columns:1fr 60px 90px 32px;gap:6px;margin-bottom:6px;align-items:center}
+
+/* INVENTORY */
+.inv-cat-fish{background:rgba(61,186,127,0.12);color:var(--accent);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.inv-cat-shellfish{background:rgba(124,58,237,0.12);color:#a78bfa;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.inv-cat-crustacean{background:rgba(245,158,11,0.12);color:var(--warn);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.inv-cat-smoked{background:rgba(239,68,68,0.12);color:#fca5a5;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.inv-cat-other{background:rgba(136,153,187,0.12);color:var(--muted);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.stock-in{color:var(--accent);font-weight:600;font-size:12px}
+.stock-low{color:var(--warn);font-weight:600;font-size:12px}
+.stock-out{color:var(--danger);font-weight:600;font-size:12px}
+.inv-kpi-row{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px}
+.inv-picker-wrap{position:relative;display:inline-block}
+.inv-picker-dropdown{position:absolute;top:100%;left:0;right:0;min-width:340px;background:var(--surface);border:1px solid var(--border);border-radius:10px;z-index:300;max-height:280px;overflow-y:auto;box-shadow:0 8px 24px rgba(0,0,0,0.4);display:none}
+.inv-picker-dropdown.open{display:block}
+.inv-picker-item{padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);transition:var(--trans);display:flex;justify-content:space-between;align-items:center}
+.inv-picker-item:last-child{border-bottom:none}
+.inv-picker-item:hover{background:rgba(61,186,127,0.08)}
+.inv-picker-item .ip-name{font-size:13px;font-weight:600}
+.inv-picker-item .ip-meta{font-size:11px;color:var(--muted);margin-top:1px}
+.inv-picker-item .ip-price{font-size:13px;color:var(--accent);font-weight:700;white-space:nowrap;margin-left:12px}
+.ni-cust-select{width:100%;padding:9px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;margin-bottom:12px;cursor:pointer;transition:var(--trans)}
+.ni-cust-select:focus{border-color:var(--accent)}
+.ni-cust-select option{background:var(--surface)}
 </style>
 </head>
 <body>
@@ -314,6 +337,9 @@ td{padding:12px 16px;vertical-align:middle}
     </div>
     <div class="nav-item" onclick="showTab('invoices',this)">
       <span class="nav-icon">🧾</span>Invoices
+    </div>
+    <div class="nav-item" onclick="showTab('inventory',this)">
+      <span class="nav-icon">🐟</span>Inventory
     </div>
   </div>
   <div class="sidebar-footer">NodeRoute DS v2.0<br>Charleston, SC</div>
@@ -608,6 +634,50 @@ td{padding:12px 16px;vertical-align:middle}
       </div>
     </div>
 
+    <!-- TAB: INVENTORY -->
+    <div class="tab-pane" id="tab-inventory">
+      <!-- KPI Row -->
+      <div class="inv-kpi-row" id="invKpiRow">
+        <div class="kpi-card skeleton" style="height:100px"></div>
+        <div class="kpi-card skeleton" style="height:100px"></div>
+        <div class="kpi-card skeleton" style="height:100px"></div>
+        <div class="kpi-card skeleton" style="height:100px"></div>
+      </div>
+      <!-- Header + Controls -->
+      <div class="section-header" style="margin-bottom:14px">
+        <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+          <input class="search-input" id="invSearch" placeholder="Search products…" oninput="renderInventory()" style="width:220px"/>
+          <select class="filter-select" id="invCatFilter" onchange="renderInventory()">
+            <option value="">All Categories</option>
+            <option value="Fish">Fish</option>
+            <option value="Shellfish">Shellfish</option>
+            <option value="Crustacean">Crustacean</option>
+            <option value="Smoked/Cured">Smoked/Cured</option>
+            <option value="Other">Other</option>
+          </select>
+          <select class="filter-select" id="invStockFilter" onchange="renderInventory()">
+            <option value="">All Stock Levels</option>
+            <option value="in">In Stock</option>
+            <option value="low">Low Stock</option>
+            <option value="out">Out of Stock</option>
+          </select>
+        </div>
+        <button class="btn btn-accent" onclick="openInventoryModal()">+ Add Product</button>
+      </div>
+      <!-- Table -->
+      <div class="table-card">
+        <table>
+          <thead><tr>
+            <th>Product</th><th>Category</th><th>SKU</th><th>Unit</th>
+            <th>Price / Unit</th><th>In Stock</th><th>Status</th><th></th>
+          </tr></thead>
+          <tbody id="inventoryTable">
+            <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
   </div><!-- /content -->
 </div><!-- /main -->
 
@@ -628,10 +698,21 @@ td{padding:12px 16px;vertical-align:middle}
   </div>
 </div>
 
-<!-- NEW INVOICE MODAL -->
+<!-- NEW INVOICE / ORDER MODAL -->
 <div id="newInvoiceModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;overflow-y:auto">
-  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(96vw,640px);border:1px solid var(--border);margin:20px auto">
-    <h3 style="margin-bottom:16px;font-size:18px">New Invoice</h3>
+  <div style="background:var(--surface);border-radius:16px;padding:28px;width:min(96vw,680px);border:1px solid var(--border);margin:20px auto">
+    <h3 style="margin-bottom:4px;font-size:18px">New Order / Invoice</h3>
+    <p style="font-size:12px;color:var(--muted);margin-bottom:16px">Select a customer to auto-fill their info, then add products from inventory.</p>
+
+    <!-- Quick Customer Select -->
+    <div style="background:rgba(61,186,127,0.06);border:1px solid rgba(61,186,127,0.2);border-radius:10px;padding:14px;margin-bottom:16px">
+      <label style="font-size:11px;font-weight:600;color:var(--accent);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:8px">Quick Customer Select</label>
+      <select class="ni-cust-select" id="ni_cust_select" onchange="onInvoiceCustomerSelected()">
+        <option value="">— Search &amp; select a customer —</option>
+      </select>
+    </div>
+
+    <!-- Invoice details grid -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
       <div>
         <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Invoice #</label>
@@ -647,33 +728,56 @@ td{padding:12px 16px;vertical-align:middle}
       </div>
       <div>
         <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Driver</label>
-        <input class="search-input" id="ni_driver" placeholder="Driver name" style="width:100%"/>
+        <select class="search-input" id="ni_driver" style="cursor:pointer;width:100%">
+          <option value="">— Select driver —</option>
+        </select>
       </div>
     </div>
     <div style="margin-bottom:12px">
       <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Delivery Address</label>
       <input class="search-input" id="ni_address" placeholder="123 Main St, Charleston, SC" style="width:100%"/>
     </div>
+
     <!-- Line items -->
     <div style="margin-bottom:12px">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
-        <label style="font-size:12px;color:var(--muted)">Line Items</label>
-        <button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="addInvoiceLine()">+ Add Line</button>
+        <label style="font-size:12px;color:var(--muted);font-weight:600">Line Items</label>
+        <div style="display:flex;gap:8px;align-items:center">
+          <!-- Inventory picker button + dropdown -->
+          <div class="inv-picker-wrap" id="invPickerWrap">
+            <button class="btn btn-outline" style="padding:4px 12px;font-size:12px;border-color:var(--accent);color:var(--accent)" onclick="toggleInvPicker()">🐟 From Inventory</button>
+            <div class="inv-picker-dropdown" id="invPickerDropdown">
+              <div style="padding:8px 10px;border-bottom:1px solid var(--border)">
+                <input class="search-input" id="invPickerSearch" placeholder="Search inventory…" oninput="filterInvPicker()" style="width:100%;font-size:12px;padding:6px 10px" autocomplete="off"/>
+              </div>
+              <div id="invPickerList"></div>
+            </div>
+          </div>
+          <button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="addInvoiceLine()">+ Add Line</button>
+        </div>
+      </div>
+      <!-- Column headers for line items -->
+      <div style="display:grid;grid-template-columns:1fr 65px 90px 32px;gap:6px;padding:0 2px;margin-bottom:4px">
+        <span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px">Description</span>
+        <span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px">Qty</span>
+        <span style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px">Unit Price</span>
+        <span></span>
       </div>
       <div id="ni_lines"></div>
     </div>
-    <div style="display:flex;justify-content:flex-end;gap:16px;font-size:14px;margin-bottom:12px">
+
+    <div style="display:flex;justify-content:flex-end;gap:16px;font-size:14px;margin-bottom:12px;background:rgba(0,0,0,0.1);padding:10px 14px;border-radius:8px">
       <span style="color:var(--muted)">Subtotal: <strong id="ni_subtotal">$0.00</strong></span>
-      <span style="color:var(--muted)">Tax: <strong id="ni_tax_display">$0.00</strong></span>
-      <span>Total: <strong id="ni_total" style="color:var(--accent)">$0.00</strong></span>
+      <span style="color:var(--muted)">Tax (9%): <strong id="ni_tax_display">$0.00</strong></span>
+      <span>Total: <strong id="ni_total" style="color:var(--accent);font-size:16px">$0.00</strong></span>
     </div>
     <div style="margin-bottom:16px">
       <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Notes</label>
-      <input class="search-input" id="ni_notes" placeholder="Optional notes" style="width:100%"/>
+      <input class="search-input" id="ni_notes" placeholder="Optional delivery notes" style="width:100%"/>
     </div>
     <div style="display:flex;gap:10px;justify-content:flex-end">
       <button class="btn btn-outline" onclick="closeNewInvoiceModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="createInvoice()">Create Invoice</button>
+      <button class="btn btn-accent" onclick="createInvoice()">🧾 Create Invoice</button>
     </div>
   </div>
 </div>
@@ -770,6 +874,85 @@ td{padding:12px 16px;vertical-align:middle}
   </div>
 </div>
 
+<!-- INVENTORY ITEM MODAL -->
+<div class="modal-overlay" id="inventoryModal">
+  <div class="modal-box" style="width:520px">
+    <h3 id="invModalTitle">Add Product</h3>
+    <p class="modal-sub">Fill in the seafood product details below.</p>
+    <input type="hidden" id="invEditId"/>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
+      <div>
+        <label class="modal-label">Product Name *</label>
+        <input class="modal-input" id="invName" placeholder="e.g. Atlantic Salmon"/>
+      </div>
+      <div>
+        <label class="modal-label">Category</label>
+        <select class="modal-input" id="invCategory" style="cursor:pointer">
+          <option value="Fish">Fish</option>
+          <option value="Shellfish">Shellfish</option>
+          <option value="Crustacean">Crustacean</option>
+          <option value="Smoked/Cured">Smoked/Cured</option>
+          <option value="Other">Other</option>
+        </select>
+      </div>
+      <div>
+        <label class="modal-label">SKU / Product Code</label>
+        <input class="modal-input" id="invSku" placeholder="e.g. SAL-001"/>
+      </div>
+      <div>
+        <label class="modal-label">Unit</label>
+        <select class="modal-input" id="invUnit" style="cursor:pointer">
+          <option value="lb">lb</option>
+          <option value="oz">oz</option>
+          <option value="each">each</option>
+          <option value="dozen">dozen</option>
+          <option value="case">case</option>
+          <option value="piece">piece</option>
+          <option value="fillet">fillet</option>
+          <option value="bag">bag</option>
+          <option value="tray">tray</option>
+        </select>
+      </div>
+      <div>
+        <label class="modal-label">Price per Unit ($)</label>
+        <input class="modal-input" id="invPrice" type="number" min="0" step="0.01" placeholder="0.00"/>
+      </div>
+      <div>
+        <label class="modal-label">Current Stock (qty)</label>
+        <input class="modal-input" id="invStock" type="number" min="0" step="0.1" placeholder="0"/>
+      </div>
+      <div>
+        <label class="modal-label">Low Stock Alert (at qty)</label>
+        <input class="modal-input" id="invThreshold" type="number" min="0" placeholder="10"/>
+      </div>
+    </div>
+    <label class="modal-label">Description / Notes</label>
+    <input class="modal-input" id="invDescription" placeholder="Optional notes (origin, grade, etc.)"/>
+    <div class="modal-result" id="invResult"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeInventoryModal()">Cancel</button>
+      <button class="btn btn-accent" id="invSubmitBtn" onclick="submitInventoryItem()">Add Product</button>
+    </div>
+  </div>
+</div>
+
+<!-- RESTOCK MODAL -->
+<div class="modal-overlay" id="restockModal">
+  <div class="modal-box" style="width:380px">
+    <h3>Restock Product</h3>
+    <p class="modal-sub" id="restockProductName" style="color:var(--text);font-weight:600;font-size:14px"></p>
+    <input type="hidden" id="restockId"/>
+    <label class="modal-label">Quantity to Add</label>
+    <input class="modal-input" id="restockQty" type="number" min="0" step="0.1" placeholder="e.g. 50"/>
+    <label class="modal-label" style="margin-top:-8px">Current Stock: <span id="restockCurrent" style="color:var(--text)">–</span></label>
+    <div class="modal-result" id="restockResult"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeRestockModal()">Cancel</button>
+      <button class="btn btn-accent" onclick="submitRestock()">Add Stock</button>
+    </div>
+  </div>
+</div>
+
 <!-- INVITE DRIVER MODAL -->
 <div class="modal-overlay" id="inviteModal">
   <div class="modal-box">
@@ -830,10 +1013,11 @@ function showTab(name, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.querySelectorAll('.mobile-tab').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
-  const idx = ['dashboard','deliveries','drivers','analytics','map','users','stops','routes','customers','invoices'].indexOf(name);
+  const idx = ['dashboard','deliveries','drivers','analytics','map','users','stops','routes','customers','invoices','inventory'].indexOf(name);
   document.querySelectorAll('.nav-item')[idx]?.classList.add('active');
   document.querySelectorAll('.mobile-tab')[idx]?.classList.add('active');
   if (name === 'map') { setTimeout(() => renderMap(), 50); }
+  if (name === 'inventory') { renderInventory(); renderInventoryKPIs(); }
 }
 
 // ── ALERT ──────────────────────────────────────────────
@@ -880,6 +1064,7 @@ async function fetchAll() {
     fetchRoutes();
     fetchCustomers();
     loadInvoices();
+    fetchInventory();
     updateAlert(d);
     populateDriverFilter();
   } catch(e) {
@@ -2098,6 +2283,302 @@ async function submitInvite() {
 }
 document.getElementById('inviteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeInviteModal(); });
 
+// ── SEAFOOD INVENTORY ──────────────────────────────────
+let allInventory = [];
+
+async function fetchInventory() {
+  try {
+    const r = await fetch(API + '/inventory', authHeaders);
+    if (!r.ok) return;
+    allInventory = await r.json();
+    renderInventory();
+    renderInventoryKPIs();
+    populateInvPickerList();
+  } catch(e) {}
+}
+
+function getInvFiltered() {
+  const q = (document.getElementById('invSearch')?.value || '').toLowerCase();
+  const cat = document.getElementById('invCatFilter')?.value || '';
+  const st = document.getElementById('invStockFilter')?.value || '';
+  return allInventory.filter(item => {
+    const matchQ = !q || (item.name||'').toLowerCase().includes(q) || (item.sku||'').toLowerCase().includes(q) || (item.description||'').toLowerCase().includes(q);
+    const matchCat = !cat || item.category === cat;
+    let matchSt = true;
+    if (st === 'out') matchSt = (item.stock_qty || 0) <= 0;
+    else if (st === 'low') matchSt = (item.stock_qty || 0) > 0 && (item.stock_qty || 0) <= (item.low_stock_threshold || 10);
+    else if (st === 'in') matchSt = (item.stock_qty || 0) > (item.low_stock_threshold || 10);
+    return matchQ && matchCat && matchSt;
+  });
+}
+
+function invStockStatus(item) {
+  const qty = item.stock_qty || 0;
+  const threshold = item.low_stock_threshold || 10;
+  if (qty <= 0) return { label: '✗ Out of Stock', cls: 'stock-out' };
+  if (qty <= threshold) return { label: '⚠ Low Stock', cls: 'stock-low' };
+  return { label: '✓ In Stock', cls: 'stock-in' };
+}
+
+function invCatBadge(cat) {
+  const clsMap = { Fish: 'inv-cat-fish', Shellfish: 'inv-cat-shellfish', Crustacean: 'inv-cat-crustacean', 'Smoked/Cured': 'inv-cat-smoked', Other: 'inv-cat-other' };
+  return `<span class="${clsMap[cat] || 'inv-cat-other'}">${cat || 'Other'}</span>`;
+}
+
+function renderInventory() {
+  const filtered = getInvFiltered();
+  const tbody = document.getElementById('inventoryTable');
+  if (!tbody) return;
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--muted)">
+      ${allInventory.length ? 'No products match your filters.' : 'No products yet. Click <strong>+ Add Product</strong> to get started.'}
+    </td></tr>`;
+    return;
+  }
+  const isManager = nrUser && (nrUser.role === 'admin' || nrUser.role === 'manager');
+  tbody.innerHTML = filtered.map(item => {
+    const status = invStockStatus(item);
+    const price = typeof item.price_per_unit === 'number' ? '$' + item.price_per_unit.toFixed(2) : '—';
+    const stock = item.stock_qty != null ? item.stock_qty : '—';
+    const actions = isManager ? `
+      <div style="display:flex;gap:6px;white-space:nowrap">
+        <button class="user-action-btn" onclick="openRestockModal('${item.id}','${(item.name||'').replace(/'/g,"\\'")}',${item.stock_qty||0})">+ Stock</button>
+        <button class="user-action-btn" onclick="openInventoryModal('${item.id}')">Edit</button>
+        <button class="user-action-btn danger" onclick="deleteInventoryItem('${item.id}','${(item.name||'').replace(/'/g,"\\'")}')">Delete</button>
+      </div>` : '—';
+    return `<tr>
+      <td><strong>${item.name || '—'}</strong>${item.description ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${item.description}</div>` : ''}</td>
+      <td>${invCatBadge(item.category)}</td>
+      <td style="color:var(--muted);font-size:12px">${item.sku || '—'}</td>
+      <td style="color:var(--muted);font-size:12px">${item.unit || '—'}</td>
+      <td style="font-weight:600;color:var(--accent)">${price}</td>
+      <td style="font-weight:600">${stock} <span style="font-size:11px;color:var(--muted)">${item.unit||''}</span></td>
+      <td><span class="${status.cls}">${status.label}</span></td>
+      <td>${actions}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderInventoryKPIs() {
+  const total = allInventory.length;
+  const lowStock = allInventory.filter(i => (i.stock_qty||0) > 0 && (i.stock_qty||0) <= (i.low_stock_threshold||10)).length;
+  const outOfStock = allInventory.filter(i => (i.stock_qty||0) <= 0).length;
+  const totalValue = allInventory.reduce((s, i) => s + (parseFloat(i.price_per_unit)||0) * (parseFloat(i.stock_qty)||0), 0);
+  const el = document.getElementById('invKpiRow');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="kpi-card">
+      <div class="kpi-label">Total Products</div>
+      <div class="kpi-value">${total}</div>
+      <div class="kpi-trend"><span class="trend-neutral">SKUs in catalog</span></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Low Stock</div>
+      <div class="kpi-value ${lowStock > 0 ? 'amber' : 'green'}">${lowStock}</div>
+      <div class="kpi-trend"><span class="${lowStock > 0 ? 'trend-down' : 'trend-up'}">${lowStock > 0 ? '⚠ Restock soon' : '✓ All good'}</span></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Out of Stock</div>
+      <div class="kpi-value ${outOfStock > 0 ? 'red' : 'green'}">${outOfStock}</div>
+      <div class="kpi-trend"><span class="${outOfStock > 0 ? 'trend-down' : 'trend-up'}">${outOfStock > 0 ? '✗ Needs restocking' : '✓ Fully stocked'}</span></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Inventory Value</div>
+      <div class="kpi-value green" style="font-size:24px">$${totalValue.toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2})}</div>
+      <div class="kpi-trend"><span class="trend-neutral">At current prices</span></div>
+    </div>`;
+}
+
+// ── INVENTORY MODAL (Add / Edit) ───────────────────────
+function openInventoryModal(editId) {
+  const modal = document.getElementById('inventoryModal');
+  const r = document.getElementById('invResult');
+  r.className = 'modal-result'; r.textContent = '';
+  document.getElementById('invEditId').value = editId || '';
+
+  if (editId) {
+    const item = allInventory.find(i => i.id === editId);
+    if (!item) return;
+    document.getElementById('invModalTitle').textContent = 'Edit Product';
+    document.getElementById('invSubmitBtn').textContent = 'Save Changes';
+    document.getElementById('invName').value = item.name || '';
+    document.getElementById('invCategory').value = item.category || 'Other';
+    document.getElementById('invSku').value = item.sku || '';
+    document.getElementById('invUnit').value = item.unit || 'lb';
+    document.getElementById('invPrice').value = item.price_per_unit ?? '';
+    document.getElementById('invStock').value = item.stock_qty ?? '';
+    document.getElementById('invThreshold').value = item.low_stock_threshold ?? 10;
+    document.getElementById('invDescription').value = item.description || '';
+  } else {
+    document.getElementById('invModalTitle').textContent = 'Add Product';
+    document.getElementById('invSubmitBtn').textContent = 'Add Product';
+    ['invName','invSku','invPrice','invStock','invDescription'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('invCategory').value = 'Fish';
+    document.getElementById('invUnit').value = 'lb';
+    document.getElementById('invThreshold').value = '10';
+  }
+  modal.classList.add('open');
+}
+
+function closeInventoryModal() {
+  document.getElementById('inventoryModal').classList.remove('open');
+}
+
+async function submitInventoryItem() {
+  const editId = document.getElementById('invEditId').value;
+  const name = document.getElementById('invName').value.trim();
+  const r = document.getElementById('invResult');
+  if (!name) { r.className = 'modal-result error'; r.textContent = 'Product name is required.'; return; }
+  const payload = {
+    name,
+    category: document.getElementById('invCategory').value,
+    sku: document.getElementById('invSku').value.trim(),
+    unit: document.getElementById('invUnit').value,
+    price_per_unit: parseFloat(document.getElementById('invPrice').value) || 0,
+    stock_qty: parseFloat(document.getElementById('invStock').value) || 0,
+    low_stock_threshold: parseFloat(document.getElementById('invThreshold').value) || 10,
+    description: document.getElementById('invDescription').value.trim(),
+  };
+  try {
+    const url = editId ? `${API}/inventory/${editId}` : `${API}/inventory`;
+    const method = editId ? 'PATCH' : 'POST';
+    const res = await fetch(url, { method, headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Request failed');
+    if (editId) {
+      const idx = allInventory.findIndex(i => i.id === editId);
+      if (idx > -1) allInventory[idx] = data;
+    } else {
+      allInventory.push(data);
+    }
+    renderInventory();
+    renderInventoryKPIs();
+    populateInvPickerList();
+    closeInventoryModal();
+  } catch(e) { r.className = 'modal-result error'; r.textContent = e.message; }
+}
+
+async function deleteInventoryItem(id, name) {
+  if (!confirm(`Delete "${name}" from inventory?`)) return;
+  try {
+    const r = await fetch(`${API}/inventory/${id}`, { method: 'DELETE', ...authHeaders });
+    if (!r.ok) throw new Error((await r.json()).error);
+    allInventory = allInventory.filter(i => i.id !== id);
+    renderInventory();
+    renderInventoryKPIs();
+    populateInvPickerList();
+  } catch(e) { alert('Delete failed: ' + e.message); }
+}
+
+// ── RESTOCK MODAL ──────────────────────────────────────
+function openRestockModal(id, name, currentQty) {
+  document.getElementById('restockId').value = id;
+  document.getElementById('restockProductName').textContent = name;
+  document.getElementById('restockCurrent').textContent = currentQty;
+  document.getElementById('restockQty').value = '';
+  const r = document.getElementById('restockResult');
+  r.className = 'modal-result'; r.textContent = '';
+  document.getElementById('restockModal').classList.add('open');
+}
+
+function closeRestockModal() { document.getElementById('restockModal').classList.remove('open'); }
+
+async function submitRestock() {
+  const id = document.getElementById('restockId').value;
+  const addQty = parseFloat(document.getElementById('restockQty').value) || 0;
+  const r = document.getElementById('restockResult');
+  if (addQty <= 0) { r.className = 'modal-result error'; r.textContent = 'Enter a quantity greater than 0.'; return; }
+  const item = allInventory.find(i => i.id === id);
+  if (!item) return;
+  const newQty = (parseFloat(item.stock_qty) || 0) + addQty;
+  try {
+    const res = await fetch(`${API}/inventory/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ stock_qty: newQty }) });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    const idx = allInventory.findIndex(i => i.id === id);
+    if (idx > -1) allInventory[idx] = data;
+    renderInventory();
+    renderInventoryKPIs();
+    populateInvPickerList();
+    closeRestockModal();
+  } catch(e) { r.className = 'modal-result error'; r.textContent = e.message; }
+}
+
+// Wire inventory modal close-on-backdrop
+document.getElementById('inventoryModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeInventoryModal(); });
+document.getElementById('restockModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeRestockModal(); });
+
+// ── INVENTORY ITEM PICKER (inside invoice modal) ───────
+function populateInvPickerList(query) {
+  const listEl = document.getElementById('invPickerList');
+  if (!listEl) return;
+  const q = (query || '').toLowerCase();
+  const items = allInventory.filter(i =>
+    !q || (i.name||'').toLowerCase().includes(q) || (i.sku||'').toLowerCase().includes(q)
+  ).slice(0, 30);
+  if (!items.length) {
+    listEl.innerHTML = `<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">${allInventory.length ? 'No matches found' : 'No inventory loaded yet'}</div>`;
+    return;
+  }
+  listEl.innerHTML = items.map(item => {
+    const status = invStockStatus(item);
+    const price = typeof item.price_per_unit === 'number' ? '$' + item.price_per_unit.toFixed(2) + '/' + (item.unit||'unit') : '—';
+    return `<div class="inv-picker-item" onclick="pickInventoryItem('${item.id}')">
+      <div>
+        <div class="ip-name">${item.name}</div>
+        <div class="ip-meta">${item.category || ''} · ${item.sku || 'No SKU'} · <span class="${status.cls}">${status.label}</span></div>
+      </div>
+      <div class="ip-price">${price}</div>
+    </div>`;
+  }).join('');
+}
+
+function toggleInvPicker() {
+  const dd = document.getElementById('invPickerDropdown');
+  const isOpen = dd.classList.contains('open');
+  if (isOpen) {
+    dd.classList.remove('open');
+  } else {
+    document.getElementById('invPickerSearch').value = '';
+    populateInvPickerList('');
+    dd.classList.add('open');
+    setTimeout(() => document.getElementById('invPickerSearch').focus(), 50);
+  }
+}
+
+function filterInvPicker() {
+  const q = document.getElementById('invPickerSearch').value;
+  populateInvPickerList(q);
+}
+
+function pickInventoryItem(id) {
+  const item = allInventory.find(i => i.id === id);
+  if (!item) return;
+  document.getElementById('invPickerDropdown').classList.remove('open');
+  // Add a line pre-filled with this product
+  const idx = invoiceLineCount++;
+  const container = document.getElementById('ni_lines');
+  const row = document.createElement('div');
+  row.className = 'ni-line';
+  row.id = 'ni_line_' + idx;
+  row.innerHTML = `
+    <input class="search-input" placeholder="Item description" id="ni_desc_${idx}" value="${(item.name||'').replace(/"/g,'&quot;')}" oninput="updateInvoiceTotals()" style="width:100%"/>
+    <input class="search-input" type="number" placeholder="Qty" id="ni_qty_${idx}" value="1" min="0" oninput="updateInvoiceTotals()" style="width:100%"/>
+    <input class="search-input" type="number" placeholder="Price" id="ni_price_${idx}" value="${item.price_per_unit || 0}" min="0" step="0.01" oninput="updateInvoiceTotals()" style="width:100%"/>
+    <button class="btn btn-outline" style="padding:4px 6px;font-size:16px;line-height:1" onclick="removeInvoiceLine(${idx})">×</button>
+  `;
+  container.appendChild(row);
+  updateInvoiceTotals();
+}
+
+// Close inv picker when clicking outside
+document.addEventListener('click', e => {
+  if (!e.target.closest('#invPickerWrap')) {
+    const dd = document.getElementById('invPickerDropdown');
+    if (dd) dd.classList.remove('open');
+  }
+});
+
 // ── INVOICES ────────────────────────────────────────────
 let allInvoices = [];
 let currentSignInvoiceId = null;
@@ -2161,13 +2642,49 @@ function openNewInvoiceModal() {
   document.getElementById('ni_number').value = '';
   document.getElementById('ni_customer').value = '';
   document.getElementById('ni_email').value = '';
-  document.getElementById('ni_driver').value = '';
   document.getElementById('ni_address').value = '';
   document.getElementById('ni_notes').value = '';
   updateInvoiceTotals();
   addInvoiceLine();
+
+  // Populate customer quick-select
+  const custSel = document.getElementById('ni_cust_select');
+  if (custSel) {
+    custSel.innerHTML = '<option value="">— Search &amp; select a customer —</option>' +
+      [...allCustomers].sort((a,b)=>(a.Restaurant||'').localeCompare(b.Restaurant||'')).map((c,i) =>
+        `<option value="${i}">${c.Restaurant || '—'}${c.Area ? ' · ' + c.Area : ''}</option>`
+      ).join('');
+    custSel.value = '';
+  }
+
+  // Populate driver select
+  const drvSel = document.getElementById('ni_driver');
+  if (drvSel) {
+    drvSel.innerHTML = '<option value="">— Select driver —</option>' +
+      allDrivers.map(d => `<option value="${d.name}">${d.name}</option>`).join('');
+  }
+
+  // Populate inventory picker
+  populateInvPickerList('');
+
   const m = document.getElementById('newInvoiceModal');
   m.style.display = 'flex';
+}
+
+function onInvoiceCustomerSelected() {
+  const sel = document.getElementById('ni_cust_select');
+  if (!sel || sel.value === '') return;
+  const idx = parseInt(sel.value);
+  // Sort same way as options
+  const sorted = [...allCustomers].sort((a,b)=>(a.Restaurant||'').localeCompare(b.Restaurant||''));
+  const c = sorted[idx];
+  if (!c) return;
+  document.getElementById('ni_customer').value = c.Restaurant || '';
+  document.getElementById('ni_address').value = c.Address || '';
+  // Email not stored in customers table — leave as-is if blank
+  if (!document.getElementById('ni_email').value) {
+    document.getElementById('ni_email').value = '';
+  }
 }
 
 function closeNewInvoiceModal() {
@@ -2180,11 +2697,10 @@ function addInvoiceLine() {
   const row = document.createElement('div');
   row.className = 'ni-line';
   row.id = 'ni_line_' + idx;
-  row.style.cssText = 'display:grid;grid-template-columns:1fr 60px 80px 32px;gap:6px;margin-bottom:6px;align-items:center';
   row.innerHTML = `
     <input class="search-input" placeholder="Item description" id="ni_desc_${idx}" oninput="updateInvoiceTotals()" style="width:100%"/>
-    <input class="search-input" type="number" placeholder="Qty" id="ni_qty_${idx}" value="1" min="0" oninput="updateInvoiceTotals()" style="width:100%"/>
-    <input class="search-input" type="number" placeholder="Price" id="ni_price_${idx}" value="0" min="0" step="0.01" oninput="updateInvoiceTotals()" style="width:100%"/>
+    <input class="search-input" type="number" placeholder="Qty" id="ni_qty_${idx}" value="1" min="0" step="0.1" oninput="updateInvoiceTotals()" style="width:100%"/>
+    <input class="search-input" type="number" placeholder="$0.00" id="ni_price_${idx}" value="0" min="0" step="0.01" oninput="updateInvoiceTotals()" style="width:100%"/>
     <button class="btn btn-outline" style="padding:4px 6px;font-size:16px;line-height:1" onclick="removeInvoiceLine(${idx})">×</button>
   `;
   container.appendChild(row);
@@ -2232,7 +2748,7 @@ async function createInvoice() {
     invoiceNumber: document.getElementById('ni_number').value.trim() || undefined,
     customerName,
     customerEmail: document.getElementById('ni_email').value.trim(),
-    driverName: document.getElementById('ni_driver').value.trim(),
+    driverName: document.getElementById('ni_driver').value || '',
     deliveryAddress: document.getElementById('ni_address').value.trim(),
     items,
     subtotal,
