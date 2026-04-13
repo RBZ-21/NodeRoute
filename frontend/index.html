@@ -71,6 +71,50 @@ img.logo-img{filter:url(#remove-white)}
 .user-action-btn{background:none;border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:6px;font-size:12px;cursor:pointer;transition:var(--trans)}
 .user-action-btn:hover{border-color:var(--accent);color:var(--text)}
 .user-action-btn.danger:hover{border-color:var(--danger);color:var(--danger)}
+/* ORDERS */
+.order-entry-wrap{display:grid;grid-template-columns:1fr 380px;gap:20px;align-items:start}
+@media(max-width:900px){.order-entry-wrap{grid-template-columns:1fr}}
+.order-form-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:20px}
+.order-queue-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:20px;max-height:calc(100vh - 180px);overflow-y:auto}
+.order-items-table{width:100%;border-collapse:collapse;margin:12px 0}
+.order-items-table th{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;padding:8px 6px;border-bottom:1px solid var(--border);text-align:left}
+.order-items-table td{padding:5px 4px;vertical-align:middle}
+.order-item-input{width:100%;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;transition:var(--trans)}
+.order-item-input:focus{border-color:var(--accent)}
+.unit-toggle{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;width:80px}
+.unit-btn{flex:1;padding:6px 0;text-align:center;font-size:11px;font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);transition:var(--trans)}
+.unit-btn.active{background:var(--accent);color:#050d2a}
+.order-row-del{background:none;border:none;color:var(--muted);cursor:pointer;font-size:16px;padding:4px 6px;border-radius:4px;transition:var(--trans)}
+.order-row-del:hover{color:var(--danger)}
+.order-summary-row{display:flex;justify-content:space-between;padding:4px 0;font-size:13px}
+.order-summary-row.total{font-weight:700;font-size:15px;padding-top:8px;border-top:1px solid var(--border);margin-top:4px}
+.queue-order-card{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:10px;transition:var(--trans)}
+.queue-order-card:hover{border-color:var(--accent)}
+.queue-order-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:8px}
+.queue-order-num{font-weight:700;font-size:13px;color:var(--accent)}
+.queue-order-customer{font-size:13px;font-weight:600;margin-bottom:4px}
+.queue-order-items{font-size:12px;color:var(--muted);line-height:1.6}
+.queue-order-actions{display:flex;gap:6px;margin-top:10px;flex-wrap:wrap}
+.status-badge{display:inline-flex;align-items:center;gap:4px;padding:2px 8px;border-radius:12px;font-size:11px;font-weight:600}
+.status-pending{background:rgba(245,158,11,0.12);color:var(--warn)}
+.status-in_process{background:rgba(61,186,127,0.12);color:var(--accent)}
+.status-processed{background:rgba(124,58,237,0.12);color:#a78bfa}
+.status-invoiced{background:rgba(136,153,187,0.12);color:var(--muted)}
+.cust-ac-wrap{position:relative}
+.cust-ac-drop{position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;z-index:300;max-height:220px;overflow-y:auto;display:none;box-shadow:0 8px 24px rgba(0,0,0,0.35)}
+.cust-ac-item{padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border);font-size:13px;transition:var(--trans)}
+.cust-ac-item:last-child{border-bottom:none}
+.cust-ac-item:hover,.cust-ac-item.selected{background:rgba(61,186,127,0.1)}
+.inprocess-section{background:rgba(61,186,127,0.04);border:1px solid rgba(61,186,127,0.2);border-radius:var(--r-card);padding:16px;margin-bottom:20px}
+.inprocess-title{font-size:13px;font-weight:600;color:var(--accent);margin-bottom:12px;display:flex;align-items:center;gap:8px}
+@media print{
+  .sidebar,.topbar,.mobile-tabs,.no-print{display:none!important}
+  .main{margin-left:0!important}
+  .content{padding:0!important}
+  body{background:#fff!important;color:#000!important}
+  .print-order{display:block!important}
+}
+.print-order{display:none}
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:500;align-items:center;justify-content:center}
 .modal-overlay.open{display:flex}
 .modal-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px;width:440px;max-width:90vw}
@@ -334,6 +378,9 @@ td{padding:12px 16px;vertical-align:middle}
     </div>
     <div class="nav-item" onclick="showTab('customers',this)">
       <span class="nav-icon">🏢</span>Customers
+    </div>
+    <div class="nav-item" onclick="showTab('orders',this)">
+      <span class="nav-icon">📋</span>Orders
     </div>
     <div class="nav-item" onclick="showTab('invoices',this)">
       <span class="nav-icon">🧾</span>Invoices
@@ -611,6 +658,11 @@ td{padding:12px 16px;vertical-align:middle}
         <div class="section-title" style="margin:0">Invoices</div>
         <button class="btn btn-accent" onclick="openNewInvoiceModal()">+ New Invoice</button>
       </div>
+      <!-- In-Process Orders section -->
+      <div class="inprocess-section" id="inprocessSection" style="display:none">
+        <div class="inprocess-title">⚙️ Orders In Processing <span id="inprocessCount" style="background:rgba(61,186,127,0.2);padding:1px 8px;border-radius:10px;font-size:11px"></span></div>
+        <div id="inprocessList"></div>
+      </div>
       <!-- Filter bar -->
       <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
         <input class="search-input" id="invoiceSearch" placeholder="Search customer or invoice #…" oninput="renderInvoices()" style="width:260px"/>
@@ -631,6 +683,85 @@ td{padding:12px 16px;vertical-align:middle}
             <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr>
           </tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- TAB: ORDERS -->
+    <div class="tab-pane" id="tab-orders">
+      <div class="section-header" style="margin-bottom:16px">
+        <div class="section-title" style="margin:0">Orders</div>
+        <div style="display:flex;gap:8px">
+          <button class="btn btn-outline no-print" onclick="clearOrderForm()" title="New Order (Ctrl+N)">+ New Order</button>
+        </div>
+      </div>
+      <div class="order-entry-wrap">
+        <!-- LEFT: Order Entry Form -->
+        <div class="order-form-card">
+          <div style="margin-bottom:16px">
+            <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Customer</label>
+            <div class="cust-ac-wrap">
+              <input class="order-item-input" id="orderCustomerInput" placeholder="Type customer name…" autocomplete="off"
+                oninput="filterOrderCustomers()" onkeydown="orderCustKeydown(event)" style="width:100%;padding:10px 12px;font-size:14px"/>
+              <div class="cust-ac-drop" id="orderCustDrop"></div>
+            </div>
+            <input type="hidden" id="orderCustomerEmail"/>
+            <input type="hidden" id="orderCustomerAddress"/>
+          </div>
+          <div style="display:flex;gap:10px;margin-bottom:16px">
+            <div style="flex:1">
+              <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Notes / Special Instructions</label>
+              <input class="order-item-input" id="orderNotes" placeholder="Optional…" style="width:100%"/>
+            </div>
+          </div>
+          <!-- Items Table -->
+          <div style="overflow-x:auto">
+            <table class="order-items-table" id="orderItemsTable">
+              <thead>
+                <tr>
+                  <th style="width:35%">Product</th>
+                  <th style="width:80px">Unit</th>
+                  <th style="width:90px">Amount</th>
+                  <th style="width:90px">$/Unit</th>
+                  <th style="width:80px">Total</th>
+                  <th style="width:30px"></th>
+                </tr>
+              </thead>
+              <tbody id="orderItemsBody">
+                <!-- rows added by JS -->
+              </tbody>
+            </table>
+          </div>
+          <button class="btn btn-outline" onclick="addOrderRow()" style="margin-bottom:16px;font-size:12px">+ Add Item (Enter)</button>
+          <!-- Totals -->
+          <div style="border-top:1px solid var(--border);padding-top:12px">
+            <div class="order-summary-row"><span style="color:var(--muted)">Subtotal</span><span id="orderSubtotal">$0.00</span></div>
+            <div class="order-summary-row"><span style="color:var(--muted)">Tax (9%)</span><span id="orderTax">$0.00</span></div>
+            <div class="order-summary-row total"><span>Estimated Total*</span><span id="orderTotal">$0.00</span></div>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px">*Final total recalculated after actual weights are entered</div>
+          </div>
+          <!-- Actions -->
+          <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap" class="no-print">
+            <button class="btn btn-outline" onclick="printCurrentOrder()" title="Print order slip">🖨 Print</button>
+            <button class="btn btn-accent" onclick="sendOrderToProcessing()" title="Send to processing (Ctrl+Enter)" style="flex:1">Send to Processing →</button>
+          </div>
+          <div id="orderFormMsg" style="margin-top:12px;font-size:13px;display:none"></div>
+        </div>
+        <!-- RIGHT: In-Process Queue -->
+        <div class="order-queue-card">
+          <div style="font-size:14px;font-weight:600;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between">
+            <span>Order Queue</span>
+            <span id="queueCount" style="font-size:12px;color:var(--muted)"></span>
+          </div>
+          <div style="display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap">
+            <button class="btn btn-outline" style="font-size:11px;padding:4px 10px" onclick="filterQueue('all')" id="qf-all">All</button>
+            <button class="btn btn-outline" style="font-size:11px;padding:4px 10px" onclick="filterQueue('pending')" id="qf-pending">Pending</button>
+            <button class="btn btn-outline" style="font-size:11px;padding:4px 10px" onclick="filterQueue('in_process')" id="qf-in_process">In Process</button>
+            <button class="btn btn-outline" style="font-size:11px;padding:4px 10px" onclick="filterQueue('processed')" id="qf-processed">Processed</button>
+          </div>
+          <div id="orderQueue">
+            <div style="text-align:center;padding:32px;color:var(--muted)">Loading orders…</div>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -680,6 +811,29 @@ td{padding:12px 16px;vertical-align:middle}
 
   </div><!-- /content -->
 </div><!-- /main -->
+
+<!-- FULFILL ORDER MODAL -->
+<div class="modal-overlay" id="fulfillModal">
+  <div class="modal-box" style="width:580px;max-height:90vh;overflow-y:auto">
+    <h3>Enter Actual Weights</h3>
+    <p class="modal-sub">Enter the actual weight collected for each lb-priced item. Fixed-qty items are already calculated.</p>
+    <div id="fulfillOrderInfo" style="font-size:13px;color:var(--muted);margin-bottom:16px"></div>
+    <div id="fulfillItemsList" style="margin-bottom:16px"></div>
+    <label class="modal-label">Assign Driver</label>
+    <select class="modal-input" id="fulfillDriver" style="cursor:pointer">
+      <option value="">— No Driver —</option>
+    </select>
+    <label class="modal-label">Assign Route</label>
+    <select class="modal-input" id="fulfillRoute" style="cursor:pointer">
+      <option value="">— No Route —</option>
+    </select>
+    <div class="modal-result" id="fulfillResult"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeFulfillModal()">Cancel</button>
+      <button class="btn btn-accent" onclick="submitFulfill()">Generate Invoice →</button>
+    </div>
+  </div>
+</div>
 
 <!-- SIGNATURE MODAL -->
 <div id="signModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center">
@@ -1006,6 +1160,517 @@ if (localStorage.getItem('theme') === 'light') {
   document.getElementById('themeToggle').textContent = '☀️';
 }
 
+// ── ORDERS ─────────────────────────────────────────────
+let allOrders = [];
+let orderQueueFilter = 'all';
+let orderEditingId = null;
+let selectedCustomerForOrder = null;
+let custAcIndex = -1;
+
+function clearOrderForm() {
+  orderEditingId = null;
+  selectedCustomerForOrder = null;
+  document.getElementById('orderCustomerInput').value = '';
+  document.getElementById('orderCustomerEmail').value = '';
+  document.getElementById('orderCustomerAddress').value = '';
+  document.getElementById('orderNotes').value = '';
+  document.getElementById('orderFormMsg').style.display = 'none';
+  document.getElementById('orderItemsBody').innerHTML = '';
+  addOrderRow();
+  recalcOrder();
+  document.getElementById('orderCustomerInput').focus();
+}
+
+function addOrderRow(name='', unit='lb', amount='', price='') {
+  const tbody = document.getElementById('orderItemsBody');
+  const idx = tbody.rows.length;
+  const tr = document.createElement('tr');
+  tr.dataset.idx = idx;
+  tr.innerHTML = `
+    <td>
+      <div style="position:relative">
+        <input class="order-item-input" placeholder="Product name" value="${name}"
+          onchange="recalcOrder()" oninput="suggestProduct(this)"
+          onkeydown="orderItemKeydown(event,${idx},'name')" tabindex="0" data-field="name"/>
+        <div class="cust-ac-drop prod-ac-drop" style="z-index:200"></div>
+      </div>
+    </td>
+    <td>
+      <div class="unit-toggle">
+        <button class="unit-btn ${unit==='lb'?'active':''}" onclick="setUnit(this,'lb')" type="button" tabindex="-1">lb</button>
+        <button class="unit-btn ${unit==='each'?'active':''}" onclick="setUnit(this,'each')" type="button" tabindex="-1">ea</button>
+      </div>
+    </td>
+    <td><input class="order-item-input" placeholder="Amt" value="${amount}" type="number" min="0" step="0.01"
+      onchange="recalcOrder()" onkeydown="orderItemKeydown(event,${idx},'amount')" tabindex="0" data-field="amount"/></td>
+    <td><input class="order-item-input" placeholder="$/unit" value="${price}" type="number" min="0" step="0.01"
+      onchange="recalcOrder()" onkeydown="orderItemKeydown(event,${idx},'price')" tabindex="0" data-field="price"/></td>
+    <td id="row-total-${idx}" style="font-size:13px;font-weight:600;white-space:nowrap">—</td>
+    <td><button class="order-row-del" onclick="removeOrderRow(this)" type="button" tabindex="-1">×</button></td>
+  `;
+  tbody.appendChild(tr);
+  if (name === '') {
+    setTimeout(() => tr.querySelector('[data-field="name"]').focus(), 50);
+  }
+  return tr;
+}
+
+function setUnit(btn, unit) {
+  const row = btn.closest('tr');
+  row.querySelectorAll('.unit-btn').forEach(b => b.classList.remove('active'));
+  btn.classList.add('active');
+  recalcOrder();
+}
+
+function removeOrderRow(btn) {
+  const tbody = document.getElementById('orderItemsBody');
+  if (tbody.rows.length <= 1) return;
+  btn.closest('tr').remove();
+  recalcOrder();
+}
+
+function orderItemKeydown(e, rowIdx, field) {
+  const tbody = document.getElementById('orderItemsBody');
+  if (e.key === 'Enter' || (e.key === 'Tab' && !e.shiftKey && field === 'price')) {
+    e.preventDefault();
+    const rows = tbody.querySelectorAll('tr');
+    if (rowIdx >= rows.length - 1) {
+      addOrderRow();
+    } else {
+      rows[rowIdx + 1].querySelector('[data-field="name"]').focus();
+    }
+  }
+  if (e.key === 'Tab' && !e.shiftKey && field !== 'price') {
+    // natural tab within row
+  }
+  if (e.ctrlKey && e.key === 'Enter') {
+    e.preventDefault();
+    sendOrderToProcessing();
+  }
+}
+
+function recalcOrder() {
+  const tbody = document.getElementById('orderItemsBody');
+  let subtotal = 0;
+  tbody.querySelectorAll('tr').forEach((tr, i) => {
+    const amtInput = tr.querySelector('[data-field="amount"]');
+    const priceInput = tr.querySelector('[data-field="price"]');
+    const amt = parseFloat(amtInput?.value) || 0;
+    const price = parseFloat(priceInput?.value) || 0;
+    const total = amt * price;
+    const cell = document.getElementById('row-total-' + i) || tr.cells[4];
+    if (cell) cell.textContent = total > 0 ? '$' + total.toFixed(2) : '—';
+    subtotal += total;
+  });
+  const tax = subtotal * 0.09;
+  const tot = subtotal + tax;
+  document.getElementById('orderSubtotal').textContent = '$' + subtotal.toFixed(2);
+  document.getElementById('orderTax').textContent = '$' + tax.toFixed(2);
+  document.getElementById('orderTotal').textContent = '$' + tot.toFixed(2);
+}
+
+function getOrderItems() {
+  const tbody = document.getElementById('orderItemsBody');
+  return Array.from(tbody.querySelectorAll('tr')).map(tr => {
+    const unit = tr.querySelector('.unit-btn.active')?.dataset?.unit ||
+      (tr.querySelector('.unit-btn.active')?.textContent?.trim() === 'lb' ? 'lb' : 'each');
+    const unitActual = tr.querySelector('.unit-btn.active')?.textContent?.trim() === 'lb' ? 'lb' : 'each';
+    return {
+      name: tr.querySelector('[data-field="name"]')?.value?.trim() || '',
+      unit: unitActual,
+      requested_qty: unitActual === 'each' ? (parseFloat(tr.querySelector('[data-field="amount"]')?.value) || 0) : null,
+      requested_weight: unitActual === 'lb' ? (parseFloat(tr.querySelector('[data-field="amount"]')?.value) || 0) : null,
+      unit_price: parseFloat(tr.querySelector('[data-field="price"]')?.value) || 0,
+      actual_weight: null
+    };
+  }).filter(i => i.name);
+}
+
+async function sendOrderToProcessing() {
+  const customer = document.getElementById('orderCustomerInput').value.trim();
+  if (!customer) { showOrderMsg('Please select a customer', 'error'); return; }
+  const items = getOrderItems();
+  if (!items.length) { showOrderMsg('Add at least one item', 'error'); return; }
+
+  const payload = {
+    customerName: customer,
+    customerEmail: document.getElementById('orderCustomerEmail').value || '',
+    customerAddress: document.getElementById('orderCustomerAddress').value || '',
+    items,
+    notes: document.getElementById('orderNotes').value.trim()
+  };
+
+  try {
+    let order;
+    if (orderEditingId) {
+      const r = await fetch(`${API}/orders/${orderEditingId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ items, notes: payload.notes }) });
+      order = await r.json();
+      order = (await (await fetch(`${API}/orders/${orderEditingId}/send`, { method: 'POST', headers: authHeaders.headers })).json());
+    } else {
+      const r = await fetch(`${API}/orders`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify(payload) });
+      order = await r.json();
+      if (order.error) throw new Error(order.error);
+      const r2 = await fetch(`${API}/orders/${order.id}/send`, { method: 'POST', headers: authHeaders.headers });
+      order = await r2.json();
+    }
+    if (order.error) throw new Error(order.error);
+    // Print the order slip
+    printOrderSlip(order);
+    showOrderMsg(`Order ${order.order_number} sent to processing!`, 'success');
+    clearOrderForm();
+    fetchOrders();
+  } catch(e) {
+    showOrderMsg(e.message, 'error');
+  }
+}
+
+function showOrderMsg(msg, type) {
+  const el = document.getElementById('orderFormMsg');
+  el.textContent = msg;
+  el.style.display = 'block';
+  el.style.color = type === 'error' ? 'var(--danger)' : 'var(--accent)';
+  setTimeout(() => { el.style.display = 'none'; }, 4000);
+}
+
+async function fetchOrders() {
+  try {
+    const r = await fetch(`${API}/orders`, authHeaders);
+    allOrders = await r.json();
+    renderOrderQueue();
+    renderInprocessOrders();
+  } catch(e) {}
+}
+
+function filterQueue(status) {
+  orderQueueFilter = status;
+  ['all','pending','in_process','processed'].forEach(s => {
+    const btn = document.getElementById('qf-' + s);
+    if (btn) btn.className = 'btn ' + (s === status ? 'btn-accent' : 'btn-outline');
+    if (btn) btn.style.fontSize = '11px';
+    if (btn) btn.style.padding = '4px 10px';
+  });
+  renderOrderQueue();
+}
+
+function renderOrderQueue() {
+  const container = document.getElementById('orderQueue');
+  if (!container) return;
+  let orders = allOrders.filter(o => o.status !== 'invoiced');
+  if (orderQueueFilter !== 'all') orders = orders.filter(o => o.status === orderQueueFilter);
+  const count = document.getElementById('queueCount');
+  if (count) count.textContent = orders.length + ' order' + (orders.length !== 1 ? 's' : '');
+  if (!orders.length) {
+    container.innerHTML = `<div style="text-align:center;padding:32px;color:var(--muted)">No orders</div>`;
+    return;
+  }
+  container.innerHTML = orders.map(o => {
+    const itemsSummary = (o.items || []).map(i => {
+      const amt = i.unit === 'lb' ? (i.requested_weight + ' lb') : (i.requested_qty + ' ea');
+      return `${i.name} × ${amt}`;
+    }).join(', ');
+    const statusClass = 'status-' + o.status;
+    const timeAgo = timeSince(o.created_at);
+    return `<div class="queue-order-card">
+      <div class="queue-order-header">
+        <span class="queue-order-num">${o.order_number}</span>
+        <span class="status-badge ${statusClass}">${o.status.replace('_',' ')}</span>
+      </div>
+      <div class="queue-order-customer">${o.customer_name}</div>
+      <div class="queue-order-items">${itemsSummary || '—'}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">${timeAgo}</div>
+      <div class="queue-order-actions">
+        ${o.status === 'in_process' ? `<button class="btn btn-accent" style="font-size:11px;padding:5px 10px" onclick="openFulfillModal('${o.id}')">Enter Weights</button>` : ''}
+        ${o.status === 'in_process' ? `<button class="btn btn-outline" style="font-size:11px;padding:5px 10px" onclick="openAddonOrder('${o.id}')">Add-on</button>` : ''}
+        ${o.status === 'pending' ? `<button class="btn btn-outline" style="font-size:11px;padding:5px 10px" onclick="editOrder('${o.id}')">Edit</button>` : ''}
+        <button class="btn btn-outline" style="font-size:11px;padding:5px 10px;color:var(--muted)" onclick="printQueueOrder('${o.id}')">🖨</button>
+        <button class="btn btn-outline" style="font-size:11px;padding:5px 10px;color:var(--danger)" onclick="deleteOrder('${o.id}')">×</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderInprocessOrders() {
+  const section = document.getElementById('inprocessSection');
+  const list = document.getElementById('inprocessList');
+  const count = document.getElementById('inprocessCount');
+  if (!section || !list) return;
+  const active = allOrders.filter(o => o.status === 'in_process' || o.status === 'processed');
+  if (!active.length) { section.style.display = 'none'; return; }
+  section.style.display = 'block';
+  if (count) count.textContent = active.length;
+  list.innerHTML = active.map(o => {
+    const itemsSummary = (o.items || []).map(i => {
+      const amt = i.unit === 'lb' ? (i.requested_weight + ' lb') : (i.requested_qty + ' ea');
+      return `${i.name} (${amt})`;
+    }).join(' · ');
+    return `<div style="display:flex;align-items:center;justify-content:space-between;padding:10px 12px;background:var(--bg);border-radius:8px;margin-bottom:8px;gap:10px;flex-wrap:wrap">
+      <div>
+        <span style="font-weight:600;font-size:13px">${o.order_number}</span>
+        <span style="color:var(--muted);font-size:13px;margin-left:8px">${o.customer_name}</span>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">${itemsSummary}</div>
+      </div>
+      <button class="btn btn-accent" style="font-size:12px;padding:6px 14px" onclick="openFulfillModal('${o.id}');showTab('orders',null)">Enter Weights & Invoice →</button>
+    </div>`;
+  }).join('');
+}
+
+function timeSince(dateStr) {
+  const diff = Date.now() - new Date(dateStr).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return mins + 'm ago';
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return hrs + 'h ago';
+  return Math.floor(hrs / 24) + 'd ago';
+}
+
+function editOrder(id) {
+  const order = allOrders.find(o => o.id === id);
+  if (!order) return;
+  orderEditingId = id;
+  document.getElementById('orderCustomerInput').value = order.customer_name;
+  document.getElementById('orderCustomerEmail').value = order.customer_email || '';
+  document.getElementById('orderCustomerAddress').value = order.customer_address || '';
+  document.getElementById('orderNotes').value = order.notes || '';
+  document.getElementById('orderItemsBody').innerHTML = '';
+  (order.items || []).forEach(i => {
+    addOrderRow(i.name, i.unit || 'lb', i.unit === 'lb' ? i.requested_weight : i.requested_qty, i.unit_price);
+  });
+  if (!order.items?.length) addOrderRow();
+  recalcOrder();
+}
+
+async function deleteOrder(id) {
+  if (!confirm('Delete this order?')) return;
+  await fetch(`${API}/orders/${id}`, { method: 'DELETE', headers: authHeaders.headers });
+  fetchOrders();
+}
+
+function openAddonOrder(id) {
+  const order = allOrders.find(o => o.id === id);
+  if (!order) return;
+  orderEditingId = id;
+  document.getElementById('orderCustomerInput').value = order.customer_name;
+  document.getElementById('orderCustomerEmail').value = order.customer_email || '';
+  document.getElementById('orderItemsBody').innerHTML = '';
+  // Clear form for add-on items only
+  addOrderRow();
+  recalcOrder();
+  showOrderMsg('Add-on mode: add extra items, then send to processing again', 'success');
+  showTab('orders', null);
+  document.querySelectorAll('.nav-item').forEach((n,i) => {
+    if (i === ['dashboard','deliveries','drivers','analytics','map','users','stops','routes','customers','orders','invoices','inventory'].indexOf('orders')) n.classList.add('active');
+    else n.classList.remove('active');
+  });
+}
+
+function printCurrentOrder() {
+  const customer = document.getElementById('orderCustomerInput').value.trim();
+  if (!customer) { showOrderMsg('Select a customer first', 'error'); return; }
+  const items = getOrderItems();
+  const tempOrder = { order_number: 'DRAFT', customer_name: customer, items, notes: document.getElementById('orderNotes').value, created_at: new Date().toISOString() };
+  printOrderSlip(tempOrder);
+}
+
+function printOrderSlip(order) {
+  const items = order.items || [];
+  const rows = items.map(i => {
+    const amt = i.unit === 'lb' ? `${i.requested_weight} lb` : `${i.requested_qty} ea`;
+    return `<tr><td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:14px">${i.name}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:14px;text-align:right">${amt}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:14px;text-align:right">$${i.unit_price?.toFixed(2)||'—'}/unit</td></tr>`;
+  }).join('');
+  const win = window.open('', '_blank', 'width=600,height=800');
+  win.document.write(`<!DOCTYPE html><html><head><title>Order ${order.order_number}</title>
+  <style>body{font-family:Arial,sans-serif;padding:24px;color:#111}h1{font-size:20px;margin-bottom:4px}table{width:100%;border-collapse:collapse}th{background:#f5f5f5;padding:8px 12px;text-align:left;font-size:12px;text-transform:uppercase;color:#666}@media print{button{display:none}}</style>
+  </head><body>
+  <div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:20px">
+    <div><h1>ORDER ${order.order_number}</h1><div style="color:#666;font-size:13px">${new Date(order.created_at).toLocaleString()}</div></div>
+    <button onclick="window.print()" style="background:#3dba7f;color:#fff;border:none;padding:10px 20px;border-radius:6px;cursor:pointer;font-size:14px">Print</button>
+  </div>
+  <div style="background:#f5f5f5;padding:12px 16px;border-radius:8px;margin-bottom:20px">
+    <div style="font-size:16px;font-weight:bold">${order.customer_name}</div>
+    ${order.notes ? `<div style="font-size:13px;color:#555;margin-top:4px">Note: ${order.notes}</div>` : ''}
+  </div>
+  <table><thead><tr><th>Product</th><th style="text-align:right">Amount</th><th style="text-align:right">Price</th></tr></thead>
+  <tbody>${rows}</tbody></table>
+  <div style="margin-top:24px;font-size:12px;color:#999;text-align:center">NodeRoute Systems — Cut to order</div>
+  </body></html>`);
+  win.document.close();
+  setTimeout(() => win.print(), 300);
+}
+
+function printQueueOrder(id) {
+  const order = allOrders.find(o => o.id === id);
+  if (order) printOrderSlip(order);
+}
+
+// Customer autocomplete for orders
+function filterOrderCustomers() {
+  const q = document.getElementById('orderCustomerInput').value.toLowerCase();
+  const drop = document.getElementById('orderCustDrop');
+  custAcIndex = -1;
+  if (!q || q.length < 1) { drop.style.display = 'none'; return; }
+  const matches = allCustomers.filter(c => {
+    const name = (c.Restaurant || c.name || '').toLowerCase();
+    return name.includes(q);
+  }).slice(0, 10);
+  if (!matches.length) { drop.style.display = 'none'; return; }
+  drop.innerHTML = matches.map((c, i) => {
+    const name = c.Restaurant || c.name || '';
+    const addr = c.Address || '';
+    return `<div class="cust-ac-item" data-idx="${i}" onclick="selectOrderCustomer(${JSON.stringify(name).replace(/"/g,'&quot;')}, ${JSON.stringify(c.Email||'').replace(/"/g,'&quot;')}, ${JSON.stringify(addr).replace(/"/g,'&quot;')})">
+      <div style="font-weight:600">${name}</div>
+      ${addr ? `<div style="font-size:11px;color:var(--muted)">${addr}</div>` : ''}
+    </div>`;
+  }).join('');
+  drop.style.display = 'block';
+}
+
+function orderCustKeydown(e) {
+  const drop = document.getElementById('orderCustDrop');
+  const items = drop.querySelectorAll('.cust-ac-item');
+  if (e.key === 'ArrowDown') { e.preventDefault(); custAcIndex = Math.min(custAcIndex + 1, items.length - 1); items.forEach((el,i) => el.classList.toggle('selected', i === custAcIndex)); }
+  if (e.key === 'ArrowUp') { e.preventDefault(); custAcIndex = Math.max(custAcIndex - 1, 0); items.forEach((el,i) => el.classList.toggle('selected', i === custAcIndex)); }
+  if (e.key === 'Enter' && custAcIndex >= 0 && drop.style.display !== 'none') { e.preventDefault(); items[custAcIndex]?.click(); }
+  if (e.key === 'Escape') { drop.style.display = 'none'; }
+  if (e.key === 'Tab') { if (custAcIndex >= 0) items[custAcIndex]?.click(); drop.style.display = 'none'; }
+}
+
+function selectOrderCustomer(name, email, address) {
+  document.getElementById('orderCustomerInput').value = name;
+  document.getElementById('orderCustomerEmail').value = email;
+  document.getElementById('orderCustomerAddress').value = address;
+  document.getElementById('orderCustDrop').style.display = 'none';
+  // Focus first item row
+  const firstRow = document.getElementById('orderItemsBody').querySelector('[data-field="name"]');
+  if (firstRow) firstRow.focus();
+}
+
+// Product autocomplete from inventory
+function suggestProduct(input) {
+  const q = input.value.toLowerCase();
+  const drop = input.parentElement.querySelector('.prod-ac-drop');
+  if (!q || q.length < 1) { drop.style.display = 'none'; return; }
+  const matches = allInventory.filter(p => (p.name || '').toLowerCase().includes(q)).slice(0, 6);
+  if (!matches.length) { drop.style.display = 'none'; return; }
+  drop.innerHTML = matches.map(p => `<div class="cust-ac-item" onclick="selectProduct(this, ${JSON.stringify(p.name)}, ${p.price_per_unit || 0}, ${JSON.stringify(p.unit||'lb')})">
+    <div style="font-weight:600">${p.name}</div>
+    <div style="font-size:11px;color:var(--muted)">$${(p.price_per_unit||0).toFixed(2)}/${p.unit||'unit'}</div>
+  </div>`).join('');
+  drop.style.display = 'block';
+}
+
+function selectProduct(el, name, price, unit) {
+  const row = el.closest('tr');
+  row.querySelector('[data-field="name"]').value = name;
+  row.querySelector('[data-field="price"]').value = price;
+  // Set unit
+  const unitActual = unit === 'lb' ? 'lb' : 'each';
+  row.querySelectorAll('.unit-btn').forEach(b => {
+    b.classList.toggle('active', b.textContent.trim() === (unitActual === 'lb' ? 'lb' : 'ea'));
+  });
+  el.closest('.prod-ac-drop').style.display = 'none';
+  row.querySelector('[data-field="amount"]').focus();
+  recalcOrder();
+}
+
+// Keyboard shortcut: Ctrl+N = new order
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.key === 'n' && document.getElementById('tab-orders')?.classList.contains('active')) {
+    e.preventDefault();
+    clearOrderForm();
+  }
+});
+
+// Close dropdowns on outside click
+document.addEventListener('click', e => {
+  if (!e.target.closest('.cust-ac-wrap')) document.getElementById('orderCustDrop').style.display = 'none';
+  document.querySelectorAll('.prod-ac-drop').forEach(d => { if (!e.target.closest('td')) d.style.display = 'none'; });
+});
+
+let fulfillOrderId = null;
+
+function openFulfillModal(id) {
+  const order = allOrders.find(o => o.id === id);
+  if (!order) return;
+  fulfillOrderId = id;
+  document.getElementById('fulfillOrderInfo').textContent = `${order.order_number} — ${order.customer_name}`;
+  // Populate items
+  const list = document.getElementById('fulfillItemsList');
+  list.innerHTML = (order.items || []).map((item, i) => {
+    if (item.unit === 'lb') {
+      return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--bg);border-radius:8px;margin-bottom:8px">
+        <div style="flex:1">
+          <div style="font-weight:600;font-size:13px">${item.name}</div>
+          <div style="font-size:12px;color:var(--muted)">Requested: ${item.requested_weight} lb · $${item.unit_price}/lb</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:6px">
+          <input type="number" step="0.01" min="0" class="order-item-input" style="width:90px" placeholder="Actual lb"
+            id="fw-${i}" value="${item.actual_weight||item.requested_weight||''}"/>
+          <span style="font-size:12px;color:var(--muted)">lb</span>
+        </div>
+      </div>`;
+    } else {
+      return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--bg);border-radius:8px;margin-bottom:8px;opacity:0.8">
+        <div style="flex:1">
+          <div style="font-weight:600;font-size:13px">${item.name}</div>
+          <div style="font-size:12px;color:var(--muted)">${item.requested_qty} × ea · $${item.unit_price}/ea</div>
+        </div>
+        <div style="font-size:12px;color:var(--accent)">Fixed qty</div>
+      </div>`;
+    }
+  }).join('');
+  // Populate driver dropdown
+  const driverSel = document.getElementById('fulfillDriver');
+  driverSel.innerHTML = '<option value="">— No Driver —</option>' +
+    allDrivers.map(d => `<option value="${d.name}">${d.name}</option>`).join('');
+  // Populate route dropdown
+  const routeSel = document.getElementById('fulfillRoute');
+  routeSel.innerHTML = '<option value="">— No Route —</option>' +
+    allRoutes.map(r => `<option value="${r.id}">${r.name}${r.driver ? ' ('+r.driver+')' : ''}</option>`).join('');
+  document.getElementById('fulfillResult').style.display = 'none';
+  document.getElementById('fulfillModal').classList.add('open');
+}
+
+function closeFulfillModal() {
+  document.getElementById('fulfillModal').classList.remove('open');
+  fulfillOrderId = null;
+}
+
+async function submitFulfill() {
+  const order = allOrders.find(o => o.id === fulfillOrderId);
+  if (!order) return;
+  const driverName = document.getElementById('fulfillDriver').value;
+  const routeId = document.getElementById('fulfillRoute').value;
+  // Collect actual weights
+  const items = (order.items || []).map((item, i) => {
+    if (item.unit === 'lb') {
+      const actual = parseFloat(document.getElementById('fw-' + i)?.value) || item.requested_weight || 0;
+      return { ...item, actual_weight: actual };
+    }
+    return item;
+  });
+  const resultEl = document.getElementById('fulfillResult');
+  try {
+    const r = await fetch(`${API}/orders/${fulfillOrderId}/fulfill`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+      body: JSON.stringify({ items, driverName, routeId })
+    });
+    const data = await r.json();
+    if (data.error) throw new Error(data.error);
+    resultEl.className = 'modal-result success';
+    resultEl.textContent = `Invoice ${data.invoice.invoice_number} created!`;
+    resultEl.style.display = 'block';
+    fetchOrders();
+    loadInvoices();
+    setTimeout(() => { closeFulfillModal(); showTab('invoices', null); }, 1500);
+  } catch(e) {
+    resultEl.className = 'modal-result error';
+    resultEl.textContent = e.message;
+    resultEl.style.display = 'block';
+  }
+}
+
 // ── TABS ───────────────────────────────────────────────
 function showTab(name, el) {
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
@@ -1013,7 +1678,9 @@ function showTab(name, el) {
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.querySelectorAll('.mobile-tab').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
-  const idx = ['dashboard','deliveries','drivers','analytics','map','users','stops','routes','customers','invoices','inventory'].indexOf(name);
+  const idx = ['dashboard','deliveries','drivers','analytics','map','users','stops','routes','customers','orders','invoices','inventory'].indexOf(name);
+  if (name === 'orders') { fetchOrders(); }
+  if (name === 'invoices') { renderInprocessOrders(); }
   document.querySelectorAll('.nav-item')[idx]?.classList.add('active');
   document.querySelectorAll('.mobile-tab')[idx]?.classList.add('active');
   if (name === 'map') { setTimeout(() => renderMap(), 50); }
@@ -1077,6 +1744,7 @@ async function fetchAll() {
     fetchRoutes();
     fetchCustomers();
     loadInvoices();
+    fetchOrders();
     updateAlert(d);
     populateDriverFilter();
   } catch(e) {
@@ -2934,6 +3602,8 @@ document.getElementById('newInvoiceModal').addEventListener('click', e => { if (
 document.getElementById('signModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeSignModal(); });
 
 // ── AUTO REFRESH ───────────────────────────────────────
+// Initialize order form
+addOrderRow();
 fetchAll();
 setInterval(fetchAll, 30000);
 </script>
