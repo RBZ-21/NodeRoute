@@ -37,7 +37,7 @@ app.use((req, res, next) => {
 });
 
 const frontendDir = path.join(__dirname, '../frontend');
-app.use(express.static(frontendDir));
+app.use(express.static(frontendDir, { index: false }));
 
 const dataDir = path.join(__dirname, 'data');
 const usersFile = path.join(dataDir, 'users.json');
