@@ -139,7 +139,7 @@ app.get('/api/users', authenticateToken, requireRole('admin', 'manager'), (req, 
   res.json(readUsers().map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role, status: u.status, createdAt: u.createdAt })));
 });
 
-app.post('/api/users/invite', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
+app.post('/api/users/invite', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { name, email, role = 'driver' } = req.body;
   if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
   if (!['admin', 'manager', 'driver'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
@@ -152,7 +152,40 @@ app.post('/api/users/invite', authenticateToken, requireRole('admin', 'manager')
   writeUsers(users);
   const inviteUrl = `${BASE_URL}/setup-password.html?token=${inviteToken}`;
   console.log(`\nINVITE for ${name} (${email}) as ${role}:\n${inviteUrl}\n`);
-  res.json({ message: `Invite created for ${name}`, userId: newUser.id, inviteUrl });
+  // Send real email if SMTP configured
+  try {
+    const mailer = createMailer();
+    if (mailer) {
+      await mailer.sendMail({
+        from: process.env.EMAIL_FROM || `NodeRoute Systems <${process.env.SMTP_USER}>`,
+        to: email,
+        subject: `You've been invited to NodeRoute`,
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+            <div style="background:#050d2a;padding:24px;border-radius:12px 12px 0 0;text-align:center">
+              <h1 style="color:#3dba7f;margin:0;font-size:24px">NodeRoute Systems</h1>
+            </div>
+            <div style="background:#f8faff;padding:32px;border-radius:0 0 12px 12px">
+              <h2 style="color:#0d1b3e;margin-bottom:8px">Hi ${name},</h2>
+              <p style="color:#334;font-size:15px;line-height:1.6">
+                You've been invited to join <strong>NodeRoute Delivery Systems</strong> as a <strong>${role}</strong>.
+              </p>
+              <div style="text-align:center;margin:32px 0">
+                <a href="${inviteUrl}" style="background:#3dba7f;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:16px;font-weight:600;display:inline-block">
+                  Set Up Your Account
+                </a>
+              </div>
+              <p style="color:#667;font-size:13px">This link expires in 48 hours.</p>
+              <p style="color:#667;font-size:13px">Or copy this URL: ${inviteUrl}</p>
+            </div>
+          </div>
+        `
+      });
+    }
+  } catch(emailErr) {
+    console.error('Failed to send invite email:', emailErr.message);
+  }
+  res.json({ message: `Invite sent to ${email}`, userId: newUser.id, inviteUrl });
 });
 
 // keep old route as alias
@@ -675,6 +708,86 @@ function buildInvoicePDF(inv) {
     doc.end();
   });
 }
+
+// ── ORDERS ────────────────────────────────────────────────────────────────────
+app.get('/api/orders', authenticateToken, async (req, res) => {
+  const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+app.post('/api/orders', authenticateToken, async (req, res) => {
+  const { customerName, customerEmail, customerAddress, items, notes } = req.body;
+  const orderNumber = 'ORD-' + Date.now().toString().slice(-6);
+  const { data, error } = await supabase.from('orders').insert([{
+    order_number: orderNumber,
+    customer_name: customerName,
+    customer_email: customerEmail || null,
+    customer_address: customerAddress || null,
+    items: items || [],
+    status: 'pending',
+    notes: notes || null,
+    driver_name: null,
+    route_id: null
+  }]).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.patch('/api/orders/:id', authenticateToken, async (req, res) => {
+  const updates = {};
+  if (req.body.customerName !== undefined) updates.customer_name = req.body.customerName;
+  if (req.body.items !== undefined) updates.items = req.body.items;
+  if (req.body.status !== undefined) updates.status = req.body.status;
+  if (req.body.driverName !== undefined) updates.driver_name = req.body.driverName;
+  if (req.body.routeId !== undefined) updates.route_id = req.body.routeId;
+  if (req.body.notes !== undefined) updates.notes = req.body.notes;
+  const { data, error } = await supabase.from('orders').update(updates).eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+app.delete('/api/orders/:id', authenticateToken, async (req, res) => {
+  const { error } = await supabase.from('orders').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ message: 'Order deleted' });
+});
+
+// Send order to processing (prints + marks in_process)
+app.post('/api/orders/:id/send', authenticateToken, async (req, res) => {
+  const { data, error } = await supabase.from('orders').update({ status: 'in_process' }).eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// Fulfill order: enter actual weights → generate invoice
+app.post('/api/orders/:id/fulfill', authenticateToken, async (req, res) => {
+  const { items, driverName, routeId } = req.body;
+  const { data: order, error: oErr } = await supabase.from('orders').select('*').eq('id', req.params.id).single();
+  if (oErr) return res.status(500).json({ error: oErr.message });
+  const invoiceItems = items.map(it => {
+    const qty = it.unit === 'lb' ? (it.actual_weight || it.requested_weight || 0) : (it.requested_qty || 0);
+    return { description: it.name, quantity: qty, unit: it.unit, unit_price: it.unit_price, total: parseFloat((qty * it.unit_price).toFixed(2)) };
+  });
+  const subtotal = invoiceItems.reduce((s, i) => s + i.total, 0);
+  const tax = parseFloat((subtotal * 0.09).toFixed(2));
+  const total = parseFloat((subtotal + tax).toFixed(2));
+  const invoiceNumber = 'INV-' + Date.now().toString().slice(-6);
+  const { data: invoice, error: iErr } = await supabase.from('invoices').insert([{
+    invoice_number: invoiceNumber,
+    customer_name: order.customer_name,
+    customer_email: order.customer_email,
+    customer_address: order.customer_address,
+    items: invoiceItems,
+    subtotal, tax, total,
+    driver_name: driverName || null,
+    status: 'pending',
+    notes: order.notes || null
+  }]).select().single();
+  if (iErr) return res.status(500).json({ error: iErr.message });
+  await supabase.from('orders').update({ status: 'invoiced', driver_name: driverName || null, route_id: routeId || null }).eq('id', req.params.id);
+  res.json({ invoice, message: 'Invoice created' });
+});
 
 // ── PAGES ─────────────────────────────────────────────────────────────────────
 app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
