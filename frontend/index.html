@@ -1043,13 +1043,26 @@ function dismissAlert() {
 
 // ── FETCH ──────────────────────────────────────────────
 async function fetchAll() {
+  // Always fetch inventory independently so it never gets blocked
+  fetchInventory();
+
   try {
-    const [s, d, dr, a] = await Promise.all([
-      fetch(API+'/stats', authHeaders).then(r=>r.json()),
-      fetch(API+'/deliveries', authHeaders).then(r=>r.json()),
-      fetch(API+'/drivers', authHeaders).then(r=>r.json()),
-      fetch(API+'/analytics', authHeaders).then(r=>r.json()),
+    const responses = await Promise.all([
+      fetch(API+'/stats', authHeaders),
+      fetch(API+'/deliveries', authHeaders),
+      fetch(API+'/drivers', authHeaders),
+      fetch(API+'/analytics', authHeaders),
     ]);
+
+    // If all core requests are 401, session expired — redirect to login
+    if (responses.every(r => r.status === 401)) {
+      localStorage.removeItem('nr_token');
+      localStorage.removeItem('nr_user');
+      window.location.href = '/';
+      return;
+    }
+
+    const [s, d, dr, a] = await Promise.all(responses.map(r => r.json()));
     statsData = s; allDeliveries = d; allDrivers = dr; analyticsData = a;
     document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
     renderKPIs();
@@ -1064,11 +1077,10 @@ async function fetchAll() {
     fetchRoutes();
     fetchCustomers();
     loadInvoices();
-    fetchInventory();
     updateAlert(d);
     populateDriverFilter();
   } catch(e) {
-    document.getElementById('lastUpdated').textContent = 'Connection error';
+    document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
   }
 }
 
