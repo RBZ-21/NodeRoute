@@ -1,14 +1,17 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const express = require('express');
 const path = require('path');
-const fs = require('fs');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const PDFDocument = require('pdfkit');
 const nodemailer = require('nodemailer');
 const { createClient } = require('@supabase/supabase-js');
 
 const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+
+const JWT_SECRET = process.env.JWT_SECRET || 'noderoute-dev-secret-change-in-production';
+const JWT_EXPIRY = '24h';
 
 // Email transporter — configured via SMTP_* env vars
 function createMailer() {
@@ -39,27 +42,32 @@ app.use((req, res, next) => {
 const frontendDir = path.join(__dirname, '../frontend');
 app.use(express.static(frontendDir, { index: false }));
 
-const dataDir = path.join(__dirname, 'data');
-const usersFile = path.join(dataDir, 'users.json');
-
-if (!fs.existsSync(dataDir)) fs.mkdirSync(dataDir, { recursive: true });
-
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@noderoute.com';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@123';
 
-if (!fs.existsSync(usersFile)) {
-  fs.writeFileSync(usersFile, JSON.stringify([{
-    id: 'admin-001', name: 'Admin', email: ADMIN_EMAIL,
-    passwordHash: bcrypt.hashSync(ADMIN_PASSWORD, 10),
-    role: 'admin', status: 'active',
-    inviteToken: null, inviteExpires: null, createdAt: new Date().toISOString()
-  }], null, 2));
+// Auto-create admin on first run if no users exist in Supabase
+async function ensureAdminExists() {
+  const { data, error } = await supabase.from('users').select('id').limit(1);
+  if (error) { console.error('Could not check users table:', error.message); return; }
+  if (data && data.length === 0) {
+    const passwordHash = bcrypt.hashSync(ADMIN_PASSWORD, 10);
+    const { error: insertErr } = await supabase.from('users').insert([{
+      id: 'admin-001',
+      name: 'Admin',
+      email: ADMIN_EMAIL,
+      password_hash: passwordHash,
+      role: 'admin',
+      status: 'active',
+      invite_token: null,
+      invite_expires: null,
+      created_at: new Date().toISOString()
+    }]);
+    if (insertErr) console.error('Failed to create admin user:', insertErr.message);
+    else console.log('Admin user created:', ADMIN_EMAIL);
+  }
 }
 
-function readUsers() { return JSON.parse(fs.readFileSync(usersFile, 'utf8')); }
-function writeUsers(u) { fs.writeFileSync(usersFile, JSON.stringify(u, null, 2)); }
-
-const sessions = {};
+ensureAdminExists();
 
 function hashPassword(pw) { return bcrypt.hashSync(pw, 10); }
 
@@ -73,17 +81,28 @@ function verifyPassword(pw, stored) {
   return { valid: bcrypt.compareSync(pw, stored), migrate: false };
 }
 
-function generateToken() { return crypto.randomBytes(32).toString('hex'); }
+function signJWT(user) {
+  return jwt.sign(
+    { userId: user.id, email: user.email, role: user.role },
+    JWT_SECRET,
+    { expiresIn: JWT_EXPIRY }
+  );
+}
 
-function authenticateToken(req, res, next) {
+async function authenticateToken(req, res, next) {
   const auth = req.headers['authorization'];
   if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
   const token = auth.slice(7);
-  const userId = sessions[token];
-  if (!userId) return res.status(401).json({ error: 'Invalid or expired session' });
-  const user = readUsers().find(u => u.id === userId);
-  if (!user) return res.status(401).json({ error: 'User not found' });
-  req.user = user; req.token = token; next();
+  let payload;
+  try {
+    payload = jwt.verify(token, JWT_SECRET);
+  } catch (err) {
+    return res.status(401).json({ error: 'Invalid or expired session' });
+  }
+  const { data: user, error } = await supabase.from('users').select('*').eq('id', payload.userId).single();
+  if (error || !user) return res.status(401).json({ error: 'User not found' });
+  req.user = user;
+  next();
 }
 
 function requireRole(...roles) {
@@ -93,37 +112,47 @@ function requireRole(...roles) {
   };
 }
 
-app.post('/auth/login', (req, res) => {
+app.post('/auth/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
-  const users = readUsers();
-  const idx = users.findIndex(u => u.email.toLowerCase() === email.toLowerCase());
-  if (idx === -1 || users[idx].status !== 'active') return res.status(401).json({ error: 'Invalid credentials' });
-  const { valid, migrate } = verifyPassword(password, users[idx].passwordHash);
+  const { data: users, error } = await supabase
+    .from('users')
+    .select('*')
+    .ilike('email', email)
+    .limit(1);
+  if (error) return res.status(500).json({ error: error.message });
+  const u = users && users[0];
+  if (!u || u.status !== 'active') return res.status(401).json({ error: 'Invalid credentials' });
+  const { valid, migrate } = verifyPassword(password, u.password_hash);
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
-  if (migrate) { users[idx].passwordHash = bcrypt.hashSync(password, 10); writeUsers(users); }
-  const token = generateToken();
-  sessions[token] = users[idx].id;
-  const u = users[idx];
+  if (migrate) {
+    await supabase.from('users').update({ password_hash: bcrypt.hashSync(password, 10) }).eq('id', u.id);
+  }
+  const token = signJWT(u);
   res.json({ token, user: { id: u.id, name: u.name, email: u.email, role: u.role } });
 });
 
-app.post('/auth/setup-password', (req, res) => {
+app.post('/auth/setup-password', async (req, res) => {
   const { token, password } = req.body;
   if (!token || !password) return res.status(400).json({ error: 'Token and password required' });
   if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  const users = readUsers();
-  const idx = users.findIndex(u => u.inviteToken === token);
-  if (idx === -1) return res.status(400).json({ error: 'Invalid invite token' });
-  if (new Date() > new Date(users[idx].inviteExpires)) return res.status(400).json({ error: 'Invite link expired' });
-  users[idx].passwordHash = hashPassword(password);
-  users[idx].status = 'active';
-  users[idx].inviteToken = null;
-  users[idx].inviteExpires = null;
-  writeUsers(users);
-  const sessionToken = generateToken();
-  sessions[sessionToken] = users[idx].id;
-  res.json({ token: sessionToken, user: { id: users[idx].id, name: users[idx].name, email: users[idx].email, role: users[idx].role } });
+  const { data: users, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('invite_token', token)
+    .limit(1);
+  if (error) return res.status(500).json({ error: error.message });
+  const u = users && users[0];
+  if (!u) return res.status(400).json({ error: 'Invalid invite token' });
+  if (new Date() > new Date(u.invite_expires)) return res.status(400).json({ error: 'Invite link expired' });
+  await supabase.from('users').update({
+    password_hash: hashPassword(password),
+    status: 'active',
+    invite_token: null,
+    invite_expires: null
+  }).eq('id', u.id);
+  const sessionToken = signJWT(u);
+  res.json({ token: sessionToken, user: { id: u.id, name: u.name, email: u.email, role: u.role } });
 });
 
 app.get('/auth/me', authenticateToken, (req, res) => {
@@ -131,12 +160,17 @@ app.get('/auth/me', authenticateToken, (req, res) => {
 });
 
 app.post('/auth/logout', authenticateToken, (req, res) => {
-  delete sessions[req.token];
+  // JWTs are stateless; logout is handled client-side by discarding the token
   res.json({ message: 'Logged out' });
 });
 
-app.get('/api/users', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
-  res.json(readUsers().map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role, status: u.status, createdAt: u.createdAt })));
+app.get('/api/users', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const { data, error } = await supabase
+    .from('users')
+    .select('id, name, email, role, status, created_at')
+    .order('created_at', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role, status: u.status, createdAt: u.created_at })));
 });
 
 app.post('/api/users/invite', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
@@ -144,12 +178,29 @@ app.post('/api/users/invite', authenticateToken, requireRole('admin', 'manager')
   if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
   if (!['admin', 'manager', 'driver'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
   if (role === 'admin' && req.user.role !== 'admin') return res.status(403).json({ error: 'Only admins can invite admins' });
-  const users = readUsers();
-  if (users.find(u => u.email.toLowerCase() === email.toLowerCase())) return res.status(409).json({ error: 'Email already exists' });
-  const inviteToken = generateToken();
-  const newUser = { id: 'user-' + Date.now(), name, email, passwordHash: null, role, status: 'pending', inviteToken, inviteExpires: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(), createdAt: new Date().toISOString() };
-  users.push(newUser);
-  writeUsers(users);
+
+  const { data: existing } = await supabase
+    .from('users')
+    .select('id')
+    .ilike('email', email)
+    .limit(1);
+  if (existing && existing.length > 0) return res.status(409).json({ error: 'Email already exists' });
+
+  const inviteToken = crypto.randomBytes(32).toString('hex');
+  const newUser = {
+    id: 'user-' + Date.now(),
+    name,
+    email,
+    password_hash: null,
+    role,
+    status: 'pending',
+    invite_token: inviteToken,
+    invite_expires: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+    created_at: new Date().toISOString()
+  };
+  const { error: insertErr } = await supabase.from('users').insert([newUser]);
+  if (insertErr) return res.status(500).json({ error: insertErr.message });
+
   const inviteUrl = `${BASE_URL}/setup-password.html?token=${inviteToken}`;
   console.log(`\nINVITE for ${name} (${email}) as ${role}:\n${inviteUrl}\n`);
   // Send real email if SMTP configured
@@ -193,22 +244,22 @@ app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager
   req.body.role = req.body.role || 'driver'; next();
 }, (req, res) => res.redirect(307, '/api/users/invite'));
 
-app.delete('/api/users/:id', authenticateToken, requireRole('admin'), (req, res) => {
-  const users = readUsers();
-  const idx = users.findIndex(u => u.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'User not found' });
-  if (users[idx].role === 'admin') return res.status(403).json({ error: 'Cannot delete admin' });
-  users.splice(idx, 1); writeUsers(users);
+app.delete('/api/users/:id', authenticateToken, requireRole('admin'), async (req, res) => {
+  const { data: users, error } = await supabase.from('users').select('id, role').eq('id', req.params.id).limit(1);
+  if (error) return res.status(500).json({ error: error.message });
+  const u = users && users[0];
+  if (!u) return res.status(404).json({ error: 'User not found' });
+  if (u.role === 'admin') return res.status(403).json({ error: 'Cannot delete admin' });
+  const { error: delErr } = await supabase.from('users').delete().eq('id', req.params.id);
+  if (delErr) return res.status(500).json({ error: delErr.message });
   res.json({ message: 'User deleted' });
 });
 
-app.patch('/api/users/:id/role', authenticateToken, requireRole('admin'), (req, res) => {
+app.patch('/api/users/:id/role', authenticateToken, requireRole('admin'), async (req, res) => {
   const { role } = req.body;
   if (!['admin', 'manager', 'driver'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
-  const users = readUsers();
-  const idx = users.findIndex(u => u.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'User not found' });
-  users[idx].role = role; writeUsers(users);
+  const { data, error } = await supabase.from('users').update({ role }).eq('id', req.params.id).select('id').single();
+  if (error || !data) return res.status(404).json({ error: 'User not found' });
   res.json({ message: 'Role updated' });
 });
 
@@ -404,7 +455,7 @@ app.post('/api/stops/:id/arrive', authenticateToken, (req, res) => {
   const { routeId } = req.body;
   const existing = dwellRecords.find(d => d.stopId === req.params.id && d.routeId === routeId && !d.departedAt);
   if (existing) return res.json(existing);
-  const record = { id: 'dwell-' + Date.now(), stopId: req.params.id, routeId: routeId||'', driverId: req.user.userId, arrivedAt: new Date().toISOString(), departedAt: null, dwellMs: null };
+  const record = { id: 'dwell-' + Date.now(), stopId: req.params.id, routeId: routeId||'', driverId: req.user.id, arrivedAt: new Date().toISOString(), departedAt: null, dwellMs: null };
   dwellRecords.push(record);
   res.json(record);
 });
