@@ -1,0 +1,368 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Track Your Delivery — NodeRoute</title>
+  <style>
+    *{margin:0;padding:0;box-sizing:border-box}
+    body{font-family:'Segoe UI',system-ui,sans-serif;background:#050d2a;color:#fff;min-height:100vh;display:flex;flex-direction:column}
+
+    /* Header */
+    .header{background:#0d1b3e;border-bottom:1px solid rgba(255,107,53,0.3);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+    .header-brand{font-size:16px;font-weight:700;color:#ff6b35;letter-spacing:.5px}
+    .header-order{font-size:12px;color:#8899bb}
+
+    /* Map */
+    #map{flex:1;min-height:300px;width:100%}
+
+    /* Bottom card */
+    .card{background:#0d1b3e;border-top:1px solid rgba(61,186,127,0.2);padding:20px;flex-shrink:0}
+
+    /* Status pill */
+    .status-row{display:flex;align-items:center;gap:10px;margin-bottom:16px}
+    .pulse-dot{width:10px;height:10px;border-radius:50%;background:#3dba7f;flex-shrink:0;animation:pulse 1.6s infinite}
+    @keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(61,186,127,.5)}50%{box-shadow:0 0 0 8px rgba(61,186,127,0)}}
+    .status-text{font-size:14px;font-weight:600;color:#3dba7f}
+    .status-text.delivered{color:#3dba7f}
+    .status-text.waiting{color:#f59e0b}
+
+    /* ETA block */
+    .eta-block{text-align:center;margin-bottom:20px}
+    .eta-time{font-size:52px;font-weight:800;color:#fff;line-height:1;letter-spacing:-2px}
+    .eta-label{font-size:13px;color:#8899bb;margin-top:4px}
+    .eta-arrive{font-size:14px;color:#3dba7f;margin-top:6px;font-weight:600}
+
+    /* Stop progress */
+    .stop-progress{background:#050d2a;border-radius:12px;padding:14px;margin-bottom:16px}
+    .stop-progress-title{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:#8899bb;margin-bottom:10px}
+    .stop-track{display:flex;align-items:center;gap:0}
+    .stop-node{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;position:relative;z-index:1}
+    .stop-node.done{background:#3dba7f;color:#fff}
+    .stop-node.active{background:#ff6b35;color:#fff;animation:pulse-orange 1.6s infinite}
+    @keyframes pulse-orange{0%,100%{box-shadow:0 0 0 0 rgba(255,107,53,.5)}50%{box-shadow:0 0 0 8px rgba(255,107,53,0)}}
+    .stop-node.yours{background:#0d1b3e;border:2px solid #3dba7f;color:#3dba7f}
+    .stop-line{flex:1;height:3px;background:#1e3a6e}
+    .stop-line.done{background:#3dba7f}
+    .stop-labels{display:flex;justify-content:space-between;margin-top:6px;font-size:10px;color:#8899bb}
+
+    /* Detail rows */
+    .detail-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,0.06);font-size:13px}
+    .detail-row:last-child{border-bottom:none}
+    .detail-label{color:#8899bb}
+    .detail-val{font-weight:600;text-align:right;max-width:60%}
+
+    /* Driver avatar */
+    .driver-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,0.06)}
+    .driver-avatar{width:40px;height:40px;border-radius:50%;background:#3dba7f;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0}
+    .driver-info{flex:1}
+    .driver-name{font-size:14px;font-weight:600}
+    .driver-sub{font-size:11px;color:#8899bb}
+    .driver-freshness{font-size:10px;color:#8899bb;margin-left:auto}
+
+    /* Refresh notice */
+    .refresh-note{text-align:center;font-size:11px;color:#4a5568;margin-top:16px}
+
+    /* Error / loading */
+    .center-msg{display:flex;flex-direction:column;align-items:center;justify-content:center;flex:1;padding:40px 20px;text-align:center;gap:12px}
+    .center-msg h2{font-size:20px;font-weight:700}
+    .center-msg p{color:#8899bb;font-size:14px;line-height:1.6}
+    .spinner{width:36px;height:36px;border:3px solid rgba(61,186,127,.2);border-top-color:#3dba7f;border-radius:50%;animation:spin .8s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-brand">NodeRoute Systems</div>
+  <div id="headerOrder" class="header-order"></div>
+</div>
+
+<div id="map"></div>
+
+<div id="mainCard" class="card" style="display:none">
+
+  <!-- Status -->
+  <div class="status-row">
+    <div id="pulseDot" class="pulse-dot"></div>
+    <div id="statusText" class="status-text">Driver is on the way</div>
+  </div>
+
+  <!-- ETA -->
+  <div class="eta-block" id="etaBlock">
+    <div class="eta-time" id="etaMins">—</div>
+    <div class="eta-label">minutes away</div>
+    <div class="eta-arrive" id="etaArrive"></div>
+  </div>
+
+  <!-- Stop progress bar -->
+  <div class="stop-progress" id="stopProgressWrap" style="display:none">
+    <div class="stop-progress-title">Stops before yours</div>
+    <div class="stop-track" id="stopTrack"></div>
+    <div class="stop-labels" id="stopLabels"></div>
+  </div>
+
+  <!-- Driver -->
+  <div class="driver-row">
+    <div class="driver-avatar" id="driverAvatar">?</div>
+    <div class="driver-info">
+      <div class="driver-name" id="driverName">Your driver</div>
+      <div class="driver-sub">En route to you</div>
+    </div>
+    <div class="driver-freshness" id="driverFreshness"></div>
+  </div>
+
+  <!-- Details -->
+  <div style="margin-top:4px">
+    <div class="detail-row">
+      <span class="detail-label">Delivering to</span>
+      <span class="detail-val" id="detailAddress">—</span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">Drive time</span>
+      <span class="detail-val" id="detailDrive">—</span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">Time at prior stops</span>
+      <span class="detail-val" id="detailDwell">—</span>
+    </div>
+    <div class="detail-row">
+      <span class="detail-label">Traffic</span>
+      <span class="detail-val" id="detailTraffic">—</span>
+    </div>
+  </div>
+
+  <div class="refresh-note" id="refreshNote">Updates every 30 seconds · <span id="lastUpdated"></span></div>
+</div>
+
+<!-- Loading / error states -->
+<div id="loadingMsg" class="center-msg">
+  <div class="spinner"></div>
+  <p>Loading your delivery status…</p>
+</div>
+<div id="errorMsg" class="center-msg" style="display:none">
+  <div style="font-size:48px">📦</div>
+  <h2 id="errorTitle">Link not found</h2>
+  <p id="errorBody">This tracking link may have expired or is invalid. Contact your NodeRoute rep for assistance.</p>
+</div>
+
+<script>
+  const token   = new URLSearchParams(location.search).get('t');
+  let googleMap, driverMarker, destMarker, routeLine;
+  let trackData = null;
+  let refreshTimer;
+  let minsCountdown;
+
+  if (!token) { showError('No tracking token', 'This link is missing a tracking token. Please use the link from your email.'); }
+  else { loadGoogleMaps().then(() => fetchTracking()); }
+
+  async function loadGoogleMaps() {
+    if (window.google) return;
+    const keyRes = await fetch('/api/config/maps-key', { headers: {} });
+    const keyData = await keyRes.json().catch(() => ({}));
+    const key = keyData.key || '';
+    return new Promise(resolve => {
+      if (!key) { resolve(); return; }
+      window.__mapReady = resolve;
+      const s = document.createElement('script');
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&callback=__mapReady`;
+      s.async = true;
+      document.head.appendChild(s);
+    });
+  }
+
+  async function fetchTracking() {
+    try {
+      const res  = await fetch(`/api/track/${token}`);
+      const data = await res.json();
+      if (!res.ok) { showError(res.status === 410 ? 'Link Expired' : 'Not Found', data.error); return; }
+      trackData = data;
+      renderTracking(data);
+      document.getElementById('loadingMsg').style.display  = 'none';
+      document.getElementById('mainCard').style.display    = 'block';
+      // Auto-refresh every 30s
+      clearInterval(refreshTimer);
+      refreshTimer = setInterval(fetchTracking, 30000);
+    } catch(e) {
+      showError('Connection Error', 'Could not reach the tracking server. Please try again.');
+    }
+  }
+
+  function renderTracking(d) {
+    // Header
+    document.getElementById('headerOrder').textContent = d.orderNumber || '';
+
+    // Status
+    const delivered = d.status === 'invoiced' || d.status === 'delivered';
+    const statusEl  = document.getElementById('statusText');
+    const dotEl     = document.getElementById('pulseDot');
+    if (delivered) {
+      statusEl.textContent = 'Delivered ✓';
+      statusEl.className   = 'status-text delivered';
+      dotEl.style.background = '#3dba7f';
+      dotEl.style.animation  = 'none';
+      document.getElementById('etaMins').textContent  = '✓';
+      document.getElementById('etaArrive').textContent = 'Your delivery is complete';
+      document.getElementById('etaBlock').querySelector('.eta-label').textContent = '';
+    } else if (d.eta) {
+      startCountdown(d.eta.totalMinutes, d.eta.etaTime);
+      document.getElementById('detailDrive').textContent = d.eta.driveMinutes + ' min (with traffic)';
+      document.getElementById('detailDwell').textContent = d.eta.dwellMinutes > 0 ? d.eta.dwellMinutes + ' min' : 'None';
+      document.getElementById('detailTraffic').textContent = d.eta.legs?.[0]?.withTraffic ? 'Live data' : 'Estimated';
+    } else {
+      document.getElementById('etaMins').textContent = '—';
+      document.getElementById('etaArrive').textContent = 'ETA calculating…';
+    }
+
+    // Driver
+    const initials = (d.driver.name || '?').split(' ').map(n => n[0]).join('').slice(0,2);
+    document.getElementById('driverAvatar').textContent = initials;
+    document.getElementById('driverName').textContent   = d.driver.name || 'Your driver';
+    if (d.driver.updatedAt) {
+      const mins = Math.round((Date.now() - new Date(d.driver.updatedAt)) / 60000);
+      document.getElementById('driverFreshness').textContent = mins < 2 ? 'Live' : mins + 'm ago';
+    }
+
+    // Address
+    document.getElementById('detailAddress').textContent = d.deliveryAddress || '—';
+
+    // Stop progress bar
+    if (d.stopsBeforeYou > 0 || d.totalRouteStops > 0) {
+      renderStopProgress(d.stopsBeforeYou, d.totalRouteStops);
+    }
+
+    // Last updated
+    document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
+
+    // Map
+    if (window.google) renderMap(d);
+  }
+
+  function startCountdown(totalMins, etaIso) {
+    clearInterval(minsCountdown);
+    let remaining = totalMins;
+    const etaDate = new Date(etaIso);
+
+    function tick() {
+      remaining = Math.max(0, Math.round((etaDate - Date.now()) / 60000));
+      document.getElementById('etaMins').textContent = remaining;
+      document.getElementById('etaArrive').textContent =
+        'Estimated arrival: ' + etaDate.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+      if (remaining <= 0) clearInterval(minsCountdown);
+    }
+    tick();
+    minsCountdown = setInterval(tick, 15000);
+  }
+
+  function renderStopProgress(stopsAhead, total) {
+    const wrap = document.getElementById('stopProgressWrap');
+    const track = document.getElementById('stopTrack');
+    const labels = document.getElementById('stopLabels');
+    if (!total) { wrap.style.display = 'none'; return; }
+    wrap.style.display = 'block';
+    const completed = Math.max(0, total - stopsAhead - 1);
+    const nodeCount = Math.min(total + 1, 8); // cap display at 8 nodes
+
+    let trackHTML = '', labelsHTML = '';
+    for (let i = 0; i < nodeCount; i++) {
+      const isLast   = i === nodeCount - 1;
+      const isDone   = i < completed;
+      const isDriver = i === completed;
+      const isMine   = isLast;
+      const cls = isMine ? 'yours' : (isDone ? 'done' : (isDriver ? 'active' : ''));
+      const icon = isMine ? '📍' : (isDone ? '✓' : (isDriver ? '🚐' : i + 1));
+      trackHTML += `<div class="stop-node ${cls}">${icon}</div>`;
+      if (!isLast) {
+        const lineClass = isDone ? 'done' : '';
+        trackHTML += `<div class="stop-line ${lineClass}"></div>`;
+      }
+    }
+    if (stopsAhead > 0) {
+      labelsHTML = `<span>${stopsAhead} stop${stopsAhead !== 1 ? 's' : ''} before yours</span><span>You →</span>`;
+    } else {
+      labelsHTML = `<span style="color:#ff6b35;font-weight:600">Next stop is yours!</span><span>You →</span>`;
+    }
+    track.innerHTML  = trackHTML;
+    labels.innerHTML = labelsHTML;
+  }
+
+  function renderMap(d) {
+    const mapEl = document.getElementById('map');
+    if (!googleMap) {
+      googleMap = new google.maps.Map(mapEl, {
+        zoom: 13,
+        center: { lat: d.driver.lat, lng: d.driver.lng },
+        mapTypeId: 'roadmap',
+        disableDefaultUI: true,
+        zoomControl: true,
+        gestureHandling: 'cooperative',
+        styles: [
+          { elementType: 'geometry', stylers: [{ color: '#0d1b3e' }] },
+          { elementType: 'labels.text.fill', stylers: [{ color: '#8899bb' }] },
+          { elementType: 'labels.text.stroke', stylers: [{ color: '#050d2a' }] },
+          { featureType: 'road', elementType: 'geometry', stylers: [{ color: '#1a2f5e' }] },
+          { featureType: 'road.highway', elementType: 'geometry', stylers: [{ color: '#243d6e' }] },
+          { featureType: 'water', elementType: 'geometry', stylers: [{ color: '#050d2a' }] },
+          { featureType: 'poi', stylers: [{ visibility: 'off' }] },
+          { featureType: 'transit', stylers: [{ visibility: 'off' }] },
+        ]
+      });
+    }
+
+    // Driver marker (van icon)
+    const driverSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44">
+      <circle cx="22" cy="22" r="20" fill="#ff6b35" stroke="#fff" stroke-width="3"/>
+      <text x="22" y="27" text-anchor="middle" font-size="18" font-family="sans-serif">🚐</text>
+    </svg>`;
+    const driverPos = { lat: d.driver.lat, lng: d.driver.lng };
+    if (driverMarker) {
+      driverMarker.setPosition(driverPos);
+    } else {
+      driverMarker = new google.maps.Marker({
+        position: driverPos, map: googleMap, zIndex: 10,
+        icon: { url: 'data:image/svg+xml;charset=UTF-8,' + encodeURIComponent(driverSVG), scaledSize: new google.maps.Size(44,44), anchor: new google.maps.Point(22,22) },
+        title: d.driver.name
+      });
+    }
+
+    // Destination marker
+    if (d.destination.lat && d.destination.lng) {
+      const destPos = { lat: d.destination.lat, lng: d.destination.lng };
+      if (destMarker) {
+        destMarker.setPosition(destPos);
+      } else {
+        destMarker = new google.maps.Marker({
+          position: destPos, map: googleMap, zIndex: 5,
+          icon: { path: google.maps.SymbolPath.CIRCLE, scale: 10, fillColor: '#3dba7f', fillOpacity: 1, strokeColor: '#fff', strokeWeight: 3 },
+          title: d.deliveryAddress
+        });
+      }
+
+      // Fit both markers
+      const bounds = new google.maps.LatLngBounds();
+      bounds.extend(driverPos);
+      bounds.extend(destPos);
+      googleMap.fitBounds(bounds, { top: 20, right: 20, bottom: 20, left: 20 });
+
+      // Draw route line
+      if (routeLine) routeLine.setMap(null);
+      routeLine = new google.maps.Polyline({
+        path: [driverPos, destPos],
+        geodesic: true,
+        strokeColor: '#ff6b35',
+        strokeOpacity: 0.6,
+        strokeWeight: 3,
+        map: googleMap
+      });
+    }
+  }
+
+  function showError(title, body) {
+    document.getElementById('loadingMsg').style.display = 'none';
+    document.getElementById('errorTitle').textContent   = title;
+    document.getElementById('errorBody').textContent    = body;
+    document.getElementById('errorMsg').style.display   = 'flex';
+  }
+</script>
+</body>
+</html>
