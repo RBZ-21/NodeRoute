@@ -17,8 +17,8 @@
   --r-card:12px;--r-input:8px;--trans:0.2s ease all;
 }
 body.light{
-  --bg:#f0f4ff;--surface:#ffffff;--border:#d1daf0;
-  --text:#0d1b3e;--muted:#6677aa;
+  --bg:#f5f8ff;--surface:#ffffff;--border:#dde3f5;
+  --text:#0d1b3e;--muted:#7788bb;
 }
 svg.logo-filter{position:absolute;width:0;height:0}
 img.logo-img{filter:url(#remove-white)}
@@ -2712,7 +2712,7 @@ function showGeofenceToast(msg) {
   if (!toast) {
     toast = document.createElement('div');
     toast.id = 'geoToast';
-    toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0d1b3e;border:1px solid var(--accent);color:var(--text);padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;transition:opacity 0.4s';
+    toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--accent);color:var(--text);padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;transition:opacity 0.4s';
     document.body.appendChild(toast);
   }
   toast.textContent = '📍 ' + msg;
