@@ -1,6 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
-const supabase = require('../services/supabase');
+const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createMailer } = require('../services/email');
 
@@ -9,11 +9,8 @@ const router = express.Router();
 const BASE_URL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3001}`;
 
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { data, error } = await supabase
-    .from('users')
-    .select('id, name, email, role, status, created_at')
-    .order('created_at', { ascending: true });
-  if (error) return res.status(500).json({ error: error.message });
+  const data = await dbQuery(supabase.from('users').select('id, name, email, role, status, created_at').order('created_at', { ascending: true }), res);
+  if (!data) return;
   res.json(data.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role, status: u.status, createdAt: u.created_at })));
 });
 
@@ -42,8 +39,8 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
     invite_expires: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
     created_at: new Date().toISOString()
   };
-  const { error: insertErr } = await supabase.from('users').insert([newUser]);
-  if (insertErr) return res.status(500).json({ error: insertErr.message });
+  const insertResult = await dbQuery(supabase.from('users').insert([newUser]), res);
+  if (insertResult === null) return;
 
   const inviteUrl = `${BASE_URL}/setup-password.html?token=${inviteToken}`;
   console.log(`\nINVITE for ${name} (${email}) as ${role}:\n${inviteUrl}\n`);
@@ -84,21 +81,21 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
 });
 
 router.delete('/:id', authenticateToken, requireRole('admin'), async (req, res) => {
-  const { data: users, error } = await supabase.from('users').select('id, role').eq('id', req.params.id).limit(1);
-  if (error) return res.status(500).json({ error: error.message });
+  const users = await dbQuery(supabase.from('users').select('id, role').eq('id', req.params.id).limit(1), res);
+  if (!users) return;
   const u = users && users[0];
   if (!u) return res.status(404).json({ error: 'User not found' });
   if (u.role === 'admin') return res.status(403).json({ error: 'Cannot delete admin' });
-  const { error: delErr } = await supabase.from('users').delete().eq('id', req.params.id);
-  if (delErr) return res.status(500).json({ error: delErr.message });
+  const delResult = await dbQuery(supabase.from('users').delete().eq('id', req.params.id), res);
+  if (delResult === null) return;
   res.json({ message: 'User deleted' });
 });
 
 router.patch('/:id/role', authenticateToken, requireRole('admin'), async (req, res) => {
   const { role } = req.body;
   if (!['admin', 'manager', 'driver'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
-  const { data, error } = await supabase.from('users').update({ role }).eq('id', req.params.id).select('id').single();
-  if (error || !data) return res.status(404).json({ error: 'User not found' });
+  const data = await dbQuery(supabase.from('users').update({ role }).eq('id', req.params.id).select('id').single(), res);
+  if (!data) return res.status(404).json({ error: 'User not found' });
   res.json({ message: 'Role updated' });
 });
 

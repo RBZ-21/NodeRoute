@@ -1,5 +1,5 @@
 const express = require('express');
-const supabase = require('../services/supabase');
+const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken } = require('../middleware/auth');
 const { createMailer } = require('../services/email');
 const { buildInvoicePDF } = require('../services/pdf');
@@ -7,22 +7,16 @@ const { buildInvoicePDF } = require('../services/pdf');
 const router = express.Router();
 
 router.get('/', authenticateToken, async (req, res) => {
-  const { data, error } = await supabase
-    .from('invoices')
-    .select('*')
-    .order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
+  const data = await dbQuery(supabase.from('invoices').select('*').order('created_at', { ascending: false }), res);
+  if (!data) return;
   res.json(data);
 });
 
 router.post('/', authenticateToken, async (req, res) => {
   const { invoice_number, customer_name, customer_email, customer_address, items, subtotal, tax, total, driver_name, notes, entree_invoice_id } = req.body;
   if (!customer_name) return res.status(400).json({ error: 'Customer name required' });
-  const { data, error } = await supabase
-    .from('invoices')
-    .insert([{ invoice_number, customer_name, customer_email, customer_address, items: items||[], subtotal: subtotal||0, tax: tax||0, total: total||0, status: 'pending', driver_name, notes, entree_invoice_id }])
-    .select().single();
-  if (error) return res.status(500).json({ error: error.message });
+  const data = await dbQuery(supabase.from('invoices').insert([{ invoice_number, customer_name, customer_email, customer_address, items: items||[], subtotal: subtotal||0, tax: tax||0, total: total||0, status: 'pending', driver_name, notes, entree_invoice_id }]).select().single(), res);
+  if (!data) return;
   res.json(data);
 });
 
@@ -48,8 +42,8 @@ router.post('/import', authenticateToken, async (req, res) => {
     entree_invoice_id: e.InvoiceNumber || e.InvoiceID || null,
     status: 'pending',
   }));
-  const { data, error } = await supabase.from('invoices').insert(mapped).select();
-  if (error) return res.status(500).json({ error: error.message });
+  const data = await dbQuery(supabase.from('invoices').insert(mapped).select(), res);
+  if (!data) return;
   res.json({ imported: data.length, invoices: data });
 });
 
@@ -58,16 +52,12 @@ router.post('/:id/sign', authenticateToken, async (req, res) => {
   const { signature_data } = req.body; // base64 PNG from canvas
   if (!signature_data) return res.status(400).json({ error: 'Signature data required' });
 
-  const { data: inv, error: fetchErr } = await supabase
-    .from('invoices').select('*').eq('id', req.params.id).single();
-  if (fetchErr || !inv) return res.status(404).json({ error: 'Invoice not found' });
+  const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
+  if (!inv) return res.status(404).json({ error: 'Invoice not found' });
 
   // Update invoice as signed
-  const { data: updated, error: updateErr } = await supabase
-    .from('invoices')
-    .update({ signature_data, status: 'signed', signed_at: new Date().toISOString() })
-    .eq('id', req.params.id).select().single();
-  if (updateErr) return res.status(500).json({ error: updateErr.message });
+  const updated = await dbQuery(supabase.from('invoices').update({ signature_data, status: 'signed', signed_at: new Date().toISOString() }).eq('id', req.params.id).select().single(), res);
+  if (!updated) return;
 
   // Generate PDF
   const pdfBuffer = await buildInvoicePDF({ ...updated });
@@ -109,8 +99,8 @@ router.post('/:id/sign', authenticateToken, async (req, res) => {
 
 // Resend email for an already-signed invoice
 router.post('/:id/resend', authenticateToken, async (req, res) => {
-  const { data: inv, error } = await supabase.from('invoices').select('*').eq('id', req.params.id).single();
-  if (error || !inv) return res.status(404).json({ error: 'Invoice not found' });
+  const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
+  if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   if (!inv.signature_data) return res.status(400).json({ error: 'Invoice not yet signed' });
   if (!inv.customer_email) return res.status(400).json({ error: 'No email on file for this customer' });
   const mailer = createMailer();
@@ -129,8 +119,8 @@ router.post('/:id/resend', authenticateToken, async (req, res) => {
 
 // Download PDF for any invoice
 router.get('/:id/pdf', authenticateToken, async (req, res) => {
-  const { data: inv, error } = await supabase.from('invoices').select('*').eq('id', req.params.id).single();
-  if (error || !inv) return res.status(404).json({ error: 'Invoice not found' });
+  const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
+  if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   const pdfBuffer = await buildInvoicePDF(inv);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="invoice-${inv.invoice_number || inv.id.slice(0,8)}.pdf"`);

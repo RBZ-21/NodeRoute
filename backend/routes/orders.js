@@ -1,20 +1,20 @@
 const express = require('express');
-const supabase = require('../services/supabase');
+const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 
 // ── ORDERS ────────────────────────────────────────────────────────────────────
 router.get('/', authenticateToken, async (req, res) => {
-  const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
-  if (error) return res.status(500).json({ error: error.message });
+  const data = await dbQuery(supabase.from('orders').select('*').order('created_at', { ascending: false }), res);
+  if (!data) return;
   res.json(data || []);
 });
 
 router.post('/', authenticateToken, async (req, res) => {
   const { customerName, customerEmail, customerAddress, items, notes } = req.body;
   const orderNumber = 'ORD-' + Date.now().toString().slice(-6);
-  const { data, error } = await supabase.from('orders').insert([{
+  const data = await dbQuery(supabase.from('orders').insert([{
     order_number: orderNumber,
     customer_name: customerName,
     customer_email: customerEmail || null,
@@ -24,8 +24,8 @@ router.post('/', authenticateToken, async (req, res) => {
     notes: notes || null,
     driver_name: null,
     route_id: null
-  }]).select().single();
-  if (error) return res.status(500).json({ error: error.message });
+  }]).select().single(), res);
+  if (!data) return;
   res.json(data);
 });
 
@@ -37,29 +37,29 @@ router.patch('/:id', authenticateToken, async (req, res) => {
   if (req.body.driverName !== undefined) updates.driver_name = req.body.driverName;
   if (req.body.routeId !== undefined) updates.route_id = req.body.routeId;
   if (req.body.notes !== undefined) updates.notes = req.body.notes;
-  const { data, error } = await supabase.from('orders').update(updates).eq('id', req.params.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
+  const data = await dbQuery(supabase.from('orders').update(updates).eq('id', req.params.id).select().single(), res);
+  if (!data) return;
   res.json(data);
 });
 
 router.delete('/:id', authenticateToken, async (req, res) => {
-  const { error } = await supabase.from('orders').delete().eq('id', req.params.id);
-  if (error) return res.status(500).json({ error: error.message });
+  const data = await dbQuery(supabase.from('orders').delete().eq('id', req.params.id), res);
+  if (data === null) return;
   res.json({ message: 'Order deleted' });
 });
 
 // Send order to processing (prints + marks in_process)
 router.post('/:id/send', authenticateToken, async (req, res) => {
-  const { data, error } = await supabase.from('orders').update({ status: 'in_process' }).eq('id', req.params.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
+  const data = await dbQuery(supabase.from('orders').update({ status: 'in_process' }).eq('id', req.params.id).select().single(), res);
+  if (!data) return;
   res.json(data);
 });
 
 // Fulfill order: enter actual weights → generate invoice
 router.post('/:id/fulfill', authenticateToken, async (req, res) => {
   const { items, driverName, routeId } = req.body;
-  const { data: order, error: oErr } = await supabase.from('orders').select('*').eq('id', req.params.id).single();
-  if (oErr) return res.status(500).json({ error: oErr.message });
+  const order = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
+  if (!order) return;
   const invoiceItems = items.map(it => {
     const qty = it.unit === 'lb' ? (it.actual_weight || it.requested_weight || 0) : (it.requested_qty || 0);
     return { description: it.name, quantity: qty, unit: it.unit, unit_price: it.unit_price, total: parseFloat((qty * it.unit_price).toFixed(2)) };
@@ -68,7 +68,7 @@ router.post('/:id/fulfill', authenticateToken, async (req, res) => {
   const tax = parseFloat((subtotal * 0.09).toFixed(2));
   const total = parseFloat((subtotal + tax).toFixed(2));
   const invoiceNumber = 'INV-' + Date.now().toString().slice(-6);
-  const { data: invoice, error: iErr } = await supabase.from('invoices').insert([{
+  const invoice = await dbQuery(supabase.from('invoices').insert([{
     invoice_number: invoiceNumber,
     customer_name: order.customer_name,
     customer_email: order.customer_email,
@@ -78,8 +78,8 @@ router.post('/:id/fulfill', authenticateToken, async (req, res) => {
     driver_name: driverName || null,
     status: 'pending',
     notes: order.notes || null
-  }]).select().single();
-  if (iErr) return res.status(500).json({ error: iErr.message });
+  }]).select().single(), res);
+  if (!invoice) return;
   await supabase.from('orders').update({ status: 'invoiced', driver_name: driverName || null, route_id: routeId || null }).eq('id', req.params.id);
   res.json({ invoice, message: 'Invoice created' });
 });
