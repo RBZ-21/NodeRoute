@@ -2818,6 +2818,11 @@ async function submitUserInvite() {
     document.getElementById('uiName').value = '';
     document.getElementById('uiEmail').value = '';
     await fetchUsers();
+    setTimeout(() => {
+      closeUserInviteModal();
+      const modal = document.getElementById('userInviteModal');
+      if (modal) modal.classList.remove('open');
+    }, 2000);
   } catch(e) { r.className = 'modal-result error'; r.textContent = e.message || 'Failed to send invite.'; }
 }
 document.getElementById('userInviteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeUserInviteModal(); });

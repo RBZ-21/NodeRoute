@@ -75,7 +75,12 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
       });
     }
   } catch(emailErr) {
-    console.error('Failed to send invite email:', emailErr.message);
+    console.error('SMTP ERROR - Failed to send invite email:', emailErr.message, {
+      host: process.env.SMTP_HOST,
+      port: process.env.SMTP_PORT,
+      user: process.env.SMTP_USER,
+      hasPass: !!process.env.SMTP_PASS
+    });
   }
   res.json({ message: `Invite sent to ${email}`, userId: newUser.id, inviteUrl });
 });
