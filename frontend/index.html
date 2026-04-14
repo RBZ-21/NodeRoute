@@ -1657,7 +1657,7 @@ async function submitFulfill() {
       body: JSON.stringify({ items, driverName, routeId })
     });
     const data = await r.json();
-    if (data.error) throw new Error(data.error);
+    if (!r.ok) throw new Error(data.error || `Error ${r.status}`);
     resultEl.className = 'modal-result success';
     resultEl.textContent = `Invoice ${data.invoice.invoice_number} created!`;
     resultEl.style.display = 'block';
