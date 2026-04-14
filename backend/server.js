@@ -2,7 +2,7 @@ require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const express = require('express');
 const path = require('path');
 const bcrypt = require('bcryptjs');
-const supabase = require('./services/supabase');
+const { supabase } = require('./services/supabase');
 
 // Route modules
 const authRouter = require('./routes/auth');
