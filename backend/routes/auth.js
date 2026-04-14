@@ -2,7 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const supabase = require('../services/supabase');
+const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
@@ -33,12 +33,8 @@ function signJWT(user) {
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
-  const { data: users, error } = await supabase
-    .from('users')
-    .select('*')
-    .ilike('email', email)
-    .limit(1);
-  if (error) return res.status(500).json({ error: error.message });
+  const users = await dbQuery(supabase.from('users').select('*').ilike('email', email).limit(1), res);
+  if (!users) return;
   const u = users && users[0];
   if (!u || u.status !== 'active') return res.status(401).json({ error: 'Invalid credentials' });
   const { valid, migrate } = verifyPassword(password, u.password_hash);
@@ -54,12 +50,8 @@ router.post('/setup-password', async (req, res) => {
   const { token, password } = req.body;
   if (!token || !password) return res.status(400).json({ error: 'Token and password required' });
   if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
-  const { data: users, error } = await supabase
-    .from('users')
-    .select('*')
-    .eq('invite_token', token)
-    .limit(1);
-  if (error) return res.status(500).json({ error: error.message });
+  const users = await dbQuery(supabase.from('users').select('*').eq('invite_token', token).limit(1), res);
+  if (!users) return;
   const u = users && users[0];
   if (!u) return res.status(400).json({ error: 'Invalid invite token' });
   if (new Date() > new Date(u.invite_expires)) return res.status(400).json({ error: 'Invite link expired' });
