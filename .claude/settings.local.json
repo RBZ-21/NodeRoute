@@ -16,7 +16,13 @@
       "Bash(node -e \"require\\(''http''\\)\")",
       "Bash(unzip -o /c/Users/ryand/Downloads/NodeRoute.zip -d /c/Users/ryand/OneDrive/Documents/GitHub/DeliveryApp/.claude/worktrees/loving-einstein/frontend/public/)",
       "Bash(git log:*)",
-      "Bash(node -e ':*)"
+      "Bash(node -e ':*)",
+      "Bash(Get-Item \"C:\\\\Users\\\\ryand\\\\OneDrive\\\\Documents\\\\GitHub\\\\DeliveryApp\\\\frontend\\\\index.html\")",
+      "Bash(Select-Object LastWriteTime, Length)",
+      "Bash(mkdir -p \"chapters9_extract\")",
+      "Bash(unzip -o \"Chapters 9 Assignments attached files Apr 13, 2026 1101 AM.zip\" -d \"chapters9_extract\")",
+      "Bash(unzip -o cpt180Stuff.zip -d \"C:\\\\CPT180Stuff\")",
+      "Read(//c//**)"
     ]
   }
 }
