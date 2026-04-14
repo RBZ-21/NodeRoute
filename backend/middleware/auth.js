@@ -1,5 +1,5 @@
 const jwt = require('jsonwebtoken');
-const supabase = require('../services/supabase');
+const { supabase } = require('../services/supabase');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'noderoute-dev-secret-change-in-production';
 
