@@ -164,6 +164,18 @@ app.post('/auth/logout', authenticateToken, (req, res) => {
   res.json({ message: 'Logged out' });
 });
 
+app.post('/auth/change-password', authenticateToken, async (req, res) => {
+  const { currentPassword, newPassword } = req.body;
+  if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Both passwords required' });
+  if (newPassword.length < 8) return res.status(400).json({ error: 'New password must be at least 8 characters' });
+  const { data: user, error } = await supabase.from('users').select('*').eq('id', req.user.id).single();
+  if (error || !user) return res.status(404).json({ error: 'User not found' });
+  const { valid } = verifyPassword(currentPassword, user.password_hash);
+  if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
+  await supabase.from('users').update({ password_hash: bcrypt.hashSync(newPassword, 10) }).eq('id', req.user.id);
+  res.json({ message: 'Password updated' });
+});
+
 app.get('/api/users', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { data, error } = await supabase
     .from('users')
@@ -243,6 +255,17 @@ app.post('/api/users/invite', authenticateToken, requireRole('admin', 'manager')
 app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager'), (req, res, next) => {
   req.body.role = req.body.role || 'driver'; next();
 }, (req, res) => res.redirect(307, '/api/users/invite'));
+
+// Any user can update their own name; admins can update anyone
+app.patch('/api/users/:id', authenticateToken, async (req, res) => {
+  if (req.user.id !== req.params.id && req.user.role !== 'admin')
+    return res.status(403).json({ error: 'Forbidden' });
+  const { name } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Name required' });
+  const { data, error } = await supabase.from('users').update({ name: name.trim() }).eq('id', req.params.id).select('id,name').single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
 
 app.delete('/api/users/:id', authenticateToken, requireRole('admin'), async (req, res) => {
   const { data: users, error } = await supabase.from('users').select('id, role').eq('id', req.params.id).limit(1);
@@ -768,7 +791,7 @@ app.get('/api/orders', authenticateToken, async (req, res) => {
 });
 
 app.post('/api/orders', authenticateToken, async (req, res) => {
-  const { customerName, customerEmail, customerAddress, items, notes } = req.body;
+  const { customerName, customerEmail, customerAddress, items, charges, notes } = req.body;
   const orderNumber = 'ORD-' + Date.now().toString().slice(-6);
   const { data, error } = await supabase.from('orders').insert([{
     order_number: orderNumber,
@@ -776,6 +799,7 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
     customer_email: customerEmail || null,
     customer_address: customerAddress || null,
     items: items || [],
+    charges: charges || [],
     status: 'pending',
     notes: notes || null,
     driver_name: null,
@@ -789,6 +813,7 @@ app.patch('/api/orders/:id', authenticateToken, async (req, res) => {
   const updates = {};
   if (req.body.customerName !== undefined) updates.customer_name = req.body.customerName;
   if (req.body.items !== undefined) updates.items = req.body.items;
+  if (req.body.charges !== undefined) updates.charges = req.body.charges;
   if (req.body.status !== undefined) updates.status = req.body.status;
   if (req.body.driverName !== undefined) updates.driver_name = req.body.driverName;
   if (req.body.routeId !== undefined) updates.route_id = req.body.routeId;
@@ -816,13 +841,28 @@ app.post('/api/orders/:id/fulfill', authenticateToken, async (req, res) => {
   const { items, driverName, routeId } = req.body;
   const { data: order, error: oErr } = await supabase.from('orders').select('*').eq('id', req.params.id).single();
   if (oErr) return res.status(500).json({ error: oErr.message });
-  const invoiceItems = items.map(it => {
+  const productItems = items.map(it => {
     const qty = it.unit === 'lb' ? (it.actual_weight || it.requested_weight || 0) : (it.requested_qty || 0);
     return { description: it.name, quantity: qty, unit: it.unit, unit_price: it.unit_price, total: parseFloat((qty * it.unit_price).toFixed(2)) };
   });
-  const subtotal = invoiceItems.reduce((s, i) => s + i.total, 0);
+  const subtotal = parseFloat(productItems.reduce((s, i) => s + i.total, 0).toFixed(2));
   const tax = parseFloat((subtotal * 0.09).toFixed(2));
-  const total = parseFloat((subtotal + tax).toFixed(2));
+  // Recalculate charges against actual subtotal
+  const charges = (order.charges || []).map(c => {
+    const amount = parseFloat((c.type === 'percent' ? subtotal * c.value / 100 : c.value).toFixed(2));
+    return { ...c, amount };
+  });
+  const chargesTotal = parseFloat(charges.reduce((s, c) => s + c.amount, 0).toFixed(2));
+  // Add charges as line items so they appear on the invoice
+  const chargeItems = charges.filter(c => c.amount > 0).map(c => ({
+    description: c.label,
+    quantity: c.type === 'percent' ? `${c.value}%` : 1,
+    unit_price: c.amount,
+    total: c.amount,
+    is_charge: true
+  }));
+  const invoiceItems = [...productItems, ...chargeItems];
+  const total = parseFloat((subtotal + tax + chargesTotal).toFixed(2));
   const invoiceNumber = 'INV-' + Date.now().toString().slice(-6);
   const { data: invoice, error: iErr } = await supabase.from('invoices').insert([{
     invoice_number: invoiceNumber,
@@ -840,8 +880,213 @@ app.post('/api/orders/:id/fulfill', authenticateToken, async (req, res) => {
   res.json({ invoice, message: 'Invoice created' });
 });
 
+// ── DELIVERY TRACKING ─────────────────────────────────────────────────────────
+
+// Google Maps Directions API — traffic-aware ETA with dwell time per prior stop
+async function calculateETA(driverLat, driverLng, stopsBeforeCust, custLat, custLng, avgStopMins = 12) {
+  const key = process.env.GOOGLE_MAPS_KEY;
+  if (!key || !custLat || !custLng) return null;
+  try {
+    const origin      = `${driverLat},${driverLng}`;
+    const destination = `${custLat},${custLng}`;
+    const wpStr = stopsBeforeCust.length
+      ? '&waypoints=' + stopsBeforeCust.map(s => `${s.lat},${s.lng}`).join('|')
+      : '';
+    const url = `https://maps.googleapis.com/maps/api/directions/json`
+      + `?origin=${encodeURIComponent(origin)}`
+      + `&destination=${encodeURIComponent(destination)}`
+      + wpStr
+      + `&departure_time=now&traffic_model=best_guess&key=${key}`;
+
+    const r    = await fetch(url);
+    const data = await r.json();
+    if (data.status !== 'OK' || !data.routes[0]) return null;
+
+    const legs = data.routes[0].legs;
+    let driveSeconds = 0;
+    legs.forEach(leg => {
+      driveSeconds += (leg.duration_in_traffic || leg.duration).value;
+    });
+    const dwellSeconds = stopsBeforeCust.length * avgStopMins * 60;
+    const totalSeconds = driveSeconds + dwellSeconds;
+    return {
+      etaTime:        new Date(Date.now() + totalSeconds * 1000).toISOString(),
+      totalMinutes:   Math.round(totalSeconds / 60),
+      driveMinutes:   Math.round(driveSeconds / 60),
+      dwellMinutes:   Math.round(dwellSeconds / 60),
+      stopsCount:     stopsBeforeCust.length,
+      legs: legs.map(l => ({
+        distance: l.distance.text,
+        duration: (l.duration_in_traffic || l.duration).text,
+        withTraffic: !!(l.duration_in_traffic)
+      }))
+    };
+  } catch(e) {
+    console.error('ETA error:', e.message);
+    return null;
+  }
+}
+
+// Send tracking link to customer (email + optional SMS)
+app.post('/api/orders/:id/tracking/send', authenticateToken, async (req, res) => {
+  const { data: order, error } = await supabase.from('orders').select('*').eq('id', req.params.id).single();
+  if (error || !order) return res.status(404).json({ error: 'Order not found' });
+
+  // Geocode customer address if we don't have coords yet
+  let custLat = order.customer_lat;
+  let custLng = order.customer_lng;
+  if ((!custLat || !custLng) && order.customer_address && process.env.GOOGLE_MAPS_KEY) {
+    try {
+      const geo = await fetch(
+        `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(order.customer_address)}&key=${process.env.GOOGLE_MAPS_KEY}`
+      );
+      const gd = await geo.json();
+      if (gd.status === 'OK') {
+        custLat = gd.results[0].geometry.location.lat;
+        custLng = gd.results[0].geometry.location.lng;
+      }
+    } catch(e) { console.error('Geocode error:', e.message); }
+  }
+
+  const token     = crypto.randomBytes(20).toString('hex');
+  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+  await supabase.from('orders').update({
+    tracking_token: token, tracking_expires_at: expiresAt,
+    customer_lat: custLat || null, customer_lng: custLng || null
+  }).eq('id', req.params.id);
+
+  const trackUrl = `${BASE_URL}/track?t=${token}`;
+  let emailSent = false, smsSent = false;
+
+  if (order.customer_email) {
+    try {
+      const mailer = createMailer();
+      if (mailer) {
+        await mailer.sendMail({
+          from: process.env.EMAIL_FROM || `NodeRoute Systems <${process.env.SMTP_USER}>`,
+          to: order.customer_email,
+          subject: `Your NodeRoute delivery is on the way — ${order.order_number}`,
+          html: `<div style="font-family:Arial,sans-serif;max-width:600px">
+            <div style="background:#ff6b35;padding:20px 28px;border-radius:8px 8px 0 0">
+              <h2 style="color:#fff;margin:0;font-size:20px">NodeRoute Systems</h2>
+            </div>
+            <div style="padding:28px;background:#f9f9f9;border-radius:0 0 8px 8px">
+              <p style="margin:0 0 16px">Hi <strong>${order.customer_name}</strong>,</p>
+              <p style="margin:0 0 24px">Your delivery is on the way! Track your driver in real time — including live location and your estimated arrival time.</p>
+              <div style="text-align:center;margin:0 0 24px">
+                <a href="${trackUrl}" style="background:#ff6b35;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-weight:700;font-size:16px;display:inline-block">Track My Delivery →</a>
+              </div>
+              <p style="color:#999;font-size:12px;margin:0">Order ${order.order_number} · Link expires in 24 hours</p>
+            </div>
+          </div>`
+        });
+        emailSent = true;
+      }
+    } catch(e) { console.error('Tracking email error:', e.message); }
+  }
+
+  // SMS via Twilio if configured
+  const phone = req.body.phone || order.customer_phone;
+  if (phone && process.env.TWILIO_SID && process.env.TWILIO_TOKEN && process.env.TWILIO_FROM) {
+    try {
+      const twilioAuth = Buffer.from(`${process.env.TWILIO_SID}:${process.env.TWILIO_TOKEN}`).toString('base64');
+      const smsRes = await fetch(
+        `https://api.twilio.com/2010-04-01/Accounts/${process.env.TWILIO_SID}/Messages.json`,
+        {
+          method: 'POST',
+          headers: { 'Authorization': `Basic ${twilioAuth}`, 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams({ To: phone, From: process.env.TWILIO_FROM,
+            Body: `NodeRoute: Your delivery (${order.order_number}) is on the way! Track your driver here: ${trackUrl}` }).toString()
+        }
+      );
+      smsSent = smsRes.ok;
+    } catch(e) { console.error('SMS error:', e.message); }
+  }
+
+  res.json({ trackUrl, emailSent, smsSent });
+});
+
+// Public tracking data — no auth required
+app.get('/api/track/:token', async (req, res) => {
+  const { data: order, error } = await supabase
+    .from('orders').select('*').eq('tracking_token', req.params.token).single();
+  if (error || !order) return res.status(404).json({ error: 'Tracking link not found' });
+  if (order.tracking_expires_at && new Date() > new Date(order.tracking_expires_at))
+    return res.status(410).json({ error: 'This tracking link has expired' });
+
+  // Driver's current location
+  const { data: driverLoc } = await supabase
+    .from('driver_locations').select('*').eq('driver_name', order.driver_name || '').single();
+  const driverLat = driverLoc?.lat || 32.7765;
+  const driverLng = driverLoc?.lng || -79.9311;
+  const driverUpdatedAt = driverLoc?.updated_at || null;
+
+  // Load route stops in order — find stops ahead of this customer
+  let stopsBeforeCustomer = [];
+  let totalRouteStops = 0;
+  if (order.route_id) {
+    const { data: route } = await supabase.from('routes').select('*').eq('id', order.route_id).single();
+    if (route?.stop_ids?.length) {
+      const { data: allStops } = await supabase.from('stops').select('*').in('id', route.stop_ids);
+      const ordered = route.stop_ids.map(id => allStops?.find(s => s.id === id)).filter(Boolean);
+      totalRouteStops = ordered.length;
+      // Match customer stop by address or name
+      const custKey = (order.customer_address || order.customer_name || '').toLowerCase();
+      const custIdx = ordered.findIndex(s =>
+        (s.address || '').toLowerCase().includes(custKey.split(',')[0]) ||
+        (s.name || '').toLowerCase().includes(custKey.split(' ')[0])
+      );
+      if (custIdx > 0) stopsBeforeCustomer = ordered.slice(0, custIdx).filter(s => s.lat && s.lng);
+    }
+  }
+
+  const eta = await calculateETA(
+    driverLat, driverLng,
+    stopsBeforeCustomer,
+    order.customer_lat, order.customer_lng
+  );
+
+  res.json({
+    orderNumber:     order.order_number,
+    customerName:    order.customer_name,
+    deliveryAddress: order.customer_address,
+    status:          order.status,
+    driver: {
+      name:      order.driver_name || 'Your driver',
+      lat:       driverLat,
+      lng:       driverLng,
+      updatedAt: driverUpdatedAt
+    },
+    destination: {
+      lat:     order.customer_lat,
+      lng:     order.customer_lng,
+      address: order.customer_address
+    },
+    stopsBeforeYou:  stopsBeforeCustomer.length,
+    totalRouteStops,
+    eta,
+    lastUpdated: new Date().toISOString()
+  });
+});
+
+// Driver updates their own location (called from driver mobile app)
+app.post('/api/driver/location', authenticateToken, async (req, res) => {
+  const { lat, lng, heading, speed_mph } = req.body;
+  if (!lat || !lng) return res.status(400).json({ error: 'lat and lng required' });
+  const { error } = await supabase.from('driver_locations').upsert({
+    driver_name: req.user.name,
+    lat: parseFloat(lat), lng: parseFloat(lng),
+    heading: parseFloat(heading) || 0,
+    speed_mph: parseFloat(speed_mph) || 0,
+    updated_at: new Date().toISOString()
+  }, { onConflict: 'driver_name' });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ message: 'Location updated' });
+});
+
 // ── PAGES ─────────────────────────────────────────────────────────────────────
 app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
+app.get('/track', (req, res) => res.sendFile(path.join(frontendDir, 'track.html')));
 app.get('/dashboard', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
 app.get('/landing', (req, res) => res.sendFile(path.join(frontendDir, 'landing.html')));
 
