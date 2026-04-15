@@ -4,13 +4,14 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
   <title>Track Your Delivery — NodeRoute</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Segoe UI',system-ui,sans-serif;background:#050d2a;color:#fff;min-height:100vh;display:flex;flex-direction:column}
+    body{font-family:'Inter',system-ui,sans-serif;background:#050d2a;color:#fff;min-height:100vh;display:flex;flex-direction:column}
 
     /* Header */
-    .header{background:#0d1b3e;border-bottom:1px solid rgba(255,107,53,0.3);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
-    .header-brand{font-size:16px;font-weight:700;color:#ff6b35;letter-spacing:.5px}
+    .header{background:#0d1b3e;border-bottom:1px solid rgba(61,186,127,0.2);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0}
+    .header-brand{font-size:16px;font-weight:700;color:#3dba7f;letter-spacing:.5px}
     .header-order{font-size:12px;color:#8899bb}
 
     /* Map */
@@ -39,8 +40,8 @@
     .stop-track{display:flex;align-items:center;gap:0}
     .stop-node{width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;position:relative;z-index:1}
     .stop-node.done{background:#3dba7f;color:#fff}
-    .stop-node.active{background:#ff6b35;color:#fff;animation:pulse-orange 1.6s infinite}
-    @keyframes pulse-orange{0%,100%{box-shadow:0 0 0 0 rgba(255,107,53,.5)}50%{box-shadow:0 0 0 8px rgba(255,107,53,0)}}
+    .stop-node.active{background:#f59e0b;color:#fff;animation:pulse-amber 1.6s infinite}
+    @keyframes pulse-amber{0%,100%{box-shadow:0 0 0 0 rgba(245,158,11,.5)}50%{box-shadow:0 0 0 8px rgba(245,158,11,0)}}
     .stop-node.yours{background:#0d1b3e;border:2px solid #3dba7f;color:#3dba7f}
     .stop-line{flex:1;height:3px;background:#1e3a6e}
     .stop-line.done{background:#3dba7f}
@@ -280,7 +281,7 @@
     if (stopsAhead > 0) {
       labelsHTML = `<span>${stopsAhead} stop${stopsAhead !== 1 ? 's' : ''} before yours</span><span>You →</span>`;
     } else {
-      labelsHTML = `<span style="color:#ff6b35;font-weight:600">Next stop is yours!</span><span>You →</span>`;
+      labelsHTML = `<span style="color:#f59e0b;font-weight:600">Next stop is yours!</span><span>You →</span>`;
     }
     track.innerHTML  = trackHTML;
     labels.innerHTML = labelsHTML;
@@ -311,7 +312,7 @@
 
     // Driver marker (van icon)
     const driverSVG = `<svg xmlns="http://www.w3.org/2000/svg" width="44" height="44">
-      <circle cx="22" cy="22" r="20" fill="#ff6b35" stroke="#fff" stroke-width="3"/>
+      <circle cx="22" cy="22" r="20" fill="#3dba7f" stroke="#fff" stroke-width="3"/>
       <text x="22" y="27" text-anchor="middle" font-size="18" font-family="sans-serif">🚐</text>
     </svg>`;
     const driverPos = { lat: d.driver.lat, lng: d.driver.lng };
@@ -349,7 +350,7 @@
       routeLine = new google.maps.Polyline({
         path: [driverPos, destPos],
         geodesic: true,
-        strokeColor: '#ff6b35',
+        strokeColor: '#3dba7f',
         strokeOpacity: 0.6,
         strokeWeight: 3,
         map: googleMap
