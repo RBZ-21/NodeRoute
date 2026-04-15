@@ -551,6 +551,325 @@ app.delete('/api/inventory/:id', authenticateToken, requireRole('admin', 'manage
   res.json({ message: 'Deleted' });
 });
 
+// ── INVENTORY ANALYTICS & PREDICTIONS ────────────────────────────────────────
+// Must be registered BEFORE /:id routes to avoid route shadowing.
+
+// GET /api/inventory/analytics
+// Returns per-product usage rate (last 30 days) and predicted restock date.
+app.get('/api/inventory/analytics', authenticateToken, async (req, res) => {
+  const WINDOW_DAYS = 30;
+  const since = new Date(Date.now() - WINDOW_DAYS * 86400000).toISOString();
+
+  const { data: products, error: pErr } = await supabase
+    .from('seafood_inventory')
+    .select('id,name,category,unit,stock_qty,low_stock_threshold,avg_yield,yield_count')
+    .order('category');
+  if (pErr) return res.status(500).json({ error: pErr.message });
+
+  const { data: history, error: hErr } = await supabase
+    .from('inventory_stock_history')
+    .select('product_id,change_qty,created_at')
+    .lt('change_qty', 0)                   // depletions only
+    .gte('created_at', since);
+  if (hErr) return res.status(500).json({ error: hErr.message });
+
+  // Build usage map: productId → total units consumed in window
+  const usageMap = {};
+  (history || []).forEach(h => {
+    usageMap[h.product_id] = (usageMap[h.product_id] || 0) + Math.abs(h.change_qty);
+  });
+
+  const today = new Date();
+  const analytics = products.map(p => {
+    const totalUsed    = usageMap[p.id] || 0;
+    const dailyUsage   = parseFloat((totalUsed / WINDOW_DAYS).toFixed(4));
+    const currentStock = parseFloat(p.stock_qty) || 0;
+    let daysRemaining  = null;
+    let predictedDate  = null;
+    if (dailyUsage > 0 && currentStock > 0) {
+      daysRemaining = parseFloat((currentStock / dailyUsage).toFixed(1));
+      const d = new Date(today);
+      d.setDate(d.getDate() + Math.round(daysRemaining));
+      predictedDate = d.toISOString().split('T')[0];
+    }
+    return {
+      ...p,
+      daily_usage:    dailyUsage,
+      total_used_30d: parseFloat(totalUsed.toFixed(2)),
+      days_remaining: daysRemaining,
+      predicted_restock_date: predictedDate,
+      has_history: totalUsed > 0,
+    };
+  });
+
+  res.json(analytics);
+});
+
+// POST /api/inventory/alerts/send
+// Sends a low-stock / out-of-stock summary email to the configured SMTP address.
+function buildInventoryAlertEmail(outOfStock, lowStock, analytics) {
+  const rows = (items, label, color) =>
+    items.map(i => {
+      const pred = analytics.find(a => a.id === i.id);
+      const daysInfo = pred?.days_remaining != null
+        ? `<span style="color:#888;font-size:11px"> · Est. ${pred.days_remaining}d remaining</span>` : '';
+      return `<tr>
+        <td style="padding:6px 10px;border-bottom:1px solid #2a2a2a">${i.name}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #2a2a2a;color:#888">${i.category||'Other'}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #2a2a2a;color:${color};font-weight:600">${label}</td>
+        <td style="padding:6px 10px;border-bottom:1px solid #2a2a2a">${i.stock_qty != null ? i.stock_qty + ' ' + (i.unit||'') : '—'}${daysInfo}</td>
+      </tr>`;
+    }).join('');
+
+  const allRows = rows(outOfStock, 'OUT OF STOCK', '#ef4444') + rows(lowStock, 'LOW STOCK', '#f59e0b');
+  return `
+<div style="font-family:sans-serif;background:#111;color:#e5e7eb;padding:24px;border-radius:8px;max-width:640px">
+  <h2 style="color:#3dba7f;margin:0 0 4px">🐟 Inventory Alert</h2>
+  <p style="color:#888;margin:0 0 20px;font-size:13px">Automated low-stock report — ${new Date().toLocaleDateString('en-US',{weekday:'long',year:'numeric',month:'long',day:'numeric'})}</p>
+  <table style="width:100%;border-collapse:collapse;font-size:13px">
+    <thead><tr style="background:#1a1a1a">
+      <th style="padding:8px 10px;text-align:left;color:#aaa">Product</th>
+      <th style="padding:8px 10px;text-align:left;color:#aaa">Category</th>
+      <th style="padding:8px 10px;text-align:left;color:#aaa">Status</th>
+      <th style="padding:8px 10px;text-align:left;color:#aaa">On Hand</th>
+    </tr></thead>
+    <tbody>${allRows}</tbody>
+  </table>
+  <p style="color:#555;font-size:11px;margin-top:16px">Sent by DeliveryApp Inventory Management</p>
+</div>`;
+}
+
+app.post('/api/inventory/alerts/send', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const mailer = createMailer();
+  if (!mailer) return res.status(503).json({ error: 'Email not configured (SMTP_HOST missing)' });
+
+  const { data: products, error } = await supabase.from('seafood_inventory').select('*');
+  if (error) return res.status(500).json({ error: error.message });
+
+  const outOfStock = products.filter(i => (i.stock_qty || 0) <= 0);
+  const lowStock   = products.filter(i => (i.stock_qty || 0) > 0 && (i.stock_qty || 0) <= (i.low_stock_threshold || 10));
+
+  if (!outOfStock.length && !lowStock.length)
+    return res.json({ sent: false, message: 'All stock levels are healthy — no alert needed.' });
+
+  // Fetch analytics for day estimates
+  const WINDOW = 30;
+  const since  = new Date(Date.now() - WINDOW * 86400000).toISOString();
+  const { data: history } = await supabase
+    .from('inventory_stock_history')
+    .select('product_id,change_qty')
+    .lt('change_qty', 0)
+    .gte('created_at', since);
+  const usageMap = {};
+  (history || []).forEach(h => { usageMap[h.product_id] = (usageMap[h.product_id] || 0) + Math.abs(h.change_qty); });
+  const analytics = products.map(p => {
+    const used = usageMap[p.id] || 0;
+    const daily = used / WINDOW;
+    const stock = parseFloat(p.stock_qty) || 0;
+    return { id: p.id, days_remaining: daily > 0 && stock > 0 ? parseFloat((stock / daily).toFixed(1)) : null };
+  });
+
+  const html = buildInventoryAlertEmail(outOfStock, lowStock, analytics);
+  const to   = req.body.email || process.env.SMTP_USER || process.env.EMAIL_FROM;
+  try {
+    await mailer.sendMail({
+      from: process.env.EMAIL_FROM || process.env.SMTP_USER,
+      to,
+      subject: `⚠ Inventory Alert — ${outOfStock.length} out of stock, ${lowStock.length} low`,
+      html,
+    });
+    // Stamp alert_sent_at on all affected products
+    const affectedIds = [...outOfStock, ...lowStock].map(i => i.id);
+    await supabase.from('seafood_inventory')
+      .update({ alert_sent_at: new Date().toISOString() })
+      .in('id', affectedIds);
+    res.json({ sent: true, to, out_of_stock: outOfStock.length, low_stock: lowStock.length });
+  } catch (e) {
+    res.status(500).json({ error: 'Email send failed: ' + e.message });
+  }
+});
+
+// POST /api/inventory/:id/restock — add stock and log history
+app.post('/api/inventory/:id/restock', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const { qty, notes } = req.body;
+  const addQty = parseFloat(qty);
+  if (!addQty || addQty <= 0) return res.status(400).json({ error: 'qty must be > 0' });
+
+  const { data: item, error: fetchErr } = await supabase
+    .from('seafood_inventory').select('stock_qty,name').eq('id', req.params.id).single();
+  if (fetchErr) return res.status(404).json({ error: 'Product not found' });
+
+  const newQty = (parseFloat(item.stock_qty) || 0) + addQty;
+  const { data, error } = await supabase
+    .from('seafood_inventory')
+    .update({ stock_qty: newQty, updated_at: new Date().toISOString() })
+    .eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+
+  await supabase.from('inventory_stock_history').insert([{
+    product_id: req.params.id,
+    change_qty: addQty,
+    new_qty: newQty,
+    change_type: 'restock',
+    notes: notes || null,
+    created_by: req.user.name || req.user.email,
+  }]);
+
+  res.json(data);
+});
+
+// POST /api/inventory/:id/adjust — manual depletion, waste, or correction
+app.post('/api/inventory/:id/adjust', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const { delta, change_type, notes } = req.body;
+  const d = parseFloat(delta);
+  if (d == null || isNaN(d)) return res.status(400).json({ error: 'delta (number) required' });
+  const type = change_type || (d < 0 ? 'depletion' : 'adjustment');
+
+  const { data: item, error: fetchErr } = await supabase
+    .from('seafood_inventory').select('stock_qty').eq('id', req.params.id).single();
+  if (fetchErr) return res.status(404).json({ error: 'Product not found' });
+
+  const newQty = parseFloat(((parseFloat(item.stock_qty) || 0) + d).toFixed(4));
+  const { data, error } = await supabase
+    .from('seafood_inventory')
+    .update({ stock_qty: newQty, updated_at: new Date().toISOString() })
+    .eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+
+  await supabase.from('inventory_stock_history').insert([{
+    product_id: req.params.id,
+    change_qty: d,
+    new_qty: newQty,
+    change_type: type,
+    notes: notes || null,
+    created_by: req.user.name || req.user.email,
+  }]);
+
+  res.json(data);
+});
+
+// GET /api/inventory/:id/history — stock movement log
+app.get('/api/inventory/:id/history', authenticateToken, async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+  const { data, error } = await supabase
+    .from('inventory_stock_history')
+    .select('*')
+    .eq('product_id', req.params.id)
+    .order('created_at', { ascending: false })
+    .limit(limit);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// POST /api/inventory/:id/yield — log a cutting session, update running average
+app.post('/api/inventory/:id/yield', authenticateToken, async (req, res) => {
+  const { raw_weight, yield_weight, notes } = req.body;
+  const raw     = parseFloat(raw_weight);
+  const yielded = parseFloat(yield_weight);
+  if (!raw || raw <= 0)     return res.status(400).json({ error: 'raw_weight must be > 0' });
+  if (!yielded || yielded <= 0) return res.status(400).json({ error: 'yield_weight must be > 0' });
+  if (yielded > raw)        return res.status(400).json({ error: 'yield_weight cannot exceed raw_weight' });
+
+  const yield_pct = parseFloat(((yielded / raw) * 100).toFixed(2));
+
+  // Log the entry
+  await supabase.from('inventory_yield_log').insert([{
+    product_id:   req.params.id,
+    raw_weight:   raw,
+    yield_weight: yielded,
+    yield_pct,
+    notes: notes || null,
+    logged_by: req.user.name || req.user.email,
+  }]);
+
+  // Update running average (cumulative moving average)
+  const { data: item, error: fetchErr } = await supabase
+    .from('seafood_inventory')
+    .select('avg_yield,yield_count')
+    .eq('id', req.params.id).single();
+  if (fetchErr) return res.status(404).json({ error: 'Product not found' });
+
+  const n      = (item?.yield_count || 0) + 1;
+  const newAvg = parseFloat((((item?.avg_yield || 0) * (n - 1) + yield_pct) / n).toFixed(2));
+
+  const { data, error } = await supabase
+    .from('seafood_inventory')
+    .update({ avg_yield: newAvg, yield_count: n, updated_at: new Date().toISOString() })
+    .eq('id', req.params.id).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+
+  res.json({ ...data, yield_pct, sample_count: n });
+});
+
+// GET /api/inventory/:id/yield — yield history for a product
+app.get('/api/inventory/:id/yield', authenticateToken, async (req, res) => {
+  const limit = Math.min(parseInt(req.query.limit) || 50, 200);
+  const { data, error } = await supabase
+    .from('inventory_yield_log')
+    .select('*')
+    .eq('product_id', req.params.id)
+    .order('logged_at', { ascending: false })
+    .limit(limit);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// ── FORECAST ──────────────────────────────────────────────────────────────────
+// GET /api/forecast/orders
+// Returns per-customer order cadence and monthly volume data for the frontend
+// forecasting dashboard.  All heavy computation is done client-side using the
+// existing /api/orders and /api/customers responses; this endpoint provides a
+// pre-aggregated view optimised for larger datasets.
+
+app.get('/api/forecast/orders', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const MONTHS = 12;
+  const since  = new Date(Date.now() - MONTHS * 31 * 86400000).toISOString();
+
+  const { data: orders, error } = await supabase
+    .from('orders')
+    .select('id,customer,customer_name,description,item_name,date,created_at')
+    .gte('created_at', since)
+    .order('created_at', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Monthly buckets
+  const now = new Date();
+  const monthly = [];
+  for (let i = MONTHS - 1; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    const label = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+    const count = (orders || []).filter(o => {
+      const od = new Date(o.date || o.created_at);
+      return od.getMonth() === d.getMonth() && od.getFullYear() === d.getFullYear();
+    }).length;
+    monthly.push({ label, count, year: d.getFullYear(), month: d.getMonth() + 1 });
+  }
+
+  // Customer cadence
+  const byCustomer = {};
+  (orders || []).forEach(o => {
+    const name = o.customer || o.customer_name || 'Unknown';
+    if (!byCustomer[name]) byCustomer[name] = [];
+    byCustomer[name].push(new Date(o.date || o.created_at).toISOString());
+  });
+  const cadence = Object.entries(byCustomer).map(([customer, dates]) => {
+    const sorted = dates.sort();
+    const last   = sorted[sorted.length - 1];
+    const daysSince = Math.round((Date.now() - new Date(last)) / 86400000);
+    let avgCadence = null;
+    if (sorted.length > 1) {
+      const gaps = [];
+      for (let i = 1; i < sorted.length; i++)
+        gaps.push((new Date(sorted[i]) - new Date(sorted[i-1])) / 86400000);
+      avgCadence = Math.round(gaps.reduce((s,g) => s+g, 0) / gaps.length);
+    }
+    return { customer, order_count: sorted.length, last_order: last, days_since: daysSince, avg_cadence_days: avgCadence,
+      next_order_in_days: avgCadence ? Math.max(0, avgCadence - daysSince) : null };
+  }).sort((a,b) => b.order_count - a.order_count);
+
+  res.json({ monthly, cadence });
+});
+
 // ── INVOICES ──────────────────────────────────────────────────────────────────
 
 app.get('/api/invoices', authenticateToken, async (req, res) => {
