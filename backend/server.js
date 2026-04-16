@@ -92,4 +92,16 @@ app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
 app.get('/dashboard', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
 app.get('/landing', (req, res) => res.sendFile(path.join(frontendDir, 'landing.html')));
 
+// ── 404 for unknown API routes (must be before the global error handler) ──────
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
+});
+
+// ── Global error handler — returns JSON instead of Express's default HTML ─────
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error('Unhandled server error:', err.message, err.stack);
+  res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+});
+
 app.listen(PORT, () => console.log(`NodeRoute API running on http://localhost:${PORT}`));
