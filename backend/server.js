@@ -15,6 +15,7 @@ const stopsRouter = require('./routes/stops');
 const { dwellRecords } = require('./routes/stops');
 const routesRouter = require('./routes/routes');
 const customersRouter = require('./routes/customers');
+const forecastRouter = require('./routes/forecast');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -70,6 +71,7 @@ app.use('/api', deliveriesRouter);
 app.use('/api/stops', stopsRouter);
 app.use('/api/routes', routesRouter);
 app.use('/api/customers', customersRouter);
+app.use('/api/forecast', forecastRouter);
 
 // Config endpoint
 const { authenticateToken, requireRole } = require('./middleware/auth');
