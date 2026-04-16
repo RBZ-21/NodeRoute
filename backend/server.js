@@ -45,8 +45,23 @@ app.use(express.static(frontendDir, { index: false }));
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@noderoute.com';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@123';
 
-// Auto-create admin on first run if no users exist in Supabase
+const DEFAULT_COMPANY_ID = '00000000-0000-0000-0000-000000000001';
+
+// Auto-create default company + admin on first run
 async function ensureAdminExists() {
+  // Ensure default company exists first
+  const { data: existingCo } = await supabase.from('companies').select('id').eq('id', DEFAULT_COMPANY_ID).single();
+  if (!existingCo) {
+    const { error: coErr } = await supabase.from('companies').insert([{
+      id: DEFAULT_COMPANY_ID,
+      name: process.env.COMPANY_NAME || 'NodeRoute',
+      slug: 'default',
+      plan: 'starter',
+    }]);
+    if (coErr) console.error('Could not create default company:', coErr.message);
+    else console.log('Default company created.');
+  }
+
   const { data, error } = await supabase.from('users').select('id').limit(1);
   if (error) { console.error('Could not check users table:', error.message); return; }
   if (data && data.length === 0) {
@@ -57,6 +72,7 @@ async function ensureAdminExists() {
       email: ADMIN_EMAIL,
       password_hash: passwordHash,
       role: 'admin',
+      company_id: DEFAULT_COMPANY_ID,
       status: 'active',
       invite_token: null,
       invite_expires: null,
@@ -107,9 +123,18 @@ async function authenticateToken(req, res, next) {
 
 function requireRole(...roles) {
   return (req, res, next) => {
+    // superadmin passes all role checks
+    if (req.user.role === 'superadmin') return next();
     if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
     next();
   };
+}
+
+// Returns the company_id for the current request.
+// Superadmins may pass ?company_id=<uuid> to operate on any company.
+function getCompanyId(req) {
+  if (req.user.role === 'superadmin' && req.query.company_id) return req.query.company_id;
+  return req.user.company_id || DEFAULT_COMPANY_ID;
 }
 
 app.post('/auth/login', async (req, res) => {
@@ -179,7 +204,8 @@ app.post('/auth/change-password', authenticateToken, async (req, res) => {
 app.get('/api/users', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { data, error } = await supabase
     .from('users')
-    .select('id, name, email, role, status, created_at')
+    .select('id, name, email, role, status, created_at, company_id')
+    .eq('company_id', getCompanyId(req))
     .order('created_at', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role, status: u.status, createdAt: u.created_at })));
@@ -205,6 +231,7 @@ app.post('/api/users/invite', authenticateToken, requireRole('admin', 'manager')
     email,
     password_hash: null,
     role,
+    company_id: getCompanyId(req),
     status: 'pending',
     invite_token: inviteToken,
     invite_expires: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
@@ -284,6 +311,99 @@ app.patch('/api/users/:id/role', authenticateToken, requireRole('admin'), async 
   const { data, error } = await supabase.from('users').update({ role }).eq('id', req.params.id).select('id').single();
   if (error || !data) return res.status(404).json({ error: 'User not found' });
   res.json({ message: 'Role updated' });
+});
+
+// ── COMPANY MANAGEMENT ────────────────────────────────────────────────────────
+
+// GET /api/company — current user's company info
+app.get('/api/company', authenticateToken, async (req, res) => {
+  const cid = getCompanyId(req);
+  const { data, error } = await supabase.from('companies').select('*').eq('id', cid).single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// PATCH /api/company — update company name/settings (admin only)
+app.patch('/api/company', authenticateToken, requireRole('admin'), async (req, res) => {
+  const cid = getCompanyId(req);
+  const allowed = ['name', 'settings'];
+  const updates = {};
+  allowed.forEach(k => { if (req.body[k] !== undefined) updates[k] = req.body[k]; });
+  if (!Object.keys(updates).length) return res.status(400).json({ error: 'Nothing to update' });
+  const { data, error } = await supabase.from('companies').update(updates).eq('id', cid).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
+// GET /api/companies — list all companies (superadmin only)
+app.get('/api/companies', authenticateToken, requireRole('superadmin'), async (req, res) => {
+  const { data: companies, error } = await supabase.from('companies').select('*').order('created_at');
+  if (error) return res.status(500).json({ error: error.message });
+  // Attach user count per company
+  const { data: counts } = await supabase.from('users').select('company_id');
+  const countMap = {};
+  (counts || []).forEach(u => { countMap[u.company_id] = (countMap[u.company_id] || 0) + 1; });
+  res.json(companies.map(c => ({ ...c, user_count: countMap[c.id] || 0 })));
+});
+
+// POST /api/companies — create a new company + invite its first admin (superadmin only)
+app.post('/api/companies', authenticateToken, requireRole('superadmin'), async (req, res) => {
+  const { name, slug, plan, admin_email, admin_name } = req.body;
+  if (!name || !admin_email || !admin_name)
+    return res.status(400).json({ error: 'name, admin_email, and admin_name are required' });
+
+  const { data: company, error: cErr } = await supabase
+    .from('companies')
+    .insert([{ name, slug: slug || name.toLowerCase().replace(/[^a-z0-9]+/g, '-'), plan: plan || 'starter' }])
+    .select().single();
+  if (cErr) return res.status(500).json({ error: cErr.message });
+
+  const inviteToken = crypto.randomBytes(32).toString('hex');
+  const { error: uErr } = await supabase.from('users').insert([{
+    id: 'user-' + Date.now(),
+    name: admin_name,
+    email: admin_email,
+    password_hash: null,
+    role: 'admin',
+    company_id: company.id,
+    status: 'pending',
+    invite_token: inviteToken,
+    invite_expires: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
+    created_at: new Date().toISOString(),
+  }]);
+  if (uErr) return res.status(500).json({ error: uErr.message });
+
+  const inviteUrl = `${BASE_URL}/setup-password.html?token=${inviteToken}`;
+  console.log(`\nNew company "${name}" — admin invite for ${admin_email}:\n${inviteUrl}\n`);
+
+  // Send invite email if SMTP configured
+  try {
+    const mailer = createMailer();
+    if (mailer) {
+      await mailer.sendMail({
+        from: process.env.EMAIL_FROM || process.env.SMTP_USER,
+        to: admin_email,
+        subject: `You've been set up as admin for ${name} on NodeRoute`,
+        html: `<div style="font-family:Arial,sans-serif;max-width:600px">
+          <h2 style="color:#3dba7f">NodeRoute Systems</h2>
+          <p>Hi ${admin_name},</p>
+          <p>A NodeRoute account has been created for <strong>${name}</strong>. You're the company admin.</p>
+          <p><a href="${inviteUrl}" style="background:#3dba7f;color:#fff;padding:12px 28px;border-radius:8px;text-decoration:none;font-weight:600">Set Up Your Account</a></p>
+          <p style="color:#999;font-size:12px">Link expires in 48 hours. Reply to this email if you need help.</p>
+        </div>`,
+      });
+    }
+  } catch(e) { console.error('Invite email error:', e.message); }
+
+  res.json({ company, inviteUrl });
+});
+
+// DELETE /api/companies/:id — remove a company (superadmin only, non-default)
+app.delete('/api/companies/:id', authenticateToken, requireRole('superadmin'), async (req, res) => {
+  if (req.params.id === DEFAULT_COMPANY_ID) return res.status(400).json({ error: 'Cannot delete the default company' });
+  const { error } = await supabase.from('companies').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ message: 'Company deleted' });
 });
 
 const deliveries = [
@@ -379,7 +499,8 @@ app.patch('/api/deliveries/:id/status', authenticateToken, (req, res) => {
 
 // ── STOPS (Supabase) ────────────────────────────────────
 app.get('/api/stops', authenticateToken, async (req, res) => {
-  const { data, error } = await supabase.from('stops').select('*').order('created_at', { ascending: true });
+  const { data, error } = await supabase.from('stops').select('*')
+    .eq('company_id', getCompanyId(req)).order('created_at', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
@@ -388,25 +509,28 @@ app.post('/api/stops', authenticateToken, async (req, res) => {
   if (!name || !address) return res.status(400).json({ error: 'Name and address required' });
   const { data, error } = await supabase
     .from('stops')
-    .insert([{ name, address, lat: parseFloat(lat)||0, lng: parseFloat(lng)||0, notes: notes||'' }])
+    .insert([{ name, address, lat: parseFloat(lat)||0, lng: parseFloat(lng)||0, notes: notes||'', company_id: getCompanyId(req) }])
     .select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 app.patch('/api/stops/:id', authenticateToken, async (req, res) => {
-  const { data, error } = await supabase.from('stops').update(req.body).eq('id', req.params.id).select().single();
+  const { data, error } = await supabase.from('stops').update(req.body)
+    .eq('id', req.params.id).eq('company_id', getCompanyId(req)).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 app.delete('/api/stops/:id', authenticateToken, async (req, res) => {
-  const { error } = await supabase.from('stops').delete().eq('id', req.params.id);
+  const { error } = await supabase.from('stops').delete()
+    .eq('id', req.params.id).eq('company_id', getCompanyId(req));
   if (error) return res.status(500).json({ error: error.message });
   res.json({ message: 'Deleted' });
 });
 
 // ── ROUTES (Supabase) ───────────────────────────────────
 app.get('/api/routes', authenticateToken, async (req, res) => {
-  const { data, error } = await supabase.from('routes').select('*').order('created_at', { ascending: true });
+  const { data, error } = await supabase.from('routes').select('*')
+    .eq('company_id', getCompanyId(req)).order('created_at', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
@@ -415,7 +539,7 @@ app.post('/api/routes', authenticateToken, async (req, res) => {
   if (!name) return res.status(400).json({ error: 'Route name required' });
   const { data, error } = await supabase
     .from('routes')
-    .insert([{ name, stop_ids: stopIds||[], driver: driver||'', notes: notes||'' }])
+    .insert([{ name, stop_ids: stopIds||[], driver: driver||'', notes: notes||'', company_id: getCompanyId(req) }])
     .select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
@@ -423,12 +547,14 @@ app.post('/api/routes', authenticateToken, async (req, res) => {
 app.patch('/api/routes/:id', authenticateToken, async (req, res) => {
   const payload = { ...req.body };
   if (payload.stopIds !== undefined) { payload.stop_ids = payload.stopIds; delete payload.stopIds; }
-  const { data, error } = await supabase.from('routes').update(payload).eq('id', req.params.id).select().single();
+  const { data, error } = await supabase.from('routes').update(payload)
+    .eq('id', req.params.id).eq('company_id', getCompanyId(req)).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 app.delete('/api/routes/:id', authenticateToken, async (req, res) => {
-  const { error } = await supabase.from('routes').delete().eq('id', req.params.id);
+  const { error } = await supabase.from('routes').delete()
+    .eq('id', req.params.id).eq('company_id', getCompanyId(req));
   if (error) return res.status(500).json({ error: error.message });
   res.json({ message: 'Deleted' });
 });
@@ -438,6 +564,7 @@ app.get('/api/customers', authenticateToken, async (req, res) => {
   const { data, error } = await supabase
     .from('250 restaurants')
     .select('*')
+    .eq('company_id', getCompanyId(req))
     .order('Rank', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
@@ -447,9 +574,8 @@ app.post('/api/customers', authenticateToken, async (req, res) => {
   if (!Restaurant) return res.status(400).json({ error: 'Restaurant name required' });
   const { data, error } = await supabase
     .from('250 restaurants')
-    .insert([{ Restaurant, Address: Address||'', Phone: Phone||'', Area: Area||'', Cuisine: Cuisine||'', Rank: Rank||null }])
-    .select()
-    .single();
+    .insert([{ Restaurant, Address: Address||'', Phone: Phone||'', Area: Area||'', Cuisine: Cuisine||'', Rank: Rank||null, company_id: getCompanyId(req) }])
+    .select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
@@ -458,8 +584,8 @@ app.patch('/api/customers/:rank', authenticateToken, async (req, res) => {
     .from('250 restaurants')
     .update(req.body)
     .eq('Rank', req.params.rank)
-    .select()
-    .single();
+    .eq('company_id', getCompanyId(req))
+    .select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
@@ -467,7 +593,8 @@ app.delete('/api/customers/:rank', authenticateToken, async (req, res) => {
   const { error } = await supabase
     .from('250 restaurants')
     .delete()
-    .eq('Rank', req.params.rank);
+    .eq('Rank', req.params.rank)
+    .eq('company_id', getCompanyId(req));
   if (error) return res.status(500).json({ error: error.message });
   res.json({ message: 'Deleted' });
 });
@@ -507,6 +634,7 @@ app.get('/api/inventory', authenticateToken, async (req, res) => {
   const { data, error } = await supabase
     .from('seafood_inventory')
     .select('*')
+    .eq('company_id', getCompanyId(req))
     .order('category', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
@@ -525,7 +653,8 @@ app.post('/api/inventory', authenticateToken, requireRole('admin', 'manager'), a
       price_per_unit: parseFloat(price_per_unit) || 0,
       stock_qty: parseFloat(stock_qty) || 0,
       low_stock_threshold: parseFloat(low_stock_threshold) || 10,
-      description: description || ''
+      description: description || '',
+      company_id: getCompanyId(req),
     }])
     .select().single();
   if (error) return res.status(500).json({ error: error.message });
@@ -540,13 +669,15 @@ app.patch('/api/inventory/:id', authenticateToken, requireRole('admin', 'manager
     .from('seafood_inventory')
     .update(fields)
     .eq('id', req.params.id)
+    .eq('company_id', getCompanyId(req))
     .select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 
 app.delete('/api/inventory/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { error } = await supabase.from('seafood_inventory').delete().eq('id', req.params.id);
+  const { error } = await supabase.from('seafood_inventory').delete()
+    .eq('id', req.params.id).eq('company_id', getCompanyId(req));
   if (error) return res.status(500).json({ error: error.message });
   res.json({ message: 'Deleted' });
 });
@@ -559,17 +690,20 @@ app.delete('/api/inventory/:id', authenticateToken, requireRole('admin', 'manage
 app.get('/api/inventory/analytics', authenticateToken, async (req, res) => {
   const WINDOW_DAYS = 30;
   const since = new Date(Date.now() - WINDOW_DAYS * 86400000).toISOString();
+  const cid = getCompanyId(req);
 
   const { data: products, error: pErr } = await supabase
     .from('seafood_inventory')
     .select('id,name,category,unit,stock_qty,low_stock_threshold,avg_yield,yield_count')
+    .eq('company_id', cid)
     .order('category');
   if (pErr) return res.status(500).json({ error: pErr.message });
 
   const { data: history, error: hErr } = await supabase
     .from('inventory_stock_history')
     .select('product_id,change_qty,created_at')
-    .lt('change_qty', 0)                   // depletions only
+    .eq('company_id', cid)
+    .lt('change_qty', 0)
     .gte('created_at', since);
   if (hErr) return res.status(500).json({ error: hErr.message });
 
@@ -642,8 +776,9 @@ function buildInventoryAlertEmail(outOfStock, lowStock, analytics) {
 app.post('/api/inventory/alerts/send', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const mailer = createMailer();
   if (!mailer) return res.status(503).json({ error: 'Email not configured (SMTP_HOST missing)' });
+  const cid = getCompanyId(req);
 
-  const { data: products, error } = await supabase.from('seafood_inventory').select('*');
+  const { data: products, error } = await supabase.from('seafood_inventory').select('*').eq('company_id', cid);
   if (error) return res.status(500).json({ error: error.message });
 
   const outOfStock = products.filter(i => (i.stock_qty || 0) <= 0);
@@ -658,6 +793,7 @@ app.post('/api/inventory/alerts/send', authenticateToken, requireRole('admin', '
   const { data: history } = await supabase
     .from('inventory_stock_history')
     .select('product_id,change_qty')
+    .eq('company_id', cid)
     .lt('change_qty', 0)
     .gte('created_at', since);
   const usageMap = {};
@@ -682,7 +818,8 @@ app.post('/api/inventory/alerts/send', authenticateToken, requireRole('admin', '
     const affectedIds = [...outOfStock, ...lowStock].map(i => i.id);
     await supabase.from('seafood_inventory')
       .update({ alert_sent_at: new Date().toISOString() })
-      .in('id', affectedIds);
+      .in('id', affectedIds)
+      .eq('company_id', cid);
     res.json({ sent: true, to, out_of_stock: outOfStock.length, low_stock: lowStock.length });
   } catch (e) {
     res.status(500).json({ error: 'Email send failed: ' + e.message });
@@ -694,25 +831,23 @@ app.post('/api/inventory/:id/restock', authenticateToken, requireRole('admin', '
   const { qty, notes } = req.body;
   const addQty = parseFloat(qty);
   if (!addQty || addQty <= 0) return res.status(400).json({ error: 'qty must be > 0' });
+  const cid = getCompanyId(req);
 
   const { data: item, error: fetchErr } = await supabase
-    .from('seafood_inventory').select('stock_qty,name').eq('id', req.params.id).single();
+    .from('seafood_inventory').select('stock_qty,name').eq('id', req.params.id).eq('company_id', cid).single();
   if (fetchErr) return res.status(404).json({ error: 'Product not found' });
 
   const newQty = (parseFloat(item.stock_qty) || 0) + addQty;
   const { data, error } = await supabase
     .from('seafood_inventory')
     .update({ stock_qty: newQty, updated_at: new Date().toISOString() })
-    .eq('id', req.params.id).select().single();
+    .eq('id', req.params.id).eq('company_id', cid).select().single();
   if (error) return res.status(500).json({ error: error.message });
 
   await supabase.from('inventory_stock_history').insert([{
-    product_id: req.params.id,
-    change_qty: addQty,
-    new_qty: newQty,
-    change_type: 'restock',
-    notes: notes || null,
-    created_by: req.user.name || req.user.email,
+    product_id: req.params.id, company_id: cid,
+    change_qty: addQty, new_qty: newQty, change_type: 'restock',
+    notes: notes || null, created_by: req.user.name || req.user.email,
   }]);
 
   res.json(data);
@@ -724,25 +859,23 @@ app.post('/api/inventory/:id/adjust', authenticateToken, requireRole('admin', 'm
   const d = parseFloat(delta);
   if (d == null || isNaN(d)) return res.status(400).json({ error: 'delta (number) required' });
   const type = change_type || (d < 0 ? 'depletion' : 'adjustment');
+  const cid = getCompanyId(req);
 
   const { data: item, error: fetchErr } = await supabase
-    .from('seafood_inventory').select('stock_qty').eq('id', req.params.id).single();
+    .from('seafood_inventory').select('stock_qty').eq('id', req.params.id).eq('company_id', cid).single();
   if (fetchErr) return res.status(404).json({ error: 'Product not found' });
 
   const newQty = parseFloat(((parseFloat(item.stock_qty) || 0) + d).toFixed(4));
   const { data, error } = await supabase
     .from('seafood_inventory')
     .update({ stock_qty: newQty, updated_at: new Date().toISOString() })
-    .eq('id', req.params.id).select().single();
+    .eq('id', req.params.id).eq('company_id', cid).select().single();
   if (error) return res.status(500).json({ error: error.message });
 
   await supabase.from('inventory_stock_history').insert([{
-    product_id: req.params.id,
-    change_qty: d,
-    new_qty: newQty,
-    change_type: type,
-    notes: notes || null,
-    created_by: req.user.name || req.user.email,
+    product_id: req.params.id, company_id: cid,
+    change_qty: d, new_qty: newQty, change_type: type,
+    notes: notes || null, created_by: req.user.name || req.user.email,
   }]);
 
   res.json(data);
@@ -755,6 +888,7 @@ app.get('/api/inventory/:id/history', authenticateToken, async (req, res) => {
     .from('inventory_stock_history')
     .select('*')
     .eq('product_id', req.params.id)
+    .eq('company_id', getCompanyId(req))
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) return res.status(500).json({ error: error.message });
@@ -766,27 +900,23 @@ app.post('/api/inventory/:id/yield', authenticateToken, async (req, res) => {
   const { raw_weight, yield_weight, notes } = req.body;
   const raw     = parseFloat(raw_weight);
   const yielded = parseFloat(yield_weight);
-  if (!raw || raw <= 0)     return res.status(400).json({ error: 'raw_weight must be > 0' });
+  if (!raw || raw <= 0)         return res.status(400).json({ error: 'raw_weight must be > 0' });
   if (!yielded || yielded <= 0) return res.status(400).json({ error: 'yield_weight must be > 0' });
-  if (yielded > raw)        return res.status(400).json({ error: 'yield_weight cannot exceed raw_weight' });
+  if (yielded > raw)            return res.status(400).json({ error: 'yield_weight cannot exceed raw_weight' });
+  const cid = getCompanyId(req);
 
   const yield_pct = parseFloat(((yielded / raw) * 100).toFixed(2));
 
-  // Log the entry
   await supabase.from('inventory_yield_log').insert([{
-    product_id:   req.params.id,
-    raw_weight:   raw,
-    yield_weight: yielded,
-    yield_pct,
-    notes: notes || null,
-    logged_by: req.user.name || req.user.email,
+    product_id: req.params.id, company_id: cid,
+    raw_weight: raw, yield_weight: yielded, yield_pct,
+    notes: notes || null, logged_by: req.user.name || req.user.email,
   }]);
 
-  // Update running average (cumulative moving average)
   const { data: item, error: fetchErr } = await supabase
     .from('seafood_inventory')
     .select('avg_yield,yield_count')
-    .eq('id', req.params.id).single();
+    .eq('id', req.params.id).eq('company_id', cid).single();
   if (fetchErr) return res.status(404).json({ error: 'Product not found' });
 
   const n      = (item?.yield_count || 0) + 1;
@@ -795,7 +925,7 @@ app.post('/api/inventory/:id/yield', authenticateToken, async (req, res) => {
   const { data, error } = await supabase
     .from('seafood_inventory')
     .update({ avg_yield: newAvg, yield_count: n, updated_at: new Date().toISOString() })
-    .eq('id', req.params.id).select().single();
+    .eq('id', req.params.id).eq('company_id', cid).select().single();
   if (error) return res.status(500).json({ error: error.message });
 
   res.json({ ...data, yield_pct, sample_count: n });
@@ -808,6 +938,7 @@ app.get('/api/inventory/:id/yield', authenticateToken, async (req, res) => {
     .from('inventory_yield_log')
     .select('*')
     .eq('product_id', req.params.id)
+    .eq('company_id', getCompanyId(req))
     .order('logged_at', { ascending: false })
     .limit(limit);
   if (error) return res.status(500).json({ error: error.message });
@@ -828,6 +959,7 @@ app.get('/api/forecast/orders', authenticateToken, requireRole('admin', 'manager
   const { data: orders, error } = await supabase
     .from('orders')
     .select('id,customer,customer_name,description,item_name,date,created_at')
+    .eq('company_id', getCompanyId(req))
     .gte('created_at', since)
     .order('created_at', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
@@ -876,6 +1008,7 @@ app.get('/api/invoices', authenticateToken, async (req, res) => {
   const { data, error } = await supabase
     .from('invoices')
     .select('*')
+    .eq('company_id', getCompanyId(req))
     .order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
@@ -886,7 +1019,7 @@ app.post('/api/invoices', authenticateToken, async (req, res) => {
   if (!customer_name) return res.status(400).json({ error: 'Customer name required' });
   const { data, error } = await supabase
     .from('invoices')
-    .insert([{ invoice_number, customer_name, customer_email, customer_address, items: items||[], subtotal: subtotal||0, tax: tax||0, total: total||0, status: 'pending', driver_name, notes, entree_invoice_id }])
+    .insert([{ invoice_number, customer_name, customer_email, customer_address, items: items||[], subtotal: subtotal||0, tax: tax||0, total: total||0, status: 'pending', driver_name, notes, entree_invoice_id, company_id: getCompanyId(req) }])
     .select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
@@ -894,6 +1027,7 @@ app.post('/api/invoices', authenticateToken, async (req, res) => {
 
 // Entree import — accepts one or many invoices in Entree's export format
 app.post('/api/invoices/import', authenticateToken, async (req, res) => {
+  const cid = getCompanyId(req);
   const raw = Array.isArray(req.body) ? req.body : [req.body];
   const mapped = raw.map(e => ({
     invoice_number:   e.InvoiceNumber || e.invoice_number || null,
@@ -913,6 +1047,7 @@ app.post('/api/invoices/import', authenticateToken, async (req, res) => {
     notes:             e.Notes     || e.notes     || '',
     entree_invoice_id: e.InvoiceNumber || e.InvoiceID || null,
     status: 'pending',
+    company_id: cid,
   }));
   const { data, error } = await supabase.from('invoices').insert(mapped).select();
   if (error) return res.status(500).json({ error: error.message });
@@ -924,15 +1059,16 @@ app.post('/api/invoices/:id/sign', authenticateToken, async (req, res) => {
   const { signature_data } = req.body; // base64 PNG from canvas
   if (!signature_data) return res.status(400).json({ error: 'Signature data required' });
 
+  const cid = getCompanyId(req);
   const { data: inv, error: fetchErr } = await supabase
-    .from('invoices').select('*').eq('id', req.params.id).single();
+    .from('invoices').select('*').eq('id', req.params.id).eq('company_id', cid).single();
   if (fetchErr || !inv) return res.status(404).json({ error: 'Invoice not found' });
 
   // Update invoice as signed
   const { data: updated, error: updateErr } = await supabase
     .from('invoices')
     .update({ signature_data, status: 'signed', signed_at: new Date().toISOString() })
-    .eq('id', req.params.id).select().single();
+    .eq('id', req.params.id).eq('company_id', cid).select().single();
   if (updateErr) return res.status(500).json({ error: updateErr.message });
 
   // Generate PDF
@@ -963,7 +1099,7 @@ app.post('/api/invoices/:id/sign', authenticateToken, async (req, res) => {
           attachments: [{ filename: `invoice-${inv.invoice_number || inv.id.slice(0,8)}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }],
         });
         emailSent = true;
-        await supabase.from('invoices').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', req.params.id);
+        await supabase.from('invoices').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', req.params.id).eq('company_id', cid);
       }
     } catch (e) {
       console.error('Email error:', e.message);
@@ -975,7 +1111,7 @@ app.post('/api/invoices/:id/sign', authenticateToken, async (req, res) => {
 
 // Resend email for an already-signed invoice
 app.post('/api/invoices/:id/resend', authenticateToken, async (req, res) => {
-  const { data: inv, error } = await supabase.from('invoices').select('*').eq('id', req.params.id).single();
+  const { data: inv, error } = await supabase.from('invoices').select('*').eq('id', req.params.id).eq('company_id', getCompanyId(req)).single();
   if (error || !inv) return res.status(404).json({ error: 'Invoice not found' });
   if (!inv.signature_data) return res.status(400).json({ error: 'Invoice not yet signed' });
   if (!inv.customer_email) return res.status(400).json({ error: 'No email on file for this customer' });
@@ -989,13 +1125,13 @@ app.post('/api/invoices/:id/resend', authenticateToken, async (req, res) => {
     html: `<p>Hi ${inv.customer_name}, please find your invoice attached.</p>`,
     attachments: [{ filename: `invoice-${inv.invoice_number || inv.id.slice(0,8)}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }],
   });
-  await supabase.from('invoices').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', req.params.id);
+  await supabase.from('invoices').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', req.params.id).eq('company_id', getCompanyId(req));
   res.json({ message: 'Email resent' });
 });
 
 // Download PDF for any invoice
 app.get('/api/invoices/:id/pdf', authenticateToken, async (req, res) => {
-  const { data: inv, error } = await supabase.from('invoices').select('*').eq('id', req.params.id).single();
+  const { data: inv, error } = await supabase.from('invoices').select('*').eq('id', req.params.id).eq('company_id', getCompanyId(req)).single();
   if (error || !inv) return res.status(404).json({ error: 'Invoice not found' });
   const pdfBuffer = await buildInvoicePDF(inv);
   res.setHeader('Content-Type', 'application/pdf');
@@ -1104,7 +1240,8 @@ function buildInvoicePDF(inv) {
 
 // ── ORDERS ────────────────────────────────────────────────────────────────────
 app.get('/api/orders', authenticateToken, async (req, res) => {
-  const { data, error } = await supabase.from('orders').select('*').order('created_at', { ascending: false });
+  const { data, error } = await supabase.from('orders').select('*')
+    .eq('company_id', getCompanyId(req)).order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
   res.json(data || []);
 });
@@ -1122,13 +1259,15 @@ app.post('/api/orders', authenticateToken, async (req, res) => {
     status: 'pending',
     notes: notes || null,
     driver_name: null,
-    route_id: null
+    route_id: null,
+    company_id: getCompanyId(req),
   }]).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 
 app.patch('/api/orders/:id', authenticateToken, async (req, res) => {
+  const cid = getCompanyId(req);
   const updates = {};
   if (req.body.customerName !== undefined) updates.customer_name = req.body.customerName;
   if (req.body.items !== undefined) updates.items = req.body.items;
@@ -1137,20 +1276,23 @@ app.patch('/api/orders/:id', authenticateToken, async (req, res) => {
   if (req.body.driverName !== undefined) updates.driver_name = req.body.driverName;
   if (req.body.routeId !== undefined) updates.route_id = req.body.routeId;
   if (req.body.notes !== undefined) updates.notes = req.body.notes;
-  const { data, error } = await supabase.from('orders').update(updates).eq('id', req.params.id).select().single();
+  const { data, error } = await supabase.from('orders').update(updates)
+    .eq('id', req.params.id).eq('company_id', cid).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 
 app.delete('/api/orders/:id', authenticateToken, async (req, res) => {
-  const { error } = await supabase.from('orders').delete().eq('id', req.params.id);
+  const { error } = await supabase.from('orders').delete()
+    .eq('id', req.params.id).eq('company_id', getCompanyId(req));
   if (error) return res.status(500).json({ error: error.message });
   res.json({ message: 'Order deleted' });
 });
 
 // Send order to processing (prints + marks in_process)
 app.post('/api/orders/:id/send', authenticateToken, async (req, res) => {
-  const { data, error } = await supabase.from('orders').update({ status: 'in_process' }).eq('id', req.params.id).select().single();
+  const { data, error } = await supabase.from('orders').update({ status: 'in_process' })
+    .eq('id', req.params.id).eq('company_id', getCompanyId(req)).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
@@ -1158,7 +1300,9 @@ app.post('/api/orders/:id/send', authenticateToken, async (req, res) => {
 // Fulfill order: enter actual weights → generate invoice
 app.post('/api/orders/:id/fulfill', authenticateToken, async (req, res) => {
   const { items, driverName, routeId } = req.body;
-  const { data: order, error: oErr } = await supabase.from('orders').select('*').eq('id', req.params.id).single();
+  const cid = getCompanyId(req);
+  const { data: order, error: oErr } = await supabase.from('orders').select('*')
+    .eq('id', req.params.id).eq('company_id', cid).single();
   if (oErr) return res.status(500).json({ error: oErr.message });
   const productItems = items.map(it => {
     const qty = it.unit === 'lb' ? (it.actual_weight || it.requested_weight || 0) : (it.requested_qty || 0);
@@ -1192,10 +1336,12 @@ app.post('/api/orders/:id/fulfill', authenticateToken, async (req, res) => {
     subtotal, tax, total,
     driver_name: driverName || null,
     status: 'pending',
-    notes: order.notes || null
+    notes: order.notes || null,
+    company_id: cid,
   }]).select().single();
   if (iErr) return res.status(500).json({ error: iErr.message });
-  await supabase.from('orders').update({ status: 'invoiced', driver_name: driverName || null, route_id: routeId || null }).eq('id', req.params.id);
+  await supabase.from('orders').update({ status: 'invoiced', driver_name: driverName || null, route_id: routeId || null })
+    .eq('id', req.params.id).eq('company_id', cid);
   res.json({ invoice, message: 'Invoice created' });
 });
 
@@ -1248,7 +1394,8 @@ async function calculateETA(driverLat, driverLng, stopsBeforeCust, custLat, cust
 
 // Send tracking link to customer (email + optional SMS)
 app.post('/api/orders/:id/tracking/send', authenticateToken, async (req, res) => {
-  const { data: order, error } = await supabase.from('orders').select('*').eq('id', req.params.id).single();
+  const { data: order, error } = await supabase.from('orders').select('*')
+    .eq('id', req.params.id).eq('company_id', getCompanyId(req)).single();
   if (error || !order) return res.status(404).json({ error: 'Order not found' });
 
   // Geocode customer address if we don't have coords yet
@@ -1394,6 +1541,7 @@ app.post('/api/driver/location', authenticateToken, async (req, res) => {
   if (!lat || !lng) return res.status(400).json({ error: 'lat and lng required' });
   const { error } = await supabase.from('driver_locations').upsert({
     driver_name: req.user.name,
+    company_id: getCompanyId(req),
     lat: parseFloat(lat), lng: parseFloat(lng),
     heading: parseFloat(heading) || 0,
     speed_mph: parseFloat(speed_mph) || 0,

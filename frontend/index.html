@@ -524,7 +524,10 @@ td{padding:12px 16px;vertical-align:middle}
       <span class="nav-icon">⚙️</span>Settings
     </div>
   </div>
-  <div class="sidebar-footer">NodeRoute DS v2.0<br>Charleston, SC</div>
+  <div class="sidebar-footer">
+    <div style="font-weight:600;font-size:13px;color:var(--text)" id="sidebarCompanyName">—</div>
+    <div style="margin-top:2px">NodeRoute DS v2.0</div>
+  </div>
 </nav>
 
 <!-- MAIN -->
@@ -1125,6 +1128,24 @@ td{padding:12px 16px;vertical-align:middle}
       <div class="section-title">Settings</div>
       <div class="settings-grid">
 
+        <!-- Company -->
+        <div class="settings-card" id="companySettingsCard">
+          <div class="settings-card-title">Company</div>
+          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
+            <div style="width:44px;height:44px;border-radius:10px;background:rgba(61,186,127,0.15);display:flex;align-items:center;justify-content:center;font-size:20px">🏢</div>
+            <div>
+              <div style="font-weight:600;font-size:15px" id="companyDisplayName">—</div>
+              <div style="font-size:11px;color:var(--muted)" id="companyDisplayPlan">—</div>
+            </div>
+          </div>
+          <div class="settings-field-group">
+            <label class="settings-label">Company Name</label>
+            <input class="search-input" id="companyNameInput" placeholder="Your company name" style="width:100%"/>
+          </div>
+          <button class="btn btn-accent" style="width:100%;margin-top:4px" onclick="saveCompanyName()">Save</button>
+          <div class="settings-msg" id="companyMsg"></div>
+        </div>
+
         <!-- Profile -->
         <div class="settings-card">
           <div class="settings-card-title">Profile</div>
@@ -1248,10 +1269,51 @@ td{padding:12px 16px;vertical-align:middle}
         </div>
 
       </div>
+
+      <!-- Superadmin: Companies Panel (hidden for non-superadmin) -->
+      <div id="superadminPanel" style="display:none;margin-top:24px">
+        <div class="section-title" style="margin-bottom:16px">Company Management <span style="font-size:11px;color:var(--warn);font-weight:600;margin-left:8px">SUPERADMIN</span></div>
+        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+          <button class="btn btn-accent" onclick="openNewCompanyModal()">+ New Company</button>
+          <button class="btn btn-outline" onclick="loadCompanies()">↻ Refresh</button>
+        </div>
+        <div id="companiesList">
+          <div style="color:var(--muted);font-size:13px">Loading companies…</div>
+        </div>
+      </div>
     </div>
 
   </div><!-- /content -->
 </div><!-- /main -->
+
+<!-- NEW COMPANY MODAL (superadmin) -->
+<div class="modal-overlay" id="newCompanyModal">
+  <div class="modal-box" style="width:460px">
+    <h3>Create New Company</h3>
+    <label class="modal-label">Company Name</label>
+    <input class="modal-input" id="ncName" placeholder="Acme Seafood Co."/>
+    <label class="modal-label">Slug (URL-friendly, optional)</label>
+    <input class="modal-input" id="ncSlug" placeholder="acme-seafood"/>
+    <label class="modal-label">Plan</label>
+    <select class="modal-input" id="ncPlan">
+      <option value="starter">Starter</option>
+      <option value="pro">Pro</option>
+      <option value="enterprise">Enterprise</option>
+    </select>
+    <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:12px">
+      <div class="settings-card-title" style="margin-bottom:8px">First Admin User</div>
+      <label class="modal-label">Admin Name</label>
+      <input class="modal-input" id="ncAdminName" placeholder="Jane Smith"/>
+      <label class="modal-label">Admin Email</label>
+      <input class="modal-input" id="ncAdminEmail" type="email" placeholder="jane@acmeseafood.com"/>
+    </div>
+    <div class="modal-result" id="ncResult"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeNewCompanyModal()">Cancel</button>
+      <button class="btn btn-accent" onclick="submitNewCompany()">Create Company</button>
+    </div>
+  </div>
+</div>
 
 <!-- FULFILL ORDER MODAL -->
 <div class="modal-overlay" id="fulfillModal">
@@ -3292,9 +3354,15 @@ function updateGeofenceStatus() {
 // ── USERS TAB ──────────────────────────────────────────
 let allUsers = [];
 
-if (nrUser && nrUser.role === 'admin') {
+if (nrUser && (nrUser.role === 'admin' || nrUser.role === 'superadmin')) {
   document.getElementById('usersNavItem').style.display = 'flex';
 }
+if (nrUser && nrUser.role === 'superadmin') {
+  const sp = document.getElementById('superadminPanel');
+  if (sp) sp.style.display = 'block';
+}
+// Load company info on every page load
+loadCompanyInfo();
 
 async function fetchUsers() {
   try {
@@ -3686,11 +3754,124 @@ function loadNotifPrefs() {
   } catch {}
 }
 
+// ── COMPANY ────────────────────────────────────────────
+async function loadCompanyInfo() {
+  try {
+    const res = await fetch(API + '/company', authHeaders);
+    if (!res.ok) return;
+    const co = await res.json();
+    // Sidebar
+    const sn = document.getElementById('sidebarCompanyName');
+    if (sn) sn.textContent = co.name || '—';
+    // Settings card
+    const dn = document.getElementById('companyDisplayName');
+    const dp = document.getElementById('companyDisplayPlan');
+    const ni = document.getElementById('companyNameInput');
+    if (dn) dn.textContent = co.name || '—';
+    if (dp) dp.textContent = (co.plan || 'starter').charAt(0).toUpperCase() + (co.plan || 'starter').slice(1) + ' Plan';
+    if (ni) ni.value = co.name || '';
+  } catch(e) {}
+}
+
+async function saveCompanyName() {
+  const name = document.getElementById('companyNameInput').value.trim();
+  const msg  = document.getElementById('companyMsg');
+  if (!name) { msg.className = 'settings-msg error'; msg.textContent = 'Name required'; return; }
+  try {
+    const res = await fetch(API + '/company', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+      body: JSON.stringify({ name }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    msg.className = 'settings-msg success'; msg.textContent = 'Company name updated!';
+    document.getElementById('sidebarCompanyName').textContent = data.name;
+    document.getElementById('companyDisplayName').textContent = data.name;
+    setTimeout(() => { msg.textContent = ''; }, 3000);
+  } catch(e) { msg.className = 'settings-msg error'; msg.textContent = e.message; }
+}
+
+// ── SUPERADMIN: COMPANY MANAGEMENT ─────────────────────
+async function loadCompanies() {
+  const el = document.getElementById('companiesList');
+  if (!el) return;
+  el.innerHTML = '<div style="color:var(--muted);font-size:13px">Loading…</div>';
+  try {
+    const res = await fetch(API + '/companies', authHeaders);
+    if (!res.ok) { el.innerHTML = '<div style="color:var(--muted);font-size:13px">Access denied</div>'; return; }
+    const companies = await res.json();
+    if (!companies.length) { el.innerHTML = '<div style="color:var(--muted);font-size:13px">No companies yet.</div>'; return; }
+    el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">${companies.map(c => `
+      <div class="settings-card" style="padding:14px">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
+          <div>
+            <div style="font-weight:700;font-size:14px">${c.name}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">${c.slug || '—'} · ${c.plan}</div>
+          </div>
+          <span style="background:rgba(61,186,127,0.12);color:var(--accent);padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${c.user_count} users</span>
+        </div>
+        <div style="font-size:11px;color:var(--muted);margin-top:8px">Created ${new Date(c.created_at).toLocaleDateString()}</div>
+        ${c.id !== '00000000-0000-0000-0000-000000000001' ? `
+          <button class="btn btn-outline" style="margin-top:10px;width:100%;color:var(--danger);border-color:var(--danger);font-size:12px" onclick="deleteCompany('${c.id}','${c.name}')">Delete Company</button>
+        ` : '<div style="font-size:11px;color:var(--muted);margin-top:8px;font-style:italic">Default company</div>'}
+      </div>`).join('')}</div>`;
+  } catch(e) { el.innerHTML = `<div style="color:var(--danger);font-size:13px">${e.message}</div>`; }
+}
+
+async function deleteCompany(id, name) {
+  if (!confirm(`Delete company "${name}"? This will remove all their data permanently.`)) return;
+  try {
+    const res = await fetch(`${API}/companies/${id}`, { method: 'DELETE', ...authHeaders });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    loadCompanies();
+  } catch(e) { alert('Delete failed: ' + e.message); }
+}
+
+function openNewCompanyModal() {
+  ['ncName','ncSlug','ncAdminName','ncAdminEmail'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('ncPlan').value = 'starter';
+  document.getElementById('ncResult').className = 'modal-result';
+  document.getElementById('ncResult').textContent = '';
+  document.getElementById('newCompanyModal').classList.add('open');
+}
+function closeNewCompanyModal() { document.getElementById('newCompanyModal').classList.remove('open'); }
+
+async function submitNewCompany() {
+  const r = document.getElementById('ncResult');
+  const payload = {
+    name:        document.getElementById('ncName').value.trim(),
+    slug:        document.getElementById('ncSlug').value.trim() || undefined,
+    plan:        document.getElementById('ncPlan').value,
+    admin_name:  document.getElementById('ncAdminName').value.trim(),
+    admin_email: document.getElementById('ncAdminEmail').value.trim(),
+  };
+  if (!payload.name || !payload.admin_name || !payload.admin_email) {
+    r.className = 'modal-result error'; r.textContent = 'All fields are required.'; return;
+  }
+  try {
+    const res = await fetch(`${API}/companies`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    r.className = 'modal-result success';
+    r.textContent = `Company "${data.company.name}" created! Invite sent to ${payload.admin_email}.`;
+    loadCompanies();
+    setTimeout(closeNewCompanyModal, 2500);
+  } catch(e) { r.className = 'modal-result error'; r.textContent = e.message; }
+}
+
+document.getElementById('newCompanyModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeNewCompanyModal(); });
+
 // Init settings when tab opens
 const _origShowTab = showTab;
 function showTab(name, el) {
   _origShowTab(name, el);
-  if (name === 'settings') initSettings();
+  if (name === 'settings') { initSettings(); loadCompanyInfo(); if (nrUser?.role === 'superadmin') loadCompanies(); }
 }
 
 // ── DRIVER DETAIL PANEL ────────────────────────────────
