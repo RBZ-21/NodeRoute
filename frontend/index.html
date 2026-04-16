@@ -1190,7 +1190,7 @@ td{padding:12px 16px;vertical-align:middle}
         <!-- CSV Import -->
         <div class="settings-card">
           <div class="settings-card-title">Import Customer Inventory (CSV)</div>
-          <p style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6">Upload a CSV to bulk-add products to the seafood inventory. Required columns: <code style="background:var(--bg);padding:1px 5px;border-radius:3px;font-size:11px">name, category, unit, price_per_unit, stock_qty</code></p>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6">Upload a CSV to bulk-add products to the seafood inventory. Required columns: <code style="background:var(--bg);padding:1px 5px;border-radius:3px;font-size:11px">description, category, unit, cost, on_hand_qty</code></p>
           <div class="settings-dropzone" id="csvDropzone" onclick="document.getElementById('csvFileInput').click()" ondragover="csvDragOver(event)" ondrop="csvDrop(event)">
             <div style="font-size:28px;margin-bottom:8px">📂</div>
             <div style="font-size:13px;font-weight:600">Click or drag CSV here</div>
@@ -1479,12 +1479,13 @@ td{padding:12px 16px;vertical-align:middle}
     <input type="hidden" id="invEditId"/>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
       <div>
-        <label class="modal-label">Product Name *</label>
-        <input class="modal-input" id="invName" placeholder="e.g. Atlantic Salmon"/>
+        <label class="modal-label">Description (Product Name) *</label>
+        <input class="modal-input" id="invName" placeholder="e.g. CAVIAR GOLDEN WHITE"/>
       </div>
       <div>
         <label class="modal-label">Category</label>
         <select class="modal-input" id="invCategory" style="cursor:pointer">
+          <option value="CAVIAR">CAVIAR</option>
           <option value="Fish">Fish</option>
           <option value="Shellfish">Shellfish</option>
           <option value="Crustacean">Crustacean</option>
@@ -1493,16 +1494,16 @@ td{padding:12px 16px;vertical-align:middle}
         </select>
       </div>
       <div>
-        <label class="modal-label">SKU / Product Code</label>
-        <input class="modal-input" id="invSku" placeholder="e.g. SAL-001"/>
+        <label class="modal-label">Item Number</label>
+        <input class="modal-input" id="invSku" placeholder="e.g. 7057"/>
       </div>
       <div>
         <label class="modal-label">Unit</label>
         <select class="modal-input" id="invUnit" style="cursor:pointer">
+          <option value="EACH">EACH</option>
           <option value="lb">lb</option>
           <option value="oz">oz</option>
-          <option value="each">each</option>
-          <option value="dozen">dozen</option>
+          <option value="TUB">TUB</option>
           <option value="case">case</option>
           <option value="piece">piece</option>
           <option value="fillet">fillet</option>
@@ -1511,20 +1512,25 @@ td{padding:12px 16px;vertical-align:middle}
         </select>
       </div>
       <div>
-        <label class="modal-label">Price per Unit ($)</label>
+        <label class="modal-label">Cost ($)</label>
         <input class="modal-input" id="invPrice" type="number" min="0" step="0.01" placeholder="0.00"/>
       </div>
       <div>
-        <label class="modal-label">Current Stock (qty)</label>
+        <label class="modal-label">On Hand Qty</label>
         <input class="modal-input" id="invStock" type="number" min="0" step="0.1" placeholder="0"/>
       </div>
       <div>
-        <label class="modal-label">Low Stock Alert (at qty)</label>
-        <input class="modal-input" id="invThreshold" type="number" min="0" placeholder="10"/>
+        <label class="modal-label">On Hand Weight</label>
+        <input class="modal-input" id="invWeight" type="number" min="0" step="0.01" placeholder="0"/>
+      </div>
+      <div>
+        <label class="modal-label">Lot Item</label>
+        <select class="modal-input" id="invLotItem" style="cursor:pointer">
+          <option value="N">N</option>
+          <option value="Y">Y</option>
+        </select>
       </div>
     </div>
-    <label class="modal-label">Description / Notes</label>
-    <input class="modal-input" id="invDescription" placeholder="Optional notes (origin, grade, etc.)"/>
     <div class="modal-result" id="invResult"></div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeInventoryModal()">Cancel</button>
@@ -2103,11 +2109,11 @@ function suggestProduct(input) {
   const q = input.value.toLowerCase();
   const drop = input.parentElement.querySelector('.prod-ac-drop');
   if (!q || q.length < 1) { drop.style.display = 'none'; return; }
-  const matches = allInventory.filter(p => (p.name || '').toLowerCase().includes(q)).slice(0, 6);
+  const matches = allInventory.filter(p => (p.description || '').toLowerCase().includes(q)).slice(0, 6);
   if (!matches.length) { drop.style.display = 'none'; return; }
-  drop.innerHTML = matches.map(p => `<div class="cust-ac-item" onclick="selectProduct(this, ${JSON.stringify(p.name)}, ${p.price_per_unit || 0}, ${JSON.stringify(p.unit||'lb')})">
-    <div style="font-weight:600">${p.name}</div>
-    <div style="font-size:11px;color:var(--muted)">$${(p.price_per_unit||0).toFixed(2)}/${p.unit||'unit'}</div>
+  drop.innerHTML = matches.map(p => `<div class="cust-ac-item" onclick="selectProduct(this, ${JSON.stringify(p.description)}, ${p.cost || 0}, ${JSON.stringify(p.unit||'EACH')})">
+    <div style="font-weight:600">${p.description}</div>
+    <div style="font-size:11px;color:var(--muted)">$${(p.cost||0).toFixed(2)}/${p.unit||'unit'}</div>
   </div>`).join('');
   drop.style.display = 'block';
 }
@@ -3602,7 +3608,7 @@ function getInvFiltered() {
   const cat = document.getElementById('invCatFilter')?.value || '';
   const st = document.getElementById('invStockFilter')?.value || '';
   return allInventory.filter(item => {
-    const matchQ = !q || (item.name||'').toLowerCase().includes(q) || (item.sku||'').toLowerCase().includes(q) || (item.description||'').toLowerCase().includes(q);
+    const matchQ = !q || (item.description||'').toLowerCase().includes(q) || (item.item_number||'').toLowerCase().includes(q);
     const matchCat = !cat || item.category === cat;
     let matchSt = true;
     if (st === 'out') matchSt = (item.stock_qty || 0) <= 0;
@@ -3613,10 +3619,10 @@ function getInvFiltered() {
 }
 
 function invStockStatus(item) {
-  const qty = item.stock_qty || 0;
-  const threshold = item.low_stock_threshold || 10;
+  const qty = item.on_hand_qty || 0;
+  const LOW = 10;
   if (qty <= 0) return { label: '✗ Out of Stock', cls: 'stock-out' };
-  if (qty <= threshold) return { label: '⚠ Low Stock', cls: 'stock-low' };
+  if (qty <= LOW) return { label: '⚠ Low Stock', cls: 'stock-low' };
   return { label: '✓ In Stock', cls: 'stock-in' };
 }
 
@@ -3638,24 +3644,25 @@ function renderInventory() {
   const isManager = nrUser && (nrUser.role === 'admin' || nrUser.role === 'manager');
   tbody.innerHTML = filtered.map(item => {
     const status = invStockStatus(item);
-    const price = typeof item.price_per_unit === 'number' ? '$' + item.price_per_unit.toFixed(2) : '—';
-    const stock = item.stock_qty != null ? item.stock_qty : '—';
+    const cost = typeof item.cost === 'number' ? '$' + item.cost.toFixed(2) : '—';
+    const qty = item.on_hand_qty != null ? item.on_hand_qty : '—';
     const yieldCell = item.avg_yield != null
       ? `<span class="inv-yield-pill">${item.avg_yield.toFixed(1)}%</span><div style="font-size:10px;color:var(--muted);margin-top:2px">${item.yield_count||0} samples</div>`
       : `<span style="color:var(--muted);font-size:12px">—</span>`;
+    const safeDesc = (item.description||'').replace(/'/g,"\\'");
     const actions = isManager ? `
       <div style="display:flex;gap:5px;white-space:nowrap">
-        <button class="user-action-btn" onclick="openRestockModal('${item.id}','${(item.name||'').replace(/'/g,"\\'")}',${item.stock_qty||0})">+ Stock</button>
-        <button class="user-action-btn" style="color:#a78bfa;border-color:rgba(124,58,237,0.3)" onclick="openYieldModal('${item.id}','${(item.name||'').replace(/'/g,"\\'")}',${item.avg_yield||'null'},${item.yield_count||0})">⚖ Yield</button>
-        <button class="user-action-btn" onclick="openInventoryModal('${item.id}')">Edit</button>
-        <button class="user-action-btn danger" onclick="deleteInventoryItem('${item.id}','${(item.name||'').replace(/'/g,"\\'")}')">×</button>
+        <button class="user-action-btn" onclick="openRestockModal('${item.item_number}','${safeDesc}',${item.on_hand_qty||0})">+ Stock</button>
+        <button class="user-action-btn" style="color:#a78bfa;border-color:rgba(124,58,237,0.3)" onclick="openYieldModal('${item.item_number}','${safeDesc}',${item.avg_yield||'null'},${item.yield_count||0})">⚖ Yield</button>
+        <button class="user-action-btn" onclick="openInventoryModal('${item.item_number}')">Edit</button>
+        <button class="user-action-btn danger" onclick="deleteInventoryItem('${item.item_number}','${safeDesc}')">×</button>
       </div>` : '—';
     return `<tr>
-      <td><strong>${item.name || '—'}</strong>${item.description ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${item.description}</div>` : ''}</td>
+      <td><strong>${item.description || '—'}</strong><div style="font-size:11px;color:var(--muted);margin-top:2px">#${item.item_number||'—'}</div></td>
       <td>${invCatBadge(item.category)}</td>
       <td style="color:var(--muted);font-size:12px">${item.unit || '—'}</td>
-      <td style="font-weight:600;color:var(--accent)">${price}</td>
-      <td style="font-weight:600">${stock} <span style="font-size:11px;color:var(--muted)">${item.unit||''}</span></td>
+      <td style="font-weight:600;color:var(--accent)">${cost}</td>
+      <td style="font-weight:600">${qty} <span style="font-size:11px;color:var(--muted)">${item.unit||''}</span></td>
       <td>${yieldCell}</td>
       <td><span class="${status.cls}">${status.label}</span></td>
       <td>${actions}</td>
@@ -3664,10 +3671,11 @@ function renderInventory() {
 }
 
 function renderInventoryKPIs() {
+  const LOW = 10;
   const total = allInventory.length;
-  const lowStock = allInventory.filter(i => (i.stock_qty||0) > 0 && (i.stock_qty||0) <= (i.low_stock_threshold||10)).length;
-  const outOfStock = allInventory.filter(i => (i.stock_qty||0) <= 0).length;
-  const totalValue = allInventory.reduce((s, i) => s + (parseFloat(i.price_per_unit)||0) * (parseFloat(i.stock_qty)||0), 0);
+  const lowStock = allInventory.filter(i => (i.on_hand_qty||0) > 0 && (i.on_hand_qty||0) <= LOW).length;
+  const outOfStock = allInventory.filter(i => (i.on_hand_qty||0) <= 0).length;
+  const totalValue = allInventory.reduce((s, i) => s + (parseFloat(i.cost)||0) * (parseFloat(i.on_hand_qty)||0), 0);
   const el = document.getElementById('invKpiRow');
   if (!el) return;
   el.innerHTML = `
@@ -3716,21 +3724,21 @@ function openInventoryModal(editId) {
     if (!item) return;
     document.getElementById('invModalTitle').textContent = 'Edit Product';
     document.getElementById('invSubmitBtn').textContent = 'Save Changes';
-    document.getElementById('invName').value = item.name || '';
+    document.getElementById('invName').value = item.description || '';
     document.getElementById('invCategory').value = item.category || 'Other';
-    document.getElementById('invSku').value = item.sku || '';
-    document.getElementById('invUnit').value = item.unit || 'lb';
-    document.getElementById('invPrice').value = item.price_per_unit ?? '';
-    document.getElementById('invStock').value = item.stock_qty ?? '';
-    document.getElementById('invThreshold').value = item.low_stock_threshold ?? 10;
-    document.getElementById('invDescription').value = item.description || '';
+    document.getElementById('invSku').value = item.item_number || '';
+    document.getElementById('invUnit').value = item.unit || 'EACH';
+    document.getElementById('invPrice').value = item.cost ?? '';
+    document.getElementById('invStock').value = item.on_hand_qty ?? '';
+    document.getElementById('invWeight').value = item.on_hand_weight ?? '';
+    document.getElementById('invLotItem').value = item.lot_item || 'N';
   } else {
     document.getElementById('invModalTitle').textContent = 'Add Product';
     document.getElementById('invSubmitBtn').textContent = 'Add Product';
-    ['invName','invSku','invPrice','invStock','invDescription'].forEach(id => document.getElementById(id).value = '');
-    document.getElementById('invCategory').value = 'Fish';
-    document.getElementById('invUnit').value = 'lb';
-    document.getElementById('invThreshold').value = '10';
+    ['invName','invSku','invPrice','invStock','invWeight'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('invCategory').value = 'Other';
+    document.getElementById('invUnit').value = 'EACH';
+    document.getElementById('invLotItem').value = 'N';
   }
   modal.classList.add('open');
 }
@@ -3741,18 +3749,18 @@ function closeInventoryModal() {
 
 async function submitInventoryItem() {
   const editId = document.getElementById('invEditId').value;
-  const name = document.getElementById('invName').value.trim();
+  const description = document.getElementById('invName').value.trim();
   const r = document.getElementById('invResult');
-  if (!name) { r.className = 'modal-result error'; r.textContent = 'Product name is required.'; return; }
+  if (!description) { r.className = 'modal-result error'; r.textContent = 'Product description is required.'; return; }
   const payload = {
-    name,
-    category: document.getElementById('invCategory').value,
-    sku: document.getElementById('invSku').value.trim(),
-    unit: document.getElementById('invUnit').value,
-    price_per_unit: parseFloat(document.getElementById('invPrice').value) || 0,
-    stock_qty: parseFloat(document.getElementById('invStock').value) || 0,
-    low_stock_threshold: parseFloat(document.getElementById('invThreshold').value) || 10,
-    description: document.getElementById('invDescription').value.trim(),
+    description,
+    category:       document.getElementById('invCategory').value,
+    item_number:    document.getElementById('invSku').value.trim(),
+    unit:           document.getElementById('invUnit').value,
+    cost:           parseFloat(document.getElementById('invPrice').value) || 0,
+    on_hand_qty:    parseFloat(document.getElementById('invStock').value) || 0,
+    on_hand_weight: parseFloat(document.getElementById('invWeight').value) || 0,
+    lot_item:       document.getElementById('invLotItem').value,
   };
   try {
     const url = editId ? `${API}/inventory/${editId}` : `${API}/inventory`;
@@ -3936,14 +3944,14 @@ function renderInventoryAnalytics(data) {
     return `<div class="inv-analytics-card">
       <div class="inv-analytics-card-header">
         <div>
-          <div class="inv-analytics-name">${item.name}</div>
+          <div class="inv-analytics-name">${item.description}</div>
           <div class="inv-analytics-cat">${invCatBadge(item.category)}</div>
         </div>
         <span class="days-pill ${pillCls}">${pillTxt}</span>
       </div>
       <div class="inv-pred-row">
         <span class="inv-pred-label">On Hand</span>
-        <span class="inv-pred-val">${item.stock_qty ?? '—'} ${item.unit || ''}</span>
+        <span class="inv-pred-val">${item.on_hand_qty ?? '—'} ${item.unit || ''}</span>
       </div>
       <div class="inv-pred-row">
         <span class="inv-pred-label">Daily Usage (30d avg)</span>
@@ -3988,7 +3996,7 @@ function populateInvPickerList(query) {
   if (!listEl) return;
   const q = (query || '').toLowerCase();
   const items = allInventory.filter(i =>
-    !q || (i.name||'').toLowerCase().includes(q) || (i.sku||'').toLowerCase().includes(q)
+    !q || (i.description||'').toLowerCase().includes(q) || (i.item_number||'').toLowerCase().includes(q)
   ).slice(0, 30);
   if (!items.length) {
     listEl.innerHTML = `<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">${allInventory.length ? 'No matches found' : 'No inventory loaded yet'}</div>`;
@@ -3996,11 +4004,11 @@ function populateInvPickerList(query) {
   }
   listEl.innerHTML = items.map(item => {
     const status = invStockStatus(item);
-    const price = typeof item.price_per_unit === 'number' ? '$' + item.price_per_unit.toFixed(2) + '/' + (item.unit||'unit') : '—';
-    return `<div class="inv-picker-item" onclick="pickInventoryItem('${item.id}')">
+    const price = typeof item.cost === 'number' ? '$' + item.cost.toFixed(2) + '/' + (item.unit||'unit') : '—';
+    return `<div class="inv-picker-item" onclick="pickInventoryItem('${item.item_number}')">
       <div>
-        <div class="ip-name">${item.name}</div>
-        <div class="ip-meta">${item.category || ''} · ${item.sku || 'No SKU'} · <span class="${status.cls}">${status.label}</span></div>
+        <div class="ip-name">${item.description}</div>
+        <div class="ip-meta">${item.category || ''} · #${item.item_number || '—'} · <span class="${status.cls}">${status.label}</span></div>
       </div>
       <div class="ip-price">${price}</div>
     </div>`;
@@ -4036,9 +4044,9 @@ function pickInventoryItem(id) {
   row.className = 'ni-line';
   row.id = 'ni_line_' + idx;
   row.innerHTML = `
-    <input class="search-input" placeholder="Item description" id="ni_desc_${idx}" value="${(item.name||'').replace(/"/g,'&quot;')}" oninput="updateInvoiceTotals()" style="width:100%"/>
+    <input class="search-input" placeholder="Item description" id="ni_desc_${idx}" value="${(item.description||'').replace(/"/g,'&quot;')}" oninput="updateInvoiceTotals()" style="width:100%"/>
     <input class="search-input" type="number" placeholder="Qty" id="ni_qty_${idx}" value="1" min="0" oninput="updateInvoiceTotals()" style="width:100%"/>
-    <input class="search-input" type="number" placeholder="Price" id="ni_price_${idx}" value="${item.price_per_unit || 0}" min="0" step="0.01" oninput="updateInvoiceTotals()" style="width:100%"/>
+    <input class="search-input" type="number" placeholder="Price" id="ni_price_${idx}" value="${item.cost || 0}" min="0" step="0.01" oninput="updateInvoiceTotals()" style="width:100%"/>
     <button class="btn btn-outline" style="padding:4px 6px;font-size:16px;line-height:1" onclick="removeInvoiceLine(${idx})">×</button>
   `;
   container.appendChild(row);
@@ -4542,12 +4550,12 @@ async function importCSV() {
   const btn = document.getElementById('csvImportBtn');
   btn.disabled = true; btn.textContent = 'Importing…';
   let success = 0, failed = 0;
-  for (const r of csvParsedRows.filter(r => r.name || r.Name)) {
+  for (const r of csvParsedRows.filter(r => r.description || r.Description || r.name || r.Name)) {
     try {
       const res = await fetch(`${API}/inventory`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
-        body: JSON.stringify({ name: r.name||r.Name, category: r.category||r.Category||'Fish', sku: r.sku||r.SKU||'', unit: r.unit||r.Unit||'lb',
-          price_per_unit: parseFloat(r.price_per_unit||r.Price||0), stock_qty: parseFloat(r.stock_qty||r.Stock||0),
-          low_stock_threshold: parseFloat(r.low_stock_threshold||10), description: r.description||'' }) });
+        body: JSON.stringify({ description: r.description||r.Description||r.name||r.Name, category: r.category||r.Category||'Other', item_number: r.item_number||r['Item Number']||r.sku||r.SKU||'', unit: r.unit||r.Unit||'EACH',
+          cost: parseFloat(r.cost||r.Cost||r.price_per_unit||0), on_hand_qty: parseFloat(r.on_hand_qty||r['On Hand Qty']||r.stock_qty||0),
+          on_hand_weight: parseFloat(r.on_hand_weight||r['On Hand Weight']||0), lot_item: r.lot_item||r['Lot Item']||'N' }) });
       res.ok ? success++ : failed++;
     } catch { failed++; }
   }
