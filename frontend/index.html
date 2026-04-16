@@ -135,8 +135,8 @@ img.logo-img{filter:url(#remove-white)}
 .modal-input{width:100%;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;margin-bottom:16px;transition:var(--trans)}
 .modal-input:focus{border-color:var(--accent)}
 .modal-result{display:none;padding:12px;border-radius:8px;font-size:13px;margin-bottom:16px}
-.modal-result.success{background:rgba(61,186,127,0.12);color:var(--accent)}
-.modal-result.error{background:rgba(239,68,68,0.12);color:#fca5a5}
+.modal-result.success{display:block;background:rgba(61,186,127,0.12);color:var(--accent)}
+.modal-result.error{display:block;background:rgba(239,68,68,0.12);color:#fca5a5}
 .modal-actions{display:flex;gap:12px;justify-content:flex-end}
 #mapContainer{border-radius:12px;overflow:hidden;border:1px solid var(--border);height:520px;position:relative}
 .map-legend-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
@@ -3374,7 +3374,7 @@ async function submitUserInvite() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     r.className = 'modal-result success';
-    r.innerHTML = `Invite sent for <strong>${name}</strong> as <strong>${role}</strong>.<br><span style="font-size:11px;opacity:0.8">Invite link printed to server console.</span>`;
+    r.innerHTML = `Invite sent for <strong>${name}</strong> as <strong>${role}</strong>!${data.emailSent ? ' Email delivered.' : ' No email server configured — share the link manually.'}`;
     document.getElementById('uiName').value = '';
     document.getElementById('uiEmail').value = '';
     await fetchUsers();
@@ -3575,17 +3575,21 @@ async function submitInvite() {
   const r = document.getElementById('inviteResult');
   if (!name || !email) { r.className = 'modal-result error'; r.textContent = 'Please fill in both fields.'; return; }
   try {
-    const res = await fetch('/api/drivers/invite', {
+    const res = await fetch('/api/users/invite', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
-      body: JSON.stringify({ name, email })
+      body: JSON.stringify({ name, email, role: 'driver' })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     r.className = 'modal-result success';
-    r.textContent = `Invite sent for ${name}! The invite link is printed in the server console.`;
+    r.innerHTML = `Invite sent for <strong>${name}</strong>!${data.emailSent ? ' An email has been sent.' : ' No email server configured — share the link manually.'}`;
     document.getElementById('inviteName').value = '';
     document.getElementById('inviteEmail').value = '';
+    setTimeout(() => {
+      closeInviteModal();
+      r.className = 'modal-result'; r.textContent = '';
+    }, 2500);
   } catch(e) { r.className = 'modal-result error'; r.textContent = e.message || 'Failed to send invite.'; }
 }
 document.getElementById('inviteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeInviteModal(); });
