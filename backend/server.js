@@ -61,6 +61,13 @@ async function ensureAdminExists() {
 
 ensureAdminExists();
 
+if (!process.env.BASE_URL) {
+  console.warn('WARNING: BASE_URL is not set — invite links will use http://localhost and will NOT work in production. Set BASE_URL to your public domain (e.g. https://yourapp.railway.app).');
+}
+if (!process.env.SMTP_HOST) {
+  console.warn('WARNING: SMTP_HOST is not set — invite emails will not be sent. Set SMTP_HOST, SMTP_USER, and SMTP_PASS to enable email delivery.');
+}
+
 // Mount routers
 app.use('/auth', authRouter);
 app.use('/api/users', usersRouter);
