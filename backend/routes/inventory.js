@@ -46,25 +46,25 @@ router.get('/analytics', authenticateToken, async (req, res) => {
 
   const { data: products, error: pErr } = await supabase
     .from('seafood_inventory')
-    .select('id,description,category,unit,on_hand_qty,avg_yield,yield_count')
+    .select('item_number,description,category,unit,on_hand_qty,avg_yield,yield_count')
     .order('category');
   if (pErr) return res.status(500).json({ error: pErr.message });
 
   const { data: history, error: hErr } = await supabase
     .from('inventory_stock_history')
-    .select('product_id,change_qty,created_at')
+    .select('item_number,change_qty,created_at')
     .lt('change_qty', 0)
     .gte('created_at', since);
   if (hErr) return res.status(500).json({ error: hErr.message });
 
   const usageMap = {};
   (history || []).forEach(h => {
-    usageMap[h.product_id] = (usageMap[h.product_id] || 0) + Math.abs(h.change_qty);
+    usageMap[h.item_number] = (usageMap[h.item_number] || 0) + Math.abs(h.change_qty);
   });
 
   const today = new Date();
   const analytics = products.map(p => {
-    const totalUsed    = usageMap[p.id] || 0;
+    const totalUsed    = usageMap[p.item_number] || 0;
     const dailyUsage   = parseFloat((totalUsed / WINDOW_DAYS).toFixed(4));
     const currentStock = parseFloat(p.on_hand_qty) || 0;
     let daysRemaining  = null;
@@ -139,13 +139,13 @@ router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), 
   const since  = new Date(Date.now() - WINDOW * 86400000).toISOString();
   const { data: history } = await supabase
     .from('inventory_stock_history')
-    .select('product_id,change_qty')
+    .select('item_number,change_qty')
     .lt('change_qty', 0)
     .gte('created_at', since);
   const usageMap = {};
-  (history || []).forEach(h => { usageMap[h.product_id] = (usageMap[h.product_id] || 0) + Math.abs(h.change_qty); });
+  (history || []).forEach(h => { usageMap[h.item_number] = (usageMap[h.item_number] || 0) + Math.abs(h.change_qty); });
   const analytics = products.map(p => {
-    const used = usageMap[p.id] || 0;
+    const used = usageMap[p.item_number] || 0;
     const daily = used / WINDOW;
     const stock = parseFloat(p.on_hand_qty) || 0;
     return { id: p.id, days_remaining: daily > 0 && stock > 0 ? parseFloat((stock / daily).toFixed(1)) : null };
@@ -177,18 +177,18 @@ router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager'), 
   if (!addQty || addQty <= 0) return res.status(400).json({ error: 'qty must be > 0' });
 
   const { data: item, error: fetchErr } = await supabase
-    .from('seafood_inventory').select('on_hand_qty,description').eq('id', req.params.id).single();
+    .from('seafood_inventory').select('on_hand_qty,description').eq('item_number', req.params.id).single();
   if (fetchErr) return res.status(404).json({ error: 'Product not found' });
 
   const newQty = (parseFloat(item.on_hand_qty) || 0) + addQty;
   const { data, error } = await supabase
     .from('seafood_inventory')
     .update({ on_hand_qty: newQty, updated_at: new Date().toISOString() })
-    .eq('id', req.params.id).select().single();
+    .eq('item_number', req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
 
   await supabase.from('inventory_stock_history').insert([{
-    product_id: req.params.id,
+    item_number: item.item_number || req.params.id,
     change_qty: addQty,
     new_qty: newQty,
     change_type: 'restock',
@@ -207,18 +207,18 @@ router.post('/:id/adjust', authenticateToken, requireRole('admin', 'manager'), a
   const type = change_type || (d < 0 ? 'depletion' : 'adjustment');
 
   const { data: item, error: fetchErr } = await supabase
-    .from('seafood_inventory').select('on_hand_qty').eq('id', req.params.id).single();
+    .from('seafood_inventory').select('on_hand_qty').eq('item_number', req.params.id).single();
   if (fetchErr) return res.status(404).json({ error: 'Product not found' });
 
   const newQty = parseFloat(((parseFloat(item.on_hand_qty) || 0) + d).toFixed(4));
   const { data, error } = await supabase
     .from('seafood_inventory')
     .update({ on_hand_qty: newQty, updated_at: new Date().toISOString() })
-    .eq('id', req.params.id).select().single();
+    .eq('item_number', req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
 
   await supabase.from('inventory_stock_history').insert([{
-    product_id: req.params.id,
+    item_number: req.params.id,
     change_qty: d,
     new_qty: newQty,
     change_type: type,
@@ -235,7 +235,7 @@ router.get('/:id/history', authenticateToken, async (req, res) => {
   const { data, error } = await supabase
     .from('inventory_stock_history')
     .select('*')
-    .eq('product_id', req.params.id)
+    .eq('item_number', req.params.id)
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) return res.status(500).json({ error: error.message });
@@ -254,7 +254,7 @@ router.post('/:id/yield', authenticateToken, async (req, res) => {
   const yield_pct = parseFloat(((yielded / raw) * 100).toFixed(2));
 
   await supabase.from('inventory_yield_log').insert([{
-    product_id:   req.params.id,
+    item_number:  req.params.id,
     raw_weight:   raw,
     yield_weight: yielded,
     yield_pct,
@@ -265,7 +265,7 @@ router.post('/:id/yield', authenticateToken, async (req, res) => {
   const { data: item, error: fetchErr } = await supabase
     .from('seafood_inventory')
     .select('avg_yield,yield_count')
-    .eq('id', req.params.id).single();
+    .eq('item_number', req.params.id).single();
   if (fetchErr) return res.status(404).json({ error: 'Product not found' });
 
   const n      = (item?.yield_count || 0) + 1;
@@ -274,7 +274,7 @@ router.post('/:id/yield', authenticateToken, async (req, res) => {
   const { data, error } = await supabase
     .from('seafood_inventory')
     .update({ avg_yield: newAvg, yield_count: n, updated_at: new Date().toISOString() })
-    .eq('id', req.params.id).select().single();
+    .eq('item_number', req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
 
   res.json({ ...data, yield_pct, sample_count: n });
@@ -286,7 +286,7 @@ router.get('/:id/yield', authenticateToken, async (req, res) => {
   const { data, error } = await supabase
     .from('inventory_yield_log')
     .select('*')
-    .eq('product_id', req.params.id)
+    .eq('item_number', req.params.id)
     .order('logged_at', { ascending: false })
     .limit(limit);
   if (error) return res.status(500).json({ error: error.message });
@@ -299,13 +299,13 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   const allowed = ['description','category','item_number','unit','cost','on_hand_qty','on_hand_weight','lot_item'];
   const fields = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) fields[k] = req.body[k]; });
-  const data = await dbQuery(supabase.from('seafood_inventory').update(fields).eq('id', req.params.id).select().single(), res);
+  const data = await dbQuery(supabase.from('seafood_inventory').update(fields).eq('item_number', req.params.id).select().single(), res);
   if (!data) return;
   res.json(data);
 });
 
 router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const data = await dbQuery(supabase.from('seafood_inventory').delete().eq('id', req.params.id), res);
+  const data = await dbQuery(supabase.from('seafood_inventory').delete().eq('item_number', req.params.id), res);
   if (data === null) return;
   res.json({ message: 'Deleted' });
 });
