@@ -2,6 +2,8 @@
 -- Migration: 20260415_inventory_enhancements
 -- Purpose  : Yield tracking, stock-movement history, and low-stock alert state
 --            for seafood_inventory. Supports multi-company scale.
+-- Note     : seafood_inventory uses item_number (text) as its identifier —
+--            there is no uuid id column on that table.
 -- ─────────────────────────────────────────────────────────────────────────────
 
 -- 1. Extend seafood_inventory with new columns
@@ -20,7 +22,6 @@ begin
 end;
 $$;
 
-drop trigger if exists trg_inventory_updated_at on seafood_inventory;
 create trigger trg_inventory_updated_at
   before update on seafood_inventory
   for each row execute function set_updated_at();
@@ -31,7 +32,7 @@ create trigger trg_inventory_updated_at
 -- ─────────────────────────────────────────────────────────────────────────────
 create table if not exists inventory_stock_history (
   id          uuid        primary key default gen_random_uuid(),
-  product_id  uuid        not null references seafood_inventory(id) on delete cascade,
+  item_number text        not null,
   change_qty  numeric     not null,
   new_qty     numeric     not null,
   change_type text        not null default 'adjustment',
@@ -40,8 +41,8 @@ create table if not exists inventory_stock_history (
   created_at  timestamptz not null default now()
 );
 
-create index if not exists idx_inv_hist_product_time
-  on inventory_stock_history(product_id, created_at desc);
+create index if not exists idx_inv_hist_item_time
+  on inventory_stock_history(item_number, created_at desc);
 
 create index if not exists idx_inv_hist_type
   on inventory_stock_history(change_type);
@@ -51,7 +52,7 @@ create index if not exists idx_inv_hist_type
 -- ─────────────────────────────────────────────────────────────────────────────
 create table if not exists inventory_yield_log (
   id            uuid        primary key default gen_random_uuid(),
-  product_id    uuid        not null references seafood_inventory(id) on delete cascade,
+  item_number   text        not null,
   raw_weight    numeric     not null,
   yield_weight  numeric     not null,
   yield_pct     numeric     not null,
@@ -60,5 +61,5 @@ create table if not exists inventory_yield_log (
   logged_at     timestamptz not null default now()
 );
 
-create index if not exists idx_inv_yield_product
-  on inventory_yield_log(product_id, logged_at desc);
+create index if not exists idx_inv_yield_item
+  on inventory_yield_log(item_number, logged_at desc);
