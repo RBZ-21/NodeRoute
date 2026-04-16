@@ -3596,12 +3596,20 @@ let allInventory = [];
 async function fetchInventory() {
   try {
     const r = await fetch(API + '/inventory', authHeaders);
-    if (!r.ok) return;
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      console.error('Inventory fetch failed:', r.status, err);
+      const tbody = document.getElementById('inventoryTable');
+      if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:40px;color:#ef4444">
+        Failed to load inventory (${r.status}): ${err.error || 'Unknown error'}
+      </td></tr>`;
+      return;
+    }
     allInventory = await r.json();
     renderInventory();
     renderInventoryKPIs();
     populateInvPickerList();
-  } catch(e) {}
+  } catch(e) { console.error('Inventory fetch error:', e); }
 }
 
 function getInvFiltered() {
