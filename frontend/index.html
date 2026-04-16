@@ -17,10 +17,10 @@
   --r-card:12px;--r-input:8px;--trans:0.2s ease all;
 }
 body.light{
-  --bg:#f0f4ff;--surface:#ffffff;--border:#d1daf0;
-  --text:#0d1b3e;--muted:#6677aa;
+  --bg:#f5f8ff;--surface:#ffffff;--border:#dde3f5;
+  --text:#0d1b3e;--muted:#7788bb;
 }
-body.light .sidebar{--muted:#4a5588}
+body.light::before{opacity:0.06}
 svg.logo-filter{position:absolute;width:0;height:0}
 img.logo-img{filter:url(#remove-white)}
 /* STOPS / ROUTES / CUSTOMERS */
@@ -135,8 +135,8 @@ img.logo-img{filter:url(#remove-white)}
 .modal-input{width:100%;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;margin-bottom:16px;transition:var(--trans)}
 .modal-input:focus{border-color:var(--accent)}
 .modal-result{display:none;padding:12px;border-radius:8px;font-size:13px;margin-bottom:16px}
-.modal-result.success{background:rgba(61,186,127,0.12);color:var(--accent)}
-.modal-result.error{background:rgba(239,68,68,0.12);color:#fca5a5}
+.modal-result.success{display:block;background:rgba(61,186,127,0.12);color:var(--accent)}
+.modal-result.error{display:block;background:rgba(239,68,68,0.12);color:#fca5a5}
 .modal-actions{display:flex;gap:12px;justify-content:flex-end}
 #mapContainer{border-radius:12px;overflow:hidden;border:1px solid var(--border);height:520px;position:relative}
 .map-legend-item{display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted)}
@@ -179,7 +179,7 @@ a{color:inherit;text-decoration:none}
 .nav-item:hover{color:var(--text);background:rgba(61,186,127,0.06)}
 .nav-item.active{color:var(--accent);background:rgba(61,186,127,0.1)}
 .nav-item.active::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent);border-radius:0 2px 2px 0}
-.nav-icon{width:20px;text-align:center;font-size:16px}
+.nav-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .sidebar-footer{padding:16px 20px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
 
 /* MAIN */
@@ -280,6 +280,8 @@ td{padding:12px 16px;vertical-align:middle}
 .btn-accent:hover{filter:brightness(1.1)}
 .btn-outline{background:none;border:1px solid var(--border);color:var(--muted)}
 .btn-outline:hover{border-color:var(--accent);color:var(--text)}
+.btn-ghost-accent{background:rgba(61,186,127,0.12);color:var(--accent);border:1px solid rgba(61,186,127,0.35)}
+.btn-ghost-accent:hover{background:rgba(61,186,127,0.22);border-color:var(--accent)}
 
 /* PAGINATION */
 .pagination{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-top:1px solid var(--border);font-size:13px;color:var(--muted)}
@@ -344,7 +346,7 @@ td{padding:12px 16px;vertical-align:middle}
 /* INVOICES */
 .inv-status-pending{background:rgba(245,158,11,0.12);color:var(--warn);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
 .inv-status-signed{background:rgba(124,58,237,0.12);color:#a78bfa;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
-.inv-status-sent{background:rgba(255,107,53,0.12);color:var(--accent);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.inv-status-sent{background:rgba(61,186,127,0.12);color:var(--accent);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
 .ni-line{display:grid;grid-template-columns:1fr 60px 90px 32px;gap:6px;margin-bottom:6px;align-items:center}
 
 /* INVENTORY */
@@ -483,40 +485,40 @@ td{padding:12px 16px;vertical-align:middle}
   </div>
   <div class="nav">
     <div class="nav-item active" onclick="showTab('dashboard',this)">
-      <span class="nav-icon">📊</span>Dashboard
+      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></span>Dashboard
     </div>
     <div class="nav-item" onclick="showTab('deliveries',this)">
-      <span class="nav-icon">📦</span>Deliveries
+      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></span>Deliveries
     </div>
     <div class="nav-item" onclick="showTab('drivers',this)">
-      <span class="nav-icon">🚐</span>Drivers
+      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect x="9" y="11" width="14" height="10" rx="2"/><circle cx="12" cy="21" r="1"/><circle cx="20" cy="21" r="1"/></svg></span>Drivers
     </div>
     <div class="nav-item" onclick="showTab('analytics',this)">
-      <span class="nav-icon">📈</span>Analytics
+      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></svg></span>Analytics
     </div>
     <div class="nav-item" onclick="showTab('map',this)">
-      <span class="nav-icon">🗺️</span>Live Map
+      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" x2="9" y1="3" y2="18"/><line x1="15" x2="15" y1="6" y2="21"/></svg></span>Live Map
     </div>
     <div class="nav-item" id="usersNavItem" style="display:none" onclick="showTab('users',this)">
-      <span class="nav-icon">👥</span>Users
+      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>Users
     </div>
     <div class="nav-item" onclick="showTab('stops',this)">
-      <span class="nav-icon">📍</span>Stops
+      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></span>Stops
     </div>
     <div class="nav-item" onclick="showTab('routes',this)">
-      <span class="nav-icon">🛣️</span>Routes
+      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg></span>Routes
     </div>
     <div class="nav-item" onclick="showTab('customers',this)">
-      <span class="nav-icon">🏢</span>Customers
+      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>Customers
     </div>
     <div class="nav-item" onclick="showTab('orders',this)">
-      <span class="nav-icon">📋</span>Orders
+      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></span>Orders
     </div>
     <div class="nav-item" onclick="showTab('invoices',this)">
-      <span class="nav-icon">🧾</span>Invoices
+      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></svg></span>Invoices
     </div>
     <div class="nav-item" onclick="showTab('inventory',this)">
-      <span class="nav-icon">🐟</span>Inventory
+      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></span>Inventory
     </div>
     <div class="nav-item" onclick="showTab('forecast',this)">
       <span class="nav-icon">🔮</span>Forecasting
@@ -525,10 +527,7 @@ td{padding:12px 16px;vertical-align:middle}
       <span class="nav-icon">⚙️</span>Settings
     </div>
   </div>
-  <div class="sidebar-footer">
-    <div style="font-weight:600;font-size:13px;color:var(--text)" id="sidebarCompanyName">—</div>
-    <div style="margin-top:2px">NodeRoute DS v2.0</div>
-  </div>
+  <div class="sidebar-footer">NodeRoute DS v2.0<br>Charleston, SC</div>
 </nav>
 
 <!-- MAIN -->
@@ -540,12 +539,11 @@ td{padding:12px 16px;vertical-align:middle}
       <div class="last-updated" id="lastUpdated">Loading…</div>
     </div>
     <div class="topbar-right">
-      <img src="noderoute-logo.png" class="logo-img" height="36" alt="NodeRoute" style="max-height:36px;width:auto;object-fit:contain"/>
       <button class="icon-btn" id="themeToggle" title="Toggle theme" onclick="toggleTheme()">🌙</button>
       <button class="icon-btn" title="Alerts" id="alertBell">
         🔔<span class="badge" id="alertBadge" style="display:none">0</span>
       </button>
-      <button onclick="doLogout()" style="background:rgba(61,186,127,0.15);color:#3dba7f;border:1px solid rgba(61,186,127,0.4);padding:8px 18px;border-radius:6px;cursor:pointer;font-size:0.85rem;font-weight:600;">Logout</button>
+      <button onclick="doLogout()" class="btn btn-ghost-accent">Logout</button>
     </div>
   </div>
 
@@ -1129,24 +1127,6 @@ td{padding:12px 16px;vertical-align:middle}
       <div class="section-title">Settings</div>
       <div class="settings-grid">
 
-        <!-- Company -->
-        <div class="settings-card" id="companySettingsCard">
-          <div class="settings-card-title">Company</div>
-          <div style="display:flex;align-items:center;gap:12px;margin-bottom:16px">
-            <div style="width:44px;height:44px;border-radius:10px;background:rgba(61,186,127,0.15);display:flex;align-items:center;justify-content:center;font-size:20px">🏢</div>
-            <div>
-              <div style="font-weight:600;font-size:15px" id="companyDisplayName">—</div>
-              <div style="font-size:11px;color:var(--muted)" id="companyDisplayPlan">—</div>
-            </div>
-          </div>
-          <div class="settings-field-group">
-            <label class="settings-label">Company Name</label>
-            <input class="search-input" id="companyNameInput" placeholder="Your company name" style="width:100%"/>
-          </div>
-          <button class="btn btn-accent" style="width:100%;margin-top:4px" onclick="saveCompanyName()">Save</button>
-          <div class="settings-msg" id="companyMsg"></div>
-        </div>
-
         <!-- Profile -->
         <div class="settings-card">
           <div class="settings-card-title">Profile</div>
@@ -1210,7 +1190,7 @@ td{padding:12px 16px;vertical-align:middle}
         <!-- CSV Import -->
         <div class="settings-card">
           <div class="settings-card-title">Import Customer Inventory (CSV)</div>
-          <p style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6">Upload a CSV to bulk-add products to the seafood inventory. Required columns: <code style="background:var(--bg);padding:1px 5px;border-radius:3px;font-size:11px">name, category, unit, price_per_unit, stock_qty</code></p>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:14px;line-height:1.6">Upload a CSV to bulk-add products to the seafood inventory. Required columns: <code style="background:var(--bg);padding:1px 5px;border-radius:3px;font-size:11px">description, category, unit, cost, on_hand_qty</code></p>
           <div class="settings-dropzone" id="csvDropzone" onclick="document.getElementById('csvFileInput').click()" ondragover="csvDragOver(event)" ondrop="csvDrop(event)">
             <div style="font-size:28px;margin-bottom:8px">📂</div>
             <div style="font-size:13px;font-weight:600">Click or drag CSV here</div>
@@ -1270,51 +1250,10 @@ td{padding:12px 16px;vertical-align:middle}
         </div>
 
       </div>
-
-      <!-- Superadmin: Companies Panel (hidden for non-superadmin) -->
-      <div id="superadminPanel" style="display:none;margin-top:24px">
-        <div class="section-title" style="margin-bottom:16px">Company Management <span style="font-size:11px;color:var(--warn);font-weight:600;margin-left:8px">SUPERADMIN</span></div>
-        <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
-          <button class="btn btn-accent" onclick="openNewCompanyModal()">+ New Company</button>
-          <button class="btn btn-outline" onclick="loadCompanies()">↻ Refresh</button>
-        </div>
-        <div id="companiesList">
-          <div style="color:var(--muted);font-size:13px">Loading companies…</div>
-        </div>
-      </div>
     </div>
 
   </div><!-- /content -->
 </div><!-- /main -->
-
-<!-- NEW COMPANY MODAL (superadmin) -->
-<div class="modal-overlay" id="newCompanyModal">
-  <div class="modal-box" style="width:460px">
-    <h3>Create New Company</h3>
-    <label class="modal-label">Company Name</label>
-    <input class="modal-input" id="ncName" placeholder="Acme Seafood Co."/>
-    <label class="modal-label">Slug (URL-friendly, optional)</label>
-    <input class="modal-input" id="ncSlug" placeholder="acme-seafood"/>
-    <label class="modal-label">Plan</label>
-    <select class="modal-input" id="ncPlan">
-      <option value="starter">Starter</option>
-      <option value="pro">Pro</option>
-      <option value="enterprise">Enterprise</option>
-    </select>
-    <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:12px">
-      <div class="settings-card-title" style="margin-bottom:8px">First Admin User</div>
-      <label class="modal-label">Admin Name</label>
-      <input class="modal-input" id="ncAdminName" placeholder="Jane Smith"/>
-      <label class="modal-label">Admin Email</label>
-      <input class="modal-input" id="ncAdminEmail" type="email" placeholder="jane@acmeseafood.com"/>
-    </div>
-    <div class="modal-result" id="ncResult"></div>
-    <div class="modal-actions">
-      <button class="btn btn-outline" onclick="closeNewCompanyModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="submitNewCompany()">Create Company</button>
-    </div>
-  </div>
-</div>
 
 <!-- FULFILL ORDER MODAL -->
 <div class="modal-overlay" id="fulfillModal">
@@ -1540,12 +1479,13 @@ td{padding:12px 16px;vertical-align:middle}
     <input type="hidden" id="invEditId"/>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
       <div>
-        <label class="modal-label">Product Name *</label>
-        <input class="modal-input" id="invName" placeholder="e.g. Atlantic Salmon"/>
+        <label class="modal-label">Description (Product Name) *</label>
+        <input class="modal-input" id="invName" placeholder="e.g. CAVIAR GOLDEN WHITE"/>
       </div>
       <div>
         <label class="modal-label">Category</label>
         <select class="modal-input" id="invCategory" style="cursor:pointer">
+          <option value="CAVIAR">CAVIAR</option>
           <option value="Fish">Fish</option>
           <option value="Shellfish">Shellfish</option>
           <option value="Crustacean">Crustacean</option>
@@ -1554,16 +1494,16 @@ td{padding:12px 16px;vertical-align:middle}
         </select>
       </div>
       <div>
-        <label class="modal-label">SKU / Product Code</label>
-        <input class="modal-input" id="invSku" placeholder="e.g. SAL-001"/>
+        <label class="modal-label">Item Number</label>
+        <input class="modal-input" id="invSku" placeholder="e.g. 7057"/>
       </div>
       <div>
         <label class="modal-label">Unit</label>
         <select class="modal-input" id="invUnit" style="cursor:pointer">
+          <option value="EACH">EACH</option>
           <option value="lb">lb</option>
           <option value="oz">oz</option>
-          <option value="each">each</option>
-          <option value="dozen">dozen</option>
+          <option value="TUB">TUB</option>
           <option value="case">case</option>
           <option value="piece">piece</option>
           <option value="fillet">fillet</option>
@@ -1572,20 +1512,25 @@ td{padding:12px 16px;vertical-align:middle}
         </select>
       </div>
       <div>
-        <label class="modal-label">Price per Unit ($)</label>
+        <label class="modal-label">Cost ($)</label>
         <input class="modal-input" id="invPrice" type="number" min="0" step="0.01" placeholder="0.00"/>
       </div>
       <div>
-        <label class="modal-label">Current Stock (qty)</label>
+        <label class="modal-label">On Hand Qty</label>
         <input class="modal-input" id="invStock" type="number" min="0" step="0.1" placeholder="0"/>
       </div>
       <div>
-        <label class="modal-label">Low Stock Alert (at qty)</label>
-        <input class="modal-input" id="invThreshold" type="number" min="0" placeholder="10"/>
+        <label class="modal-label">On Hand Weight</label>
+        <input class="modal-input" id="invWeight" type="number" min="0" step="0.01" placeholder="0"/>
+      </div>
+      <div>
+        <label class="modal-label">Lot Item</label>
+        <select class="modal-input" id="invLotItem" style="cursor:pointer">
+          <option value="N">N</option>
+          <option value="Y">Y</option>
+        </select>
       </div>
     </div>
-    <label class="modal-label">Description / Notes</label>
-    <input class="modal-input" id="invDescription" placeholder="Optional notes (origin, grade, etc.)"/>
     <div class="modal-result" id="invResult"></div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeInventoryModal()">Cancel</button>
@@ -2032,6 +1977,12 @@ function editOrder(id) {
   recalcOrder();
 }
 
+async function deleteOrder(id) {
+  if (!confirm('Delete this order?')) return;
+  await fetch(`${API}/orders/${id}`, { method: 'DELETE', headers: authHeaders.headers });
+  fetchOrders();
+}
+
 async function sendTrackingLink(id) {
   const order = allOrders.find(o => o.id === id);
   if (!order) return;
@@ -2052,12 +2003,6 @@ async function sendTrackingLink(id) {
     const sentStr = sent.length ? 'Sent via ' + sent.join(' + ') + '.' : 'Link generated (no email/SMS configured).';
     alert(`Tracking link ready!\n\n${sentStr}\n\nLink: ${data.trackUrl}`);
   } catch(e) { alert('Error: ' + e.message); }
-}
-
-async function deleteOrder(id) {
-  if (!confirm('Delete this order?')) return;
-  await fetch(`${API}/orders/${id}`, { method: 'DELETE', headers: authHeaders.headers });
-  fetchOrders();
 }
 
 function openAddonOrder(id) {
@@ -2164,11 +2109,11 @@ function suggestProduct(input) {
   const q = input.value.toLowerCase();
   const drop = input.parentElement.querySelector('.prod-ac-drop');
   if (!q || q.length < 1) { drop.style.display = 'none'; return; }
-  const matches = allInventory.filter(p => (p.name || '').toLowerCase().includes(q)).slice(0, 6);
+  const matches = allInventory.filter(p => (p.description || '').toLowerCase().includes(q)).slice(0, 6);
   if (!matches.length) { drop.style.display = 'none'; return; }
-  drop.innerHTML = matches.map(p => `<div class="cust-ac-item" onclick="selectProduct(this, ${JSON.stringify(p.name)}, ${p.price_per_unit || 0}, ${JSON.stringify(p.unit||'lb')})">
-    <div style="font-weight:600">${p.name}</div>
-    <div style="font-size:11px;color:var(--muted)">$${(p.price_per_unit||0).toFixed(2)}/${p.unit||'unit'}</div>
+  drop.innerHTML = matches.map(p => `<div class="cust-ac-item" onclick="selectProduct(this, ${JSON.stringify(p.description)}, ${p.cost || 0}, ${JSON.stringify(p.unit||'EACH')})">
+    <div style="font-weight:600">${p.description}</div>
+    <div style="font-size:11px;color:var(--muted)">$${(p.cost||0).toFixed(2)}/${p.unit||'unit'}</div>
   </div>`).join('');
   drop.style.display = 'block';
 }
@@ -2271,7 +2216,7 @@ async function submitFulfill() {
       body: JSON.stringify({ items, driverName, routeId })
     });
     const data = await r.json();
-    if (data.error) throw new Error(data.error);
+    if (!r.ok) throw new Error(data.error || `Error ${r.status}`);
     resultEl.className = 'modal-result success';
     resultEl.textContent = `Invoice ${data.invoice.invoice_number} created!`;
     resultEl.style.display = 'block';
@@ -2300,6 +2245,7 @@ function showTab(name, el) {
   if (name === 'map') { setTimeout(() => renderMap(), 50); }
   if (name === 'inventory') { renderInventory(); renderInventoryKPIs(); }
   if (name === 'forecast') { loadForecast(); renderFishingSeasons(); }
+  if (name === 'settings') { initSettings(); }
 }
 
 // ── ALERT ──────────────────────────────────────────────
@@ -2804,7 +2750,7 @@ async function fetchAddresses(q) {
     <div class="autocomplete-item" onclick="selectCustomer(${i})" data-cust="${i}">
       <div style="display:flex;align-items:center;gap:8px">
         <div style="font-weight:600;font-size:13px">${c.Restaurant}</div>
-        <span style="font-size:10px;padding:1px 7px;border-radius:10px;background:rgba(255,107,53,0.15);color:var(--accent);font-weight:600">Customer</span>
+        <span style="font-size:10px;padding:1px 7px;border-radius:10px;background:rgba(61,186,127,0.12);color:var(--accent);font-weight:600">Customer</span>
       </div>
       <div style="font-size:11px;color:var(--muted);margin-top:2px">${c.Address || c.Area || ''}</div>
     </div>`).join('');
@@ -3327,7 +3273,7 @@ function showGeofenceToast(msg) {
   if (!toast) {
     toast = document.createElement('div');
     toast.id = 'geoToast';
-    toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:#0d1b3e;border:1px solid var(--accent);color:var(--text);padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;transition:opacity 0.4s';
+    toast.style.cssText = 'position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:var(--surface);border:1px solid var(--accent);color:var(--text);padding:10px 20px;border-radius:8px;font-size:13px;z-index:9999;transition:opacity 0.4s';
     document.body.appendChild(toast);
   }
   toast.textContent = '📍 ' + msg;
@@ -3355,15 +3301,9 @@ function updateGeofenceStatus() {
 // ── USERS TAB ──────────────────────────────────────────
 let allUsers = [];
 
-if (nrUser && (nrUser.role === 'admin' || nrUser.role === 'superadmin')) {
+if (nrUser && nrUser.role === 'admin') {
   document.getElementById('usersNavItem').style.display = 'flex';
 }
-if (nrUser && nrUser.role === 'superadmin') {
-  const sp = document.getElementById('superadminPanel');
-  if (sp) sp.style.display = 'block';
-}
-// Load company info on every page load
-loadCompanyInfo();
 
 async function fetchUsers() {
   try {
@@ -3433,13 +3373,17 @@ async function submitUserInvite() {
     const res = await fetch('/api/users/invite', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ name, email, role }) });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
-  r.className = 'modal-result success';
-r.innerHTML = `Email sent to <strong>${email}</strong>!`;
-document.getElementById('uiName').value = '';
-document.getElementById('uiEmail').value = '';
-await fetchUsers();
-setTimeout(closeUserInviteModal, 1800);;
+    r.className = 'modal-result success';
+    const emailNote = data.emailSent ? ' Email delivered.' : data.emailError ? ` Email failed: ${data.emailError}` : ' No email server configured — share the link manually.';
+    r.innerHTML = `Invite sent for <strong>${name}</strong> as <strong>${role}</strong>!${emailNote}`;
+    document.getElementById('uiName').value = '';
+    document.getElementById('uiEmail').value = '';
     await fetchUsers();
+    setTimeout(() => {
+      closeUserInviteModal();
+      const modal = document.getElementById('userInviteModal');
+      if (modal) modal.classList.remove('open');
+    }, 2000);
   } catch(e) { r.className = 'modal-result error'; r.textContent = e.message || 'Failed to send invite.'; }
 }
 document.getElementById('userInviteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeUserInviteModal(); });
@@ -3552,331 +3496,6 @@ async function renderMap() {
   document.getElementById('mapUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
 }
 
-// ── SETTINGS ───────────────────────────────────────────
-const AVATAR_COLORS = ['#3dba7f','#ff6b35','#3b82f6','#8b5cf6','#ec4899','#f59e0b','#14b8a6','#ef4444'];
-let settingsAvatarColor = localStorage.getItem('nr_avatar_color') || AVATAR_COLORS[0];
-let csvParsedRows = [];
-
-function initSettings() {
-  if (!nrUser) return;
-  document.getElementById('settingsDisplayName').textContent  = nrUser.name || '—';
-  document.getElementById('settingsDisplayEmail').textContent = nrUser.email || '—';
-  document.getElementById('settingsDisplayRole').textContent  = nrUser.role || '—';
-  document.getElementById('settingsName').value               = nrUser.name || '';
-  renderSettingsAvatar();
-  renderColorPicker();
-  loadNotifPrefs();
-  // Password strength meter
-  document.getElementById('settingsNewPw').addEventListener('input', function() { showPwStrength(this.value); });
-}
-
-function renderSettingsAvatar() {
-  const initials = (nrUser?.name || '?').split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase();
-  ['settingsAvatar'].forEach(id => {
-    const el = document.getElementById(id);
-    if (el) { el.textContent = initials; el.style.background = settingsAvatarColor; }
-  });
-}
-
-function renderColorPicker() {
-  const wrap = document.getElementById('avatarColorPicker');
-  if (!wrap) return;
-  wrap.innerHTML = AVATAR_COLORS.map(c =>
-    `<div class="color-swatch${c === settingsAvatarColor ? ' selected' : ''}" style="background:${c}" onclick="pickAvatarColor('${c}')"></div>`
-  ).join('');
-}
-
-function pickAvatarColor(color) {
-  settingsAvatarColor = color;
-  localStorage.setItem('nr_avatar_color', color);
-  renderColorPicker();
-  renderSettingsAvatar();
-}
-
-function setTheme(t) {
-  if (t === 'light') { document.body.classList.add('light'); localStorage.setItem('theme','light'); document.getElementById('themeToggle').textContent = '☀️'; }
-  else { document.body.classList.remove('light'); localStorage.setItem('theme','dark'); document.getElementById('themeToggle').textContent = '🌙'; }
-}
-
-async function saveProfile() {
-  const name = document.getElementById('settingsName').value.trim();
-  const msg  = document.getElementById('profileMsg');
-  if (!name) { showSettingsMsg('profileMsg','Name cannot be empty','err'); return; }
-  try {
-    const res = await fetch(`${API}/users/${nrUser.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
-      body: JSON.stringify({ name })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed');
-    nrUser.name = name;
-    localStorage.setItem('nr_user', JSON.stringify(nrUser));
-    document.getElementById('settingsDisplayName').textContent = name;
-    renderSettingsAvatar();
-    showSettingsMsg('profileMsg', 'Profile saved!', 'ok');
-  } catch(e) { showSettingsMsg('profileMsg', e.message, 'err'); }
-}
-
-function showPwStrength(pw) {
-  const bar   = document.getElementById('pwStrengthBar');
-  const fill  = document.getElementById('pwStrengthFill');
-  const label = document.getElementById('pwStrengthLabel');
-  if (!pw) { bar.style.display = 'none'; label.textContent = ''; return; }
-  bar.style.display = 'block';
-  let score = 0;
-  if (pw.length >= 8)  score++;
-  if (pw.length >= 12) score++;
-  if (/[A-Z]/.test(pw)) score++;
-  if (/[0-9]/.test(pw)) score++;
-  if (/[^A-Za-z0-9]/.test(pw)) score++;
-  const pct   = (score / 5) * 100;
-  const color = score <= 1 ? '#ef4444' : score <= 3 ? '#f59e0b' : '#3dba7f';
-  const text  = score <= 1 ? 'Weak' : score <= 3 ? 'Fair' : score === 4 ? 'Strong' : 'Very strong';
-  fill.style.width = pct + '%';
-  fill.style.background = color;
-  label.textContent = text;
-  label.style.color = color;
-}
-
-async function changePassword() {
-  const cur  = document.getElementById('settingsCurPw').value;
-  const np   = document.getElementById('settingsNewPw').value;
-  const conf = document.getElementById('settingsConfPw').value;
-  if (!cur || !np) { showSettingsMsg('pwMsg','Fill in all fields','err'); return; }
-  if (np.length < 8) { showSettingsMsg('pwMsg','Password must be at least 8 characters','err'); return; }
-  if (np !== conf)   { showSettingsMsg('pwMsg','Passwords do not match','err'); return; }
-  try {
-    const res = await fetch(`${API}/auth/change-password`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
-      body: JSON.stringify({ currentPassword: cur, newPassword: np })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error || 'Failed');
-    ['settingsCurPw','settingsNewPw','settingsConfPw'].forEach(id => { document.getElementById(id).value = ''; });
-    document.getElementById('pwStrengthBar').style.display = 'none';
-    document.getElementById('pwStrengthLabel').textContent = '';
-    showSettingsMsg('pwMsg', 'Password updated!', 'ok');
-  } catch(e) { showSettingsMsg('pwMsg', e.message, 'err'); }
-}
-
-function showSettingsMsg(id, text, type) {
-  const el = document.getElementById(id);
-  if (!el) return;
-  el.textContent  = text;
-  el.className    = 'settings-msg ' + type;
-  setTimeout(() => { el.textContent = ''; el.className = 'settings-msg'; }, 4000);
-}
-
-// ── CSV IMPORT ──────────────────────────────────────────
-function csvDragOver(e) {
-  e.preventDefault();
-  document.getElementById('csvDropzone').classList.add('drag-over');
-}
-function csvDrop(e) {
-  e.preventDefault();
-  document.getElementById('csvDropzone').classList.remove('drag-over');
-  const file = e.dataTransfer.files[0];
-  if (file) parseCSVFile(file);
-}
-function csvFileSelected(input) {
-  if (input.files[0]) parseCSVFile(input.files[0]);
-}
-function parseCSVFile(file) {
-  document.getElementById('csvFileName').textContent = file.name;
-  const reader = new FileReader();
-  reader.onload = e => {
-    const lines = e.target.result.split('\n').filter(l => l.trim());
-    if (!lines.length) { showSettingsMsg('csvMsg','Empty file','err'); return; }
-    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g,''));
-    csvParsedRows = lines.slice(1).map(line => {
-      const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g,''));
-      const row = {};
-      headers.forEach((h, i) => { row[h] = vals[i] || ''; });
-      return row;
-    }).filter(r => r.name || r.Name);
-    renderCSVPreview(headers, csvParsedRows.slice(0, 5));
-    document.getElementById('csvImportBtn').style.display = 'block';
-    showSettingsMsg('csvMsg', `${csvParsedRows.length} rows ready to import`, 'ok');
-  };
-  reader.readAsText(file);
-}
-function renderCSVPreview(headers, rows) {
-  const wrap  = document.getElementById('csvPreview');
-  const table = document.getElementById('csvPreviewTable');
-  const th    = ['name','category','unit','price_per_unit','stock_qty'];
-  table.innerHTML = `<thead><tr>${th.map(h=>`<th style="padding:4px 6px;border-bottom:1px solid var(--border);color:var(--muted);text-align:left">${h}</th>`).join('')}</tr></thead>`
-    + `<tbody>${rows.map(r=>`<tr>${th.map(h=>`<td style="padding:4px 6px;border-bottom:1px solid var(--border)">${r[h]||r[h.replace('_',' ')]||''}</td>`).join('')}</tr>`).join('')}</tbody>`;
-  wrap.style.display = 'block';
-}
-async function importCSV() {
-  if (!csvParsedRows.length) return;
-  const btn = document.getElementById('csvImportBtn');
-  btn.disabled = true; btn.textContent = 'Importing…';
-  const products = csvParsedRows.map(r => ({
-    name:                r.name             || r.Name || '',
-    category:            r.category         || r.Category || 'Fish',
-    sku:                 r.sku              || r.SKU || '',
-    unit:                r.unit             || r.Unit || 'lb',
-    price_per_unit:      parseFloat(r.price_per_unit || r['Price/Unit'] || r.Price || 0),
-    stock_qty:           parseFloat(r.stock_qty || r.Stock || r.Quantity || 0),
-    low_stock_threshold: parseFloat(r.low_stock_threshold || r.Threshold || 10),
-    description:         r.description || r.Description || ''
-  })).filter(p => p.name);
-  let success = 0, failed = 0;
-  for (const p of products) {
-    try {
-      const res = await fetch(`${API}/inventory`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
-        body: JSON.stringify(p)
-      });
-      res.ok ? success++ : failed++;
-    } catch { failed++; }
-  }
-  btn.disabled = false; btn.textContent = 'Import Products';
-  showSettingsMsg('csvMsg', `Imported ${success} products${failed ? `, ${failed} failed` : ''}`, success > 0 ? 'ok' : 'err');
-  if (success > 0) { csvParsedRows = []; document.getElementById('csvPreview').style.display = 'none'; document.getElementById('csvFileName').textContent = 'No file selected'; }
-}
-
-// ── NOTIFICATION PREFS ─────────────────────────────────
-function saveNotifPrefs() {
-  localStorage.setItem('nr_notif', JSON.stringify({
-    failed:    document.getElementById('notifFailed').checked,
-    late:      document.getElementById('notifLate').checked,
-    inventory: document.getElementById('notifInventory').checked
-  }));
-}
-function loadNotifPrefs() {
-  try {
-    const p = JSON.parse(localStorage.getItem('nr_notif') || '{}');
-    if (p.failed    !== undefined) document.getElementById('notifFailed').checked    = p.failed;
-    if (p.late      !== undefined) document.getElementById('notifLate').checked      = p.late;
-    if (p.inventory !== undefined) document.getElementById('notifInventory').checked = p.inventory;
-  } catch {}
-}
-
-// ── COMPANY ────────────────────────────────────────────
-async function loadCompanyInfo() {
-  try {
-    const res = await fetch(API + '/company', authHeaders);
-    if (!res.ok) return;
-    const co = await res.json();
-    // Sidebar
-    const sn = document.getElementById('sidebarCompanyName');
-    if (sn) sn.textContent = co.name || '—';
-    // Settings card
-    const dn = document.getElementById('companyDisplayName');
-    const dp = document.getElementById('companyDisplayPlan');
-    const ni = document.getElementById('companyNameInput');
-    if (dn) dn.textContent = co.name || '—';
-    if (dp) dp.textContent = (co.plan || 'starter').charAt(0).toUpperCase() + (co.plan || 'starter').slice(1) + ' Plan';
-    if (ni) ni.value = co.name || '';
-  } catch(e) {}
-}
-
-async function saveCompanyName() {
-  const name = document.getElementById('companyNameInput').value.trim();
-  const msg  = document.getElementById('companyMsg');
-  if (!name) { msg.className = 'settings-msg error'; msg.textContent = 'Name required'; return; }
-  try {
-    const res = await fetch(API + '/company', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
-      body: JSON.stringify({ name }),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    msg.className = 'settings-msg success'; msg.textContent = 'Company name updated!';
-    document.getElementById('sidebarCompanyName').textContent = data.name;
-    document.getElementById('companyDisplayName').textContent = data.name;
-    setTimeout(() => { msg.textContent = ''; }, 3000);
-  } catch(e) { msg.className = 'settings-msg error'; msg.textContent = e.message; }
-}
-
-// ── SUPERADMIN: COMPANY MANAGEMENT ─────────────────────
-async function loadCompanies() {
-  const el = document.getElementById('companiesList');
-  if (!el) return;
-  el.innerHTML = '<div style="color:var(--muted);font-size:13px">Loading…</div>';
-  try {
-    const res = await fetch(API + '/companies', authHeaders);
-    if (!res.ok) { el.innerHTML = '<div style="color:var(--muted);font-size:13px">Access denied</div>'; return; }
-    const companies = await res.json();
-    if (!companies.length) { el.innerHTML = '<div style="color:var(--muted);font-size:13px">No companies yet.</div>'; return; }
-    el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px">${companies.map(c => `
-      <div class="settings-card" style="padding:14px">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-          <div>
-            <div style="font-weight:700;font-size:14px">${c.name}</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:2px">${c.slug || '—'} · ${c.plan}</div>
-          </div>
-          <span style="background:rgba(61,186,127,0.12);color:var(--accent);padding:2px 8px;border-radius:10px;font-size:11px;font-weight:700;white-space:nowrap">${c.user_count} users</span>
-        </div>
-        <div style="font-size:11px;color:var(--muted);margin-top:8px">Created ${new Date(c.created_at).toLocaleDateString()}</div>
-        ${c.id !== '00000000-0000-0000-0000-000000000001' ? `
-          <button class="btn btn-outline" style="margin-top:10px;width:100%;color:var(--danger);border-color:var(--danger);font-size:12px" onclick="deleteCompany('${c.id}','${c.name}')">Delete Company</button>
-        ` : '<div style="font-size:11px;color:var(--muted);margin-top:8px;font-style:italic">Default company</div>'}
-      </div>`).join('')}</div>`;
-  } catch(e) { el.innerHTML = `<div style="color:var(--danger);font-size:13px">${e.message}</div>`; }
-}
-
-async function deleteCompany(id, name) {
-  if (!confirm(`Delete company "${name}"? This will remove all their data permanently.`)) return;
-  try {
-    const res = await fetch(`${API}/companies/${id}`, { method: 'DELETE', ...authHeaders });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    loadCompanies();
-  } catch(e) { alert('Delete failed: ' + e.message); }
-}
-
-function openNewCompanyModal() {
-  ['ncName','ncSlug','ncAdminName','ncAdminEmail'].forEach(id => document.getElementById(id).value = '');
-  document.getElementById('ncPlan').value = 'starter';
-  document.getElementById('ncResult').className = 'modal-result';
-  document.getElementById('ncResult').textContent = '';
-  document.getElementById('newCompanyModal').classList.add('open');
-}
-function closeNewCompanyModal() { document.getElementById('newCompanyModal').classList.remove('open'); }
-
-async function submitNewCompany() {
-  const r = document.getElementById('ncResult');
-  const payload = {
-    name:        document.getElementById('ncName').value.trim(),
-    slug:        document.getElementById('ncSlug').value.trim() || undefined,
-    plan:        document.getElementById('ncPlan').value,
-    admin_name:  document.getElementById('ncAdminName').value.trim(),
-    admin_email: document.getElementById('ncAdminEmail').value.trim(),
-  };
-  if (!payload.name || !payload.admin_name || !payload.admin_email) {
-    r.className = 'modal-result error'; r.textContent = 'All fields are required.'; return;
-  }
-  try {
-    const res = await fetch(`${API}/companies`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
-      body: JSON.stringify(payload),
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    r.className = 'modal-result success';
-    r.textContent = `Company "${data.company.name}" created! Invite sent to ${payload.admin_email}.`;
-    loadCompanies();
-    setTimeout(closeNewCompanyModal, 2500);
-  } catch(e) { r.className = 'modal-result error'; r.textContent = e.message; }
-}
-
-document.getElementById('newCompanyModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeNewCompanyModal(); });
-
-// Init settings when tab opens
-const _origShowTab = showTab;
-function showTab(name, el) {
-  _origShowTab(name, el);
-  if (name === 'settings') { initSettings(); loadCompanyInfo(); if (nrUser?.role === 'superadmin') loadCompanies(); }
-}
-
 // ── DRIVER DETAIL PANEL ────────────────────────────────
 function openDriverPanel(d) {
   // Compute stops from allDeliveries
@@ -3888,11 +3507,10 @@ function openDriverPanel(d) {
   const totalStops = completed + remaining;
 
   // Efficiency: composite of on-time rate + stop time
-  // Scale: 100% = perfect on-time, ≤15 min avg stop
   const timeScore  = Math.max(0, 100 - Math.max(0, (d.avgStopMinutes || 0) - 10) * 3);
   const efficiency = Math.round((d.onTimeRate * 0.7) + (timeScore * 0.3));
 
-  // Deviations: late + failed deliveries (proxy until GPS route tracking added)
+  // Deviations: late + failed deliveries
   const deviations = myDeliveries.filter(del =>
     del.status === 'failed' || del.onTime === false
   ).length;
@@ -3958,18 +3576,22 @@ async function submitInvite() {
   const r = document.getElementById('inviteResult');
   if (!name || !email) { r.className = 'modal-result error'; r.textContent = 'Please fill in both fields.'; return; }
   try {
-    const res = await fetch('/api/drivers/invite', {
+    const res = await fetch('/api/users/invite', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
-      body: JSON.stringify({ name, email })
+      body: JSON.stringify({ name, email, role: 'driver' })
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     r.className = 'modal-result success';
-r.textContent = `Email sent to ${email}!`;
-document.getElementById('inviteName').value = '';
-document.getElementById('inviteEmail').value = '';
-setTimeout(closeInviteModal, 1800);
+    const emailNote = data.emailSent ? ' Email delivered.' : data.emailError ? ` Email failed: ${data.emailError}` : ' No email server configured — share the link manually.';
+    r.innerHTML = `Invite sent for <strong>${name}</strong>!${emailNote}`;
+    document.getElementById('inviteName').value = '';
+    document.getElementById('inviteEmail').value = '';
+    setTimeout(() => {
+      closeInviteModal();
+      r.className = 'modal-result'; r.textContent = '';
+    }, 2500);
   } catch(e) { r.className = 'modal-result error'; r.textContent = e.message || 'Failed to send invite.'; }
 }
 document.getElementById('inviteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeInviteModal(); });
@@ -3980,12 +3602,20 @@ let allInventory = [];
 async function fetchInventory() {
   try {
     const r = await fetch(API + '/inventory', authHeaders);
-    if (!r.ok) return;
+    if (!r.ok) {
+      const err = await r.json().catch(() => ({}));
+      console.error('Inventory fetch failed:', r.status, err);
+      const tbody = document.getElementById('inventoryTable');
+      if (tbody) tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:40px;color:#ef4444">
+        Failed to load inventory (${r.status}): ${err.error || 'Unknown error'}
+      </td></tr>`;
+      return;
+    }
     allInventory = await r.json();
     renderInventory();
     renderInventoryKPIs();
     populateInvPickerList();
-  } catch(e) {}
+  } catch(e) { console.error('Inventory fetch error:', e); }
 }
 
 function getInvFiltered() {
@@ -3993,7 +3623,7 @@ function getInvFiltered() {
   const cat = document.getElementById('invCatFilter')?.value || '';
   const st = document.getElementById('invStockFilter')?.value || '';
   return allInventory.filter(item => {
-    const matchQ = !q || (item.name||'').toLowerCase().includes(q) || (item.sku||'').toLowerCase().includes(q) || (item.description||'').toLowerCase().includes(q);
+    const matchQ = !q || (item.description||'').toLowerCase().includes(q) || (item.item_number||'').toLowerCase().includes(q);
     const matchCat = !cat || item.category === cat;
     let matchSt = true;
     if (st === 'out') matchSt = (item.stock_qty || 0) <= 0;
@@ -4004,10 +3634,10 @@ function getInvFiltered() {
 }
 
 function invStockStatus(item) {
-  const qty = item.stock_qty || 0;
-  const threshold = item.low_stock_threshold || 10;
+  const qty = item.on_hand_qty || 0;
+  const LOW = 10;
   if (qty <= 0) return { label: '✗ Out of Stock', cls: 'stock-out' };
-  if (qty <= threshold) return { label: '⚠ Low Stock', cls: 'stock-low' };
+  if (qty <= LOW) return { label: '⚠ Low Stock', cls: 'stock-low' };
   return { label: '✓ In Stock', cls: 'stock-in' };
 }
 
@@ -4029,24 +3659,25 @@ function renderInventory() {
   const isManager = nrUser && (nrUser.role === 'admin' || nrUser.role === 'manager');
   tbody.innerHTML = filtered.map(item => {
     const status = invStockStatus(item);
-    const price = typeof item.price_per_unit === 'number' ? '$' + item.price_per_unit.toFixed(2) : '—';
-    const stock = item.stock_qty != null ? item.stock_qty : '—';
+    const cost = typeof item.cost === 'number' ? '$' + item.cost.toFixed(2) : '—';
+    const qty = item.on_hand_qty != null ? item.on_hand_qty : '—';
     const yieldCell = item.avg_yield != null
       ? `<span class="inv-yield-pill">${item.avg_yield.toFixed(1)}%</span><div style="font-size:10px;color:var(--muted);margin-top:2px">${item.yield_count||0} samples</div>`
       : `<span style="color:var(--muted);font-size:12px">—</span>`;
+    const safeDesc = (item.description||'').replace(/'/g,"\\'");
     const actions = isManager ? `
       <div style="display:flex;gap:5px;white-space:nowrap">
-        <button class="user-action-btn" onclick="openRestockModal('${item.id}','${(item.name||'').replace(/'/g,"\\'")}',${item.stock_qty||0})">+ Stock</button>
-        <button class="user-action-btn" style="color:#a78bfa;border-color:rgba(124,58,237,0.3)" onclick="openYieldModal('${item.id}','${(item.name||'').replace(/'/g,"\\'")}',${item.avg_yield||'null'},${item.yield_count||0})">⚖ Yield</button>
-        <button class="user-action-btn" onclick="openInventoryModal('${item.id}')">Edit</button>
-        <button class="user-action-btn danger" onclick="deleteInventoryItem('${item.id}','${(item.name||'').replace(/'/g,"\\'")}')">×</button>
+        <button class="user-action-btn" onclick="openRestockModal('${item.item_number}','${safeDesc}',${item.on_hand_qty||0})">+ Stock</button>
+        <button class="user-action-btn" style="color:#a78bfa;border-color:rgba(124,58,237,0.3)" onclick="openYieldModal('${item.item_number}','${safeDesc}',${item.avg_yield||'null'},${item.yield_count||0})">⚖ Yield</button>
+        <button class="user-action-btn" onclick="openInventoryModal('${item.item_number}')">Edit</button>
+        <button class="user-action-btn danger" onclick="deleteInventoryItem('${item.item_number}','${safeDesc}')">×</button>
       </div>` : '—';
     return `<tr>
-      <td><strong>${item.name || '—'}</strong>${item.description ? `<div style="font-size:11px;color:var(--muted);margin-top:2px">${item.description}</div>` : ''}</td>
+      <td><strong>${item.description || '—'}</strong><div style="font-size:11px;color:var(--muted);margin-top:2px">#${item.item_number||'—'}</div></td>
       <td>${invCatBadge(item.category)}</td>
       <td style="color:var(--muted);font-size:12px">${item.unit || '—'}</td>
-      <td style="font-weight:600;color:var(--accent)">${price}</td>
-      <td style="font-weight:600">${stock} <span style="font-size:11px;color:var(--muted)">${item.unit||''}</span></td>
+      <td style="font-weight:600;color:var(--accent)">${cost}</td>
+      <td style="font-weight:600">${qty} <span style="font-size:11px;color:var(--muted)">${item.unit||''}</span></td>
       <td>${yieldCell}</td>
       <td><span class="${status.cls}">${status.label}</span></td>
       <td>${actions}</td>
@@ -4055,11 +3686,11 @@ function renderInventory() {
 }
 
 function renderInventoryKPIs() {
+  const LOW = 10;
   const total = allInventory.length;
-  const lowStock = allInventory.filter(i => (i.stock_qty||0) > 0 && (i.stock_qty||0) <= (i.low_stock_threshold||10)).length;
-  const outOfStock = allInventory.filter(i => (i.stock_qty||0) <= 0).length;
-  const totalValue = allInventory.reduce((s, i) => s + (parseFloat(i.price_per_unit)||0) * (parseFloat(i.stock_qty)||0), 0);
-  const withYield = allInventory.filter(i => i.avg_yield != null).length;
+  const lowStock = allInventory.filter(i => (i.on_hand_qty||0) > 0 && (i.on_hand_qty||0) <= LOW).length;
+  const outOfStock = allInventory.filter(i => (i.on_hand_qty||0) <= 0).length;
+  const totalValue = allInventory.reduce((s, i) => s + (parseFloat(i.cost)||0) * (parseFloat(i.on_hand_qty)||0), 0);
   const el = document.getElementById('invKpiRow');
   if (!el) return;
   el.innerHTML = `
@@ -4108,21 +3739,21 @@ function openInventoryModal(editId) {
     if (!item) return;
     document.getElementById('invModalTitle').textContent = 'Edit Product';
     document.getElementById('invSubmitBtn').textContent = 'Save Changes';
-    document.getElementById('invName').value = item.name || '';
+    document.getElementById('invName').value = item.description || '';
     document.getElementById('invCategory').value = item.category || 'Other';
-    document.getElementById('invSku').value = item.sku || '';
-    document.getElementById('invUnit').value = item.unit || 'lb';
-    document.getElementById('invPrice').value = item.price_per_unit ?? '';
-    document.getElementById('invStock').value = item.stock_qty ?? '';
-    document.getElementById('invThreshold').value = item.low_stock_threshold ?? 10;
-    document.getElementById('invDescription').value = item.description || '';
+    document.getElementById('invSku').value = item.item_number || '';
+    document.getElementById('invUnit').value = item.unit || 'EACH';
+    document.getElementById('invPrice').value = item.cost ?? '';
+    document.getElementById('invStock').value = item.on_hand_qty ?? '';
+    document.getElementById('invWeight').value = item.on_hand_weight ?? '';
+    document.getElementById('invLotItem').value = item.lot_item || 'N';
   } else {
     document.getElementById('invModalTitle').textContent = 'Add Product';
     document.getElementById('invSubmitBtn').textContent = 'Add Product';
-    ['invName','invSku','invPrice','invStock','invDescription'].forEach(id => document.getElementById(id).value = '');
-    document.getElementById('invCategory').value = 'Fish';
-    document.getElementById('invUnit').value = 'lb';
-    document.getElementById('invThreshold').value = '10';
+    ['invName','invSku','invPrice','invStock','invWeight'].forEach(id => document.getElementById(id).value = '');
+    document.getElementById('invCategory').value = 'Other';
+    document.getElementById('invUnit').value = 'EACH';
+    document.getElementById('invLotItem').value = 'N';
   }
   modal.classList.add('open');
 }
@@ -4133,18 +3764,18 @@ function closeInventoryModal() {
 
 async function submitInventoryItem() {
   const editId = document.getElementById('invEditId').value;
-  const name = document.getElementById('invName').value.trim();
+  const description = document.getElementById('invName').value.trim();
   const r = document.getElementById('invResult');
-  if (!name) { r.className = 'modal-result error'; r.textContent = 'Product name is required.'; return; }
+  if (!description) { r.className = 'modal-result error'; r.textContent = 'Product description is required.'; return; }
   const payload = {
-    name,
-    category: document.getElementById('invCategory').value,
-    sku: document.getElementById('invSku').value.trim(),
-    unit: document.getElementById('invUnit').value,
-    price_per_unit: parseFloat(document.getElementById('invPrice').value) || 0,
-    stock_qty: parseFloat(document.getElementById('invStock').value) || 0,
-    low_stock_threshold: parseFloat(document.getElementById('invThreshold').value) || 10,
-    description: document.getElementById('invDescription').value.trim(),
+    description,
+    category:       document.getElementById('invCategory').value,
+    item_number:    document.getElementById('invSku').value.trim(),
+    unit:           document.getElementById('invUnit').value,
+    cost:           parseFloat(document.getElementById('invPrice').value) || 0,
+    on_hand_qty:    parseFloat(document.getElementById('invStock').value) || 0,
+    on_hand_weight: parseFloat(document.getElementById('invWeight').value) || 0,
+    lot_item:       document.getElementById('invLotItem').value,
   };
   try {
     const url = editId ? `${API}/inventory/${editId}` : `${API}/inventory`;
@@ -4257,7 +3888,7 @@ function updateYieldPreview() {
   }
   const pct = ((out / raw) * 100).toFixed(1);
   const waste = (raw - out).toFixed(2);
-  preview.innerHTML = `<strong style="color:#a78bfa;font-size:18px">${pct}%</strong> yield &nbsp;·&nbsp; <span style="color:var(--muted)">${waste} ${''} waste (${(100 - pct).toFixed(1)}%)</span>`;
+  preview.innerHTML = `<strong style="color:#a78bfa;font-size:18px">${pct}%</strong> yield &nbsp;·&nbsp; <span style="color:var(--muted)">${waste} waste (${(100 - pct).toFixed(1)}%)</span>`;
 }
 
 async function submitYield() {
@@ -4328,14 +3959,14 @@ function renderInventoryAnalytics(data) {
     return `<div class="inv-analytics-card">
       <div class="inv-analytics-card-header">
         <div>
-          <div class="inv-analytics-name">${item.name}</div>
+          <div class="inv-analytics-name">${item.description}</div>
           <div class="inv-analytics-cat">${invCatBadge(item.category)}</div>
         </div>
         <span class="days-pill ${pillCls}">${pillTxt}</span>
       </div>
       <div class="inv-pred-row">
         <span class="inv-pred-label">On Hand</span>
-        <span class="inv-pred-val">${item.stock_qty ?? '—'} ${item.unit || ''}</span>
+        <span class="inv-pred-val">${item.on_hand_qty ?? '—'} ${item.unit || ''}</span>
       </div>
       <div class="inv-pred-row">
         <span class="inv-pred-label">Daily Usage (30d avg)</span>
@@ -4380,7 +4011,7 @@ function populateInvPickerList(query) {
   if (!listEl) return;
   const q = (query || '').toLowerCase();
   const items = allInventory.filter(i =>
-    !q || (i.name||'').toLowerCase().includes(q) || (i.sku||'').toLowerCase().includes(q)
+    !q || (i.description||'').toLowerCase().includes(q) || (i.item_number||'').toLowerCase().includes(q)
   ).slice(0, 30);
   if (!items.length) {
     listEl.innerHTML = `<div style="padding:16px;text-align:center;color:var(--muted);font-size:13px">${allInventory.length ? 'No matches found' : 'No inventory loaded yet'}</div>`;
@@ -4388,11 +4019,11 @@ function populateInvPickerList(query) {
   }
   listEl.innerHTML = items.map(item => {
     const status = invStockStatus(item);
-    const price = typeof item.price_per_unit === 'number' ? '$' + item.price_per_unit.toFixed(2) + '/' + (item.unit||'unit') : '—';
-    return `<div class="inv-picker-item" onclick="pickInventoryItem('${item.id}')">
+    const price = typeof item.cost === 'number' ? '$' + item.cost.toFixed(2) + '/' + (item.unit||'unit') : '—';
+    return `<div class="inv-picker-item" onclick="pickInventoryItem('${item.item_number}')">
       <div>
-        <div class="ip-name">${item.name}</div>
-        <div class="ip-meta">${item.category || ''} · ${item.sku || 'No SKU'} · <span class="${status.cls}">${status.label}</span></div>
+        <div class="ip-name">${item.description}</div>
+        <div class="ip-meta">${item.category || ''} · #${item.item_number || '—'} · <span class="${status.cls}">${status.label}</span></div>
       </div>
       <div class="ip-price">${price}</div>
     </div>`;
@@ -4428,9 +4059,9 @@ function pickInventoryItem(id) {
   row.className = 'ni-line';
   row.id = 'ni_line_' + idx;
   row.innerHTML = `
-    <input class="search-input" placeholder="Item description" id="ni_desc_${idx}" value="${(item.name||'').replace(/"/g,'&quot;')}" oninput="updateInvoiceTotals()" style="width:100%"/>
+    <input class="search-input" placeholder="Item description" id="ni_desc_${idx}" value="${(item.description||'').replace(/"/g,'&quot;')}" oninput="updateInvoiceTotals()" style="width:100%"/>
     <input class="search-input" type="number" placeholder="Qty" id="ni_qty_${idx}" value="1" min="0" oninput="updateInvoiceTotals()" style="width:100%"/>
-    <input class="search-input" type="number" placeholder="Price" id="ni_price_${idx}" value="${item.price_per_unit || 0}" min="0" step="0.01" oninput="updateInvoiceTotals()" style="width:100%"/>
+    <input class="search-input" type="number" placeholder="Price" id="ni_price_${idx}" value="${item.cost || 0}" min="0" step="0.01" oninput="updateInvoiceTotals()" style="width:100%"/>
     <button class="btn btn-outline" style="padding:4px 6px;font-size:16px;line-height:1" onclick="removeInvoiceLine(${idx})">×</button>
   `;
   container.appendChild(row);
@@ -4788,10 +4419,181 @@ document.getElementById('newInvoiceModal').addEventListener('click', e => { if (
 document.getElementById('signModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeSignModal(); });
 
 // ── AUTO REFRESH ───────────────────────────────────────
-// Initialize order form
 addOrderRow();
 fetchAll();
 setInterval(fetchAll, 30000);
+
+// ── SETTINGS ───────────────────────────────────────────
+const AVATAR_COLORS = ['#3dba7f','#ff6b35','#3b82f6','#8b5cf6','#ec4899','#f59e0b','#14b8a6','#ef4444'];
+let settingsAvatarColor = localStorage.getItem('nr_avatar_color') || AVATAR_COLORS[0];
+let csvParsedRows = [];
+
+function initSettings() {
+  if (!nrUser) return;
+  document.getElementById('settingsDisplayName').textContent  = nrUser.name || '—';
+  document.getElementById('settingsDisplayEmail').textContent = nrUser.email || '—';
+  document.getElementById('settingsDisplayRole').textContent  = nrUser.role || '—';
+  document.getElementById('settingsName').value               = nrUser.name || '';
+  renderSettingsAvatar();
+  renderColorPicker();
+  loadNotifPrefs();
+  document.getElementById('settingsNewPw').addEventListener('input', function() { showPwStrength(this.value); });
+}
+
+function renderSettingsAvatar() {
+  const initials = (nrUser?.name || '?').split(' ').map(n => n[0]).join('').slice(0,2).toUpperCase();
+  const el = document.getElementById('settingsAvatar');
+  if (el) { el.textContent = initials; el.style.background = settingsAvatarColor; }
+}
+
+function renderColorPicker() {
+  const wrap = document.getElementById('avatarColorPicker');
+  if (!wrap) return;
+  wrap.innerHTML = AVATAR_COLORS.map(c =>
+    `<div class="color-swatch${c === settingsAvatarColor ? ' selected' : ''}" style="background:${c}" onclick="pickAvatarColor('${c}')"></div>`
+  ).join('');
+}
+
+function pickAvatarColor(color) {
+  settingsAvatarColor = color;
+  localStorage.setItem('nr_avatar_color', color);
+  renderColorPicker();
+  renderSettingsAvatar();
+}
+
+function setTheme(t) {
+  if (t === 'light') { document.body.classList.add('light'); localStorage.setItem('theme','light'); document.getElementById('themeToggle').textContent = '☀️'; }
+  else { document.body.classList.remove('light'); localStorage.setItem('theme','dark'); document.getElementById('themeToggle').textContent = '🌙'; }
+}
+
+async function saveProfile() {
+  const name = document.getElementById('settingsName').value.trim();
+  if (!name) { showSettingsMsg('profileMsg','Name cannot be empty','err'); return; }
+  try {
+    const res = await fetch(`${API}/users/${nrUser.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+      body: JSON.stringify({ name })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    nrUser.name = name;
+    localStorage.setItem('nr_user', JSON.stringify(nrUser));
+    document.getElementById('settingsDisplayName').textContent = name;
+    renderSettingsAvatar();
+    showSettingsMsg('profileMsg', 'Profile saved!', 'ok');
+  } catch(e) { showSettingsMsg('profileMsg', e.message, 'err'); }
+}
+
+function showPwStrength(pw) {
+  const bar   = document.getElementById('pwStrengthBar');
+  const fill  = document.getElementById('pwStrengthFill');
+  const label = document.getElementById('pwStrengthLabel');
+  if (!pw) { bar.style.display = 'none'; label.textContent = ''; return; }
+  bar.style.display = 'block';
+  let score = 0;
+  if (pw.length >= 8)  score++;
+  if (pw.length >= 12) score++;
+  if (/[A-Z]/.test(pw)) score++;
+  if (/[0-9]/.test(pw)) score++;
+  if (/[^A-Za-z0-9]/.test(pw)) score++;
+  const pct   = (score / 5) * 100;
+  const color = score <= 1 ? '#ef4444' : score <= 3 ? '#f59e0b' : '#3dba7f';
+  const text  = score <= 1 ? 'Weak' : score <= 3 ? 'Fair' : score === 4 ? 'Strong' : 'Very strong';
+  fill.style.width = pct + '%';
+  fill.style.background = color;
+  label.textContent = text;
+  label.style.color = color;
+}
+
+async function changePassword() {
+  const cur  = document.getElementById('settingsCurPw').value;
+  const np   = document.getElementById('settingsNewPw').value;
+  const conf = document.getElementById('settingsConfPw').value;
+  if (!cur || !np) { showSettingsMsg('pwMsg','Fill in all fields','err'); return; }
+  if (np.length < 8) { showSettingsMsg('pwMsg','Password must be at least 8 characters','err'); return; }
+  if (np !== conf)   { showSettingsMsg('pwMsg','Passwords do not match','err'); return; }
+  try {
+    const res = await fetch(`${API}/auth/change-password`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+      body: JSON.stringify({ currentPassword: cur, newPassword: np })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed');
+    ['settingsCurPw','settingsNewPw','settingsConfPw'].forEach(id => { document.getElementById(id).value = ''; });
+    document.getElementById('pwStrengthBar').style.display = 'none';
+    document.getElementById('pwStrengthLabel').textContent = '';
+    showSettingsMsg('pwMsg', 'Password updated!', 'ok');
+  } catch(e) { showSettingsMsg('pwMsg', e.message, 'err'); }
+}
+
+function showSettingsMsg(id, text, type) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = text;
+  el.className   = 'settings-msg ' + type;
+  setTimeout(() => { el.textContent = ''; el.className = 'settings-msg'; }, 4000);
+}
+
+function csvDragOver(e) { e.preventDefault(); document.getElementById('csvDropzone').classList.add('drag-over'); }
+function csvDrop(e) { e.preventDefault(); document.getElementById('csvDropzone').classList.remove('drag-over'); const file = e.dataTransfer.files[0]; if (file) parseCSVFile(file); }
+function csvFileSelected(input) { if (input.files[0]) parseCSVFile(input.files[0]); }
+function parseCSVFile(file) {
+  document.getElementById('csvFileName').textContent = file.name;
+  const reader = new FileReader();
+  reader.onload = e => {
+    const lines = e.target.result.split('\n').filter(l => l.trim());
+    if (!lines.length) { showSettingsMsg('csvMsg','Empty file','err'); return; }
+    const headers = lines[0].split(',').map(h => h.trim().replace(/^"|"$/g,''));
+    csvParsedRows = lines.slice(1).map(line => {
+      const vals = line.split(',').map(v => v.trim().replace(/^"|"$/g,''));
+      const row = {}; headers.forEach((h, i) => { row[h] = vals[i] || ''; }); return row;
+    }).filter(r => r.name || r.Name);
+    const th = ['name','category','unit','price_per_unit','stock_qty'];
+    const wrap = document.getElementById('csvPreview'), table = document.getElementById('csvPreviewTable');
+    table.innerHTML = `<thead><tr>${th.map(h=>`<th style="padding:4px 6px;border-bottom:1px solid var(--border);color:var(--muted);text-align:left">${h}</th>`).join('')}</tr></thead>`
+      + `<tbody>${csvParsedRows.slice(0,5).map(r=>`<tr>${th.map(h=>`<td style="padding:4px 6px;border-bottom:1px solid var(--border)">${r[h]||''}</td>`).join('')}</tr>`).join('')}</tbody>`;
+    wrap.style.display = 'block';
+    document.getElementById('csvImportBtn').style.display = 'block';
+    showSettingsMsg('csvMsg', `${csvParsedRows.length} rows ready to import`, 'ok');
+  };
+  reader.readAsText(file);
+}
+async function importCSV() {
+  if (!csvParsedRows.length) return;
+  const btn = document.getElementById('csvImportBtn');
+  btn.disabled = true; btn.textContent = 'Importing…';
+  let success = 0, failed = 0;
+  for (const r of csvParsedRows.filter(r => r.description || r.Description || r.name || r.Name)) {
+    try {
+      const res = await fetch(`${API}/inventory`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+        body: JSON.stringify({ description: r.description||r.Description||r.name||r.Name, category: r.category||r.Category||'Other', item_number: r.item_number||r['Item Number']||r.sku||r.SKU||'', unit: r.unit||r.Unit||'EACH',
+          cost: parseFloat(r.cost||r.Cost||r.price_per_unit||0), on_hand_qty: parseFloat(r.on_hand_qty||r['On Hand Qty']||r.stock_qty||0),
+          on_hand_weight: parseFloat(r.on_hand_weight||r['On Hand Weight']||0), lot_item: r.lot_item||r['Lot Item']||'N' }) });
+      res.ok ? success++ : failed++;
+    } catch { failed++; }
+  }
+  btn.disabled = false; btn.textContent = 'Import Products';
+  showSettingsMsg('csvMsg', `Imported ${success} products${failed ? `, ${failed} failed` : ''}`, success > 0 ? 'ok' : 'err');
+  if (success > 0) { csvParsedRows = []; document.getElementById('csvPreview').style.display = 'none'; document.getElementById('csvFileName').textContent = 'No file selected'; }
+}
+
+function saveNotifPrefs() {
+  localStorage.setItem('nr_notif', JSON.stringify({
+    failed: document.getElementById('notifFailed').checked,
+    late: document.getElementById('notifLate').checked,
+    inventory: document.getElementById('notifInventory').checked
+  }));
+}
+function loadNotifPrefs() {
+  try {
+    const p = JSON.parse(localStorage.getItem('nr_notif') || '{}');
+    if (p.failed    !== undefined) document.getElementById('notifFailed').checked    = p.failed;
+    if (p.late      !== undefined) document.getElementById('notifLate').checked      = p.late;
+    if (p.inventory !== undefined) document.getElementById('notifInventory').checked = p.inventory;
+  } catch {}
+}
 
 // ── FORECASTING ────────────────────────────────────────
 function showFcTab(name, el) {
@@ -4810,7 +4612,7 @@ async function loadForecast() {
       fetch(API + '/orders', authHeaders),
       fetch(API + '/customers', authHeaders),
     ]);
-    const orders = ordRes.ok ? await ordRes.json() : [];
+    const orders    = ordRes.ok  ? await ordRes.json()  : [];
     const customers = custRes.ok ? await custRes.json() : [];
     renderForecastKPIs(orders, customers);
     renderTopProducts(orders);
@@ -4826,68 +4628,37 @@ function renderForecastKPIs(orders, customers) {
   const el = document.getElementById('fcKpiRow');
   if (!el) return;
   const now = new Date();
-  const thisMonth = orders.filter(o => { const d = new Date(o.date || o.created_at); return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear(); });
-  const lastMonth = orders.filter(o => { const d = new Date(o.date || o.created_at); const lm = new Date(now.getFullYear(), now.getMonth() - 1, 1); return d.getMonth() === lm.getMonth() && d.getFullYear() === lm.getFullYear(); });
-  const pct = lastMonth.length ? (((thisMonth.length - lastMonth.length) / lastMonth.length) * 100).toFixed(0) : null;
-  const activeCustomers = new Set(orders.filter(o => { const d = new Date(o.date || o.created_at); return (now - d) < 90 * 86400000; }).map(o => o.customer || o.customer_name)).size;
-  const avgOrdersPerCustomer = customers.length ? (orders.length / customers.length).toFixed(1) : '—';
+  const thisMonth = orders.filter(o => { const d = new Date(o.date||o.created_at); return d.getMonth()===now.getMonth()&&d.getFullYear()===now.getFullYear(); });
+  const lastMonth = orders.filter(o => { const d = new Date(o.date||o.created_at); const lm=new Date(now.getFullYear(),now.getMonth()-1,1); return d.getMonth()===lm.getMonth()&&d.getFullYear()===lm.getFullYear(); });
+  const pct = lastMonth.length ? (((thisMonth.length-lastMonth.length)/lastMonth.length)*100).toFixed(0) : null;
+  const activeCustomers = new Set(orders.filter(o => (now-new Date(o.date||o.created_at))<90*86400000).map(o=>o.customer||o.customer_name)).size;
+  const avgOPC = customers.length ? (orders.length/customers.length).toFixed(1) : '—';
   el.innerHTML = `
-    <div class="kpi-card">
-      <div class="kpi-label">Orders This Month</div>
-      <div class="kpi-value">${thisMonth.length}</div>
-      <div class="kpi-trend">${pct !== null ? `<span class="${pct >= 0 ? 'trend-up' : 'trend-down'}">${pct >= 0 ? '↑' : '↓'} ${Math.abs(pct)}% vs last month</span>` : '<span class="trend-neutral">No prior data</span>'}</div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Total Orders</div>
-      <div class="kpi-value">${orders.length}</div>
-      <div class="kpi-trend"><span class="trend-neutral">All time</span></div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Active Customers</div>
-      <div class="kpi-value green">${activeCustomers}</div>
-      <div class="kpi-trend"><span class="trend-neutral">Ordered in 90 days</span></div>
-    </div>
-    <div class="kpi-card">
-      <div class="kpi-label">Orders / Customer</div>
-      <div class="kpi-value">${avgOrdersPerCustomer}</div>
-      <div class="kpi-trend"><span class="trend-neutral">Lifetime avg</span></div>
-    </div>`;
+    <div class="kpi-card"><div class="kpi-label">Orders This Month</div><div class="kpi-value">${thisMonth.length}</div>
+      <div class="kpi-trend">${pct!==null?`<span class="${pct>=0?'trend-up':'trend-down'}">${pct>=0?'↑':'↓'} ${Math.abs(pct)}% vs last month</span>`:'<span class="trend-neutral">No prior data</span>'}</div></div>
+    <div class="kpi-card"><div class="kpi-label">Total Orders</div><div class="kpi-value">${orders.length}</div><div class="kpi-trend"><span class="trend-neutral">All time</span></div></div>
+    <div class="kpi-card"><div class="kpi-label">Active Customers</div><div class="kpi-value green">${activeCustomers}</div><div class="kpi-trend"><span class="trend-neutral">Ordered in 90 days</span></div></div>
+    <div class="kpi-card"><div class="kpi-label">Orders / Customer</div><div class="kpi-value">${avgOPC}</div><div class="kpi-trend"><span class="trend-neutral">Lifetime avg</span></div></div>`;
 }
 
 function renderTopProducts(orders) {
   const el = document.getElementById('fcTopProducts');
   if (!el) return;
   const counts = {};
-  orders.forEach(o => {
-    const name = o.description || o.product || o.item_name || o.items;
-    if (name) counts[name] = (counts[name] || 0) + 1;
-  });
-  const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]).slice(0,8);
-  if (!sorted.length) { el.innerHTML = '<div style="color:var(--muted);font-size:13px">No product data yet</div>'; return; }
-  el.innerHTML = `<div class="fc-top-list">${sorted.map(([name, cnt], i) => `
-    <div class="fc-top-row">
-      <div class="fc-top-rank">${i+1}</div>
-      <div class="fc-top-name">${name}</div>
-      <div class="fc-top-val">${cnt} orders</div>
-    </div>`).join('')}</div>`;
+  orders.forEach(o => { const n=o.description||o.product||o.item_name||o.items; if(n) counts[n]=(counts[n]||0)+1; });
+  const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  if (!sorted.length) { el.innerHTML='<div style="color:var(--muted);font-size:13px">No product data yet</div>'; return; }
+  el.innerHTML = `<div class="fc-top-list">${sorted.map(([name,cnt],i)=>`<div class="fc-top-row"><div class="fc-top-rank">${i+1}</div><div class="fc-top-name">${name}</div><div class="fc-top-val">${cnt} orders</div></div>`).join('')}</div>`;
 }
 
 function renderTopCustomers(orders, customers) {
   const el = document.getElementById('fcTopCustomers');
   if (!el) return;
   const counts = {};
-  orders.forEach(o => {
-    const c = o.customer || o.customer_name || o.customerName;
-    if (c) counts[c] = (counts[c] || 0) + 1;
-  });
-  const sorted = Object.entries(counts).sort((a,b) => b[1]-a[1]).slice(0,8);
-  if (!sorted.length) { el.innerHTML = '<div style="color:var(--muted);font-size:13px">No customer data yet</div>'; return; }
-  el.innerHTML = `<div class="fc-top-list">${sorted.map(([name, cnt], i) => `
-    <div class="fc-top-row">
-      <div class="fc-top-rank">${i+1}</div>
-      <div class="fc-top-name">${name}</div>
-      <div class="fc-top-val">${cnt} orders</div>
-    </div>`).join('')}</div>`;
+  orders.forEach(o => { const c=o.customer||o.customer_name||o.customerName; if(c) counts[c]=(counts[c]||0)+1; });
+  const sorted = Object.entries(counts).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  if (!sorted.length) { el.innerHTML='<div style="color:var(--muted);font-size:13px">No customer data yet</div>'; return; }
+  el.innerHTML = `<div class="fc-top-list">${sorted.map(([name,cnt],i)=>`<div class="fc-top-row"><div class="fc-top-rank">${i+1}</div><div class="fc-top-name">${name}</div><div class="fc-top-val">${cnt} orders</div></div>`).join('')}</div>`;
 }
 
 function renderMonthlyChart(orders) {
@@ -4895,151 +4666,91 @@ function renderMonthlyChart(orders) {
   if (!canvas) return;
   const now = new Date();
   const labels = [], counts = [];
-  for (let i = 11; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    labels.push(d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' }));
-    counts.push(orders.filter(o => {
-      const od = new Date(o.date || o.created_at);
-      return od.getMonth() === d.getMonth() && od.getFullYear() === d.getFullYear();
-    }).length);
+  for (let i=11;i>=0;i--) {
+    const d = new Date(now.getFullYear(),now.getMonth()-i,1);
+    labels.push(d.toLocaleDateString('en-US',{month:'short',year:'2-digit'}));
+    counts.push(orders.filter(o=>{const od=new Date(o.date||o.created_at);return od.getMonth()===d.getMonth()&&od.getFullYear()===d.getFullYear();}).length);
   }
   if (fcMonthlyChartInst) fcMonthlyChartInst.destroy();
-  fcMonthlyChartInst = new Chart(canvas, {
-    type: 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label: 'Orders',
-        data: counts,
-        backgroundColor: 'rgba(61,186,127,0.35)',
-        borderColor: '#3dba7f',
-        borderWidth: 2,
-        borderRadius: 5,
-      }],
-    },
-    options: {
-      responsive: true,
-      plugins: { legend: { display: false } },
-      scales: {
-        x: { ticks: { color: '#8899bb', font: { size: 11 } }, grid: { color: 'rgba(26,47,94,0.6)' } },
-        y: { ticks: { color: '#8899bb', font: { size: 11 } }, grid: { color: 'rgba(26,47,94,0.6)' }, beginAtZero: true },
-      },
-    },
-  });
+  fcMonthlyChartInst = new Chart(canvas, { type:'bar', data:{ labels, datasets:[{ label:'Orders', data:counts, backgroundColor:'rgba(61,186,127,0.35)', borderColor:'#3dba7f', borderWidth:2, borderRadius:5 }] }, options:{ responsive:true, plugins:{legend:{display:false}}, scales:{ x:{ticks:{color:'#8899bb',font:{size:11}},grid:{color:'rgba(26,47,94,0.6)'}}, y:{ticks:{color:'#8899bb',font:{size:11}},grid:{color:'rgba(26,47,94,0.6)'},beginAtZero:true} } } });
 }
 
 function renderCustomerDemand(orders, customers) {
   const el = document.getElementById('fcCustomerDemand');
   if (!el) return;
-  // Group orders by customer, compute avg cadence
   const byCustomer = {};
-  orders.forEach(o => {
-    const c = o.customer || o.customer_name || o.customerName;
-    if (!c) return;
-    if (!byCustomer[c]) byCustomer[c] = [];
-    byCustomer[c].push(new Date(o.date || o.created_at));
-  });
-  const rows = Object.entries(byCustomer).map(([name, dates]) => {
-    dates.sort((a,b) => a-b);
-    const lastOrder = dates[dates.length - 1];
-    const daysSince = Math.round((Date.now() - lastOrder) / 86400000);
-    let avgCadence = null;
-    if (dates.length > 1) {
-      const gaps = [];
-      for (let i = 1; i < dates.length; i++) gaps.push((dates[i] - dates[i-1]) / 86400000);
-      avgCadence = Math.round(gaps.reduce((s,g) => s+g, 0) / gaps.length);
-    }
-    const nextEst = avgCadence ? Math.max(0, avgCadence - daysSince) : null;
-    return { name, orderCount: dates.length, lastOrder, daysSince, avgCadence, nextEst };
-  }).sort((a,b) => b.orderCount - a.orderCount);
-
-  if (!rows.length) { el.innerHTML = '<div style="color:var(--muted);font-size:13px">No order history yet</div>'; return; }
-  el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">${rows.map(r => {
-    const urgency = r.nextEst !== null && r.nextEst <= 3 ? 'days-urgent' : r.nextEst !== null && r.nextEst <= 7 ? 'days-soon' : 'days-ok';
-    const nextTxt = r.nextEst !== null ? (r.nextEst === 0 ? 'Due now' : `~${r.nextEst}d`) : '—';
-    return `<div class="fc-cust-card">
-      <div>
-        <div class="fc-cust-name">${r.name}</div>
-        <div class="fc-cust-meta">
-          Last order: ${r.daysSince}d ago
-          ${r.avgCadence ? ` · Every ~${r.avgCadence}d` : ''}
-        </div>
-      </div>
-      <div class="fc-cust-val">
-        <div class="fc-cust-orders">${r.orderCount}</div>
-        <div class="fc-cust-sub">orders</div>
-        ${r.nextEst !== null ? `<span class="days-pill ${urgency}" style="margin-top:4px;display:inline-block">${nextTxt}</span>` : ''}
-      </div>
-    </div>`;
+  orders.forEach(o => { const c=o.customer||o.customer_name||o.customerName; if(!c) return; if(!byCustomer[c]) byCustomer[c]=[]; byCustomer[c].push(new Date(o.date||o.created_at)); });
+  const rows = Object.entries(byCustomer).map(([name,dates]) => {
+    dates.sort((a,b)=>a-b);
+    const last=dates[dates.length-1], daysSince=Math.round((Date.now()-last)/86400000);
+    let avg=null;
+    if(dates.length>1){const gaps=[];for(let i=1;i<dates.length;i++)gaps.push((dates[i]-dates[i-1])/86400000);avg=Math.round(gaps.reduce((s,g)=>s+g,0)/gaps.length);}
+    return {name,orderCount:dates.length,daysSince,avgCadence:avg,nextEst:avg?Math.max(0,avg-daysSince):null};
+  }).sort((a,b)=>b.orderCount-a.orderCount);
+  if (!rows.length) { el.innerHTML='<div style="color:var(--muted);font-size:13px">No order history yet</div>'; return; }
+  el.innerHTML = `<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:10px">${rows.map(r=>{
+    const urg=r.nextEst!==null&&r.nextEst<=3?'days-urgent':r.nextEst!==null&&r.nextEst<=7?'days-soon':'days-ok';
+    const nxt=r.nextEst!==null?(r.nextEst===0?'Due now':`~${r.nextEst}d`):'—';
+    return `<div class="fc-cust-card"><div><div class="fc-cust-name">${r.name}</div><div class="fc-cust-meta">Last order: ${r.daysSince}d ago${r.avgCadence?` · Every ~${r.avgCadence}d`:''}</div></div><div class="fc-cust-val"><div class="fc-cust-orders">${r.orderCount}</div><div class="fc-cust-sub">orders</div>${r.nextEst!==null?`<span class="days-pill ${urg}" style="margin-top:4px;display:inline-block">${nxt}</span>`:''}</div></div>`;
   }).join('')}</div>`;
 }
 
-// ── FISHING SEASONS ────────────────────────────────────
-// P=Peak  G=Good  A=Available  C=Closed/Scarce
+// ── FISHING SEASONS CALENDAR ───────────────────────────
 const FISHING_SEASONS = [
-  // [Species, Category, Jan-Dec status array]
-  ['Atlantic Cod',       'Groundfish', ['G','G','G','A','A','C','C','C','A','G','G','G']],
-  ['Haddock',            'Groundfish', ['G','G','G','G','A','A','C','C','A','G','P','P']],
-  ['Pollock (Boston)',   'Groundfish', ['G','G','A','A','A','C','C','C','A','A','G','G']],
-  ['Striped Bass',       'Groundfish', ['C','C','C','A','P','P','G','G','P','A','C','C']],
-  ['Black Sea Bass',     'Groundfish', ['C','C','C','A','G','P','P','P','G','A','C','C']],
-  ['Flounder (Winter)',  'Flatfish',   ['P','P','P','G','A','C','C','C','C','A','G','P']],
-  ['Flounder (Summer)',  'Flatfish',   ['C','C','C','A','G','P','P','P','G','A','C','C']],
-  ['Halibut (Atlantic)', 'Flatfish',   ['C','C','G','P','P','P','G','A','A','C','C','C']],
-  ['Halibut (Pacific)',  'Flatfish',   ['C','C','A','G','P','P','G','A','A','C','C','C']],
-  ['Sole/Petrale',       'Flatfish',   ['P','P','G','A','A','C','C','C','A','G','P','P']],
-  ['Atlantic Salmon',    'Salmon',     ['A','A','A','G','G','G','A','A','A','A','A','A']],
-  ['King (Chinook)',     'Salmon',     ['C','C','C','A','P','P','P','G','A','C','C','C']],
-  ['Sockeye',            'Salmon',     ['C','C','C','C','G','P','P','G','A','C','C','C']],
-  ['Coho',               'Salmon',     ['C','C','C','C','A','G','P','P','G','A','C','C']],
-  ['Atlantic Bluefin',   'Pelagic',    ['C','C','C','C','A','G','P','P','G','G','A','C']],
-  ['Yellowfin Tuna',     'Pelagic',    ['C','C','C','A','G','P','P','P','G','A','C','C']],
-  ['Swordfish',          'Pelagic',    ['C','C','C','A','A','G','P','P','P','G','A','C']],
-  ['Mahi-Mahi',          'Pelagic',    ['C','C','C','A','G','P','P','P','G','A','C','C']],
-  ['Wahoo',              'Pelagic',    ['C','C','C','C','A','G','P','P','G','A','C','C']],
-  ['Maine Lobster',      'Crustacean', ['A','A','A','A','A','G','P','P','P','G','G','A']],
-  ['Dungeness Crab',     'Crustacean', ['P','P','G','A','A','C','C','C','A','G','P','P']],
-  ['Blue Crab',          'Crustacean', ['C','C','C','A','G','P','P','P','G','G','A','C']],
-  ['Snow Crab',          'Crustacean', ['G','G','P','P','G','A','A','A','G','P','G','G']],
-  ['Gulf Shrimp',        'Crustacean', ['C','C','A','G','P','P','G','G','G','A','C','C']],
-  ['Pink Shrimp (ME)',   'Crustacean', ['P','P','G','A','C','C','C','C','C','A','G','P']],
-  ['Eastern Oyster',     'Shellfish',  ['P','P','P','A','C','C','C','C','G','P','P','P']],
-  ['Wellfleet Oyster',   'Shellfish',  ['P','P','P','G','C','C','C','C','G','P','P','P']],
-  ['Pacific Oyster',     'Shellfish',  ['P','P','G','G','A','C','C','G','G','P','P','P']],
-  ['Sea Scallop',        'Shellfish',  ['G','P','P','G','G','A','A','A','A','G','P','G']],
-  ['Bay Scallop',        'Shellfish',  ['C','C','C','C','C','C','C','C','G','P','P','G']],
-  ['Clams (Steamers)',   'Shellfish',  ['A','A','A','G','P','P','P','P','G','G','A','A']],
-  ['Little Neck Clams',  'Shellfish',  ['G','G','G','G','A','A','A','A','G','G','P','P']],
-  ['Mussels',            'Shellfish',  ['P','P','P','G','A','C','C','A','G','P','P','P']],
-  ['Squid (Loligo)',     'Other',      ['A','G','P','P','G','A','A','A','A','G','P','G']],
-  ['Monkfish',           'Other',      ['G','G','P','P','G','A','A','A','A','G','P','P']],
-  ['Skate',              'Other',      ['G','P','P','G','G','A','A','A','G','G','P','G']],
-  ['Tilefish',           'Other',      ['A','A','A','G','P','P','G','G','A','A','A','A']],
-  ['Bluefish',           'Other',      ['C','C','C','A','G','P','P','P','G','G','A','C']],
+  ['Atlantic Cod','Groundfish',['G','G','G','A','A','C','C','C','A','G','G','G']],
+  ['Haddock','Groundfish',['G','G','G','G','A','A','C','C','A','G','P','P']],
+  ['Pollock (Boston)','Groundfish',['G','G','A','A','A','C','C','C','A','A','G','G']],
+  ['Striped Bass','Groundfish',['C','C','C','A','P','P','G','G','P','A','C','C']],
+  ['Black Sea Bass','Groundfish',['C','C','C','A','G','P','P','P','G','A','C','C']],
+  ['Flounder (Winter)','Flatfish',['P','P','P','G','A','C','C','C','C','A','G','P']],
+  ['Flounder (Summer)','Flatfish',['C','C','C','A','G','P','P','P','G','A','C','C']],
+  ['Halibut (Atlantic)','Flatfish',['C','C','G','P','P','P','G','A','A','C','C','C']],
+  ['Halibut (Pacific)','Flatfish',['C','C','A','G','P','P','G','A','A','C','C','C']],
+  ['Sole/Petrale','Flatfish',['P','P','G','A','A','C','C','C','A','G','P','P']],
+  ['Atlantic Salmon','Salmon',['A','A','A','G','G','G','A','A','A','A','A','A']],
+  ['King (Chinook)','Salmon',['C','C','C','A','P','P','P','G','A','C','C','C']],
+  ['Sockeye','Salmon',['C','C','C','C','G','P','P','G','A','C','C','C']],
+  ['Coho','Salmon',['C','C','C','C','A','G','P','P','G','A','C','C']],
+  ['Atlantic Bluefin','Pelagic',['C','C','C','C','A','G','P','P','G','G','A','C']],
+  ['Yellowfin Tuna','Pelagic',['C','C','C','A','G','P','P','P','G','A','C','C']],
+  ['Swordfish','Pelagic',['C','C','C','A','A','G','P','P','P','G','A','C']],
+  ['Mahi-Mahi','Pelagic',['C','C','C','A','G','P','P','P','G','A','C','C']],
+  ['Wahoo','Pelagic',['C','C','C','C','A','G','P','P','G','A','C','C']],
+  ['Maine Lobster','Crustacean',['A','A','A','A','A','G','P','P','P','G','G','A']],
+  ['Dungeness Crab','Crustacean',['P','P','G','A','A','C','C','C','A','G','P','P']],
+  ['Blue Crab','Crustacean',['C','C','C','A','G','P','P','P','G','G','A','C']],
+  ['Snow Crab','Crustacean',['G','G','P','P','G','A','A','A','G','P','G','G']],
+  ['Gulf Shrimp','Crustacean',['C','C','A','G','P','P','G','G','G','A','C','C']],
+  ['Pink Shrimp (ME)','Crustacean',['P','P','G','A','C','C','C','C','C','A','G','P']],
+  ['Eastern Oyster','Shellfish',['P','P','P','A','C','C','C','C','G','P','P','P']],
+  ['Wellfleet Oyster','Shellfish',['P','P','P','G','C','C','C','C','G','P','P','P']],
+  ['Pacific Oyster','Shellfish',['P','P','G','G','A','C','C','G','G','P','P','P']],
+  ['Sea Scallop','Shellfish',['G','P','P','G','G','A','A','A','A','G','P','G']],
+  ['Bay Scallop','Shellfish',['C','C','C','C','C','C','C','C','G','P','P','G']],
+  ['Clams (Steamers)','Shellfish',['A','A','A','G','P','P','P','P','G','G','A','A']],
+  ['Little Neck Clams','Shellfish',['G','G','G','G','A','A','A','A','G','G','P','P']],
+  ['Mussels','Shellfish',['P','P','P','G','A','C','C','A','G','P','P','P']],
+  ['Squid (Loligo)','Other',['A','G','P','P','G','A','A','A','A','G','P','G']],
+  ['Monkfish','Other',['G','G','P','P','G','A','A','A','A','G','P','P']],
+  ['Skate','Other',['G','P','P','G','G','A','A','A','G','G','P','G']],
+  ['Tilefish','Other',['A','A','A','G','P','P','G','G','A','A','A','A']],
+  ['Bluefish','Other',['C','C','C','A','G','P','P','P','G','G','A','C']],
 ];
 
 function renderFishingSeasons() {
   const catFilter = document.getElementById('seasonCatFilter')?.value || '';
   const tbody = document.getElementById('seasonCalBody');
   if (!tbody) return;
-  const filtered = catFilter ? FISHING_SEASONS.filter(s => s[1] === catFilter) : FISHING_SEASONS;
-  const sznClass = { P: 'szn-peak', G: 'szn-good', A: 'szn-avail', C: 'szn-closed' };
-  const sznLabel = { P: 'Peak', G: 'Good', A: 'Avail', C: '' };
-  // Highlight current month
+  const filtered = catFilter ? FISHING_SEASONS.filter(s=>s[1]===catFilter) : FISHING_SEASONS;
+  const sznClass = {P:'szn-peak',G:'szn-good',A:'szn-avail',C:'szn-closed'};
+  const sznLabel = {P:'Peak',G:'Good',A:'Avail',C:''};
   const currentMonth = new Date().getMonth();
-  tbody.innerHTML = filtered.map(([species, cat, months]) => {
-    const cells = months.map((s, i) => {
-      const highlight = i === currentMonth ? 'outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px;' : '';
-      return `<td style="padding:4px 3px"><span class="${sznClass[s]||'szn-closed'}" style="${highlight}">${sznLabel[s]||''}</span></td>`;
+  tbody.innerHTML = filtered.map(([species,cat,months]) => {
+    const cells = months.map((s,i) => {
+      const hl = i===currentMonth ? 'outline:2px solid var(--accent);outline-offset:-2px;border-radius:4px;' : '';
+      return `<td style="padding:4px 3px"><span class="${sznClass[s]||'szn-closed'}" style="${hl}">${sznLabel[s]||''}</span></td>`;
     }).join('');
-    const catBadge = invCatBadge(cat);
-    return `<tr>
-      <td class="species-name">
-        <div>${species}</div>
-        <div style="margin-top:2px">${catBadge}</div>
-      </td>
-      ${cells}
-    </tr>`;
+    return `<tr><td class="species-name"><div>${species}</div><div style="margin-top:2px">${invCatBadge(cat)}</div></td>${cells}</tr>`;
   }).join('');
 }
 </script>
