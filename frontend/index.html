@@ -3374,7 +3374,8 @@ async function submitUserInvite() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     r.className = 'modal-result success';
-    r.innerHTML = `Invite sent for <strong>${name}</strong> as <strong>${role}</strong>!${data.emailSent ? ' Email delivered.' : ' No email server configured — share the link manually.'}`;
+    const emailNote = data.emailSent ? ' Email delivered.' : data.emailError ? ` Email failed: ${data.emailError}` : ' No email server configured — share the link manually.';
+    r.innerHTML = `Invite sent for <strong>${name}</strong> as <strong>${role}</strong>!${emailNote}`;
     document.getElementById('uiName').value = '';
     document.getElementById('uiEmail').value = '';
     await fetchUsers();
@@ -3583,7 +3584,8 @@ async function submitInvite() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     r.className = 'modal-result success';
-    r.innerHTML = `Invite sent for <strong>${name}</strong>!${data.emailSent ? ' An email has been sent.' : ' No email server configured — share the link manually.'}`;
+    const emailNote = data.emailSent ? ' Email delivered.' : data.emailError ? ` Email failed: ${data.emailError}` : ' No email server configured — share the link manually.';
+    r.innerHTML = `Invite sent for <strong>${name}</strong>!${emailNote}`;
     document.getElementById('inviteName').value = '';
     document.getElementById('inviteEmail').value = '';
     setTimeout(() => {
