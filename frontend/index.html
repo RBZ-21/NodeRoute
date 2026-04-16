@@ -2245,6 +2245,7 @@ function showTab(name, el) {
   if (name === 'map') { setTimeout(() => renderMap(), 50); }
   if (name === 'inventory') { renderInventory(); renderInventoryKPIs(); }
   if (name === 'forecast') { loadForecast(); renderFishingSeasons(); }
+  if (name === 'settings') { initSettings(); }
 }
 
 // ── ALERT ──────────────────────────────────────────────
@@ -4578,13 +4579,6 @@ function loadNotifPrefs() {
     if (p.late      !== undefined) document.getElementById('notifLate').checked      = p.late;
     if (p.inventory !== undefined) document.getElementById('notifInventory').checked = p.inventory;
   } catch {}
-}
-
-// Hook into showTab to init settings/forecast on open
-const _origShowTab = showTab;
-function showTab(name, el) {
-  _origShowTab(name, el);
-  if (name === 'settings') initSettings();
 }
 
 // ── FORECASTING ────────────────────────────────────────
