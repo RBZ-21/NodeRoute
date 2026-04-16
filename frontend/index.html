@@ -3652,10 +3652,10 @@ function renderInventory() {
     const safeDesc = (item.description||'').replace(/'/g,"\\'");
     const actions = isManager ? `
       <div style="display:flex;gap:5px;white-space:nowrap">
-        <button class="user-action-btn" onclick="openRestockModal('${item.id}','${safeDesc}',${item.on_hand_qty||0})">+ Stock</button>
-        <button class="user-action-btn" style="color:#a78bfa;border-color:rgba(124,58,237,0.3)" onclick="openYieldModal('${item.id}','${safeDesc}',${item.avg_yield||'null'},${item.yield_count||0})">⚖ Yield</button>
-        <button class="user-action-btn" onclick="openInventoryModal('${item.id}')">Edit</button>
-        <button class="user-action-btn danger" onclick="deleteInventoryItem('${item.id}','${safeDesc}')">×</button>
+        <button class="user-action-btn" onclick="openRestockModal('${item.item_number}','${safeDesc}',${item.on_hand_qty||0})">+ Stock</button>
+        <button class="user-action-btn" style="color:#a78bfa;border-color:rgba(124,58,237,0.3)" onclick="openYieldModal('${item.item_number}','${safeDesc}',${item.avg_yield||'null'},${item.yield_count||0})">⚖ Yield</button>
+        <button class="user-action-btn" onclick="openInventoryModal('${item.item_number}')">Edit</button>
+        <button class="user-action-btn danger" onclick="deleteInventoryItem('${item.item_number}','${safeDesc}')">×</button>
       </div>` : '—';
     return `<tr>
       <td><strong>${item.description || '—'}</strong><div style="font-size:11px;color:var(--muted);margin-top:2px">#${item.item_number||'—'}</div></td>
@@ -4005,7 +4005,7 @@ function populateInvPickerList(query) {
   listEl.innerHTML = items.map(item => {
     const status = invStockStatus(item);
     const price = typeof item.cost === 'number' ? '$' + item.cost.toFixed(2) + '/' + (item.unit||'unit') : '—';
-    return `<div class="inv-picker-item" onclick="pickInventoryItem('${item.id}')">
+    return `<div class="inv-picker-item" onclick="pickInventoryItem('${item.item_number}')">
       <div>
         <div class="ip-name">${item.description}</div>
         <div class="ip-meta">${item.category || ''} · #${item.item_number || '—'} · <span class="${status.cls}">${status.label}</span></div>
