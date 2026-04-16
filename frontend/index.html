@@ -3433,10 +3433,12 @@ async function submitUserInvite() {
     const res = await fetch('/api/users/invite', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ name, email, role }) });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
-    r.className = 'modal-result success';
-    r.innerHTML = `Invite sent for <strong>${name}</strong> as <strong>${role}</strong>.<br><span style="font-size:11px;opacity:0.8">Invite link printed to server console.</span>`;
-    document.getElementById('uiName').value = '';
-    document.getElementById('uiEmail').value = '';
+  r.className = 'modal-result success';
+r.innerHTML = `Email sent to <strong>${email}</strong>!`;
+document.getElementById('uiName').value = '';
+document.getElementById('uiEmail').value = '';
+await fetchUsers();
+setTimeout(closeUserInviteModal, 1800);;
     await fetchUsers();
   } catch(e) { r.className = 'modal-result error'; r.textContent = e.message || 'Failed to send invite.'; }
 }
@@ -3964,9 +3966,10 @@ async function submitInvite() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     r.className = 'modal-result success';
-    r.textContent = `Invite sent for ${name}! The invite link is printed in the server console.`;
-    document.getElementById('inviteName').value = '';
-    document.getElementById('inviteEmail').value = '';
+r.textContent = `Email sent to ${email}!`;
+document.getElementById('inviteName').value = '';
+document.getElementById('inviteEmail').value = '';
+setTimeout(closeInviteModal, 1800);
   } catch(e) { r.className = 'modal-result error'; r.textContent = e.message || 'Failed to send invite.'; }
 }
 document.getElementById('inviteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeInviteModal(); });
