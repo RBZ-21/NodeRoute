@@ -85,6 +85,17 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
   res.json({ message: `Invite sent to ${email}`, userId: newUser.id, inviteUrl });
 });
 
+// Any user can update their own name; admins can update anyone
+router.patch('/:id', authenticateToken, async (req, res) => {
+  if (req.user.id !== req.params.id && req.user.role !== 'admin')
+    return res.status(403).json({ error: 'Forbidden' });
+  const { name } = req.body;
+  if (!name || !name.trim()) return res.status(400).json({ error: 'Name required' });
+  const { data, error } = await supabase.from('users').update({ name: name.trim() }).eq('id', req.params.id).select('id,name').single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
 router.delete('/:id', authenticateToken, requireRole('admin'), async (req, res) => {
   const users = await dbQuery(supabase.from('users').select('id, role').eq('id', req.params.id).limit(1), res);
   if (!users) return;
