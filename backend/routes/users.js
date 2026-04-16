@@ -46,6 +46,7 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
   console.log(`\nINVITE for ${name} (${email}) as ${role}:\n${inviteUrl}\n`);
   // Send real email if SMTP configured
   let emailSent = false;
+  let emailError = null;
   try {
     const mailer = createMailer();
     if (mailer) {
@@ -77,6 +78,7 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
       emailSent = true;
     }
   } catch(emailErr) {
+    emailError = emailErr.message;
     console.error('SMTP ERROR - Failed to send invite email:', emailErr.message, {
       host: process.env.SMTP_HOST,
       port: process.env.SMTP_PORT,
@@ -84,7 +86,7 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
       hasPass: !!process.env.SMTP_PASS
     });
   }
-  res.json({ message: `Invite sent to ${email}`, userId: newUser.id, inviteUrl, emailSent });
+  res.json({ message: `Invite sent to ${email}`, userId: newUser.id, inviteUrl, emailSent, emailError });
 });
 
 // Any user can update their own name; admins can update anyone
