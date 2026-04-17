@@ -11,9 +11,9 @@
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#050d2a;--surface:#0d1b3e;--border:#1a2f5e;
+  --bg:#000000;--surface:#0f0f0f;--border:#1f1f1f;
   --accent:#3dba7f;--purple:#7c3aed;--warn:#f59e0b;--danger:#ef4444;
-  --text:#ffffff;--muted:#8899bb;
+  --text:#ffffff;--muted:#888888;
   --r-card:12px;--r-input:8px;--trans:0.2s ease all;
 }
 body.light{
@@ -181,6 +181,13 @@ a{color:inherit;text-decoration:none}
 .nav-item.active::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent);border-radius:0 2px 2px 0}
 .nav-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
 .sidebar-footer{padding:16px 20px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
+.nav-group-header{display:flex;align-items:center;gap:12px;padding:8px 20px;cursor:pointer;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;transition:var(--trans);user-select:none}
+.nav-group-header:hover{color:var(--text);background:rgba(61,186,127,0.04)}
+.nav-group-chevron{margin-left:auto;font-size:10px;transition:transform 0.2s ease;line-height:1}
+.nav-group.open .nav-group-chevron{transform:rotate(90deg)}
+.nav-group-items{overflow:hidden;display:none}
+.nav-group.open .nav-group-items{display:block}
+.nav-child{padding-left:40px !important}
 
 /* MAIN */
 .main{margin-left:240px;flex:1;display:flex;flex-direction:column;min-height:100vh}
@@ -484,46 +491,83 @@ td{padding:12px 16px;vertical-align:middle}
     <img src="noderoute-logo.png" class="logo-img" height="32" alt="NodeRoute" style="max-width:180px"/>
   </div>
   <div class="nav">
-    <div class="nav-item active" onclick="showTab('dashboard',this)">
+    <div class="nav-item active" data-tab="dashboard" onclick="showTab('dashboard',this)">
       <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></span>Dashboard
     </div>
-    <div class="nav-item" onclick="showTab('deliveries',this)">
+    <div class="nav-item" data-tab="deliveries" onclick="showTab('deliveries',this)">
       <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></span>Deliveries
     </div>
-    <div class="nav-item" onclick="showTab('drivers',this)">
-      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect x="9" y="11" width="14" height="10" rx="2"/><circle cx="12" cy="21" r="1"/><circle cx="20" cy="21" r="1"/></svg></span>Drivers
-    </div>
-    <div class="nav-item" onclick="showTab('analytics',this)">
+    <div class="nav-item" data-tab="analytics" onclick="showTab('analytics',this)">
       <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></svg></span>Analytics
     </div>
-    <div class="nav-item" onclick="showTab('map',this)">
+    <div class="nav-item" data-tab="map" onclick="showTab('map',this)">
       <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" x2="9" y1="3" y2="18"/><line x1="15" x2="15" y1="6" y2="21"/></svg></span>Live Map
     </div>
-    <div class="nav-item" id="usersNavItem" style="display:none" onclick="showTab('users',this)">
-      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>Users
-    </div>
-    <div class="nav-item" onclick="showTab('stops',this)">
-      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></span>Stops
-    </div>
-    <div class="nav-item" onclick="showTab('routes',this)">
-      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg></span>Routes
-    </div>
-    <div class="nav-item" onclick="showTab('customers',this)">
-      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>Customers
-    </div>
-    <div class="nav-item" onclick="showTab('orders',this)">
+    <div class="nav-item" data-tab="orders" onclick="showTab('orders',this)">
       <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></span>Orders
     </div>
-    <div class="nav-item" onclick="showTab('invoices',this)">
-      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></svg></span>Invoices
+
+    <!-- GROUP: Places -->
+    <div class="nav-group" id="navgroup-places">
+      <div class="nav-group-header" onclick="toggleNavGroup('places')">
+        <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></span>
+        Places
+        <span class="nav-group-chevron">›</span>
+      </div>
+      <div class="nav-group-items" id="group-places">
+        <div class="nav-item nav-child" data-tab="drivers" onclick="showTab('drivers',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect x="9" y="11" width="14" height="10" rx="2"/><circle cx="12" cy="21" r="1"/><circle cx="20" cy="21" r="1"/></svg></span>Drivers
+        </div>
+        <div class="nav-item nav-child" data-tab="stops" onclick="showTab('stops',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></span>Stops
+        </div>
+        <div class="nav-item nav-child" data-tab="routes" onclick="showTab('routes',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg></span>Routes
+        </div>
+      </div>
     </div>
-    <div class="nav-item" onclick="showTab('inventory',this)">
-      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></span>Inventory
+
+    <!-- GROUP: People -->
+    <div class="nav-group" id="navgroup-people">
+      <div class="nav-group-header" onclick="toggleNavGroup('people')">
+        <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+        People
+        <span class="nav-group-chevron">›</span>
+      </div>
+      <div class="nav-group-items" id="group-people">
+        <div class="nav-item nav-child" id="usersNavItem" style="display:none" data-tab="users" onclick="showTab('users',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>Users
+        </div>
+        <div class="nav-item nav-child" data-tab="vendors" onclick="showTab('vendors',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>Vendors
+        </div>
+        <div class="nav-item nav-child" data-tab="customers" onclick="showTab('customers',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>Customers
+        </div>
+      </div>
     </div>
-    <div class="nav-item" onclick="showTab('forecast',this)">
-      <span class="nav-icon">🔮</span>Forecasting
+
+    <!-- GROUP: Things -->
+    <div class="nav-group" id="navgroup-things">
+      <div class="nav-group-header" onclick="toggleNavGroup('things')">
+        <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></span>
+        Things
+        <span class="nav-group-chevron">›</span>
+      </div>
+      <div class="nav-group-items" id="group-things">
+        <div class="nav-item nav-child" data-tab="inventory" onclick="showTab('inventory',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></span>Inventory
+        </div>
+        <div class="nav-item nav-child" data-tab="forecast" onclick="showTab('forecast',this)">
+          <span class="nav-icon">🔮</span>Forecasting
+        </div>
+        <div class="nav-item nav-child" data-tab="invoices" onclick="showTab('invoices',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></svg></span>Invoices
+        </div>
+      </div>
     </div>
-    <div class="nav-item" onclick="showTab('settings',this)">
+
+    <div class="nav-item" data-tab="settings" onclick="showTab('settings',this)">
       <span class="nav-icon">⚙️</span>Settings
     </div>
   </div>
@@ -672,6 +716,20 @@ td{padding:12px 16px;vertical-align:middle}
           </thead>
           <tbody id="usersTable"></tbody>
         </table>
+      </div>
+    </div>
+
+    <!-- TAB: VENDORS -->
+    <div class="tab-pane" id="tab-vendors">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
+        <div class="section-title" style="margin:0">Vendors</div>
+      </div>
+      <div class="table-card" style="display:flex;align-items:center;justify-content:center;min-height:200px">
+        <div style="text-align:center;color:var(--muted)">
+          <div style="font-size:32px;margin-bottom:12px">🏪</div>
+          <div style="font-size:16px;font-weight:600;margin-bottom:6px">Vendor Management</div>
+          <div style="font-size:13px">Coming soon</div>
+        </div>
       </div>
     </div>
 
@@ -2231,17 +2289,35 @@ async function submitFulfill() {
 }
 
 // ── TABS ───────────────────────────────────────────────
+const NAV_GROUP_MAP = {
+  drivers:'places', stops:'places', routes:'places',
+  users:'people', vendors:'people', customers:'people',
+  inventory:'things', forecast:'things', invoices:'things'
+};
+
+function toggleNavGroup(name) {
+  const group = document.getElementById('navgroup-' + name);
+  group.classList.toggle('open');
+}
+
 function showTab(name, el) {
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
-  document.getElementById('tab-' + name).classList.add('active');
+  const pane = document.getElementById('tab-' + name);
+  if (pane) pane.classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.querySelectorAll('.mobile-tab').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
-  const idx = ['dashboard','deliveries','drivers','analytics','map','users','stops','routes','customers','orders','invoices','inventory','forecast','settings'].indexOf(name);
+  const navEl = document.querySelector('.nav-item[data-tab="' + name + '"]');
+  if (navEl) navEl.classList.add('active');
+  const groupName = NAV_GROUP_MAP[name];
+  if (groupName) {
+    const group = document.getElementById('navgroup-' + groupName);
+    if (group && !group.classList.contains('open')) group.classList.add('open');
+  }
+  const mobileIdx = ['dashboard','deliveries','drivers','analytics','map'].indexOf(name);
+  if (mobileIdx >= 0) document.querySelectorAll('.mobile-tab')[mobileIdx]?.classList.add('active');
   if (name === 'orders') { fetchOrders(); }
   if (name === 'invoices') { renderInprocessOrders(); }
-  document.querySelectorAll('.nav-item')[idx]?.classList.add('active');
-  document.querySelectorAll('.mobile-tab')[idx]?.classList.add('active');
   if (name === 'map') { setTimeout(() => renderMap(), 50); }
   if (name === 'inventory') { renderInventory(); renderInventoryKPIs(); }
   if (name === 'forecast') { loadForecast(); renderFishingSeasons(); }
