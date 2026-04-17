@@ -405,6 +405,25 @@ td{padding:12px 16px;vertical-align:middle}
 .inv-alert-bar{background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:10px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap}
 .inv-alert-bar-txt{font-size:13px;color:var(--text)}
 .inv-alert-bar-sub{font-size:12px;color:var(--muted);margin-top:2px}
+/* LOT / BATCH TRACKING */
+.lot-status-active{background:rgba(61,186,127,0.12);color:var(--accent);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.lot-status-expiring{background:rgba(245,158,11,0.15);color:var(--warn);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.lot-status-expired{background:rgba(239,68,68,0.12);color:var(--danger);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.lot-status-depleted{background:rgba(136,136,136,0.1);color:var(--muted);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.lot-status-quarantine{background:rgba(124,58,237,0.15);color:#a78bfa;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.lot-status-recalled{background:rgba(239,68,68,0.22);color:#ff6b6b;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;letter-spacing:0.3px}
+.expiry-pill{display:inline-flex;align-items:center;padding:2px 9px;border-radius:12px;font-size:10px;font-weight:600}
+.expiry-ok{background:rgba(61,186,127,0.1);color:var(--accent)}
+.expiry-soon{background:rgba(245,158,11,0.15);color:var(--warn)}
+.expiry-urgent{background:rgba(239,68,68,0.15);color:var(--danger)}
+.expiry-expired{background:rgba(239,68,68,0.22);color:#ff4444;font-weight:700}
+.expiry-none{background:rgba(136,136,136,0.08);color:var(--muted)}
+.lot-kpi-row{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:20px}
+.lot-alert-bar{display:flex;align-items:center;justify-content:space-between;background:rgba(239,68,68,0.07);border:1px solid rgba(239,68,68,0.2);border-radius:10px;padding:12px 18px;margin-bottom:16px;gap:16px;flex-wrap:wrap}
+.lot-alert-bar-txt{font-size:13px;font-weight:600;color:var(--danger)}
+.lot-alert-bar-sub{font-size:11px;color:var(--muted);margin-top:2px}
+@media(max-width:1200px){.lot-kpi-row{grid-template-columns:repeat(3,1fr)}}
+@media(max-width:900px){.lot-kpi-row{grid-template-columns:1fr 1fr}}
 
 /* FORECASTING TAB */
 .fc-sub-tabs{display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0}
@@ -1042,6 +1061,7 @@ td{padding:12px 16px;vertical-align:middle}
       <!-- Sub-tabs -->
       <div class="inv-sub-tabs">
         <div class="inv-sub-tab active" onclick="showInvTab('products',this)">Products</div>
+        <div class="inv-sub-tab" onclick="showInvTab('lots',this)">🏷 Lots &amp; Batches</div>
         <div class="inv-sub-tab" onclick="showInvTab('analytics',this)">📊 Analytics &amp; Predictions</div>
       </div>
 
@@ -1084,6 +1104,65 @@ td{padding:12px 16px;vertical-align:middle}
               <th>Price / Unit</th><th>In Stock</th><th>Avg Yield</th><th>Status</th><th></th>
             </tr></thead>
             <tbody id="inventoryTable">
+              <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- PANE: Lots & Batches -->
+      <div class="inv-sub-pane" id="inv-pane-lots">
+        <!-- KPI row -->
+        <div class="lot-kpi-row" id="lotKpiRow">
+          <div class="kpi-card skeleton" style="height:96px"></div>
+          <div class="kpi-card skeleton" style="height:96px"></div>
+          <div class="kpi-card skeleton" style="height:96px"></div>
+          <div class="kpi-card skeleton" style="height:96px"></div>
+          <div class="kpi-card skeleton" style="height:96px"></div>
+        </div>
+        <!-- Expiry alert bar -->
+        <div class="lot-alert-bar" id="lotAlertBar" style="display:none">
+          <div>
+            <div class="lot-alert-bar-txt">⚠ Expiry / Recall alert</div>
+            <div class="lot-alert-bar-sub" id="lotAlertBarSub"></div>
+          </div>
+          <button class="btn btn-outline" style="border-color:var(--danger);color:var(--danger);white-space:nowrap;font-size:12px" onclick="exportExpiryReport()">⬇ Export CSV Report</button>
+        </div>
+        <!-- Controls -->
+        <div class="section-header" style="margin-bottom:14px">
+          <div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center">
+            <input class="search-input" id="lotSearch" placeholder="Search lot #, product, supplier…" oninput="renderLots()" style="width:240px"/>
+            <select class="filter-select" id="lotProductFilter" onchange="renderLots()">
+              <option value="">All Products</option>
+            </select>
+            <select class="filter-select" id="lotStatusFilter" onchange="renderLots()">
+              <option value="">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="expiring">Expiring Soon</option>
+              <option value="expired">Expired</option>
+              <option value="quarantine">Quarantine</option>
+              <option value="recalled">Recalled</option>
+              <option value="depleted">Depleted</option>
+            </select>
+            <select class="filter-select" id="lotExpiryFilter" onchange="renderLots()">
+              <option value="">All Dates</option>
+              <option value="7">Expiring ≤ 7 days</option>
+              <option value="30">Expiring ≤ 30 days</option>
+              <option value="90">Expiring ≤ 90 days</option>
+              <option value="overdue">Expired / Overdue</option>
+            </select>
+          </div>
+          <button class="btn btn-accent" onclick="openAddLotModal()">+ Add Lot</button>
+        </div>
+        <!-- Table -->
+        <div class="table-card">
+          <table>
+            <thead><tr>
+              <th>Lot # / Batch</th><th>Product</th><th>Supplier / Origin</th>
+              <th>Received</th><th>Expiry Date</th><th>Qty On Hand</th>
+              <th>Status</th><th></th>
+            </tr></thead>
+            <tbody id="lotsTable">
               <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr>
             </tbody>
           </table>
@@ -1643,6 +1722,110 @@ td{padding:12px 16px;vertical-align:middle}
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeYieldModal()">Cancel</button>
       <button class="btn btn-accent" onclick="submitYield()">Save Yield Entry</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD / EDIT LOT MODAL -->
+<div class="modal-overlay" id="lotModal">
+  <div class="modal-box" style="width:600px;max-height:90vh;overflow-y:auto">
+    <h3 id="lotModalTitle">Add Lot / Batch</h3>
+    <p class="modal-sub">Track received inventory by lot for full traceability, expiry management, and regulatory compliance.</p>
+    <input type="hidden" id="lotEditId"/>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px">
+      <div>
+        <label class="modal-label">Product *</label>
+        <select class="modal-input" id="lotProduct" style="cursor:pointer">
+          <option value="">— Select product —</option>
+        </select>
+      </div>
+      <div>
+        <label class="modal-label">Lot Number *</label>
+        <input class="modal-input" id="lotNumber" placeholder="e.g. LOT-2026-001"/>
+      </div>
+      <div>
+        <label class="modal-label">Batch Number</label>
+        <input class="modal-input" id="lotBatch" placeholder="e.g. BATCH-A1"/>
+      </div>
+      <div>
+        <label class="modal-label">Supplier</label>
+        <input class="modal-input" id="lotSupplier" placeholder="e.g. Gulf Coast Seafood Co."/>
+      </div>
+      <div>
+        <label class="modal-label">Country of Origin</label>
+        <input class="modal-input" id="lotOrigin" placeholder="e.g. USA, Norway, Chile"/>
+      </div>
+      <div>
+        <label class="modal-label">Certifications</label>
+        <input class="modal-input" id="lotCerts" placeholder="e.g. MSC, ASC, Kosher, FDA"/>
+      </div>
+      <div>
+        <label class="modal-label">Received Date *</label>
+        <input class="modal-input" id="lotReceived" type="date"/>
+      </div>
+      <div>
+        <label class="modal-label">Expiry Date</label>
+        <input class="modal-input" id="lotExpiry" type="date"/>
+      </div>
+      <div>
+        <label class="modal-label">Best Before Date</label>
+        <input class="modal-input" id="lotBestBefore" type="date"/>
+      </div>
+      <div>
+        <label class="modal-label">Storage Temp</label>
+        <input class="modal-input" id="lotTemp" placeholder="e.g. 34–38°F / 1–3°C"/>
+      </div>
+      <div>
+        <label class="modal-label">Qty Received *</label>
+        <input class="modal-input" id="lotQtyReceived" type="number" min="0.01" step="0.01" placeholder="0"/>
+      </div>
+      <div>
+        <label class="modal-label">Cost / Unit ($)</label>
+        <input class="modal-input" id="lotCost" type="number" min="0" step="0.01" placeholder="0.00"/>
+      </div>
+    </div>
+    <label class="modal-label" style="margin-top:4px">Status</label>
+    <select class="modal-input" id="lotStatus" style="cursor:pointer">
+      <option value="active">Active</option>
+      <option value="quarantine">Quarantine — hold pending QC</option>
+      <option value="recalled">Recalled — remove from use</option>
+      <option value="depleted">Depleted — manually mark empty</option>
+    </select>
+    <label class="modal-label">Notes / QC / Traceability</label>
+    <textarea class="modal-input" id="lotNotes" rows="2" placeholder="e.g. Farm-raised Atlantic salmon, cleared for release by QC on receipt…" style="resize:vertical;font-family:inherit"></textarea>
+    <div class="modal-result" id="lotResult"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeLotModal()">Cancel</button>
+      <button class="btn btn-accent" id="lotSubmitBtn" onclick="submitLot()">Add Lot</button>
+    </div>
+  </div>
+</div>
+
+<!-- DEPLETE LOT MODAL -->
+<div class="modal-overlay" id="depleteLotModal">
+  <div class="modal-box" style="width:400px">
+    <h3>Deplete Lot</h3>
+    <p class="modal-sub" id="depleteLotName" style="color:var(--text);font-weight:600;font-size:14px"></p>
+    <input type="hidden" id="depleteLotId"/>
+    <div style="font-size:12px;color:var(--muted);background:rgba(255,255,255,0.03);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:14px">
+      Lot #: <span id="depleteLotNum" style="color:var(--text);font-weight:600"></span>
+      &nbsp;·&nbsp; On Hand: <span id="depleteLotQty" style="color:var(--accent);font-weight:600"></span>
+    </div>
+    <label class="modal-label">Qty to Remove *</label>
+    <input class="modal-input" id="depleteQty" type="number" min="0.01" step="0.01" placeholder="e.g. 10"/>
+    <label class="modal-label">Reason</label>
+    <select class="modal-input" id="depleteReason" style="cursor:pointer">
+      <option value="sale">Sale / Shipment</option>
+      <option value="depletion">Internal Use / Production</option>
+      <option value="waste">Waste / Spoilage</option>
+      <option value="adjustment">Correction / Adjustment</option>
+    </select>
+    <label class="modal-label">Notes (optional)</label>
+    <input class="modal-input" id="depleteNotes" placeholder="e.g. Shipped to Husk Restaurant"/>
+    <div class="modal-result" id="depleteResult"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeDepleteLotModal()">Cancel</button>
+      <button class="btn btn-accent" onclick="submitDepleteLot()">Confirm Depletion</button>
     </div>
   </div>
 </div>
@@ -3929,6 +4112,8 @@ async function submitRestock() {
 document.getElementById('inventoryModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeInventoryModal(); });
 document.getElementById('restockModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeRestockModal(); });
 document.getElementById('yieldModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeYieldModal(); });
+document.getElementById('lotModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeLotModal(); });
+document.getElementById('depleteLotModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDepleteLotModal(); });
 
 // ── INVENTORY SUB-TABS ─────────────────────────────────
 function showInvTab(name, el) {
@@ -3937,6 +4122,7 @@ function showInvTab(name, el) {
   if (el) el.classList.add('active');
   document.getElementById('inv-pane-' + name)?.classList.add('active');
   if (name === 'analytics') fetchInventoryAnalytics();
+  if (name === 'lots') fetchLots();
 }
 
 // ── YIELD MODAL ────────────────────────────────────────
@@ -3997,6 +4183,347 @@ async function submitYield() {
     renderInventory();
     setTimeout(closeYieldModal, 1800);
   } catch(e) { r.className = 'modal-result error'; r.textContent = e.message; }
+}
+
+// ── LOT / BATCH & EXPIRY TRACKING ─────────────────────
+let allLots = [];
+
+function lotDaysUntilExpiry(lot) {
+  if (!lot.expiry_date) return null;
+  const now = new Date(); now.setHours(0,0,0,0);
+  return Math.round((new Date(lot.expiry_date + 'T00:00:00') - now) / 86400000);
+}
+
+function lotExpiryPill(lot) {
+  const d = lotDaysUntilExpiry(lot);
+  if (d === null)  return `<span class="expiry-pill expiry-none">No expiry set</span>`;
+  if (d < 0)       return `<span class="expiry-pill expiry-expired">Expired ${Math.abs(d)}d ago</span>`;
+  if (d === 0)     return `<span class="expiry-pill expiry-urgent">Expires today!</span>`;
+  if (d <= 7)      return `<span class="expiry-pill expiry-urgent">${d}d left</span>`;
+  if (d <= 30)     return `<span class="expiry-pill expiry-soon">${d}d left</span>`;
+  return `<span class="expiry-pill expiry-ok">${d}d left</span>`;
+}
+
+function lotStatusBadge(lot) {
+  const d = lotDaysUntilExpiry(lot);
+  if (lot.status === 'active' && d !== null && d >= 0 && d <= 30)
+    return `<span class="lot-status-expiring">Expiring Soon</span>`;
+  const cfg = {
+    active:     ['lot-status-active',     'Active'],
+    depleted:   ['lot-status-depleted',   'Depleted'],
+    expired:    ['lot-status-expired',    'Expired'],
+    quarantine: ['lot-status-quarantine', 'Quarantine'],
+    recalled:   ['lot-status-recalled',   'RECALLED'],
+  };
+  const [cls, label] = cfg[lot.status] || ['lot-status-depleted', lot.status];
+  return `<span class="${cls}">${label}</span>`;
+}
+
+async function fetchLots() {
+  try {
+    const r = await fetch(`${API}/inventory/lots`, authHeaders);
+    if (!r.ok) return;
+    allLots = await r.json();
+    renderLots();
+    renderLotKPIs();
+    populateLotProductFilter();
+  } catch(e) { console.error('Lots fetch error:', e); }
+}
+
+function getLotFiltered() {
+  const q    = (document.getElementById('lotSearch')?.value || '').toLowerCase();
+  const prod = document.getElementById('lotProductFilter')?.value || '';
+  const st   = document.getElementById('lotStatusFilter')?.value || '';
+  const exp  = document.getElementById('lotExpiryFilter')?.value || '';
+  return allLots.filter(lot => {
+    const matchQ = !q
+      || (lot.lot_number||'').toLowerCase().includes(q)
+      || (lot.batch_number||'').toLowerCase().includes(q)
+      || (lot.item_description||'').toLowerCase().includes(q)
+      || (lot.supplier_name||'').toLowerCase().includes(q)
+      || (lot.item_number||'').toLowerCase().includes(q);
+    const matchProd = !prod || lot.item_number === prod;
+    const d = lotDaysUntilExpiry(lot);
+    let matchSt = true;
+    if (st === 'expiring') matchSt = lot.status === 'active' && d !== null && d >= 0 && d <= 30;
+    else if (st)           matchSt = lot.status === st;
+    let matchExp = true;
+    if (exp === 'overdue') matchExp = d !== null && d < 0;
+    else if (exp)          matchExp = d !== null && d >= 0 && d <= parseInt(exp);
+    return matchQ && matchProd && matchSt && matchExp;
+  });
+}
+
+function renderLots() {
+  const filtered = getLotFiltered();
+  const tbody = document.getElementById('lotsTable');
+  if (!tbody) return;
+  if (!filtered.length) {
+    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--muted)">
+      ${allLots.length ? 'No lots match your filters.' : 'No lots yet. Click <strong>+ Add Lot</strong> to begin tracking.'}
+    </td></tr>`;
+    return;
+  }
+  filtered.sort((a, b) => {
+    const pri = l => {
+      if (l.status === 'recalled') return 0;
+      const d = lotDaysUntilExpiry(l);
+      if (d !== null && d < 0) return 1;
+      if (l.status === 'quarantine') return 2;
+      if (l.status === 'active' && d !== null && d <= 7) return 3;
+      if (l.status === 'active' && d !== null && d <= 30) return 4;
+      if (l.status === 'active') return 5;
+      return 6;
+    };
+    return pri(a) - pri(b) || (a.expiry_date||'9999').localeCompare(b.expiry_date||'9999');
+  });
+  const isManager = nrUser && (nrUser.role === 'admin' || nrUser.role === 'manager');
+  const fmt = d => d ? new Date(d + 'T00:00:00').toLocaleDateString('en-US',{month:'short',day:'numeric',year:'2-digit'}) : '—';
+  tbody.innerHTML = filtered.map(lot => {
+    const safeId  = (lot.id||'').replace(/'/g,"\\'");
+    const safeLot = (lot.lot_number||'').replace(/'/g,"\\'");
+    const safeDesc = (lot.item_description||lot.item_number||'').replace(/'/g,"\\'");
+    const batchLine = lot.batch_number ? `<div style="font-size:10px;color:var(--muted);margin-top:2px">Batch: ${lot.batch_number}</div>` : '';
+    const originLine = lot.country_of_origin ? `<div style="font-size:10px;color:var(--muted);margin-top:1px">${lot.country_of_origin}</div>` : '';
+    const certLine   = lot.certifications    ? `<div style="font-size:10px;color:#a78bfa;margin-top:1px">${lot.certifications}</div>` : '';
+    const canDeplete = isManager && lot.status !== 'depleted' && lot.status !== 'recalled' && (lot.qty_on_hand||0) > 0;
+    const actions = isManager ? `
+      <div style="display:flex;gap:5px;white-space:nowrap">
+        ${canDeplete ? `<button class="user-action-btn" onclick="openDepleteLotModal('${safeId}','${safeLot}','${safeDesc}',${lot.qty_on_hand||0})">− Qty</button>` : ''}
+        <button class="user-action-btn" onclick="openEditLotModal('${safeId}')">Edit</button>
+        <button class="user-action-btn danger" onclick="deleteLot('${safeId}','${safeLot}')">×</button>
+      </div>` : '—';
+    return `<tr>
+      <td><strong style="font-size:13px">${lot.lot_number||'—'}</strong>${batchLine}</td>
+      <td><strong>${lot.item_description||lot.item_number||'—'}</strong><div style="font-size:10px;color:var(--muted)">#${lot.item_number||'—'}</div></td>
+      <td style="font-size:12px;color:var(--muted)">${lot.supplier_name||'—'}${originLine}${certLine}</td>
+      <td style="font-size:12px;color:var(--muted)">${fmt(lot.received_date)}</td>
+      <td>${lot.expiry_date ? `<div style="font-size:12px">${fmt(lot.expiry_date)}</div>` : ''}<div style="margin-top:2px">${lotExpiryPill(lot)}</div></td>
+      <td style="font-weight:600">${lot.qty_on_hand != null ? lot.qty_on_hand : '—'}</td>
+      <td>${lotStatusBadge(lot)}</td>
+      <td>${actions}</td>
+    </tr>`;
+  }).join('');
+}
+
+function renderLotKPIs() {
+  const active     = allLots.filter(l => l.status === 'active').length;
+  const exp7       = allLots.filter(l => { const d=lotDaysUntilExpiry(l); return l.status==='active'&&d!==null&&d>=0&&d<=7; }).length;
+  const exp30      = allLots.filter(l => { const d=lotDaysUntilExpiry(l); return l.status==='active'&&d!==null&&d>=0&&d<=30; }).length;
+  const expired    = allLots.filter(l => { const d=lotDaysUntilExpiry(l); return l.status==='expired'||(l.status==='active'&&d!==null&&d<0); }).length;
+  const recalled   = allLots.filter(l => l.status==='recalled').length;
+  const quarantine = allLots.filter(l => l.status==='quarantine').length;
+  const totalVal   = allLots.filter(l=>l.status==='active').reduce((s,l)=>s+(parseFloat(l.qty_on_hand)||0)*(parseFloat(l.cost_per_unit)||0),0);
+  const el = document.getElementById('lotKpiRow');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="kpi-card">
+      <div class="kpi-label">Active Lots</div>
+      <div class="kpi-value">${active}</div>
+      <div class="kpi-trend"><span class="trend-neutral">${allLots.length} total tracked</span></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Expiring ≤ 7 Days</div>
+      <div class="kpi-value ${exp7>0?'red':'green'}">${exp7}</div>
+      <div class="kpi-trend"><span class="${exp7>0?'trend-down':'trend-up'}">${exp7>0?'⚠ Act now':'✓ Clear'}</span></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Expiring ≤ 30 Days</div>
+      <div class="kpi-value ${exp30>0?'amber':'green'}">${exp30}</div>
+      <div class="kpi-trend"><span class="${exp30>0?'trend-down':'trend-up'}">${exp30>0?'Plan ahead':'✓ Clear'}</span></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Expired / Recalled</div>
+      <div class="kpi-value ${expired+recalled>0?'red':'green'}">${expired+recalled}</div>
+      <div class="kpi-trend"><span class="${expired+recalled>0?'trend-down':'trend-up'}">${expired+recalled>0?[recalled>0?recalled+' recalled':'',expired>0?expired+' expired':''].filter(Boolean).join(' · '):'✓ None'}</span></div>
+    </div>
+    <div class="kpi-card">
+      <div class="kpi-label">Active Lot Value</div>
+      <div class="kpi-value green" style="font-size:21px">$${totalVal.toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2})}</div>
+      <div class="kpi-trend"><span class="trend-neutral">${quarantine>0?`⚠ ${quarantine} in quarantine`:'Active lots only'}</span></div>
+    </div>`;
+  const alertBar = document.getElementById('lotAlertBar');
+  const alertSub = document.getElementById('lotAlertBarSub');
+  if (alertBar) {
+    if (expired>0||exp7>0||recalled>0) {
+      alertBar.style.display = 'flex';
+      const parts=[];
+      if (recalled>0) parts.push(`${recalled} recalled`);
+      if (expired>0)  parts.push(`${expired} expired`);
+      if (exp7>0)     parts.push(`${exp7} expiring in ≤7 days`);
+      if (alertSub) alertSub.textContent = parts.join(' · ');
+    } else { alertBar.style.display = 'none'; }
+  }
+}
+
+function populateLotProductFilter() {
+  const sel = document.getElementById('lotProductFilter');
+  if (!sel) return;
+  const cur = sel.value;
+  const prods = [...new Map(allLots.map(l=>[l.item_number,{item_number:l.item_number,desc:l.item_description||l.item_number}])).values()];
+  sel.innerHTML = '<option value="">All Products</option>' + prods.map(p=>`<option value="${p.item_number}"${p.item_number===cur?' selected':''}>${p.desc}</option>`).join('');
+}
+
+function openAddLotModal() {
+  document.getElementById('lotEditId').value = '';
+  document.getElementById('lotModalTitle').textContent = 'Add Lot / Batch';
+  document.getElementById('lotSubmitBtn').textContent = 'Add Lot';
+  ['lotNumber','lotBatch','lotSupplier','lotOrigin','lotCerts','lotTemp','lotNotes'].forEach(id=>{const e=document.getElementById(id);if(e)e.value='';});
+  document.getElementById('lotQtyReceived').value = '';
+  document.getElementById('lotCost').value = '';
+  document.getElementById('lotReceived').value = new Date().toISOString().split('T')[0];
+  document.getElementById('lotExpiry').value = '';
+  document.getElementById('lotBestBefore').value = '';
+  document.getElementById('lotStatus').value = 'active';
+  document.getElementById('lotResult').className = 'modal-result';
+  document.getElementById('lotResult').textContent = '';
+  const sel = document.getElementById('lotProduct');
+  sel.innerHTML = '<option value="">— Select product —</option>' + allInventory.map(i=>`<option value="${i.item_number}">${i.description} (#${i.item_number})</option>`).join('');
+  document.getElementById('lotModal').classList.add('open');
+}
+
+function openEditLotModal(lotId) {
+  const lot = allLots.find(l=>l.id===lotId);
+  if (!lot) return;
+  document.getElementById('lotEditId').value = lotId;
+  document.getElementById('lotModalTitle').textContent = 'Edit Lot';
+  document.getElementById('lotSubmitBtn').textContent = 'Save Changes';
+  document.getElementById('lotNumber').value     = lot.lot_number        || '';
+  document.getElementById('lotBatch').value      = lot.batch_number      || '';
+  document.getElementById('lotSupplier').value   = lot.supplier_name     || '';
+  document.getElementById('lotOrigin').value     = lot.country_of_origin || '';
+  document.getElementById('lotCerts').value      = lot.certifications    || '';
+  document.getElementById('lotTemp').value       = lot.storage_temp      || '';
+  document.getElementById('lotReceived').value   = lot.received_date     || '';
+  document.getElementById('lotExpiry').value     = lot.expiry_date       || '';
+  document.getElementById('lotBestBefore').value = lot.best_before_date  || '';
+  document.getElementById('lotQtyReceived').value = lot.qty_received     || '';
+  document.getElementById('lotCost').value       = lot.cost_per_unit     || '';
+  document.getElementById('lotStatus').value     = lot.status            || 'active';
+  document.getElementById('lotNotes').value      = lot.notes             || '';
+  document.getElementById('lotResult').className = 'modal-result';
+  document.getElementById('lotResult').textContent = '';
+  const sel = document.getElementById('lotProduct');
+  sel.innerHTML = '<option value="">— Select product —</option>' + allInventory.map(i=>`<option value="${i.item_number}"${i.item_number===lot.item_number?' selected':''}>${i.description} (#${i.item_number})</option>`).join('');
+  document.getElementById('lotModal').classList.add('open');
+}
+
+function closeLotModal() { document.getElementById('lotModal').classList.remove('open'); }
+
+async function submitLot() {
+  const editId    = document.getElementById('lotEditId').value;
+  const lotNumber = document.getElementById('lotNumber').value.trim();
+  const itemNumber = document.getElementById('lotProduct').value;
+  const r = document.getElementById('lotResult');
+  if (!lotNumber)  { r.className='modal-result error'; r.textContent='Lot number is required.'; return; }
+  if (!itemNumber) { r.className='modal-result error'; r.textContent='Please select a product.'; return; }
+  const qty = parseFloat(document.getElementById('lotQtyReceived').value)||0;
+  if (!editId && qty<=0) { r.className='modal-result error'; r.textContent='Qty received must be > 0.'; return; }
+  const payload = {
+    item_number:       itemNumber,
+    lot_number:        lotNumber,
+    batch_number:      document.getElementById('lotBatch').value.trim()||null,
+    supplier_name:     document.getElementById('lotSupplier').value.trim()||null,
+    country_of_origin: document.getElementById('lotOrigin').value.trim()||null,
+    certifications:    document.getElementById('lotCerts').value.trim()||null,
+    storage_temp:      document.getElementById('lotTemp').value.trim()||null,
+    received_date:     document.getElementById('lotReceived').value||new Date().toISOString().split('T')[0],
+    expiry_date:       document.getElementById('lotExpiry').value||null,
+    best_before_date:  document.getElementById('lotBestBefore').value||null,
+    qty_received:      qty,
+    cost_per_unit:     parseFloat(document.getElementById('lotCost').value)||0,
+    status:            document.getElementById('lotStatus').value,
+    notes:             document.getElementById('lotNotes').value.trim()||null,
+  };
+  try {
+    const url    = editId ? `${API}/inventory/lots/${editId}` : `${API}/inventory/lots`;
+    const method = editId ? 'PATCH' : 'POST';
+    const res  = await fetch(url,{method,headers:{'Content-Type':'application/json',...authHeaders.headers},body:JSON.stringify(payload)});
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error||'Request failed');
+    if (editId) { const idx=allLots.findIndex(l=>l.id===editId); if(idx>-1) allLots[idx]=data; }
+    else allLots.unshift(data);
+    // If new lot, also update master inventory qty in cache
+    if (!editId) {
+      const pidx = allInventory.findIndex(i=>i.item_number===itemNumber);
+      if (pidx>-1) allInventory[pidx].on_hand_qty = (parseFloat(allInventory[pidx].on_hand_qty)||0) + qty;
+      renderInventory(); renderInventoryKPIs();
+    }
+    renderLots(); renderLotKPIs(); populateLotProductFilter();
+    closeLotModal();
+  } catch(e) { r.className='modal-result error'; r.textContent=e.message; }
+}
+
+function openDepleteLotModal(lotId, lotNumber, productName, qtyOnHand) {
+  document.getElementById('depleteLotId').value   = lotId;
+  document.getElementById('depleteLotName').textContent = productName;
+  document.getElementById('depleteLotNum').textContent  = lotNumber;
+  document.getElementById('depleteLotQty').textContent  = qtyOnHand;
+  document.getElementById('depleteQty').value     = '';
+  document.getElementById('depleteReason').value  = 'sale';
+  document.getElementById('depleteNotes').value   = '';
+  document.getElementById('depleteResult').className = 'modal-result';
+  document.getElementById('depleteResult').textContent = '';
+  document.getElementById('depleteLotModal').classList.add('open');
+}
+
+function closeDepleteLotModal() { document.getElementById('depleteLotModal').classList.remove('open'); }
+
+async function submitDepleteLot() {
+  const lotId = document.getElementById('depleteLotId').value;
+  const qty   = parseFloat(document.getElementById('depleteQty').value);
+  const r     = document.getElementById('depleteResult');
+  if (!qty || qty<=0) { r.className='modal-result error'; r.textContent='Enter a quantity > 0.'; return; }
+  const lot = allLots.find(l=>l.id===lotId);
+  if (lot && qty>(lot.qty_on_hand||0)) { r.className='modal-result error'; r.textContent=`Cannot exceed on-hand qty (${lot.qty_on_hand}).`; return; }
+  try {
+    const res = await fetch(`${API}/inventory/lots/${lotId}/deplete`,{
+      method:'POST',
+      headers:{'Content-Type':'application/json',...authHeaders.headers},
+      body:JSON.stringify({qty,change_type:document.getElementById('depleteReason').value,notes:document.getElementById('depleteNotes').value.trim()||null}),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error);
+    const idx = allLots.findIndex(l=>l.id===lotId);
+    if (idx>-1) allLots[idx] = data.lot;
+    if (data.product) {
+      const pidx = allInventory.findIndex(i=>i.item_number===data.product.item_number);
+      if (pidx>-1) allInventory[pidx] = data.product;
+      renderInventory(); renderInventoryKPIs();
+    }
+    renderLots(); renderLotKPIs();
+    closeDepleteLotModal();
+  } catch(e) { r.className='modal-result error'; r.textContent=e.message; }
+}
+
+async function deleteLot(lotId, lotNumber) {
+  if (!confirm(`Delete lot "${lotNumber}"? This cannot be undone.`)) return;
+  try {
+    const r = await fetch(`${API}/inventory/lots/${lotId}`,{method:'DELETE',...authHeaders});
+    if (!r.ok) throw new Error((await r.json()).error);
+    allLots = allLots.filter(l=>l.id!==lotId);
+    renderLots(); renderLotKPIs(); populateLotProductFilter();
+  } catch(e) { alert('Delete failed: '+e.message); }
+}
+
+function exportExpiryReport() {
+  const rows = allLots.filter(l=>l.status!=='depleted')
+    .sort((a,b)=>(a.expiry_date||'9999').localeCompare(b.expiry_date||'9999'));
+  const header = 'Lot #,Batch,Product,Item #,Supplier,Country of Origin,Certifications,Received,Expiry,Best Before,Qty On Hand,Cost/Unit,Status,Days Until Expiry\n';
+  const csv = header + rows.map(l=>{
+    const d = lotDaysUntilExpiry(l);
+    return [
+      l.lot_number,l.batch_number||'',l.item_description||l.item_number,l.item_number,
+      l.supplier_name||'',l.country_of_origin||'',l.certifications||'',
+      l.received_date||'',l.expiry_date||'',l.best_before_date||'',
+      l.qty_on_hand,l.cost_per_unit||0,l.status,d!==null?d:'N/A'
+    ].map(v=>`"${String(v||'').replace(/"/g,'""')}"`).join(',');
+  }).join('\n');
+  const a = Object.assign(document.createElement('a'),{
+    href: URL.createObjectURL(new Blob([csv],{type:'text/csv'})),
+    download: `lot-expiry-report-${new Date().toISOString().split('T')[0]}.csv`,
+  });
+  a.click(); URL.revokeObjectURL(a.href);
 }
 
 // ── INVENTORY ANALYTICS ────────────────────────────────
