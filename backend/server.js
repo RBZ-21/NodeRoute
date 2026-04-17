@@ -61,7 +61,7 @@ async function ensureAdminExists() {
   }
 }
 
-ensureAdminExists();
+ensureAdminExists().catch(err => console.error('ensureAdminExists failed:', err.message));
 
 if (!process.env.BASE_URL) {
   console.warn('WARNING: BASE_URL is not set — invite links will use http://localhost and will NOT work in production. Set BASE_URL to your public domain (e.g. https://yourapp.railway.app).');
