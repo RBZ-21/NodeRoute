@@ -102,7 +102,7 @@ router.get('/invoices/:id/pdf', authenticatePortalToken, async (req, res) => {
 router.get('/contact', authenticatePortalToken, async (req, res) => {
   const { data: saved } = await supabase
     .from('portal_contacts')
-    .select('*')
+    .select('email, name, phone, address, company, door_code, updated_at')
     .eq('email', req.customerEmail)
     .single();
 
@@ -140,6 +140,41 @@ router.patch('/contact', authenticatePortalToken, async (req, res) => {
     }], { onConflict: 'email' });
   if (error) return res.status(500).json({ error: error.message });
   res.json({ message: 'Contact information saved' });
+});
+
+// PATCH /api/portal/doorcode — customer saves their door/access code
+router.patch('/doorcode', authenticatePortalToken, async (req, res) => {
+  const { door_code } = req.body;
+  const code = (door_code || '').trim() || null;
+
+  // Update portal_contacts — preserve existing fields
+  const { data: existing } = await supabase
+    .from('portal_contacts')
+    .select('*')
+    .eq('email', req.customerEmail)
+    .single();
+
+  if (existing) {
+    await supabase
+      .from('portal_contacts')
+      .update({ door_code: code, updated_at: new Date().toISOString() })
+      .eq('email', req.customerEmail);
+  } else {
+    await supabase
+      .from('portal_contacts')
+      .insert([{ email: req.customerEmail, name: req.customerName, door_code: code, updated_at: new Date().toISOString() }]);
+  }
+
+  // Best-effort: sync to matching stop row by name
+  const lookupName = (existing && existing.name) || req.customerName;
+  if (lookupName) {
+    await supabase
+      .from('stops')
+      .update({ door_code: code })
+      .ilike('name', lookupName);
+  }
+
+  res.json({ message: 'Door code saved' });
 });
 
 // GET /api/portal/inventory — in-stock seafood items, newest first

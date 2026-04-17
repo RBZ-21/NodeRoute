@@ -293,6 +293,11 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
             <label class="form-label">Delivery Address</label>
             <input id="cfAddress" class="form-input" type="text" placeholder="123 Main St, City, ST 00000"/>
           </div>
+          <div class="form-group full">
+            <label class="form-label">🔑 Door / Access Code</label>
+            <input id="cfDoorCode" class="form-input" type="text" placeholder="e.g. 4281 or #1234" autocomplete="off"/>
+            <span style="font-size:11px;color:var(--muted);margin-top:4px;display:block">This code is shared with your driver so they can access your building.</span>
+          </div>
         </div>
         <div class="form-save-row">
           <button class="btn-sm btn-primary" onclick="saveContact()">Save Changes</button>
@@ -545,16 +550,18 @@ async function loadContact() {
     const res  = await fetch(API + '/contact', ah());
     if (res.status === 401) { doLogout(); return; }
     const data = await res.json();
-    document.getElementById('cfName').value    = data.name    || '';
-    document.getElementById('cfPhone').value   = data.phone   || '';
-    document.getElementById('cfEmail').value   = data.email   || '';
-    document.getElementById('cfCompany').value = data.company || '';
-    document.getElementById('cfAddress').value = data.address || '';
+    document.getElementById('cfName').value     = data.name      || '';
+    document.getElementById('cfPhone').value    = data.phone     || '';
+    document.getElementById('cfEmail').value    = data.email     || '';
+    document.getElementById('cfCompany').value  = data.company   || '';
+    document.getElementById('cfAddress').value  = data.address   || '';
+    document.getElementById('cfDoorCode').value = data.door_code || '';
   } catch { /* leave blank */ }
 }
 
 async function saveContact() {
-  const payload = {
+  const doorCode = document.getElementById('cfDoorCode').value.trim();
+  const payload  = {
     name:    document.getElementById('cfName').value.trim(),
     phone:   document.getElementById('cfPhone').value.trim(),
     company: document.getElementById('cfCompany').value.trim(),
@@ -563,10 +570,14 @@ async function saveContact() {
   document.getElementById('cfSuccess').classList.remove('show');
   document.getElementById('cfError').classList.remove('show');
   try {
-    const res  = await fetch(API + '/contact', { method: 'PATCH', ...ah(), body: JSON.stringify(payload) });
-    const data = await res.json();
-    if (!res.ok) {
-      document.getElementById('cfError').textContent = data.error || 'Could not save.';
+    // Save contact info and door code in parallel
+    const [res1, res2] = await Promise.all([
+      fetch(API + '/contact',  { method: 'PATCH', ...ah(), body: JSON.stringify(payload) }),
+      fetch(API + '/doorcode', { method: 'PATCH', ...ah(), body: JSON.stringify({ door_code: doorCode }) }),
+    ]);
+    const d1 = await res1.json();
+    if (!res1.ok) {
+      document.getElementById('cfError').textContent = d1.error || 'Could not save.';
       document.getElementById('cfError').classList.add('show');
     } else {
       document.getElementById('cfSuccess').classList.add('show');
