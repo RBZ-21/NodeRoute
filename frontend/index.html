@@ -3374,16 +3374,19 @@ async function submitUserInvite() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     r.className = 'modal-result success';
-    const emailNote = data.emailSent ? ' Email delivered.' : data.emailError ? ` Email failed: ${data.emailError}` : ' No email server configured — share the link manually.';
-    r.innerHTML = `Invite sent for <strong>${name}</strong> as <strong>${role}</strong>!${emailNote}`;
+    const emailNote = data.emailSent ? ' Email delivered.' : data.emailError ? ` Email failed: ${data.emailError}` : ' No email server configured.';
+    const linkHtml = !data.emailSent ? `<br><small style="word-break:break-all">Copy invite link: <a href="${data.inviteUrl}" target="_blank" style="color:#3dba7f">${data.inviteUrl}</a></small>` : '';
+    r.innerHTML = `Invite sent for <strong>${name}</strong> as <strong>${role}</strong>!${emailNote}${linkHtml}`;
     document.getElementById('uiName').value = '';
     document.getElementById('uiEmail').value = '';
     await fetchUsers();
-    setTimeout(() => {
-      closeUserInviteModal();
-      const modal = document.getElementById('userInviteModal');
-      if (modal) modal.classList.remove('open');
-    }, 2000);
+    if (data.emailSent) {
+      setTimeout(() => {
+        closeUserInviteModal();
+        const modal = document.getElementById('userInviteModal');
+        if (modal) modal.classList.remove('open');
+      }, 2000);
+    }
   } catch(e) { r.className = 'modal-result error'; r.textContent = e.message || 'Failed to send invite.'; }
 }
 document.getElementById('userInviteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeUserInviteModal(); });
@@ -3584,14 +3587,17 @@ async function submitInvite() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
     r.className = 'modal-result success';
-    const emailNote = data.emailSent ? ' Email delivered.' : data.emailError ? ` Email failed: ${data.emailError}` : ' No email server configured — share the link manually.';
-    r.innerHTML = `Invite sent for <strong>${name}</strong>!${emailNote}`;
+    const emailNote = data.emailSent ? ' Email delivered.' : data.emailError ? ` Email failed: ${data.emailError}` : ' No email server configured.';
+    const linkHtml = !data.emailSent ? `<br><small style="word-break:break-all">Copy invite link: <a href="${data.inviteUrl}" target="_blank" style="color:#3dba7f">${data.inviteUrl}</a></small>` : '';
+    r.innerHTML = `Invite sent for <strong>${name}</strong>!${emailNote}${linkHtml}`;
     document.getElementById('inviteName').value = '';
     document.getElementById('inviteEmail').value = '';
-    setTimeout(() => {
-      closeInviteModal();
-      r.className = 'modal-result'; r.textContent = '';
-    }, 2500);
+    if (data.emailSent) {
+      setTimeout(() => {
+        closeInviteModal();
+        r.className = 'modal-result'; r.textContent = '';
+      }, 2500);
+    }
   } catch(e) { r.className = 'modal-result error'; r.textContent = e.message || 'Failed to send invite.'; }
 }
 document.getElementById('inviteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeInviteModal(); });
