@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Customer Portal — NodeRoute</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#050d2a;--surface:#0d1b3e;--border:#1a2f5e;
+  --accent:#3dba7f;--warn:#f59e0b;--danger:#ef4444;
+  --text:#ffffff;--muted:#8899bb;
+  --r:12px;--trans:0.2s ease all;
+}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+
+/* ── LOGIN ── */
+#loginScreen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+.login-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:40px 36px;width:100%;max-width:420px;text-align:center}
+.login-logo{font-size:22px;font-weight:800;color:var(--accent);letter-spacing:.5px;margin-bottom:6px}
+.login-logo span{color:var(--text)}
+.login-sub{color:var(--muted);font-size:14px;margin-bottom:32px}
+.login-label{display:block;text-align:left;font-size:13px;color:var(--muted);margin-bottom:6px}
+.login-input{width:100%;padding:12px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:'Inter',sans-serif;outline:none;transition:var(--trans);margin-bottom:16px}
+.login-input:focus{border-color:var(--accent)}
+.login-btn{width:100%;padding:13px;background:var(--accent);color:#050d2a;border:none;border-radius:8px;font-size:15px;font-weight:700;font-family:'Inter',sans-serif;cursor:pointer;transition:var(--trans)}
+.login-btn:hover{background:#34a870}
+.login-btn:disabled{opacity:0.6;cursor:not-allowed}
+.login-error{background:rgba(239,68,68,0.12);color:#fca5a5;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px;display:none;text-align:left}
+.login-error.show{display:block}
+
+/* ── PORTAL ── */
+#portal{display:none;flex-direction:column;min-height:100vh}
+.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.topbar-brand{font-size:17px;font-weight:800;color:var(--accent);letter-spacing:.5px}
+.topbar-brand span{color:var(--text)}
+.topbar-right{display:flex;align-items:center;gap:16px}
+.topbar-name{font-size:13px;color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.logout-btn{background:none;border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;cursor:pointer;transition:var(--trans)}
+.logout-btn:hover{border-color:var(--danger);color:var(--danger)}
+
+.portal-body{flex:1;padding:28px 24px;max-width:900px;margin:0 auto;width:100%}
+.welcome-row{margin-bottom:24px}
+.welcome-title{font-size:22px;font-weight:700;margin-bottom:4px}
+.welcome-sub{color:var(--muted);font-size:14px}
+
+/* ── TABS ── */
+.tabs{display:flex;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:4px;margin-bottom:24px;width:fit-content}
+.tab-btn{padding:8px 20px;border:none;border-radius:7px;font-size:13px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;color:var(--muted);background:transparent;transition:var(--trans)}
+.tab-btn.active{background:var(--accent);color:#050d2a}
+.tab-btn:not(.active):hover{color:var(--text)}
+
+/* ── STATS ROW ── */
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:16px;margin-bottom:28px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:18px 20px}
+.stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px}
+.stat-value{font-size:26px;font-weight:800;color:var(--text)}
+.stat-value.green{color:var(--accent)}
+
+/* ── CARDS ── */
+.section-title{font-size:15px;font-weight:600;margin-bottom:14px}
+.card-list{display:flex;flex-direction:column;gap:10px}
+.item-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px;transition:var(--trans)}
+.item-card:hover{border-color:rgba(61,186,127,0.3)}
+.item-header{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;flex-wrap:wrap;gap:8px}
+.item-number{font-weight:700;font-size:14px;color:var(--accent)}
+.item-date{font-size:12px;color:var(--muted)}
+.item-sub{font-size:13px;color:var(--muted);margin-bottom:8px;line-height:1.5}
+.item-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.item-total{font-size:15px;font-weight:700}
+.badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.badge-pending{background:rgba(245,158,11,0.12);color:var(--warn)}
+.badge-in_process{background:rgba(61,186,127,0.12);color:var(--accent)}
+.badge-invoiced,.badge-processed{background:rgba(136,153,187,0.12);color:var(--muted)}
+.badge-signed,.badge-sent{background:rgba(61,186,127,0.14);color:var(--accent)}
+.btn-sm{padding:6px 14px;border-radius:7px;font-size:12px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;border:none;transition:var(--trans)}
+.btn-outline{background:transparent;border:1px solid var(--border);color:var(--muted)}
+.btn-outline:hover{border-color:var(--accent);color:var(--accent)}
+.btn-primary{background:var(--accent);color:#050d2a}
+.btn-primary:hover{background:#34a870}
+
+/* ── EMPTY STATE ── */
+.empty{text-align:center;padding:60px 20px;color:var(--muted)}
+.empty-icon{font-size:44px;margin-bottom:14px}
+.empty h3{font-size:16px;color:var(--text);margin-bottom:6px}
+.empty p{font-size:14px}
+
+/* ── LOADING ── */
+.spinner{width:32px;height:32px;border:3px solid rgba(61,186,127,0.2);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:60px auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-wrap{text-align:center;padding:40px 0;color:var(--muted)}
+
+/* ── ITEMS LIST ── */
+.items-snippet{font-size:12px;color:var(--muted);line-height:1.7}
+.items-snippet span{display:inline-block;margin-right:10px}
+
+@media(max-width:600px){
+  .login-card{padding:28px 20px}
+  .portal-body{padding:20px 16px}
+  .tabs{width:100%}
+  .tab-btn{flex:1;text-align:center}
+}
+</style>
+</head>
+<body>
+
+<!-- LOGIN SCREEN -->
+<div id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo">NodeRoute <span>Systems</span></div>
+    <div class="login-sub">Customer Portal — enter your email to access your orders &amp; invoices</div>
+    <div id="loginError" class="login-error"></div>
+    <label class="login-label" for="emailInput">Email address</label>
+    <input id="emailInput" class="login-input" type="email" placeholder="you@restaurant.com" autocomplete="email"/>
+    <button id="loginBtn" class="login-btn" onclick="doLogin()">Access Portal</button>
+  </div>
+</div>
+
+<!-- PORTAL DASHBOARD -->
+<div id="portal">
+  <div class="topbar">
+    <div class="topbar-brand">NodeRoute <span>Portal</span></div>
+    <div class="topbar-right">
+      <div class="topbar-name" id="topbarName"></div>
+      <button class="logout-btn" onclick="doLogout()">Sign out</button>
+    </div>
+  </div>
+
+  <div class="portal-body">
+    <div class="welcome-row">
+      <div class="welcome-title" id="welcomeTitle">Welcome back</div>
+      <div class="welcome-sub">View your order history, invoices, and delivery status.</div>
+    </div>
+
+    <div class="stats-row" id="statsRow">
+      <div class="stat-card"><div class="stat-label">Total Orders</div><div class="stat-value" id="statOrders">—</div></div>
+      <div class="stat-card"><div class="stat-label">Total Invoices</div><div class="stat-value" id="statInvoices">—</div></div>
+      <div class="stat-card"><div class="stat-label">Amount Billed</div><div class="stat-value green" id="statBilled">—</div></div>
+    </div>
+
+    <div class="tabs">
+      <button class="tab-btn active" id="tabOrders" onclick="showTab('orders')">Orders</button>
+      <button class="tab-btn" id="tabInvoices" onclick="showTab('invoices')">Invoices</button>
+    </div>
+
+    <!-- Orders Tab -->
+    <div id="panelOrders">
+      <div class="section-title">Your Orders</div>
+      <div id="ordersList" class="card-list">
+        <div class="loading-wrap"><div class="spinner"></div></div>
+      </div>
+    </div>
+
+    <!-- Invoices Tab -->
+    <div id="panelInvoices" style="display:none">
+      <div class="section-title">Your Invoices</div>
+      <div id="invoicesList" class="card-list">
+        <div class="loading-wrap"><div class="spinner"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const API = '/api/portal';
+let portalToken = null;
+
+// ── AUTH ──────────────────────────────────────────────────────────────────────
+function getStoredToken() {
+  try { return sessionStorage.getItem('portal_token'); } catch { return null; }
+}
+function storeToken(t) {
+  try { sessionStorage.setItem('portal_token', t); } catch {}
+}
+function clearToken() {
+  try { sessionStorage.removeItem('portal_token'); } catch {}
+}
+
+function authHeaders() {
+  return { headers: { 'Authorization': 'Bearer ' + portalToken, 'Content-Type': 'application/json' } };
+}
+
+async function doLogin() {
+  const email = document.getElementById('emailInput').value.trim();
+  if (!email) return showLoginError('Please enter your email address.');
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true;
+  btn.textContent = 'Checking…';
+  hideLoginError();
+  try {
+    const res = await fetch(API + '/auth', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email })
+    });
+    const data = await res.json();
+    if (!res.ok) { showLoginError(data.error || 'Login failed.'); return; }
+    portalToken = data.token;
+    storeToken(portalToken);
+    enterPortal(data.name || email);
+  } catch {
+    showLoginError('Could not reach the server. Please try again.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Access Portal';
+  }
+}
+
+function doLogout() {
+  portalToken = null;
+  clearToken();
+  document.getElementById('portal').style.display = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('emailInput').value = '';
+}
+
+function showLoginError(msg) {
+  const el = document.getElementById('loginError');
+  el.textContent = msg;
+  el.classList.add('show');
+}
+function hideLoginError() {
+  document.getElementById('loginError').classList.remove('show');
+}
+
+// ── PORTAL ────────────────────────────────────────────────────────────────────
+function enterPortal(name) {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('portal').style.display = 'flex';
+  document.getElementById('welcomeTitle').textContent = 'Welcome, ' + name;
+  document.getElementById('topbarName').textContent = name;
+  loadAll();
+}
+
+function showTab(tab) {
+  document.getElementById('panelOrders').style.display = tab === 'orders' ? 'block' : 'none';
+  document.getElementById('panelInvoices').style.display = tab === 'invoices' ? 'block' : 'none';
+  document.getElementById('tabOrders').classList.toggle('active', tab === 'orders');
+  document.getElementById('tabInvoices').classList.toggle('active', tab === 'invoices');
+}
+
+async function loadAll() {
+  const [orders, invoices] = await Promise.all([loadOrders(), loadInvoices()]);
+  updateStats(orders, invoices);
+}
+
+async function loadOrders() {
+  try {
+    const res = await fetch(API + '/orders', authHeaders());
+    if (res.status === 401) { doLogout(); return []; }
+    const data = await res.json();
+    renderOrders(Array.isArray(data) ? data : []);
+    return Array.isArray(data) ? data : [];
+  } catch {
+    document.getElementById('ordersList').innerHTML = '<div class="empty"><div class="empty-icon">⚠️</div><h3>Could not load orders</h3></div>';
+    return [];
+  }
+}
+
+async function loadInvoices() {
+  try {
+    const res = await fetch(API + '/invoices', authHeaders());
+    if (res.status === 401) { doLogout(); return []; }
+    const data = await res.json();
+    renderInvoices(Array.isArray(data) ? data : []);
+    return Array.isArray(data) ? data : [];
+  } catch {
+    document.getElementById('invoicesList').innerHTML = '<div class="empty"><div class="empty-icon">⚠️</div><h3>Could not load invoices</h3></div>';
+    return [];
+  }
+}
+
+function updateStats(orders, invoices) {
+  document.getElementById('statOrders').textContent = orders.length;
+  document.getElementById('statInvoices').textContent = invoices.length;
+  const billed = invoices.reduce((s, inv) => s + (parseFloat(inv.total) || 0), 0);
+  document.getElementById('statBilled').textContent = '$' + billed.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function renderOrders(orders) {
+  const el = document.getElementById('ordersList');
+  if (!orders.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">📦</div><h3>No orders yet</h3><p>Your orders will appear here once placed.</p></div>';
+    return;
+  }
+  el.innerHTML = orders.map(o => {
+    const itemsSummary = (o.items || []).slice(0, 4).map(i => `<span>${i.name || i.description || 'Item'}</span>`).join('');
+    const moreCount = (o.items || []).length - 4;
+    return `
+    <div class="item-card">
+      <div class="item-header">
+        <span class="item-number">${o.order_number || o.id.slice(0,8).toUpperCase()}</span>
+        <span class="item-date">${formatDate(o.created_at)}</span>
+      </div>
+      ${o.customer_address ? `<div class="item-sub">📍 ${o.customer_address}</div>` : ''}
+      ${(o.items||[]).length ? `<div class="items-snippet">${itemsSummary}${moreCount > 0 ? `<span>+${moreCount} more</span>` : ''}</div>` : ''}
+      <div class="item-footer" style="margin-top:10px">
+        <span class="badge badge-${o.status}">${labelStatus(o.status)}</span>
+        ${o.driver_name ? `<span style="font-size:12px;color:var(--muted)">Driver: ${o.driver_name}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderInvoices(invoices) {
+  const el = document.getElementById('invoicesList');
+  if (!invoices.length) {
+    el.innerHTML = '<div class="empty"><div class="empty-icon">🧾</div><h3>No invoices yet</h3><p>Your invoices will appear here once issued.</p></div>';
+    return;
+  }
+  el.innerHTML = invoices.map(inv => {
+    const itemsSummary = (inv.items || []).slice(0, 4).map(i => `<span>${i.description || 'Item'}</span>`).join('');
+    const moreCount = (inv.items || []).length - 4;
+    return `
+    <div class="item-card">
+      <div class="item-header">
+        <span class="item-number">${inv.invoice_number || inv.id.slice(0,8).toUpperCase()}</span>
+        <span class="item-date">${formatDate(inv.created_at)}</span>
+      </div>
+      ${inv.customer_address ? `<div class="item-sub">📍 ${inv.customer_address}</div>` : ''}
+      ${(inv.items||[]).length ? `<div class="items-snippet">${itemsSummary}${moreCount > 0 ? `<span>+${moreCount} more</span>` : ''}</div>` : ''}
+      <div class="item-footer" style="margin-top:12px">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span class="item-total">$${parseFloat(inv.total||0).toFixed(2)}</span>
+          <span class="badge badge-${inv.status}">${labelStatus(inv.status)}</span>
+        </div>
+        <button class="btn-sm btn-outline" onclick="downloadPDF('${inv.id}', '${inv.invoice_number || inv.id.slice(0,8)}')">⬇ PDF</button>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function downloadPDF(id, label) {
+  try {
+    const res = await fetch(`${API}/invoices/${id}/pdf`, authHeaders());
+    if (!res.ok) { alert('Could not download PDF.'); return; }
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `invoice-${label}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch {
+    alert('Failed to download PDF.');
+  }
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function formatDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function labelStatus(s) {
+  const map = { pending: 'Pending', in_process: 'Processing', invoiced: 'Invoiced', processed: 'Processed', signed: 'Signed', sent: 'Sent' };
+  return map[s] || (s ? s.charAt(0).toUpperCase() + s.slice(1) : '—');
+}
+
+// Enter on email field
+document.getElementById('emailInput').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+// Auto-restore session
+(function() {
+  const stored = getStoredToken();
+  if (!stored) return;
+  portalToken = stored;
+  fetch(API + '/me', authHeaders()).then(r => r.json()).then(data => {
+    if (data.email) enterPortal(data.name || data.email);
+    else { clearToken(); portalToken = null; }
+  }).catch(() => { clearToken(); portalToken = null; });
+})();
+</script>
+</body>
+</html>
