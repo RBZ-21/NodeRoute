@@ -1617,7 +1617,7 @@ td{padding:12px 16px;vertical-align:middle}
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
       <div>
         <label class="modal-label">Description (Product Name) *</label>
-        <input class="modal-input" id="invName" placeholder="e.g. CAVIAR GOLDEN WHITE"/>
+        <input class="modal-input" id="invName" placeholder="e.g. CAVIAR GOLDEN WHITE" oninput="autoDetectLotRequired()"/>
       </div>
       <div>
         <label class="modal-label">Category</label>
@@ -1661,11 +1661,12 @@ td{padding:12px 16px;vertical-align:middle}
         <input class="modal-input" id="invWeight" type="number" min="0" step="0.01" placeholder="0"/>
       </div>
       <div>
-        <label class="modal-label">Lot Item</label>
+        <label class="modal-label">Lot Tracking Required</label>
         <select class="modal-input" id="invLotItem" style="cursor:pointer">
-          <option value="N">N</option>
-          <option value="Y">Y</option>
+          <option value="N">No</option>
+          <option value="Y">Yes — lot number mandatory on receipt</option>
         </select>
+        <div id="invLotHint" style="display:none;font-size:11px;color:#a78bfa;margin-top:-8px;margin-bottom:8px;padding:6px 10px;background:rgba(124,58,237,0.08);border-radius:6px">⚠ Mussels, clams &amp; oysters require a lot number on every shipment.</div>
       </div>
     </div>
     <div class="modal-result" id="invResult"></div>
@@ -3864,6 +3865,9 @@ document.getElementById('inviteModal').addEventListener('click', e => { if (e.ta
 // ── SEAFOOD INVENTORY ──────────────────────────────────
 let allInventory = [];
 
+const LOT_REQUIRED_RE = /\b(mussel|clam|oyster)s?\b/i;
+const itemRequiresLot = item => item.lot_item === 'Y' || LOT_REQUIRED_RE.test(item.description || '');
+
 async function fetchInventory() {
   try {
     const r = await fetch(API + '/inventory', authHeaders);
@@ -3930,15 +3934,20 @@ function renderInventory() {
       ? `<span class="inv-yield-pill">${item.avg_yield.toFixed(1)}%</span><div style="font-size:10px;color:var(--muted);margin-top:2px">${item.yield_count||0} samples</div>`
       : `<span style="color:var(--muted);font-size:12px">—</span>`;
     const safeDesc = (item.description||'').replace(/'/g,"\\'");
+    const lotReq = itemRequiresLot(item);
+    const stockBtn = lotReq
+      ? `<button class="user-action-btn" style="color:#a78bfa;border-color:rgba(124,58,237,0.3)" onclick="openAddLotModal('${item.item_number}')">🏷 Add Lot</button>`
+      : `<button class="user-action-btn" onclick="openRestockModal('${item.item_number}','${safeDesc}',${item.on_hand_qty||0})">+ Stock</button>`;
     const actions = isManager ? `
       <div style="display:flex;gap:5px;white-space:nowrap">
-        <button class="user-action-btn" onclick="openRestockModal('${item.item_number}','${safeDesc}',${item.on_hand_qty||0})">+ Stock</button>
+        ${stockBtn}
         <button class="user-action-btn" style="color:#a78bfa;border-color:rgba(124,58,237,0.3)" onclick="openYieldModal('${item.item_number}','${safeDesc}',${item.avg_yield||'null'},${item.yield_count||0})">⚖ Yield</button>
         <button class="user-action-btn" onclick="openInventoryModal('${item.item_number}')">Edit</button>
         <button class="user-action-btn danger" onclick="deleteInventoryItem('${item.item_number}','${safeDesc}')">×</button>
       </div>` : '—';
+    const lotBadge = lotReq ? `<span style="font-size:9px;font-weight:700;color:#a78bfa;background:rgba(124,58,237,0.12);padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle">LOT REQ.</span>` : '';
     return `<tr>
-      <td><strong>${item.description || '—'}</strong><div style="font-size:11px;color:var(--muted);margin-top:2px">#${item.item_number||'—'}</div></td>
+      <td><strong>${item.description || '—'}</strong>${lotBadge}<div style="font-size:11px;color:var(--muted);margin-top:2px">#${item.item_number||'—'}</div></td>
       <td>${invCatBadge(item.category)}</td>
       <td style="color:var(--muted);font-size:12px">${item.unit || '—'}</td>
       <td style="font-weight:600;color:var(--accent)">${cost}</td>
@@ -4027,6 +4036,18 @@ function closeInventoryModal() {
   document.getElementById('inventoryModal').classList.remove('open');
 }
 
+function autoDetectLotRequired() {
+  const name = document.getElementById('invName').value;
+  const lotSel = document.getElementById('invLotItem');
+  const hint = document.getElementById('invLotHint');
+  if (LOT_REQUIRED_RE.test(name)) {
+    lotSel.value = 'Y';
+    if (hint) { hint.style.display = 'block'; }
+  } else {
+    if (hint) { hint.style.display = 'none'; }
+  }
+}
+
 async function submitInventoryItem() {
   const editId = document.getElementById('invEditId').value;
   const description = document.getElementById('invName').value.trim();
@@ -4075,6 +4096,11 @@ async function deleteInventoryItem(id, name) {
 
 // ── RESTOCK MODAL ──────────────────────────────────────
 function openRestockModal(id, name, currentQty) {
+  const item = allInventory.find(i => i.item_number === id);
+  if (item && itemRequiresLot(item)) {
+    openAddLotModal(id);
+    return;
+  }
   document.getElementById('restockId').value = id;
   document.getElementById('restockProductName').textContent = name;
   document.getElementById('restockCurrent').textContent = currentQty;
@@ -4364,7 +4390,7 @@ function populateLotProductFilter() {
   sel.innerHTML = '<option value="">All Products</option>' + prods.map(p=>`<option value="${p.item_number}"${p.item_number===cur?' selected':''}>${p.desc}</option>`).join('');
 }
 
-function openAddLotModal() {
+function openAddLotModal(preSelectItemNumber) {
   document.getElementById('lotEditId').value = '';
   document.getElementById('lotModalTitle').textContent = 'Add Lot / Batch';
   document.getElementById('lotSubmitBtn').textContent = 'Add Lot';
@@ -4378,7 +4404,16 @@ function openAddLotModal() {
   document.getElementById('lotResult').className = 'modal-result';
   document.getElementById('lotResult').textContent = '';
   const sel = document.getElementById('lotProduct');
-  sel.innerHTML = '<option value="">— Select product —</option>' + allInventory.map(i=>`<option value="${i.item_number}">${i.description} (#${i.item_number})</option>`).join('');
+  sel.innerHTML = '<option value="">— Select product —</option>' + allInventory.map(i=>`<option value="${i.item_number}"${i.item_number===preSelectItemNumber?' selected':''}>${i.description} (#${i.item_number})</option>`).join('');
+  if (preSelectItemNumber) {
+    const item = allInventory.find(i=>i.item_number===preSelectItemNumber);
+    if (item) {
+      const r = document.getElementById('lotResult');
+      r.className = 'modal-result'; // clear class to use as info
+      r.style.cssText = 'background:rgba(124,58,237,0.08);border:1px solid rgba(124,58,237,0.2);color:#a78bfa;padding:10px 14px;border-radius:8px;font-size:12px;margin-top:8px;display:block';
+      r.textContent = `⚠ ${item.description} requires a lot number on every receipt. Fill in the lot details below.`;
+    }
+  }
   document.getElementById('lotModal').classList.add('open');
 }
 

@@ -5,6 +5,10 @@ const { createMailer } = require('../services/email');
 
 const router = express.Router();
 
+// Products whose names match this pattern require a lot number on every receipt.
+const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
+const needsLot = desc => LOT_REQUIRED.test(desc || '');
+
 // ── SEAFOOD INVENTORY (Supabase table: seafood_inventory) ────────────────────
 // Column names (updated to match current database):
 //   id uuid PK, description text NOT NULL (product name),
@@ -31,7 +35,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
     cost:           parseFloat(cost)           || 0,
     on_hand_qty:    parseFloat(on_hand_qty)    || 0,
     on_hand_weight: parseFloat(on_hand_weight) || 0,
-    lot_item:       lot_item       || 'N',
+    lot_item:       needsLot(description) ? 'Y' : (lot_item || 'N'),
   }]).select().single(), res);
   if (!data) return;
   res.json(data);
@@ -337,8 +341,15 @@ router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager'), 
   if (!addQty || addQty <= 0) return res.status(400).json({ error: 'qty must be > 0' });
 
   const { data: item, error: fetchErr } = await supabase
-    .from('seafood_inventory').select('on_hand_qty,description').eq('item_number', req.params.id).single();
+    .from('seafood_inventory').select('on_hand_qty,description,lot_item').eq('item_number', req.params.id).single();
   if (fetchErr) return res.status(404).json({ error: 'Product not found' });
+
+  if (item.lot_item === 'Y') {
+    return res.status(422).json({
+      error: `${item.description} requires a lot number on every receipt. Use "Add Lot" to record this shipment.`,
+      requires_lot: true,
+    });
+  }
 
   const newQty = (parseFloat(item.on_hand_qty) || 0) + addQty;
   const { data, error } = await supabase
@@ -459,6 +470,8 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   const allowed = ['description','category','item_number','unit','cost','on_hand_qty','on_hand_weight','lot_item'];
   const fields = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) fields[k] = req.body[k]; });
+  // Auto-enforce lot requirement when description is updated
+  if (fields.description && needsLot(fields.description)) fields.lot_item = 'Y';
   const data = await dbQuery(supabase.from('seafood_inventory').update(fields).eq('item_number', req.params.id).select().single(), res);
   if (!data) return;
   res.json(data);
