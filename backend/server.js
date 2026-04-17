@@ -17,6 +17,7 @@ const routesRouter = require('./routes/routes');
 const customersRouter = require('./routes/customers');
 const forecastRouter = require('./routes/forecast');
 const portalRouter = require('./routes/portal');
+const driverRouter = require('./routes/driver');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -81,6 +82,7 @@ app.use('/api/routes', routesRouter);
 app.use('/api/customers', customersRouter);
 app.use('/api/forecast', forecastRouter);
 app.use('/api/portal', portalRouter);
+app.use('/api/driver', driverRouter);
 
 // Config endpoint
 const { authenticateToken, requireRole } = require('./middleware/auth');
@@ -101,6 +103,7 @@ app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
 app.get('/dashboard', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
 app.get('/landing', (req, res) => res.sendFile(path.join(frontendDir, 'landing.html')));
 app.get('/portal', (req, res) => res.sendFile(path.join(frontendDir, 'customer-portal.html')));
+app.get('/driver', (req, res) => res.sendFile(path.join(frontendDir, 'driver.html')));
 
 // ── 404 for unknown API routes (must be before the global error handler) ──────
 app.use('/api', (req, res) => {
