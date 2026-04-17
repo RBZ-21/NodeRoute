@@ -98,4 +98,59 @@ router.get('/invoices/:id/pdf', authenticatePortalToken, async (req, res) => {
   res.send(pdfBuffer);
 });
 
+// GET /api/portal/contact — return contact info from portal_contacts or most recent invoice
+router.get('/contact', authenticatePortalToken, async (req, res) => {
+  const { data: saved } = await supabase
+    .from('portal_contacts')
+    .select('*')
+    .eq('email', req.customerEmail)
+    .single();
+
+  if (saved) return res.json(saved);
+
+  // Fall back to most recent invoice data
+  const { data: inv } = await supabase
+    .from('invoices')
+    .select('customer_name, customer_address')
+    .ilike('customer_email', req.customerEmail)
+    .order('created_at', { ascending: false })
+    .limit(1);
+
+  res.json({
+    email: req.customerEmail,
+    name: (inv && inv[0]) ? inv[0].customer_name : req.customerName,
+    address: (inv && inv[0]) ? inv[0].customer_address : null,
+    phone: null,
+    company: null,
+  });
+});
+
+// PATCH /api/portal/contact — upsert contact info into portal_contacts
+router.patch('/contact', authenticatePortalToken, async (req, res) => {
+  const { name, phone, address, company } = req.body;
+  const { error } = await supabase
+    .from('portal_contacts')
+    .upsert([{
+      email: req.customerEmail,
+      name: name || req.customerName,
+      phone: phone || null,
+      address: address || null,
+      company: company || null,
+      updated_at: new Date().toISOString(),
+    }], { onConflict: 'email' });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ message: 'Contact information saved' });
+});
+
+// GET /api/portal/inventory — in-stock seafood items, newest first
+router.get('/inventory', authenticatePortalToken, async (req, res) => {
+  const { data, error } = await supabase
+    .from('seafood_inventory')
+    .select('description, category, unit, on_hand_qty, on_hand_weight, cost, updated_at, created_at')
+    .gt('on_hand_qty', 0)
+    .order('updated_at', { ascending: false, nullsFirst: false });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
 module.exports = router;
