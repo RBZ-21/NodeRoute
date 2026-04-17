@@ -1,0 +1,705 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>Customer Portal — NodeRoute</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+:root{
+  --bg:#050d2a;--surface:#0d1b3e;--border:#1a2f5e;
+  --accent:#3dba7f;--warn:#f59e0b;--danger:#ef4444;--purple:#7c3aed;
+  --text:#ffffff;--muted:#8899bb;
+  --r:12px;--trans:0.2s ease all;
+}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+
+/* ── LOGIN ── */
+#loginScreen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px}
+.login-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:40px 36px;width:100%;max-width:420px;text-align:center}
+.login-logo{font-size:22px;font-weight:800;color:var(--accent);letter-spacing:.5px;margin-bottom:6px}
+.login-logo span{color:var(--text)}
+.login-sub{color:var(--muted);font-size:14px;margin-bottom:32px}
+.login-label{display:block;text-align:left;font-size:13px;color:var(--muted);margin-bottom:6px}
+.login-input{width:100%;padding:12px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:'Inter',sans-serif;outline:none;transition:var(--trans);margin-bottom:16px}
+.login-input:focus{border-color:var(--accent)}
+.login-btn{width:100%;padding:13px;background:var(--accent);color:#050d2a;border:none;border-radius:8px;font-size:15px;font-weight:700;font-family:'Inter',sans-serif;cursor:pointer;transition:var(--trans)}
+.login-btn:hover{background:#34a870}
+.login-btn:disabled{opacity:0.6;cursor:not-allowed}
+.login-error{background:rgba(239,68,68,0.12);color:#fca5a5;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px;display:none;text-align:left}
+.login-error.show{display:block}
+
+/* ── PORTAL SHELL ── */
+#portal{display:none;flex-direction:column;min-height:100vh}
+.topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.topbar-brand{font-size:17px;font-weight:800;color:var(--accent);letter-spacing:.5px}
+.topbar-brand span{color:var(--text)}
+.topbar-right{display:flex;align-items:center;gap:16px}
+.topbar-name{font-size:13px;color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.logout-btn{background:none;border:1px solid var(--border);color:var(--muted);padding:6px 14px;border-radius:8px;font-size:13px;font-family:'Inter',sans-serif;cursor:pointer;transition:var(--trans)}
+.logout-btn:hover{border-color:var(--danger);color:var(--danger)}
+
+.portal-body{flex:1;padding:24px;max-width:960px;margin:0 auto;width:100%}
+
+/* ── BALANCE HERO ── */
+.balance-hero{background:linear-gradient(135deg,#0d1b3e 0%,#0f2244 100%);border:1px solid var(--border);border-radius:16px;padding:24px 28px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px}
+.balance-left{}
+.balance-label{font-size:12px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);margin-bottom:6px}
+.balance-amount{font-size:40px;font-weight:800;line-height:1;color:#fff}
+.balance-amount.zero{color:var(--accent)}
+.balance-sub{font-size:12px;color:var(--muted);margin-top:6px}
+.pay-btn{background:var(--accent);color:#050d2a;border:none;padding:13px 28px;border-radius:10px;font-size:15px;font-weight:700;font-family:'Inter',sans-serif;cursor:pointer;transition:var(--trans);white-space:nowrap}
+.pay-btn:hover{background:#34a870;transform:translateY(-1px);box-shadow:0 4px 16px rgba(61,186,127,0.3)}
+
+/* ── STATS ROW ── */
+.stats-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:24px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px}
+.stat-label{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:5px}
+.stat-value{font-size:22px;font-weight:800;color:var(--text)}
+.stat-value.green{color:var(--accent)}
+
+/* ── TABS ── */
+.tabs-wrap{overflow-x:auto;margin-bottom:24px;-webkit-overflow-scrolling:touch}
+.tabs{display:flex;gap:4px;background:var(--surface);border:1px solid var(--border);border-radius:10px;padding:4px;width:max-content;min-width:100%}
+.tab-btn{padding:8px 18px;border:none;border-radius:7px;font-size:13px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;color:var(--muted);background:transparent;transition:var(--trans);white-space:nowrap}
+.tab-btn.active{background:var(--accent);color:#050d2a}
+.tab-btn:not(.active):hover{color:var(--text)}
+
+/* ── CARDS ── */
+.section-title{font-size:15px;font-weight:600;margin-bottom:14px}
+.card-list{display:flex;flex-direction:column;gap:10px}
+.item-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:16px 18px;transition:var(--trans)}
+.item-card:hover{border-color:rgba(61,186,127,0.3)}
+.item-header{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.item-number{font-weight:700;font-size:14px;color:var(--accent)}
+.item-date{font-size:12px;color:var(--muted)}
+.item-sub{font-size:13px;color:var(--muted);margin-bottom:8px;line-height:1.5}
+.item-footer{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:12px}
+.item-total{font-size:15px;font-weight:700}
+
+/* ── BADGES ── */
+.badge{display:inline-flex;align-items:center;padding:3px 10px;border-radius:12px;font-size:11px;font-weight:600;text-transform:uppercase;letter-spacing:.4px}
+.badge-pending{background:rgba(245,158,11,0.12);color:var(--warn)}
+.badge-in_process{background:rgba(61,186,127,0.12);color:var(--accent)}
+.badge-invoiced,.badge-processed{background:rgba(136,153,187,0.12);color:var(--muted)}
+.badge-signed,.badge-sent{background:rgba(61,186,127,0.14);color:var(--accent)}
+
+/* ── BUTTONS ── */
+.btn-sm{padding:6px 14px;border-radius:7px;font-size:12px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;border:none;transition:var(--trans)}
+.btn-outline{background:transparent;border:1px solid var(--border);color:var(--muted)}
+.btn-outline:hover{border-color:var(--accent);color:var(--accent)}
+.btn-primary{background:var(--accent);color:#050d2a}
+.btn-primary:hover{background:#34a870}
+
+/* ── EMPTY / LOADING ── */
+.empty{text-align:center;padding:60px 20px;color:var(--muted)}
+.empty-icon{font-size:44px;margin-bottom:14px}
+.empty h3{font-size:16px;color:var(--text);margin-bottom:6px}
+.empty p{font-size:14px}
+.spinner{width:32px;height:32px;border:3px solid rgba(61,186,127,0.2);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:60px auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+.loading-wrap{text-align:center;padding:40px 0;color:var(--muted)}
+
+/* ── ITEMS SNIPPET ── */
+.items-snippet{font-size:12px;color:var(--muted);line-height:1.7}
+.items-snippet span{display:inline-block;margin-right:10px}
+
+/* ── CONTACT FORM ── */
+.contact-form{background:var(--surface);border:1px solid var(--border);border-radius:var(--r);padding:24px 28px;max-width:560px}
+.form-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media(max-width:500px){.form-grid{grid-template-columns:1fr}}
+.form-group{display:flex;flex-direction:column;gap:6px}
+.form-group.full{grid-column:1/-1}
+.form-label{font-size:12px;color:var(--muted);font-weight:500;text-transform:uppercase;letter-spacing:.4px}
+.form-input{padding:10px 13px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:14px;font-family:'Inter',sans-serif;outline:none;transition:var(--trans)}
+.form-input:focus{border-color:var(--accent)}
+.form-input:disabled{opacity:0.5;cursor:not-allowed}
+.form-save-row{display:flex;align-items:center;gap:14px;margin-top:20px}
+.form-notice{font-size:12px;color:var(--muted)}
+.save-success{font-size:13px;color:var(--accent);display:none}
+.save-success.show{display:inline}
+.save-error{font-size:13px;color:#fca5a5;display:none}
+.save-error.show{display:inline}
+
+/* ── PRICING HELP ── */
+.pricing-controls{display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-wrap:wrap}
+.markup-label{font-size:13px;color:var(--muted);font-weight:500}
+.markup-input-wrap{display:flex;align-items:center;gap:6px}
+.markup-input{width:80px;padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:15px;font-weight:700;font-family:'Inter',sans-serif;outline:none;text-align:center;transition:var(--trans)}
+.markup-input:focus{border-color:var(--accent)}
+.markup-pct{font-size:14px;color:var(--accent);font-weight:700}
+.pricing-note{font-size:12px;color:var(--muted);background:var(--surface);border:1px solid var(--border);border-radius:8px;padding:10px 14px;margin-bottom:20px;line-height:1.6}
+.pricing-table-wrap{overflow-x:auto}
+.pricing-table{width:100%;border-collapse:collapse;font-size:13px}
+.pricing-table th{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;padding:10px 12px;border-bottom:1px solid var(--border);text-align:left;background:var(--surface);position:sticky;top:0}
+.pricing-table td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.05);vertical-align:middle}
+.pricing-table tr:last-child td{border-bottom:none}
+.pricing-table tr:hover td{background:rgba(61,186,127,0.04)}
+.price-orig{color:var(--muted)}
+.price-new{font-weight:700;color:var(--accent)}
+.price-arrow{color:var(--border);margin:0 6px}
+
+/* ── FRESH FISH TABLE ── */
+.fish-filter-row{display:flex;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap}
+.fish-search{padding:8px 12px;background:var(--bg);border:1px solid var(--border);border-radius:8px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;width:220px;transition:var(--trans)}
+.fish-search:focus{border-color:var(--accent)}
+.fish-table-wrap{overflow-x:auto}
+.fish-table{width:100%;border-collapse:collapse;font-size:13px}
+.fish-table th{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;padding:10px 12px;border-bottom:1px solid var(--border);text-align:left;background:var(--surface)}
+.fish-table td{padding:10px 12px;border-bottom:1px solid rgba(255,255,255,0.05);vertical-align:middle}
+.fish-table tr:last-child td{border-bottom:none}
+.fish-table tr:hover td{background:rgba(61,186,127,0.04)}
+.fish-fresh-dot{width:8px;height:8px;border-radius:50%;background:var(--accent);display:inline-block;margin-right:6px;animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{box-shadow:0 0 0 0 rgba(61,186,127,.5)}50%{box-shadow:0 0 0 5px rgba(61,186,127,0)}}
+.cat-pill{display:inline-block;padding:2px 9px;border-radius:10px;font-size:11px;font-weight:600;background:rgba(124,58,237,0.12);color:#a78bfa}
+.qty-badge{display:inline-block;padding:2px 9px;border-radius:10px;font-size:12px;font-weight:700;background:rgba(61,186,127,0.1);color:var(--accent)}
+
+/* ── PAYMENT MODAL ── */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:500;align-items:center;justify-content:center;padding:20px}
+.modal-overlay.open{display:flex}
+.modal-box{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px;width:100%;max-width:460px}
+.modal-title{font-size:18px;font-weight:700;margin-bottom:6px}
+.modal-sub{color:var(--muted);font-size:13px;margin-bottom:24px;line-height:1.6}
+.modal-amount{font-size:36px;font-weight:800;color:var(--accent);margin-bottom:6px}
+.modal-amount-label{font-size:12px;color:var(--muted);margin-bottom:24px}
+.modal-divider{border:none;border-top:1px solid var(--border);margin:20px 0}
+.modal-contact-grid{display:grid;grid-template-columns:auto 1fr;gap:8px 16px;font-size:13px;margin-bottom:24px}
+.modal-contact-grid .lbl{color:var(--muted)}
+.modal-contact-grid .val{font-weight:600}
+.modal-footer{display:flex;gap:12px;justify-content:flex-end}
+.btn-secondary{background:transparent;border:1px solid var(--border);color:var(--muted);padding:10px 20px;border-radius:8px;font-size:14px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;transition:var(--trans)}
+.btn-secondary:hover{border-color:var(--text);color:var(--text)}
+.btn-accent{background:var(--accent);color:#050d2a;border:none;padding:10px 24px;border-radius:8px;font-size:14px;font-weight:700;font-family:'Inter',sans-serif;cursor:pointer;transition:var(--trans)}
+.btn-accent:hover{background:#34a870}
+
+@media(max-width:620px){
+  .login-card{padding:28px 20px}
+  .portal-body{padding:16px}
+  .balance-hero{padding:20px}
+  .balance-amount{font-size:30px}
+  .contact-form{padding:20px}
+  .modal-box{padding:24px 20px}
+}
+</style>
+</head>
+<body>
+
+<!-- ── LOGIN SCREEN ── -->
+<div id="loginScreen">
+  <div class="login-card">
+    <div class="login-logo">NodeRoute <span>Systems</span></div>
+    <div class="login-sub">Customer Portal — enter your email to access your account</div>
+    <div id="loginError" class="login-error"></div>
+    <label class="login-label" for="emailInput">Email address</label>
+    <input id="emailInput" class="login-input" type="email" placeholder="you@restaurant.com" autocomplete="email"/>
+    <button id="loginBtn" class="login-btn" onclick="doLogin()">Access Portal</button>
+  </div>
+</div>
+
+<!-- ── PAYMENT MODAL ── -->
+<div id="payModal" class="modal-overlay">
+  <div class="modal-box">
+    <div class="modal-title">Make a Payment</div>
+    <div class="modal-sub">To submit your payment, please use one of the options below and include your account name as the reference.</div>
+    <div class="modal-amount" id="payModalAmount">$0.00</div>
+    <div class="modal-amount-label">Current balance due</div>
+    <hr class="modal-divider"/>
+    <div class="modal-contact-grid">
+      <span class="lbl">ACH / Wire</span><span class="val">Contact your rep for banking details</span>
+      <span class="lbl">Check payable to</span><span class="val">NodeRoute Systems LLC</span>
+      <span class="lbl">Questions?</span><span class="val" id="payModalContact">Contact your NodeRoute rep</span>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" onclick="closePayModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── PORTAL DASHBOARD ── -->
+<div id="portal">
+  <div class="topbar">
+    <div class="topbar-brand">NodeRoute <span>Portal</span></div>
+    <div class="topbar-right">
+      <div class="topbar-name" id="topbarName"></div>
+      <button class="logout-btn" onclick="doLogout()">Sign out</button>
+    </div>
+  </div>
+
+  <div class="portal-body">
+
+    <!-- Balance hero -->
+    <div class="balance-hero">
+      <div class="balance-left">
+        <div class="balance-label">Current Balance Due</div>
+        <div class="balance-amount" id="balanceAmount">—</div>
+        <div class="balance-sub" id="balanceSub">Loading…</div>
+      </div>
+      <button class="pay-btn" onclick="openPayModal()">Pay Now →</button>
+    </div>
+
+    <!-- Stats -->
+    <div class="stats-row">
+      <div class="stat-card"><div class="stat-label">Orders</div><div class="stat-value" id="statOrders">—</div></div>
+      <div class="stat-card"><div class="stat-label">Invoices</div><div class="stat-value" id="statInvoices">—</div></div>
+      <div class="stat-card"><div class="stat-label">Total Billed</div><div class="stat-value green" id="statBilled">—</div></div>
+    </div>
+
+    <!-- Tabs -->
+    <div class="tabs-wrap">
+      <div class="tabs">
+        <button class="tab-btn active" id="tabOrders"      onclick="showTab('orders')">Orders</button>
+        <button class="tab-btn"        id="tabInvoices"    onclick="showTab('invoices')">Invoices</button>
+        <button class="tab-btn"        id="tabContact"     onclick="showTab('contact')">Contact Info</button>
+        <button class="tab-btn"        id="tabPricing"     onclick="showTab('pricing')">Pricing Help</button>
+        <button class="tab-btn"        id="tabFish"        onclick="showTab('fish')">Fresh Fish</button>
+      </div>
+    </div>
+
+    <!-- Orders Panel -->
+    <div id="panelOrders">
+      <div class="section-title">Your Orders</div>
+      <div id="ordersList" class="card-list"><div class="loading-wrap"><div class="spinner"></div></div></div>
+    </div>
+
+    <!-- Invoices Panel -->
+    <div id="panelInvoices" style="display:none">
+      <div class="section-title">Your Invoices</div>
+      <div id="invoicesList" class="card-list"><div class="loading-wrap"><div class="spinner"></div></div></div>
+    </div>
+
+    <!-- Contact Panel -->
+    <div id="panelContact" style="display:none">
+      <div class="section-title">Your Contact Information</div>
+      <div class="contact-form">
+        <div class="form-grid">
+          <div class="form-group">
+            <label class="form-label">Name</label>
+            <input id="cfName" class="form-input" type="text" placeholder="Your name"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Phone</label>
+            <input id="cfPhone" class="form-input" type="tel" placeholder="(555) 000-0000"/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email</label>
+            <input id="cfEmail" class="form-input" type="email" disabled/>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Company / Restaurant</label>
+            <input id="cfCompany" class="form-input" type="text" placeholder="Restaurant name"/>
+          </div>
+          <div class="form-group full">
+            <label class="form-label">Delivery Address</label>
+            <input id="cfAddress" class="form-input" type="text" placeholder="123 Main St, City, ST 00000"/>
+          </div>
+        </div>
+        <div class="form-save-row">
+          <button class="btn-sm btn-primary" onclick="saveContact()">Save Changes</button>
+          <span class="save-success" id="cfSuccess">Saved!</span>
+          <span class="save-error" id="cfError"></span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Pricing Help Panel -->
+    <div id="panelPricing" style="display:none">
+      <div class="section-title">Pricing Help</div>
+      <div class="pricing-note">
+        Enter a markup percentage below to see your menu pricing based on your invoice costs.
+        Prices are pulled from your most recent invoice and recalculate instantly as you adjust the markup.
+      </div>
+      <div class="pricing-controls">
+        <span class="markup-label">Markup</span>
+        <div class="markup-input-wrap">
+          <input id="markupInput" class="markup-input" type="number" min="0" max="500" step="1" value="30" oninput="recalcPricing()"/>
+          <span class="markup-pct">%</span>
+        </div>
+        <span id="markupPreview" style="font-size:13px;color:var(--muted)"></span>
+      </div>
+      <div class="pricing-table-wrap">
+        <table class="pricing-table" id="pricingTable">
+          <thead>
+            <tr>
+              <th>Item</th>
+              <th>Unit</th>
+              <th>Your Cost</th>
+              <th>Menu Price</th>
+              <th>Difference</th>
+            </tr>
+          </thead>
+          <tbody id="pricingBody">
+            <tr><td colspan="5"><div class="loading-wrap"><div class="spinner"></div></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <!-- Fresh Fish Panel -->
+    <div id="panelFish" style="display:none">
+      <div class="section-title">Fish We've Just Received</div>
+      <div class="fish-filter-row">
+        <input id="fishSearch" class="fish-search" type="text" placeholder="Search fish…" oninput="filterFish()"/>
+        <span id="fishCount" style="font-size:12px;color:var(--muted)"></span>
+      </div>
+      <div class="fish-table-wrap">
+        <table class="fish-table">
+          <thead>
+            <tr>
+              <th>Product</th>
+              <th>Category</th>
+              <th>In Stock</th>
+              <th>Unit</th>
+              <th>Last Updated</th>
+            </tr>
+          </thead>
+          <tbody id="fishBody">
+            <tr><td colspan="5"><div class="loading-wrap"><div class="spinner"></div></div></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /portal-body -->
+</div><!-- /portal -->
+
+<script>
+const API = '/api/portal';
+let portalToken = null;
+let allInvoices = [];
+let allFishData = [];
+
+// ── SESSION ───────────────────────────────────────────────────────────────────
+function getStoredToken() { try { return sessionStorage.getItem('portal_token'); } catch { return null; } }
+function storeToken(t)    { try { sessionStorage.setItem('portal_token', t); } catch {} }
+function clearToken()     { try { sessionStorage.removeItem('portal_token'); } catch {} }
+function ah()             { return { headers: { 'Authorization': 'Bearer ' + portalToken, 'Content-Type': 'application/json' } }; }
+
+// ── LOGIN ─────────────────────────────────────────────────────────────────────
+async function doLogin() {
+  const email = document.getElementById('emailInput').value.trim();
+  if (!email) return showLoginError('Please enter your email address.');
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true; btn.textContent = 'Checking…';
+  hideLoginError();
+  try {
+    const res  = await fetch(API + '/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
+    const data = await res.json();
+    if (!res.ok) { showLoginError(data.error || 'Login failed.'); return; }
+    portalToken = data.token;
+    storeToken(portalToken);
+    enterPortal(data.name || email);
+  } catch { showLoginError('Could not reach the server. Please try again.'); }
+  finally   { btn.disabled = false; btn.textContent = 'Access Portal'; }
+}
+
+function doLogout() {
+  portalToken = null; clearToken(); allInvoices = []; allFishData = [];
+  document.getElementById('portal').style.display      = 'none';
+  document.getElementById('loginScreen').style.display = 'flex';
+  document.getElementById('emailInput').value          = '';
+}
+
+function showLoginError(msg) { const e = document.getElementById('loginError'); e.textContent = msg; e.classList.add('show'); }
+function hideLoginError()    { document.getElementById('loginError').classList.remove('show'); }
+document.getElementById('emailInput').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+
+// ── ENTER PORTAL ──────────────────────────────────────────────────────────────
+function enterPortal(name) {
+  document.getElementById('loginScreen').style.display = 'none';
+  document.getElementById('portal').style.display      = 'flex';
+  document.getElementById('topbarName').textContent    = name;
+  loadAll();
+}
+
+// ── TABS ──────────────────────────────────────────────────────────────────────
+const TABS = ['orders','invoices','contact','pricing','fish'];
+function showTab(tab) {
+  TABS.forEach(t => {
+    document.getElementById('panel' + cap(t)).style.display = t === tab ? 'block' : 'none';
+    document.getElementById('tab'   + cap(t)).classList.toggle('active', t === tab);
+  });
+  if (tab === 'contact'  && !document.getElementById('cfEmail').value) loadContact();
+  if (tab === 'fish'     && !allFishData.length) loadFish();
+}
+function cap(s) { return s.charAt(0).toUpperCase() + s.slice(1); }
+
+// ── LOAD ALL ──────────────────────────────────────────────────────────────────
+async function loadAll() {
+  const [orders, invoices] = await Promise.all([loadOrders(), loadInvoices()]);
+  updateStats(orders, invoices);
+}
+
+// ── ORDERS ────────────────────────────────────────────────────────────────────
+async function loadOrders() {
+  try {
+    const res  = await fetch(API + '/orders', ah());
+    if (res.status === 401) { doLogout(); return []; }
+    const data = await res.json();
+    const list = Array.isArray(data) ? data : [];
+    renderOrders(list);
+    return list;
+  } catch {
+    document.getElementById('ordersList').innerHTML = err('Could not load orders');
+    return [];
+  }
+}
+
+function renderOrders(orders) {
+  const el = document.getElementById('ordersList');
+  if (!orders.length) { el.innerHTML = empty('📦','No orders yet','Your orders will appear here once placed.'); return; }
+  el.innerHTML = orders.map(o => {
+    const snip = (o.items||[]).slice(0,4).map(i => `<span>${esc(i.name||i.description||'Item')}</span>`).join('');
+    const more = (o.items||[]).length - 4;
+    return `<div class="item-card">
+      <div class="item-header"><span class="item-number">${esc(o.order_number||o.id.slice(0,8).toUpperCase())}</span><span class="item-date">${fmtDate(o.created_at)}</span></div>
+      ${o.customer_address ? `<div class="item-sub">📍 ${esc(o.customer_address)}</div>` : ''}
+      ${(o.items||[]).length ? `<div class="items-snippet">${snip}${more>0?`<span>+${more} more</span>`:''}</div>` : ''}
+      <div class="item-footer">
+        <span class="badge badge-${o.status}">${lblStatus(o.status)}</span>
+        ${o.driver_name?`<span style="font-size:12px;color:var(--muted)">Driver: ${esc(o.driver_name)}</span>`:''}
+      </div></div>`;
+  }).join('');
+}
+
+// ── INVOICES ──────────────────────────────────────────────────────────────────
+async function loadInvoices() {
+  try {
+    const res  = await fetch(API + '/invoices', ah());
+    if (res.status === 401) { doLogout(); return []; }
+    const data = await res.json();
+    allInvoices = Array.isArray(data) ? data : [];
+    renderInvoices(allInvoices);
+    buildPricingTable(allInvoices);
+    return allInvoices;
+  } catch {
+    document.getElementById('invoicesList').innerHTML = err('Could not load invoices');
+    return [];
+  }
+}
+
+function renderInvoices(invoices) {
+  const el = document.getElementById('invoicesList');
+  if (!invoices.length) { el.innerHTML = empty('🧾','No invoices yet','Your invoices will appear here once issued.'); return; }
+  el.innerHTML = invoices.map(inv => {
+    const snip = (inv.items||[]).slice(0,4).map(i=>`<span>${esc(i.description||'Item')}</span>`).join('');
+    const more = (inv.items||[]).length - 4;
+    return `<div class="item-card">
+      <div class="item-header"><span class="item-number">${esc(inv.invoice_number||inv.id.slice(0,8).toUpperCase())}</span><span class="item-date">${fmtDate(inv.created_at)}</span></div>
+      ${inv.customer_address?`<div class="item-sub">📍 ${esc(inv.customer_address)}</div>`:''}
+      ${(inv.items||[]).length?`<div class="items-snippet">${snip}${more>0?`<span>+${more} more</span>`:''}</div>`:''}
+      <div class="item-footer">
+        <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap">
+          <span class="item-total">$${parseFloat(inv.total||0).toFixed(2)}</span>
+          <span class="badge badge-${inv.status}">${lblStatus(inv.status)}</span>
+        </div>
+        <button class="btn-sm btn-outline" onclick="downloadPDF('${inv.id}','${esc(inv.invoice_number||inv.id.slice(0,8))}')">⬇ PDF</button>
+      </div></div>`;
+  }).join('');
+}
+
+async function downloadPDF(id, label) {
+  const res = await fetch(`${API}/invoices/${id}/pdf`, ah());
+  if (!res.ok) { alert('Could not download PDF.'); return; }
+  const blob = await res.blob();
+  const url  = URL.createObjectURL(blob);
+  const a    = document.createElement('a');
+  a.href     = url; a.download = `invoice-${label}.pdf`; a.click();
+  URL.revokeObjectURL(url);
+}
+
+// ── STATS + BALANCE ───────────────────────────────────────────────────────────
+function updateStats(orders, invoices) {
+  document.getElementById('statOrders').textContent   = orders.length;
+  document.getElementById('statInvoices').textContent = invoices.length;
+  const billed  = invoices.reduce((s,i) => s + (parseFloat(i.total)||0), 0);
+  document.getElementById('statBilled').textContent   = fmt$(billed);
+
+  // Balance = invoices not yet settled (pending or signed — no paid status in system)
+  const open   = invoices.filter(i => i.status === 'pending' || i.status === 'signed');
+  const balance = open.reduce((s,i) => s + (parseFloat(i.total)||0), 0);
+  const amountEl = document.getElementById('balanceAmount');
+  amountEl.textContent = fmt$(balance);
+  amountEl.className   = 'balance-amount' + (balance === 0 ? ' zero' : '');
+
+  const subEl = document.getElementById('balanceSub');
+  if (balance === 0 && invoices.length > 0) {
+    subEl.textContent = 'All invoices sent — contact your rep to confirm payment status.';
+  } else if (open.length > 0) {
+    subEl.textContent = `${open.length} open invoice${open.length>1?'s':''} · click Pay Now to submit payment`;
+  } else {
+    subEl.textContent = 'No open invoices at this time.';
+  }
+
+  document.getElementById('payModalAmount').textContent = fmt$(balance);
+}
+
+// ── PAYMENT MODAL ─────────────────────────────────────────────────────────────
+function openPayModal()  { document.getElementById('payModal').classList.add('open'); }
+function closePayModal() { document.getElementById('payModal').classList.remove('open'); }
+document.getElementById('payModal').addEventListener('click', e => { if (e.target === document.getElementById('payModal')) closePayModal(); });
+
+// ── CONTACT INFO ──────────────────────────────────────────────────────────────
+async function loadContact() {
+  try {
+    const res  = await fetch(API + '/contact', ah());
+    if (res.status === 401) { doLogout(); return; }
+    const data = await res.json();
+    document.getElementById('cfName').value    = data.name    || '';
+    document.getElementById('cfPhone').value   = data.phone   || '';
+    document.getElementById('cfEmail').value   = data.email   || '';
+    document.getElementById('cfCompany').value = data.company || '';
+    document.getElementById('cfAddress').value = data.address || '';
+  } catch { /* leave blank */ }
+}
+
+async function saveContact() {
+  const payload = {
+    name:    document.getElementById('cfName').value.trim(),
+    phone:   document.getElementById('cfPhone').value.trim(),
+    company: document.getElementById('cfCompany').value.trim(),
+    address: document.getElementById('cfAddress').value.trim(),
+  };
+  document.getElementById('cfSuccess').classList.remove('show');
+  document.getElementById('cfError').classList.remove('show');
+  try {
+    const res  = await fetch(API + '/contact', { method: 'PATCH', ...ah(), body: JSON.stringify(payload) });
+    const data = await res.json();
+    if (!res.ok) {
+      document.getElementById('cfError').textContent = data.error || 'Could not save.';
+      document.getElementById('cfError').classList.add('show');
+    } else {
+      document.getElementById('cfSuccess').classList.add('show');
+      setTimeout(() => document.getElementById('cfSuccess').classList.remove('show'), 3000);
+    }
+  } catch {
+    document.getElementById('cfError').textContent = 'Network error.';
+    document.getElementById('cfError').classList.add('show');
+  }
+}
+
+// ── PRICING HELP ──────────────────────────────────────────────────────────────
+let pricingItems = [];
+
+function buildPricingTable(invoices) {
+  // Collect unique items across all invoices (dedupe by description)
+  const seen = {};
+  invoices.forEach(inv => {
+    (inv.items || []).forEach(item => {
+      const key = (item.description || item.name || '').toLowerCase().trim();
+      if (!key) return;
+      if (!seen[key] || (parseFloat(item.unit_price)||0) > (parseFloat(seen[key].unit_price)||0)) {
+        seen[key] = item;
+      }
+    });
+  });
+  pricingItems = Object.values(seen).sort((a,b) => (a.description||'').localeCompare(b.description||''));
+  recalcPricing();
+}
+
+function recalcPricing() {
+  const markup = Math.max(0, parseFloat(document.getElementById('markupInput').value) || 0);
+  const multiplier = 1 + markup / 100;
+  document.getElementById('markupPreview').textContent =
+    markup > 0 ? `× ${multiplier.toFixed(2)} — a $10.00 item becomes $${(10 * multiplier).toFixed(2)}` : '';
+
+  const tbody = document.getElementById('pricingBody');
+  if (!pricingItems.length) {
+    tbody.innerHTML = `<tr><td colspan="5">${empty('🧾','No invoice items yet','Your pricing will appear once you have invoices.')}</td></tr>`;
+    return;
+  }
+  tbody.innerHTML = pricingItems.map(item => {
+    const cost    = parseFloat(item.unit_price) || 0;
+    const newPrice = cost * multiplier;
+    const diff    = newPrice - cost;
+    const unit    = item.unit || '';
+    return `<tr>
+      <td><strong>${esc(item.description || item.name || '—')}</strong></td>
+      <td style="color:var(--muted)">${esc(unit)}</td>
+      <td class="price-orig">$${cost.toFixed(2)}</td>
+      <td class="price-new">$${newPrice.toFixed(2)}</td>
+      <td style="color:var(--accent);font-size:12px">+$${diff.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── FRESH FISH ────────────────────────────────────────────────────────────────
+async function loadFish() {
+  try {
+    const res  = await fetch(API + '/inventory', ah());
+    if (res.status === 401) { doLogout(); return; }
+    const data = await res.json();
+    allFishData = Array.isArray(data) ? data : [];
+    document.getElementById('fishCount').textContent = `${allFishData.length} item${allFishData.length!==1?'s':''} in stock`;
+    renderFish(allFishData);
+  } catch {
+    document.getElementById('fishBody').innerHTML = `<tr><td colspan="5">${err('Could not load inventory')}</td></tr>`;
+  }
+}
+
+function filterFish() {
+  const q = document.getElementById('fishSearch').value.trim().toLowerCase();
+  const filtered = q ? allFishData.filter(f => (f.description||'').toLowerCase().includes(q) || (f.category||'').toLowerCase().includes(q)) : allFishData;
+  document.getElementById('fishCount').textContent = `${filtered.length} of ${allFishData.length} item${allFishData.length!==1?'s':''}`;
+  renderFish(filtered);
+}
+
+function renderFish(items) {
+  const tbody = document.getElementById('fishBody');
+  if (!items.length) {
+    tbody.innerHTML = `<tr><td colspan="5">${empty('🐟','Nothing in stock','Check back after the next delivery.')}</td></tr>`;
+    return;
+  }
+  // Sort: items updated within the last 3 days get the fresh dot
+  const threeDaysAgo = Date.now() - 3 * 86400000;
+  tbody.innerHTML = items.map(f => {
+    const updatedMs = f.updated_at ? new Date(f.updated_at).getTime() : new Date(f.created_at).getTime();
+    const isFresh   = updatedMs > threeDaysAgo;
+    const qty       = parseFloat(f.on_hand_qty) || 0;
+    const wt        = parseFloat(f.on_hand_weight) || 0;
+    const qtyDisplay = wt > 0 ? `${qty} (${wt} lb)` : qty;
+    return `<tr>
+      <td><strong>${isFresh?'<span class="fish-fresh-dot"></span>':''} ${esc(f.description||'—')}</strong></td>
+      <td><span class="cat-pill">${esc(f.category||'Other')}</span></td>
+      <td><span class="qty-badge">${qtyDisplay}</span></td>
+      <td style="color:var(--muted)">${esc(f.unit||'—')}</td>
+      <td style="font-size:12px;color:var(--muted)">${fmtDate(f.updated_at||f.created_at)}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── HELPERS ───────────────────────────────────────────────────────────────────
+function fmtDate(iso) {
+  if (!iso) return '—';
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+function fmt$(n) {
+  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+function esc(s) {
+  return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+function lblStatus(s) {
+  return ({ pending:'Pending', in_process:'Processing', invoiced:'Invoiced', processed:'Processed', signed:'Signed', sent:'Sent' })[s]
+    || (s ? s.charAt(0).toUpperCase()+s.slice(1) : '—');
+}
+function empty(icon, title, body) {
+  return `<div class="empty"><div class="empty-icon">${icon}</div><h3>${title}</h3><p>${body}</p></div>`;
+}
+function err(msg) {
+  return `<div class="empty"><div class="empty-icon">⚠️</div><h3>${msg}</h3></div>`;
+}
+
+// ── AUTO-RESTORE SESSION ──────────────────────────────────────────────────────
+(function() {
+  const stored = getStoredToken();
+  if (!stored) return;
+  portalToken = stored;
+  fetch(API + '/me', ah()).then(r => r.json()).then(data => {
+    if (data.email) enterPortal(data.name || data.email);
+    else { clearToken(); portalToken = null; }
+  }).catch(() => { clearToken(); portalToken = null; });
+})();
+</script>
+</body>
+</html>
