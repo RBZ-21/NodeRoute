@@ -1,6 +1,7 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { forecastDemand } = require('../services/ai');
 
 const router = express.Router();
 
@@ -60,6 +61,92 @@ router.get('/orders', authenticateToken, requireRole('admin', 'manager'), async 
   }).sort((a, b) => b.order_count - a.order_count);
 
   res.json({ monthly, cadence });
+});
+
+// ── AI DEMAND FORECASTING ─────────────────────────────────────────────────────
+
+// GET /api/forecast/inventory/:itemNumber — AI forecast for one product
+router.get('/inventory/:itemNumber', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const { itemNumber } = req.params;
+  const days = Math.min(parseInt(req.query.days) || 14, 90);
+
+  const { data: product, error: pErr } = await supabase
+    .from('seafood_inventory')
+    .select('item_number,description,category,unit,cost,on_hand_qty')
+    .eq('item_number', itemNumber)
+    .single();
+  if (pErr || !product) return res.status(404).json({ error: 'Product not found' });
+
+  const since = new Date(Date.now() - 84 * 86400000).toISOString(); // 12 weeks
+  const { data: history, error: hErr } = await supabase
+    .from('inventory_stock_history')
+    .select('change_qty,change_type,created_at')
+    .eq('item_number', itemNumber)
+    .gte('created_at', since)
+    .order('created_at', { ascending: false });
+  if (hErr) return res.status(500).json({ error: hErr.message });
+
+  try {
+    const forecast = await forecastDemand(product, history || [], days);
+    res.json(forecast);
+  } catch (err) {
+    if (err.message.includes('ANTHROPIC_API_KEY')) return res.status(503).json({ error: err.message });
+    res.status(500).json({ error: 'AI forecast failed: ' + err.message });
+  }
+});
+
+// GET /api/forecast/inventory — AI forecast for all products (batch)
+router.get('/inventory', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const days = Math.min(parseInt(req.query.days) || 14, 90);
+
+  const { data: products, error: pErr } = await supabase
+    .from('seafood_inventory')
+    .select('item_number,description,category,unit,cost,on_hand_qty')
+    .order('category');
+  if (pErr) return res.status(500).json({ error: pErr.message });
+
+  const since = new Date(Date.now() - 84 * 86400000).toISOString();
+  const { data: allHistory, error: hErr } = await supabase
+    .from('inventory_stock_history')
+    .select('item_number,change_qty,change_type,created_at')
+    .gte('created_at', since)
+    .order('created_at', { ascending: false });
+  if (hErr) return res.status(500).json({ error: hErr.message });
+
+  const historyByItem = {};
+  (allHistory || []).forEach(h => {
+    if (!historyByItem[h.item_number]) historyByItem[h.item_number] = [];
+    historyByItem[h.item_number].push(h);
+  });
+
+  // Run forecasts with concurrency limit of 3 to avoid rate limits
+  const results = [];
+  const CONCURRENCY = 3;
+  for (let i = 0; i < products.length; i += CONCURRENCY) {
+    const batch = products.slice(i, i + CONCURRENCY);
+    const batchResults = await Promise.all(
+      batch.map(async p => {
+        try {
+          return await forecastDemand(p, historyByItem[p.item_number] || [], days);
+        } catch (err) {
+          return {
+            product_id: p.item_number,
+            product_name: p.description,
+            forecast_period_days: days,
+            predicted_demand_units: 0,
+            reorder_recommended: false,
+            suggested_reorder_quantity: 0,
+            confidence: 'low',
+            trend: 'stable',
+            reasoning: 'Forecast unavailable: ' + err.message,
+          };
+        }
+      })
+    );
+    results.push(...batchResults);
+  }
+
+  res.json(results);
 });
 
 module.exports = router;
