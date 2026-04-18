@@ -127,7 +127,7 @@ function buildInventoryAlertEmail(outOfStock, lowStock, analytics) {
 
 router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const mailer = createMailer();
-  if (!mailer) return res.status(503).json({ error: 'Email not configured (SMTP_HOST missing)' });
+  if (!mailer) return res.status(503).json({ error: 'Email not configured (RESEND_API_KEY missing)' });
 
   const { data: products, error } = await supabase.from('seafood_inventory').select('*');
   if (error) return res.status(500).json({ error: error.message });
@@ -156,10 +156,10 @@ router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), 
   });
 
   const html = buildInventoryAlertEmail(outOfStock, lowStock, analytics);
-  const to   = req.body.email || process.env.SMTP_USER || process.env.EMAIL_FROM;
+  const to   = req.body.email || process.env.EMAIL_FROM;
   try {
     await mailer.sendMail({
-      from: process.env.EMAIL_FROM || process.env.SMTP_USER,
+      from: process.env.EMAIL_FROM,
       to,
       subject: `Inventory Alert — ${outOfStock.length} out of stock, ${lowStock.length} low`,
       html,
