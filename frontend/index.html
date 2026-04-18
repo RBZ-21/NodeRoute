@@ -1067,6 +1067,7 @@ td{padding:12px 16px;vertical-align:middle}
         <div class="inv-sub-tab active" onclick="showInvTab('products',this)">Products</div>
         <div class="inv-sub-tab" onclick="showInvTab('lots',this)">🏷 Lots &amp; Batches</div>
         <div class="inv-sub-tab" onclick="showInvTab('analytics',this)">📊 Analytics &amp; Predictions</div>
+        <div class="inv-sub-tab" onclick="showInvTab('ai',this)">🤖 AI Health Check</div>
       </div>
 
       <!-- PANE: Products -->
@@ -1186,12 +1187,26 @@ td{padding:12px 16px;vertical-align:middle}
           <div style="text-align:center;padding:40px;color:var(--muted)">Loading analytics…</div>
         </div>
       </div>
+
+      <!-- PANE: AI Health Check -->
+      <div class="inv-sub-pane" id="inv-pane-ai">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+          <div>
+            <div class="fc-section-title" style="margin-bottom:2px">AI Inventory Health Check</div>
+            <div class="fc-section-sub">Claude AI reviews all SKUs — expiry dates, stock levels, and demand — and prioritizes actions</div>
+          </div>
+          <button class="btn btn-accent" onclick="loadAIInventoryAnalysis()" id="aiInvBtn">Run Health Check</button>
+        </div>
+        <div id="aiInvStatus" style="display:none;color:var(--muted);font-size:13px;margin-bottom:12px;padding:10px;background:var(--card);border-radius:8px;border:1px solid var(--border)"></div>
+        <div id="aiInvResults"></div>
+      </div>
     </div>
 
     <!-- TAB: FORECAST -->
     <div class="tab-pane" id="tab-forecast">
       <div class="fc-sub-tabs">
         <div class="fc-sub-tab active" onclick="showFcTab('orders',this)">📦 Order Forecasting</div>
+        <div class="fc-sub-tab" onclick="showFcTab('ai',this)">🤖 AI Demand Forecast</div>
         <div class="fc-sub-tab" onclick="showFcTab('seasons',this)">🌊 Fishing Seasons</div>
       </div>
 
@@ -1226,6 +1241,28 @@ td{padding:12px 16px;vertical-align:middle}
           <div class="fc-section-sub" style="margin-top:-10px;margin-bottom:14px">Repeat order patterns and estimated next order window</div>
           <div id="fcCustomerDemand"><div style="color:var(--muted);font-size:13px">Loading…</div></div>
         </div>
+      </div>
+
+      <!-- PANE: AI Demand Forecast -->
+      <div class="fc-sub-pane" id="fc-pane-ai">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+          <div>
+            <div class="fc-section-title" style="margin-bottom:2px">AI Inventory Demand Forecast</div>
+            <div class="fc-section-sub">Claude AI analyzes 12 weeks of stock history to predict demand and reorder needs</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="aiForecastDays" class="filter-select" style="width:130px">
+              <option value="7">7-day forecast</option>
+              <option value="14" selected>14-day forecast</option>
+              <option value="30">30-day forecast</option>
+            </select>
+            <button class="btn btn-accent" onclick="loadAIForecast()" id="aiForecastBtn">
+              Run AI Forecast
+            </button>
+          </div>
+        </div>
+        <div id="aiForecastStatus" style="display:none;color:var(--muted);font-size:13px;margin-bottom:12px;padding:10px;background:var(--card);border-radius:8px;border:1px solid var(--border)"></div>
+        <div id="aiForecastResults"></div>
       </div>
 
       <!-- PANE: Fishing Seasons -->
@@ -4022,6 +4059,7 @@ function renderInventory() {
       <div style="display:flex;gap:5px;white-space:nowrap">
         ${stockBtn}
         <button class="user-action-btn" style="color:#a78bfa;border-color:rgba(124,58,237,0.3)" onclick="openYieldModal('${item.item_number}','${safeDesc}',${item.avg_yield||'null'},${item.yield_count||0})">⚖ Yield</button>
+        <button class="user-action-btn" style="color:#3dba7f;border-color:rgba(61,186,127,0.3)" onclick="sendAIReorderAlert('${item.item_number}','${safeDesc}')">🤖 Alert</button>
         <button class="user-action-btn" onclick="openInventoryModal('${item.item_number}')">Edit</button>
         <button class="user-action-btn danger" onclick="deleteInventoryItem('${item.item_number}','${safeDesc}')">×</button>
       </div>` : '—';
@@ -5460,6 +5498,216 @@ const FISHING_SEASONS = [
   ['Tilefish','Other',['A','A','A','G','P','P','G','G','A','A','A','A']],
   ['Bluefish','Other',['C','C','C','A','G','P','P','P','G','G','A','C']],
 ];
+
+// ── AI REORDER ALERT ────────────────────────────────────
+async function sendAIReorderAlert(itemNumber, productName) {
+  const email = prompt(`AI will generate a reorder alert for "${productName}".\n\nEnter an email address to send it to (leave blank to just preview):`);
+  if (email === null) return; // cancelled
+
+  showAlert(`Generating AI reorder alert for ${productName}…`, 'info');
+  try {
+    const body = email ? JSON.stringify({ email }) : '{}';
+    const res  = await fetch(API + '/inventory/' + itemNumber + '/reorder-alert', {
+      method:  'POST',
+      headers: { ...authHeaders.headers, 'Content-Type': 'application/json' },
+      body,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || res.statusText);
+    }
+    const alert = await res.json();
+    const sent  = alert.emailed ? `\n\nSent to: ${alert.to}` : '\n\n(Preview only — no email sent)';
+    showAlertModal('AI Reorder Alert Generated', `<strong>${alert.subject}</strong><br><br>${alert.body.replace(/\n/g,'<br>')}${sent.replace(/\n/g,'<br>')}`);
+  } catch (e) {
+    showAlert('Alert generation failed: ' + e.message, 'error');
+  }
+}
+
+function showAlertModal(title, htmlContent) {
+  const existing = document.getElementById('aiAlertModal');
+  if (existing) existing.remove();
+  const modal = document.createElement('div');
+  modal.id = 'aiAlertModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div style="font-weight:700;font-size:15px;color:var(--accent)">🤖 ${title}</div>
+        <button onclick="document.getElementById('aiAlertModal').remove()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px">×</button>
+      </div>
+      <div style="font-size:13px;line-height:1.6;color:#e5e7eb">${htmlContent}</div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+// ── AI INVENTORY HEALTH CHECK ──────────────────────────
+async function loadAIInventoryAnalysis() {
+  const btn    = document.getElementById('aiInvBtn');
+  const status = document.getElementById('aiInvStatus');
+  const results = document.getElementById('aiInvResults');
+
+  btn.disabled = true;
+  btn.textContent = 'Analyzing…';
+  status.style.display = 'block';
+  status.style.color = 'var(--muted)';
+  status.textContent = '⏳ Running AI health check across all inventory SKUs… This may take 30–60 seconds.';
+  results.innerHTML = '';
+
+  try {
+    const res = await fetch(API + '/inventory/ai-analysis', authHeaders);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || res.statusText);
+    }
+    const analysis = await res.json();
+    status.style.display = 'none';
+    renderAIInventoryAnalysis(analysis);
+  } catch (e) {
+    status.textContent = '❌ ' + e.message;
+    status.style.color = 'var(--danger)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Run Health Check';
+  }
+}
+
+function renderAIInventoryAnalysis(data) {
+  const el = document.getElementById('aiInvResults');
+  if (!data || !data.action_items) {
+    el.innerHTML = '<div style="color:var(--muted);padding:20px">No analysis data returned.</div>';
+    return;
+  }
+
+  const s = data.summary || {};
+  const summaryHtml = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">
+      <div class="kpi-card"><div class="kpi-label">SKUs Analyzed</div><div class="kpi-value">${data.total_skus_analyzed || 0}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Critical</div><div class="kpi-value" style="color:var(--danger)">${s.critical_items || 0}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Warnings</div><div class="kpi-value" style="color:var(--warning)">${s.warning_items || 0}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Overstocked</div><div class="kpi-value" style="color:#818cf8">${s.overstocked_items || 0}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Healthy</div><div class="kpi-value green">${s.healthy_items || 0}</div></div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Analysis date: ${data.analysis_date || '—'}</div>`;
+
+  const PRIORITY_COLOR = { CRITICAL: 'var(--danger)', WARNING: 'var(--warning)', INFO: 'var(--muted)' };
+  const PRIORITY_BG    = { CRITICAL: '#2a0a0a', WARNING: '#2a1a0a', INFO: 'var(--card)' };
+  const ACTION_LABEL   = {
+    REORDER:       { label: 'REORDER',       color: 'var(--danger)' },
+    EXPEDITE_SALE: { label: 'EXPEDITE SALE', color: 'var(--warning)' },
+    REDUCE_ORDER:  { label: 'REDUCE ORDER',  color: '#818cf8' },
+    MONITOR:       { label: 'MONITOR',       color: 'var(--muted)' },
+  };
+
+  const itemsHtml = (data.action_items || []).map(item => {
+    const pc = PRIORITY_COLOR[item.priority] || 'var(--muted)';
+    const bg = PRIORITY_BG[item.priority]    || 'var(--card)';
+    const ac = ACTION_LABEL[item.action]     || { label: item.action, color: 'var(--muted)' };
+    return `
+      <div style="background:${bg};border:1px solid var(--border);border-left:3px solid ${pc};border-radius:8px;padding:12px 16px;margin-bottom:8px;display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">
+        <div style="min-width:80px">
+          <div style="font-weight:700;font-size:12px;color:${pc}">${item.priority}</div>
+          <div style="font-size:11px;color:${ac.color};margin-top:3px;font-weight:600">${ac.label}</div>
+        </div>
+        <div style="flex:1;min-width:160px">
+          <div style="font-weight:600;font-size:13px">${item.product_name}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:1px">${item.product_id} · Stock: ${item.current_stock}</div>
+          <div style="font-size:12px;color:#ccc;margin-top:6px">${item.reason}</div>
+        </div>
+        <div style="font-size:12px;color:var(--accent);max-width:260px;text-align:right;align-self:center">${item.suggested_action}</div>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = summaryHtml + `<div class="fc-chart-card" style="padding:16px">${itemsHtml}</div>`;
+}
+
+// ── AI DEMAND FORECASTING ───────────────────────────────
+async function loadAIForecast() {
+  const btn    = document.getElementById('aiForecastBtn');
+  const status = document.getElementById('aiForecastStatus');
+  const results = document.getElementById('aiForecastResults');
+  const days   = document.getElementById('aiForecastDays').value;
+
+  btn.disabled = true;
+  btn.textContent = 'Running…';
+  status.style.display = 'block';
+  status.textContent = '⏳ Fetching inventory data and running AI analysis… This may take 30–60 seconds.';
+  results.innerHTML = '';
+
+  try {
+    const res = await fetch(API + '/forecast/inventory?days=' + days, authHeaders);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || res.statusText);
+    }
+    const forecasts = await res.json();
+    status.style.display = 'none';
+    renderAIForecastResults(forecasts);
+  } catch (e) {
+    status.textContent = '❌ ' + e.message;
+    status.style.color = 'var(--danger)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Run AI Forecast';
+  }
+}
+
+function renderAIForecastResults(forecasts) {
+  const el = document.getElementById('aiForecastResults');
+  if (!forecasts.length) {
+    el.innerHTML = '<div style="color:var(--muted);padding:20px">No inventory products found.</div>';
+    return;
+  }
+
+  const reorderItems = forecasts.filter(f => f.reorder_recommended);
+  const summaryHtml = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px">
+      <div class="kpi-card"><div class="kpi-label">Products Analyzed</div><div class="kpi-value">${forecasts.length}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Reorder Recommended</div><div class="kpi-value" style="color:var(--warning)">${reorderItems.length}</div></div>
+      <div class="kpi-card"><div class="kpi-label">High Confidence</div><div class="kpi-value green">${forecasts.filter(f=>f.confidence==='high').length}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Increasing Demand</div><div class="kpi-value" style="color:#818cf8">${forecasts.filter(f=>f.trend==='increasing').length}</div></div>
+    </div>`;
+
+  const rowsHtml = forecasts.map(f => {
+    const trendColor = f.trend === 'increasing' ? '#818cf8' : f.trend === 'decreasing' ? 'var(--danger)' : 'var(--muted)';
+    const trendIcon  = f.trend === 'increasing' ? '↑' : f.trend === 'decreasing' ? '↓' : '→';
+    const confColor  = f.confidence === 'high' ? 'var(--accent)' : f.confidence === 'medium' ? 'var(--warning)' : 'var(--muted)';
+    const reorderBadge = f.reorder_recommended
+      ? `<span style="background:#422;color:var(--warning);padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600">REORDER</span>`
+      : `<span style="background:#1a3a26;color:var(--accent);padding:2px 7px;border-radius:4px;font-size:11px">OK</span>`;
+    return `
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:160px">
+            <div style="font-weight:600;font-size:14px;margin-bottom:2px">${f.product_name}</div>
+            <div style="font-size:11px;color:var(--muted)">${f.product_id}</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            ${reorderBadge}
+            <span style="color:${trendColor};font-weight:600;font-size:13px">${trendIcon} ${f.trend}</span>
+            <span style="color:${confColor};font-size:12px;border:1px solid ${confColor};border-radius:4px;padding:1px 6px">${f.confidence}</span>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:10px 0 8px">
+          <div style="background:var(--bg);border-radius:6px;padding:8px 10px">
+            <div style="font-size:11px;color:var(--muted)">Predicted demand</div>
+            <div style="font-weight:700;font-size:18px">${f.predicted_demand_units}</div>
+            <div style="font-size:11px;color:var(--muted)">units / ${f.forecast_period_days}d</div>
+          </div>
+          ${f.reorder_recommended ? `
+          <div style="background:#2a1a0a;border-radius:6px;padding:8px 10px">
+            <div style="font-size:11px;color:var(--muted)">Suggested reorder</div>
+            <div style="font-weight:700;font-size:18px;color:var(--warning)">${f.suggested_reorder_quantity}</div>
+            <div style="font-size:11px;color:var(--muted)">units</div>
+          </div>` : ''}
+        </div>
+        <div style="font-size:12px;color:#aaa;border-top:1px solid var(--border);padding-top:8px;margin-top:4px">${f.reasoning}</div>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = summaryHtml + `<div class="fc-chart-card" style="padding:16px">${rowsHtml}</div>`;
+}
 
 function renderFishingSeasons() {
   const catFilter = document.getElementById('seasonCatFilter')?.value || '';
