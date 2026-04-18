@@ -5,13 +5,12 @@
       "name": "Backend API",
       "runtimeExecutable": "node",
       "runtimeArgs": ["backend/server.js"],
-      "port": 3001,
-      "autoPort": true
+      "port": 3001
     },
     {
       "name": "Frontend (static)",
-      "runtimeExecutable": "python3",
-      "runtimeArgs": ["-m", "http.server", "3000", "--directory", "frontend"],
+      "runtimeExecutable": "npx",
+      "runtimeArgs": ["serve", "frontend", "-l", "3000"],
       "port": 3000
     }
   ]
