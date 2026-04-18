@@ -22,6 +22,52 @@ const driverRouter = require('./routes/driver');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+const AUTH_SALT = 'noderoute-salt';
+const USERS_FILE = path.join(__dirname, 'data/users.json');
+
+// In-memory sessions: token -> { userId, role }
+const sessions = {};
+
+function hashPassword(password) {
+  return crypto.createHash('sha256').update(password + AUTH_SALT).digest('hex');
+}
+
+function generateToken() {
+  return crypto.randomBytes(32).toString('hex');
+}
+
+function readUsers() {
+  try {
+    return JSON.parse(fs.readFileSync(USERS_FILE, 'utf8'));
+  } catch {
+    return [];
+  }
+}
+
+function writeUsers(users) {
+  fs.writeFileSync(USERS_FILE, JSON.stringify(users, null, 2));
+}
+
+function authenticateToken(req, res, next) {
+  const auth = req.headers['authorization'];
+  const token = auth && auth.startsWith('Bearer ') ? auth.slice(7) : null;
+  if (!token || !sessions[token]) return res.status(401).json({ error: 'Unauthorized' });
+  const session = sessions[token];
+  const users = readUsers();
+  const user = users.find(u => u.id === session.userId);
+  if (!user || user.status !== 'active') return res.status(401).json({ error: 'Unauthorized' });
+  req.user = user;
+  req.token = token;
+  next();
+}
+
+function requireRole(...roles) {
+  return (req, res, next) => {
+    if (!roles.includes(req.user.role)) return res.status(403).json({ error: 'Forbidden' });
+    next();
+  };
+}
+
 app.use(express.json());
 
 // CORS
@@ -32,6 +78,88 @@ app.use((req, res, next) => {
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
+
+// --- Auth Routes (no token required) ---
+
+app.post('/auth/login', (req, res) => {
+  const { email, password } = req.body;
+  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+  const users = readUsers();
+  const user = users.find(u => u.email === email && u.status === 'active');
+  if (!user || user.passwordHash !== hashPassword(password)) {
+    return res.status(401).json({ error: 'Invalid credentials' });
+  }
+  const token = generateToken();
+  sessions[token] = { userId: user.id, role: user.role };
+  res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+});
+
+app.post('/auth/setup-password', (req, res) => {
+  const { inviteToken, password } = req.body;
+  if (!inviteToken || !password) return res.status(400).json({ error: 'inviteToken and password required' });
+  const users = readUsers();
+  const user = users.find(u => u.inviteToken === inviteToken);
+  if (!user) return res.status(404).json({ error: 'Invalid invite token' });
+  if (user.inviteExpires && new Date(user.inviteExpires) < new Date()) {
+    return res.status(400).json({ error: 'Invite token expired' });
+  }
+  user.passwordHash = hashPassword(password);
+  user.status = 'active';
+  user.inviteToken = null;
+  user.inviteExpires = null;
+  writeUsers(users);
+  const token = generateToken();
+  sessions[token] = { userId: user.id, role: user.role };
+  res.json({ token, user: { id: user.id, name: user.name, email: user.email, role: user.role } });
+});
+
+app.get('/auth/me', authenticateToken, (req, res) => {
+  const { id, name, email, role } = req.user;
+  res.json({ id, name, email, role });
+});
+
+// --- User Management (protected) ---
+
+app.get('/api/users', authenticateToken, requireRole('admin'), (req, res) => {
+  const users = readUsers();
+  res.json(users.map(({ passwordHash, ...u }) => u));
+});
+
+app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
+  const { name, email } = req.body;
+  if (!name || !email) return res.status(400).json({ error: 'name and email required' });
+  const users = readUsers();
+  if (users.find(u => u.email === email)) return res.status(409).json({ error: 'Email already exists' });
+  const inviteToken = generateToken();
+  const newUser = {
+    id: Date.now().toString(),
+    name,
+    email,
+    passwordHash: null,
+    role: 'driver',
+    status: 'pending',
+    inviteToken,
+    inviteExpires: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    createdAt: new Date().toISOString()
+  };
+  users.push(newUser);
+  writeUsers(users);
+  const previewUrl = `http://localhost:${PORT}/setup-password?token=${inviteToken}`;
+  console.log(`[INVITE] Email to ${email}: ${previewUrl}`);
+  res.json({ message: 'Invite sent', previewUrl, userId: newUser.id });
+});
+
+app.delete('/api/users/:id', authenticateToken, requireRole('admin'), (req, res) => {
+  const users = readUsers();
+  const idx = users.findIndex(u => u.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'User not found' });
+  if (req.params.id === req.user.id) return res.status(400).json({ error: 'Cannot delete yourself' });
+  users.splice(idx, 1);
+  writeUsers(users);
+  res.json({ message: 'User deleted' });
+});
+
+// --- Static files (unauthenticated pages) ---
 
 const frontendDir = path.join(__dirname, '../frontend');
 app.use(express.static(frontendDir, { index: false }));
