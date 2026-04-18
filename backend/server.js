@@ -1,10 +1,26 @@
+require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 const express = require('express');
 const path = require('path');
-const crypto = require('crypto');
-const fs = require('fs');
+const bcrypt = require('bcryptjs');
+const { supabase } = require('./services/supabase');
+
+// Route modules
+const authRouter = require('./routes/auth');
+const usersRouter = require('./routes/users');
+const ordersRouter = require('./routes/orders');
+const invoicesRouter = require('./routes/invoices');
+const inventoryRouter = require('./routes/inventory');
+const deliveriesRouter = require('./routes/deliveries');
+const stopsRouter = require('./routes/stops');
+const { dwellRecords } = require('./routes/stops');
+const routesRouter = require('./routes/routes');
+const customersRouter = require('./routes/customers');
+const forecastRouter = require('./routes/forecast');
+const portalRouter = require('./routes/portal');
+const driverRouter = require('./routes/driver');
 
 const app = express();
-const PORT = 3001;
+const PORT = process.env.PORT || 3001;
 
 const AUTH_SALT = 'noderoute-salt';
 const USERS_FILE = path.join(__dirname, 'data/users.json');
@@ -53,11 +69,13 @@ function requireRole(...roles) {
 }
 
 app.use(express.json());
+
+// CORS
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization');
-  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
-  if (req.method === 'OPTIONS') return res.sendStatus(200);
+  res.setHeader('Access-Control-Allow-Origin', process.env.CORS_ORIGIN || '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
 
@@ -144,88 +162,87 @@ app.delete('/api/users/:id', authenticateToken, requireRole('admin'), (req, res)
 // --- Static files (unauthenticated pages) ---
 
 const frontendDir = path.join(__dirname, '../frontend');
-app.use(express.static(frontendDir));
-app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
-app.get('/login', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
-app.get('/setup-password', (req, res) => res.sendFile(path.join(frontendDir, 'setup-password.html')));
+app.use(express.static(frontendDir, { index: false }));
 
-// --- Mock data ---
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@noderoute.com';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@123';
 
-const today = new Date();
-const d = (h, m) => { const dt = new Date(today); dt.setHours(h, m, 0, 0); return dt.toISOString(); };
+// Auto-create admin on first run if no users exist in Supabase
+async function ensureAdminExists() {
+  const { data, error } = await supabase.from('users').select('id').limit(1);
+  if (error) { console.error('Could not check users table:', error.message); return; }
+  if (data && data.length === 0) {
+    const passwordHash = bcrypt.hashSync(ADMIN_PASSWORD, 10);
+    const { error: insertErr } = await supabase.from('users').insert([{
+      id: 'admin-001',
+      name: 'Admin',
+      email: ADMIN_EMAIL,
+      password_hash: passwordHash,
+      role: 'admin',
+      status: 'active',
+      invite_token: null,
+      invite_expires: null,
+      created_at: new Date().toISOString()
+    }]);
+    if (insertErr) console.error('Failed to create admin user:', insertErr.message);
+    else console.log('Admin user created:', ADMIN_EMAIL);
+  }
+}
 
-const deliveries = [
-  { id: 1, orderId: 'NR-1001', restaurantName: 'Husk', driverName: 'Marcus Johnson', status: 'delivered', startTime: d(7,15), endTime: d(7,48), expectedWindowStart: d(7,30), expectedWindowEnd: d(8,0), distanceMiles: 3.2, stopDurationMinutes: 12, speedMph: 24, address: '76 Queen St, Charleston, SC', deliveryDoor: 'back dock', items: ['2x Bluefin Tuna (5lb)', '1x Oysters (100ct)', '3x Gulf Shrimp (2lb)'], onTime: true },
-  { id: 2, orderId: 'NR-1002', restaurantName: 'FIG', driverName: 'Sarah Chen', status: 'delivered', startTime: d(7,45), endTime: d(8,22), expectedWindowStart: d(8,0), expectedWindowEnd: d(8,30), distanceMiles: 2.8, stopDurationMinutes: 15, speedMph: 22, address: '232 Meeting St, Charleston, SC', deliveryDoor: 'front entrance', items: ['4x Grouper Fillet (3lb)', '2x Scallops (1lb)', '1x Lobster (2ct)'], onTime: true },
-  { id: 3, orderId: 'NR-1003', restaurantName: 'The Ordinary', driverName: 'Marcus Johnson', status: 'delivered', startTime: d(8,30), endTime: d(9,5), expectedWindowStart: d(8,45), expectedWindowEnd: d(9,15), distanceMiles: 4.1, stopDurationMinutes: 18, speedMph: 21, address: '544 King St, Charleston, SC', deliveryDoor: 'loading dock', items: ['10x East Coast Oysters (100ct)', '5x Littleneck Clams (50ct)', '2x Dungeness Crab (3lb)'], onTime: true },
-  { id: 4, orderId: 'NR-1004', restaurantName: "Hall's Chophouse", driverName: 'James Rivera', status: 'delivered', startTime: d(8,0), endTime: d(8,44), expectedWindowStart: d(8,15), expectedWindowEnd: d(8,45), distanceMiles: 5.6, stopDurationMinutes: 20, speedMph: 26, address: '434 King St, Charleston, SC', deliveryDoor: 'back dock', items: ['3x Swordfish Steak (2lb)', '2x Mahi-Mahi (4lb)', '1x Jumbo Lump Crabmeat (5lb)'], onTime: true },
-  { id: 5, orderId: 'NR-1005', restaurantName: '167 Raw', driverName: 'Priya Patel', status: 'in-transit', startTime: d(9,0), endTime: null, expectedWindowStart: d(9,15), expectedWindowEnd: d(9,45), distanceMiles: 3.9, stopDurationMinutes: null, speedMph: 23, address: '289 E Bay St, Charleston, SC', deliveryDoor: 'front entrance', items: ['6x Oysters Assorted (100ct)', '3x Shrimp Cocktail Pack (2lb)', '2x Snow Crab Legs (3lb)'], onTime: true },
-  { id: 6, orderId: 'NR-1006', restaurantName: "Edmund's Oast", driverName: 'Sarah Chen', status: 'in-transit', startTime: d(9,20), endTime: null, expectedWindowStart: d(9,30), expectedWindowEnd: d(10,0), distanceMiles: 2.5, stopDurationMinutes: null, speedMph: 19, address: '1081 Morrison Dr, Charleston, SC', deliveryDoor: 'loading dock', items: ['4x Flounder (3lb)', '2x Redfish (4lb)', '1x Soft Shell Crab (6ct)'], onTime: true },
-  { id: 7, orderId: 'NR-1007', restaurantName: 'Zero Restaurant', driverName: 'James Rivera', status: 'failed', startTime: d(8,50), endTime: d(9,30), expectedWindowStart: d(9,0), expectedWindowEnd: d(9,30), distanceMiles: 6.2, stopDurationMinutes: 5, speedMph: 18, address: '140 Ester Lee Dr, Charleston, SC', deliveryDoor: 'back dock', items: ['2x Black Sea Bass (3lb)', '1x Red Snapper (5lb)'], onTime: false },
-  { id: 8, orderId: 'NR-1008', restaurantName: 'The Darling Oyster Bar', driverName: 'Priya Patel', status: 'delivered', startTime: d(7,30), endTime: d(8,10), expectedWindowStart: d(7,45), expectedWindowEnd: d(8,15), distanceMiles: 3.7, stopDurationMinutes: 14, speedMph: 25, address: '513 King St, Charleston, SC', deliveryDoor: 'front entrance', items: ['8x Oysters Premium (100ct)', '4x Cherrystone Clams (50ct)', '2x Manilla Clams (50ct)'], onTime: true },
-  { id: 9, orderId: 'NR-1009', restaurantName: 'Maison', driverName: 'Marcus Johnson', status: 'pending', startTime: null, endTime: null, expectedWindowStart: d(10,0), expectedWindowEnd: d(10,30), distanceMiles: 4.8, stopDurationMinutes: null, speedMph: null, address: '691 King St, Charleston, SC', deliveryDoor: 'back dock', items: ['3x Whole Branzino (2lb)', '2x Dover Sole (1lb)', '1x Halibut (6lb)'], onTime: null },
-  { id: 10, orderId: 'NR-1010', restaurantName: 'Delaney Oyster House', driverName: 'Sarah Chen', status: 'pending', startTime: null, endTime: null, expectedWindowStart: d(10,15), expectedWindowEnd: d(10,45), distanceMiles: 5.1, stopDurationMinutes: null, speedMph: null, address: '115 Calhoun St, Charleston, SC', deliveryDoor: 'loading dock', items: ['12x Oysters Local (100ct)', '5x Blue Crab (6ct)', '2x Spiny Lobster (2ct)'], onTime: null },
-  { id: 11, orderId: 'NR-1011', restaurantName: 'Husk', driverName: 'James Rivera', status: 'delivered', startTime: d(6,45), endTime: d(7,20), expectedWindowStart: d(7,0), expectedWindowEnd: d(7,30), distanceMiles: 3.2, stopDurationMinutes: 11, speedMph: 27, address: '76 Queen St, Charleston, SC', deliveryDoor: 'back dock', items: ['1x Swordfish Loin (4lb)', '2x Tuna Steak (2lb)'], onTime: true },
-  { id: 12, orderId: 'NR-1012', restaurantName: 'FIG', driverName: 'Priya Patel', status: 'in-transit', startTime: d(9,45), endTime: null, expectedWindowStart: d(9,45), expectedWindowEnd: d(10,15), distanceMiles: 2.8, stopDurationMinutes: null, speedMph: 20, address: '232 Meeting St, Charleston, SC', deliveryDoor: 'front entrance', items: ['3x Sea Scallops (1lb)', '4x Gulf Shrimp (2lb)', '1x King Crab Legs (3lb)'], onTime: false },
-];
+ensureAdminExists().catch(err => console.error('ensureAdminExists failed:', err.message));
 
-const drivers = [
-  { name: 'Marcus Johnson', phone: '(843) 555-0101', status: 'on-duty', vehicleId: 'NR-VAN-01', totalStopsToday: 4, avgStopMinutes: 13.7, avgSpeedMph: 23.7, onTimeRate: 100, milesToday: 15.3 },
-  { name: 'Sarah Chen', phone: '(843) 555-0102', status: 'on-duty', vehicleId: 'NR-VAN-02', totalStopsToday: 3, avgStopMinutes: 15.0, avgSpeedMph: 20.3, onTimeRate: 100, milesToday: 10.4 },
-  { name: 'James Rivera', phone: '(843) 555-0103', status: 'on-duty', vehicleId: 'NR-VAN-03', totalStopsToday: 3, avgStopMinutes: 12.0, avgSpeedMph: 23.7, onTimeRate: 66.7, milesToday: 15.0 },
-  { name: 'Priya Patel', phone: '(843) 555-0104', status: 'on-duty', vehicleId: 'NR-VAN-04', totalStopsToday: 3, avgStopMinutes: 14.0, avgSpeedMph: 22.7, onTimeRate: 75.0, milesToday: 10.4 },
-];
+if (!process.env.BASE_URL) {
+  console.warn('WARNING: BASE_URL is not set — invite links will use http://localhost and will NOT work in production. Set BASE_URL to your public domain (e.g. https://yourapp.railway.app).');
+}
+if (!process.env.RESEND_API_KEY) {
+  console.warn('WARNING: RESEND_API_KEY is not set — emails will not be sent.');
+}
 
-// --- Protected API Routes ---
+// Mount routers
+app.use('/auth', authRouter);
+app.use('/api/users', usersRouter);
+app.use('/api/orders', ordersRouter);
+app.use('/api/invoices', invoicesRouter);
+app.use('/api/inventory', inventoryRouter);
+app.use('/api', deliveriesRouter);
+app.use('/api/stops', stopsRouter);
+app.use('/api/routes', routesRouter);
+app.use('/api/customers', customersRouter);
+app.use('/api/forecast', forecastRouter);
+app.use('/api/portal', portalRouter);
+app.use('/api/driver', driverRouter);
 
-app.get('/api/stats', authenticateToken, (req, res) => {
-  const total = deliveries.length;
-  const delivered = deliveries.filter(d => d.status === 'delivered').length;
-  const failed = deliveries.filter(d => d.status === 'failed').length;
-  const inTransit = deliveries.filter(d => d.status === 'in-transit').length;
-  const onTimeDelivered = deliveries.filter(d => d.status === 'delivered' && d.onTime).length;
-  const onTimeRate = delivered > 0 ? Math.round((onTimeDelivered / delivered) * 100) : 0;
-  const activeDrivers = drivers.filter(d => d.status === 'on-duty').length;
-  res.json({
-    totalDeliveries: total, delivered, inTransit,
-    pending: deliveries.filter(d => d.status === 'pending').length,
-    failed, onTimeRate, activeDrivers, totalDrivers: drivers.length,
-    yesterday: { totalDeliveries: 11, onTimeRate: 82, activeDrivers: 3, failed: 2 }
-  });
+// Config endpoint
+const { authenticateToken, requireRole } = require('./middleware/auth');
+app.get('/api/config/maps-key', authenticateToken, (req, res) => {
+  res.json({ key: process.env.GOOGLE_MAPS_KEY || '' });
 });
 
-app.get('/api/deliveries', authenticateToken, (req, res) => res.json(deliveries));
-app.get('/api/drivers', authenticateToken, (req, res) => res.json(drivers));
+// Dwell records (top-level path, shares in-memory state with stops router)
+app.get('/api/dwell', authenticateToken, (req, res) => res.json(dwellRecords));
 
-app.get('/api/analytics', authenticateToken, (req, res) => {
-  const completed = deliveries.filter(d => d.status === 'delivered');
-  const avgStopTime = completed.reduce((s, d) => s + d.stopDurationMinutes, 0) / completed.length;
-  const withSpeed = deliveries.filter(d => d.speedMph);
-  const avgSpeed = withSpeed.reduce((s, d) => s + d.speedMph, 0) / withSpeed.length;
-  const onTimeRate = Math.round((completed.filter(d => d.onTime).length / completed.length) * 100);
+// Legacy alias: /api/drivers/invite → /api/users/invite
+app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager'), (req, res, next) => {
+  req.body.role = req.body.role || 'driver'; next();
+}, (req, res) => res.redirect(307, '/api/users/invite'));
 
-  const deliveriesByHour = Array(24).fill(0);
-  deliveries.forEach(d => {
-    const t = d.endTime || d.startTime;
-    if (t) deliveriesByHour[new Date(t).getHours()]++;
-  });
+// ── PAGES ─────────────────────────────────────────────────────────────────────
+app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
+app.get('/dashboard', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
+app.get('/landing', (req, res) => res.sendFile(path.join(frontendDir, 'landing.html')));
+app.get('/portal', (req, res) => res.sendFile(path.join(frontendDir, 'customer-portal.html')));
+app.get('/driver', (req, res) => res.sendFile(path.join(frontendDir, 'driver.html')));
 
-  const weeklyTrend = [8, 11, 9, 13, 10, 12, deliveries.length];
+// ── 404 for unknown API routes (must be before the global error handler) ──────
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
+});
 
-  const driverRankings = drivers.map(d => ({
-    name: d.name, stopsPerHour: parseFloat((d.totalStopsToday / 3).toFixed(1)),
-    avgStopMinutes: d.avgStopMinutes, avgSpeedMph: d.avgSpeedMph,
-    onTimeRate: d.onTimeRate, milesToday: d.milesToday
-  })).sort((a, b) => b.onTimeRate - a.onTimeRate);
-
-  const doorBreakdown = {};
-  deliveries.forEach(d => { doorBreakdown[d.deliveryDoor] = (doorBreakdown[d.deliveryDoor] || 0) + 1; });
-
-  res.json({
-    avgStopTime: parseFloat(avgStopTime.toFixed(1)),
-    avgSpeed: parseFloat(avgSpeed.toFixed(1)),
-    onTimeRate, deliveriesByHour, weeklyTrend, driverRankings, doorBreakdown
-  });
+// ── Global error handler — returns JSON instead of Express's default HTML ─────
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  console.error('Unhandled server error:', err.message, err.stack);
+  res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
 app.listen(PORT, () => console.log(`NodeRoute API running on http://localhost:${PORT}`));
