@@ -197,6 +197,9 @@ if (!process.env.BASE_URL) {
 if (!process.env.RESEND_API_KEY) {
   console.warn('WARNING: RESEND_API_KEY is not set — emails will not be sent.');
 }
+if (!process.env.OPENAI_API_KEY) {
+  console.warn('WARNING: OPENAI_API_KEY is not set — AI demand forecasting will not work.');
+}
 
 // Mount routers
 app.use('/auth', authRouter);
