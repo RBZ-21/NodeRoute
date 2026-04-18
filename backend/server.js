@@ -66,8 +66,8 @@ ensureAdminExists().catch(err => console.error('ensureAdminExists failed:', err.
 if (!process.env.BASE_URL) {
   console.warn('WARNING: BASE_URL is not set — invite links will use http://localhost and will NOT work in production. Set BASE_URL to your public domain (e.g. https://yourapp.railway.app).');
 }
-if (!process.env.SMTP_HOST) {
-  console.warn('WARNING: SMTP_HOST is not set — invite emails will not be sent. Set SMTP_HOST, SMTP_USER, and SMTP_PASS to enable email delivery.');
+if (!process.env.RESEND_API_KEY) {
+  console.warn('WARNING: RESEND_API_KEY is not set — emails will not be sent.');
 }
 
 // Mount routers
