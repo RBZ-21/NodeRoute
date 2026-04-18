@@ -822,7 +822,7 @@ td{padding:12px 16px;vertical-align:middle}
       <div class="table-card">
         <table>
           <thead><tr>
-            <th>#</th><th>Restaurant</th><th>Area</th><th>Cuisine</th><th>Address</th><th>Phone</th><th></th>
+            <th>#</th><th>Company</th><th>Contact</th><th>Phone</th><th>Fax</th><th>Payment Terms</th><th></th>
           </tr></thead>
           <tbody id="customersTable">
             <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr>
@@ -1449,24 +1449,24 @@ td{padding:12px 16px;vertical-align:middle}
 <!-- ADD CUSTOMER MODAL -->
 <div class="modal-overlay" id="addCustomerModal">
   <div class="modal-box">
-    <h3>Add Restaurant</h3>
-    <p class="modal-sub">Manually add a restaurant to the list.</p>
-    <label class="modal-label">Restaurant Name *</label>
+    <h3>Add Customer</h3>
+    <p class="modal-sub">Manually add a customer to the list.</p>
+    <label class="modal-label">Company Name *</label>
     <input class="modal-input" id="custName" type="text" placeholder="e.g. Husk Restaurant">
-    <label class="modal-label">Area</label>
-    <input class="modal-input" id="custArea" type="text" placeholder="e.g. Downtown Charleston">
-    <label class="modal-label">Cuisine</label>
-    <input class="modal-input" id="custCuisine" type="text" placeholder="e.g. Contemporary Southern">
-    <label class="modal-label">Address</label>
-    <input class="modal-input" id="custAddress" type="text" placeholder="76 Queen St, Charleston, SC">
+    <label class="modal-label">Customer #</label>
+    <input class="modal-input" id="custNumber" type="text" placeholder="e.g. 476">
     <label class="modal-label">Phone</label>
-    <input class="modal-input" id="custPhone" type="tel" placeholder="(843) 555-0100">
-    <label class="modal-label">Rank</label>
-    <input class="modal-input" id="custRank" type="number" placeholder="e.g. 226">
+    <input class="modal-input" id="custPhone" type="tel" placeholder="843 5772500">
+    <label class="modal-label">Fax</label>
+    <input class="modal-input" id="custFax" type="tel" placeholder="843 5772501">
+    <label class="modal-label">Contact Name</label>
+    <input class="modal-input" id="custContact" type="text" placeholder="e.g. John Smith">
+    <label class="modal-label">Payment Terms</label>
+    <input class="modal-input" id="custPayment" type="text" placeholder="e.g. NET 14 DAYS">
     <div class="modal-result" id="custResult"></div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeAddCustomerModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="submitAddCustomer()">Add Restaurant</button>
+      <button class="btn btn-accent" onclick="submitAddCustomer()">Add Customer</button>
     </div>
   </div>
 </div>
@@ -3141,24 +3141,24 @@ document.getElementById('addCustomerModal').addEventListener('click', e => { if 
 let allCustomers = [];
 
 function openAddCustomerModal() {
-  ['custName','custArea','custCuisine','custAddress','custPhone','custRank'].forEach(id => document.getElementById(id).value = '');
+  ['custName','custNumber','custPhone','custFax','custContact','custPayment'].forEach(id => document.getElementById(id).value = '');
   const r = document.getElementById('custResult'); r.className = 'modal-result'; r.textContent = '';
   document.getElementById('addCustomerModal').classList.add('open');
 }
 function closeAddCustomerModal() { document.getElementById('addCustomerModal').classList.remove('open'); }
 
 async function submitAddCustomer() {
-  const Restaurant = document.getElementById('custName').value.trim();
+  const company_name = document.getElementById('custName').value.trim();
   const r = document.getElementById('custResult');
-  if (!Restaurant) { r.className = 'modal-result error'; r.textContent = 'Restaurant name is required.'; return; }
+  if (!company_name) { r.className = 'modal-result error'; r.textContent = 'Company name is required.'; return; }
   try {
     const res = await fetch('/api/customers', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({
-      Restaurant,
-      Area: document.getElementById('custArea').value.trim(),
-      Cuisine: document.getElementById('custCuisine').value.trim(),
-      Address: document.getElementById('custAddress').value.trim(),
-      Phone: document.getElementById('custPhone').value.trim(),
-      Rank: document.getElementById('custRank').value ? parseInt(document.getElementById('custRank').value) : null
+      company_name,
+      customer_number: document.getElementById('custNumber').value.trim() || null,
+      phone_number: document.getElementById('custPhone').value.trim() || null,
+      fax_number: document.getElementById('custFax').value.trim() || null,
+      contact_name: document.getElementById('custContact').value.trim() || null,
+      payment_terms: document.getElementById('custPayment').value.trim() || null
     })});
     if (!res.ok) throw new Error((await res.json()).error);
     const c = await res.json();
@@ -3168,28 +3168,28 @@ async function submitAddCustomer() {
   } catch(e2) { r.className = 'modal-result error'; r.textContent = e2.message; }
 }
 
-async function deleteCustomer(rank, name) {
+async function deleteCustomer(id, name) {
   if (!confirm(`Remove ${name}?`)) return;
-  await fetch(`/api/customers/${rank}`, { method: 'DELETE', ...authHeaders });
-  allCustomers = allCustomers.filter(c => c.Rank !== rank);
+  await fetch(`/api/customers/${id}`, { method: 'DELETE', ...authHeaders });
+  allCustomers = allCustomers.filter(c => c.id !== id);
   renderCustomersTable();
 }
 
 function renderCustomersTable() {
   const tbody = document.getElementById('customersTable');
   if (!allCustomers.length) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">No restaurants yet. Add one above.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">No customers yet. Add one above.</td></tr>`;
     return;
   }
   tbody.innerHTML = allCustomers.map(c => `
     <tr>
-      <td style="color:var(--muted);font-size:12px;font-weight:600">${c.Rank ?? '–'}</td>
-      <td><strong>${c.Restaurant||'–'}</strong></td>
-      <td style="color:var(--muted);font-size:12px">${c.Area||'–'}</td>
-      <td style="color:var(--muted);font-size:12px">${c.Cuisine||'–'}</td>
-      <td style="color:var(--muted);font-size:12px;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.Address||'–'}</td>
-      <td style="color:var(--muted);font-size:12px">${c.Phone||'–'}</td>
-      <td><button class="user-action-btn danger" onclick="deleteCustomer(${c.Rank},'${(c.Restaurant||'').replace(/'/g,"\\'")}')">Remove</button></td>
+      <td style="color:var(--muted);font-size:12px;font-weight:600">${c.customer_number ?? '–'}</td>
+      <td><strong>${c.company_name||'–'}</strong></td>
+      <td style="color:var(--muted);font-size:12px">${c.contact_name||'–'}</td>
+      <td style="color:var(--muted);font-size:12px">${c.phone_number||'–'}</td>
+      <td style="color:var(--muted);font-size:12px">${c.fax_number||'–'}</td>
+      <td style="color:var(--muted);font-size:12px">${c.payment_terms||'–'}</td>
+      <td><button class="user-action-btn danger" onclick="deleteCustomer(${c.id},'${(c.company_name||'').replace(/'/g,"\\'")}')">Remove</button></td>
     </tr>`).join('');
 }
 

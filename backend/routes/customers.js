@@ -4,29 +4,29 @@ const { authenticateToken } = require('../middleware/auth');
 
 const router = express.Router();
 
-// ── CUSTOMERS (Supabase: "250 restaurants") ─────────────
+// ── CUSTOMERS (Supabase: "Customers") ─────────────
 router.get('/', authenticateToken, async (req, res) => {
-  const data = await dbQuery(supabase.from('250 restaurants').select('*').order('Rank', { ascending: true }), res);
+  const data = await dbQuery(supabase.from('Customers').select('*').order('customer_number', { ascending: true }), res);
   if (!data) return;
   res.json(data);
 });
 
 router.post('/', authenticateToken, async (req, res) => {
-  const { Restaurant, Address, Phone, Area, Cuisine, Rank } = req.body;
-  if (!Restaurant) return res.status(400).json({ error: 'Restaurant name required' });
-  const data = await dbQuery(supabase.from('250 restaurants').insert([{ Restaurant, Address: Address||'', Phone: Phone||'', Area: Area||'', Cuisine: Cuisine||'', Rank: Rank||null }]).select().single(), res);
+  const { customer_number, company_name, phone_number, fax_number, contact_name, payment_terms } = req.body;
+  if (!company_name) return res.status(400).json({ error: 'Company name required' });
+  const data = await dbQuery(supabase.from('Customers').insert([{ customer_number: customer_number||null, company_name, phone_number: phone_number||null, fax_number: fax_number||null, contact_name: contact_name||null, payment_terms: payment_terms||null }]).select().single(), res);
   if (!data) return;
   res.json(data);
 });
 
-router.patch('/:rank', authenticateToken, async (req, res) => {
-  const data = await dbQuery(supabase.from('250 restaurants').update(req.body).eq('Rank', req.params.rank).select().single(), res);
+router.patch('/:id', authenticateToken, async (req, res) => {
+  const data = await dbQuery(supabase.from('Customers').update(req.body).eq('id', req.params.id).select().single(), res);
   if (!data) return;
   res.json(data);
 });
 
-router.delete('/:rank', authenticateToken, async (req, res) => {
-  const data = await dbQuery(supabase.from('250 restaurants').delete().eq('Rank', req.params.rank), res);
+router.delete('/:id', authenticateToken, async (req, res) => {
+  const data = await dbQuery(supabase.from('Customers').delete().eq('id', req.params.id), res);
   if (data === null) return;
   res.json({ message: 'Deleted' });
 });

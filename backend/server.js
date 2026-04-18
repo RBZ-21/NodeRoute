@@ -97,6 +97,7 @@ app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager
 // ── PAGES ─────────────────────────────────────────────────────────────────────
 app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
 app.get('/dashboard', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
+app.get('/driver', (req, res) => res.sendFile(path.join(frontendDir, 'driver.html')));
 app.get('/landing', (req, res) => res.sendFile(path.join(frontendDir, 'landing.html')));
 
 // ── 404 for unknown API routes (must be before the global error handler) ──────
