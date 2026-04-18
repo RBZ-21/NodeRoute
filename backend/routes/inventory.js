@@ -2,6 +2,7 @@ const express = require('express');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createMailer } = require('../services/email');
+const { analyzeInventory, generateReorderAlert } = require('../services/ai');
 
 const router = express.Router();
 
@@ -171,6 +172,48 @@ router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), 
     res.json({ sent: true, to, out_of_stock: outOfStock.length, low_stock: lowStock.length });
   } catch (e) {
     res.status(500).json({ error: 'Email send failed: ' + e.message });
+  }
+});
+
+// GET /api/inventory/ai-analysis — full warehouse AI inventory health check
+router.get('/ai-analysis', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const { data: products, error: pErr } = await supabase
+    .from('seafood_inventory')
+    .select('item_number,description,category,unit,cost,on_hand_qty')
+    .order('category');
+  if (pErr) return res.status(500).json({ error: pErr.message });
+
+  const since = new Date(Date.now() - 28 * 86400000).toISOString(); // 4 weeks
+  const { data: history, error: hErr } = await supabase
+    .from('inventory_stock_history')
+    .select('item_number,change_qty,created_at')
+    .gte('created_at', since)
+    .order('created_at', { ascending: false });
+  if (hErr) return res.status(500).json({ error: hErr.message });
+
+  const historyByItem = {};
+  (history || []).forEach(h => {
+    if (!historyByItem[h.item_number]) historyByItem[h.item_number] = [];
+    historyByItem[h.item_number].push(h);
+  });
+
+  // Fetch active lots with expiry dates within 30 days
+  const cutoff = new Date();
+  cutoff.setDate(cutoff.getDate() + 30);
+  const { data: expiringLots } = await supabase
+    .from('inventory_lots')
+    .select('item_number,lot_number,expiry_date,qty_on_hand')
+    .eq('status', 'active')
+    .not('expiry_date', 'is', null)
+    .lte('expiry_date', cutoff.toISOString().split('T')[0])
+    .order('expiry_date', { ascending: true });
+
+  try {
+    const analysis = await analyzeInventory(products, historyByItem, expiringLots || []);
+    res.json(analysis);
+  } catch (err) {
+    if (err.message.includes('ANTHROPIC_API_KEY')) return res.status(503).json({ error: err.message });
+    res.status(500).json({ error: 'AI analysis failed: ' + err.message });
   }
 });
 
@@ -462,6 +505,65 @@ router.get('/:id/yield', authenticateToken, async (req, res) => {
     .limit(limit);
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
+});
+
+// POST /api/inventory/:id/reorder-alert — AI-generated reorder alert, optionally emailed
+router.post('/:id/reorder-alert', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const { email } = req.body;
+
+  const { data: product, error: pErr } = await supabase
+    .from('seafood_inventory')
+    .select('item_number,description,unit,on_hand_qty,cost')
+    .eq('item_number', req.params.id)
+    .single();
+  if (pErr || !product) return res.status(404).json({ error: 'Product not found' });
+
+  // Compute daily usage from last 30 days
+  const since = new Date(Date.now() - 30 * 86400000).toISOString();
+  const { data: history } = await supabase
+    .from('inventory_stock_history')
+    .select('change_qty,created_at')
+    .eq('item_number', req.params.id)
+    .lt('change_qty', 0)
+    .gte('created_at', since);
+
+  const totalUsed  = (history || []).reduce((s, h) => s + Math.abs(parseFloat(h.change_qty)), 0);
+  const dailyUsage = parseFloat((totalUsed / 30).toFixed(4));
+  const reorderQty = req.body.reorder_qty || Math.round(dailyUsage * 14); // 2-week supply default
+
+  // Find soonest active expiry
+  const { data: lots } = await supabase
+    .from('inventory_lots')
+    .select('expiry_date')
+    .eq('item_number', req.params.id)
+    .eq('status', 'active')
+    .not('expiry_date', 'is', null)
+    .order('expiry_date', { ascending: true })
+    .limit(1);
+  const expiryDate = lots?.[0]?.expiry_date || null;
+
+  try {
+    const alert = await generateReorderAlert(product, dailyUsage, reorderQty, expiryDate);
+
+    if (email) {
+      const mailer = createMailer();
+      if (mailer) {
+        await mailer.sendMail({
+          from: process.env.EMAIL_FROM,
+          to:   email,
+          subject: alert.subject,
+          text:    alert.body,
+          html:    `<div style="font-family:sans-serif;font-size:14px;color:#111;padding:16px">${alert.body.replace(/\n/g, '<br>')}</div>`,
+        });
+        return res.json({ ...alert, emailed: true, to: email });
+      }
+    }
+
+    res.json({ ...alert, emailed: false });
+  } catch (err) {
+    if (err.message.includes('ANTHROPIC_API_KEY')) return res.status(503).json({ error: err.message });
+    res.status(500).json({ error: 'Alert generation failed: ' + err.message });
+  }
 });
 
 // ── EXISTING CRUD (must come after named sub-routes) ─────────────────────────
