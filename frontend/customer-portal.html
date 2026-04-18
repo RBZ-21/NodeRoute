@@ -415,6 +415,46 @@ function enterPortal(name) {
   document.getElementById('portal').style.display      = 'flex';
   document.getElementById('topbarName').textContent    = name;
   loadAll();
+  loadPortalMaps();
+}
+
+let portalMapsLoaded = false;
+async function loadPortalMaps() {
+  if (portalMapsLoaded) return;
+  portalMapsLoaded = true;
+  try {
+    const r = await fetch(API + '/config/maps-key', ah());
+    const { key } = await r.json();
+    if (!key) return;
+    await new Promise((resolve, reject) => {
+      const s = document.createElement('script');
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
+      s.async = true; s.onload = resolve; s.onerror = reject;
+      document.head.appendChild(s);
+    });
+    initPortalPlaces();
+  } catch(e) { portalMapsLoaded = false; }
+}
+
+function initPortalPlaces() {
+  if (typeof google === 'undefined' || !google.maps.places) return;
+  const companyInput = document.getElementById('cfCompany');
+  const companyAc = new google.maps.places.Autocomplete(companyInput, {
+    types: ['establishment'], fields: ['name', 'formatted_address']
+  });
+  companyAc.addListener('place_changed', () => {
+    const p = companyAc.getPlace();
+    if (p.name) companyInput.value = p.name;
+    if (p.formatted_address) document.getElementById('cfAddress').value = p.formatted_address;
+  });
+  const addrInput = document.getElementById('cfAddress');
+  const addrAc = new google.maps.places.Autocomplete(addrInput, {
+    types: ['address'], fields: ['formatted_address']
+  });
+  addrAc.addListener('place_changed', () => {
+    const p = addrAc.getPlace();
+    if (p.formatted_address) addrInput.value = p.formatted_address;
+  });
 }
 
 // ── TABS ──────────────────────────────────────────────────────────────────────
