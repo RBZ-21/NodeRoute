@@ -51,7 +51,7 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
     const mailer = createMailer();
     if (mailer) {
       await mailer.sendMail({
-        from: process.env.EMAIL_FROM || `NodeRoute Systems <${process.env.SMTP_USER}>`,
+        from: process.env.EMAIL_FROM,
         to: email,
         subject: `You've been invited to NodeRoute`,
         html: `
@@ -79,11 +79,10 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
     }
   } catch(emailErr) {
     emailError = emailErr.message;
-    console.error('SMTP ERROR - Failed to send invite email:', emailErr.message, {
-      host: process.env.SMTP_HOST,
-      port: process.env.SMTP_PORT,
-      user: process.env.SMTP_USER,
-      hasPass: !!process.env.SMTP_PASS
+    console.error('EMAIL ERROR - Failed to send invite email:', emailErr.message, {
+      hasApiKey: !!process.env.RESEND_API_KEY,
+      from: process.env.EMAIL_FROM,
+      to: email,
     });
   }
   res.json({ message: `Invite sent to ${email}`, userId: newUser.id, inviteUrl, emailSent, emailError });
