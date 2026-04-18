@@ -3558,11 +3558,14 @@ function renderCustomersTable() {
 
 async function fetchCustomers() {
   try {
-    const r = await fetch('/api/customers', authHeaders);
+    const r = await fetch(API + '/customers', authHeaders);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     allCustomers = Array.isArray(data) ? data : [];
     renderCustomersTable();
-  } catch(e) {}
+  } catch(e) {
+    console.error('fetchCustomers failed:', e.message);
+  }
 }
 
 // ── GEOFENCE / DWELL TIME ──────────────────────────────
@@ -4896,7 +4899,7 @@ function renderInvoices() {
 // ── NEW INVOICE MODAL ──────────────────────────────────
 let invoiceLineCount = 0;
 
-function openNewInvoiceModal() {
+async function openNewInvoiceModal() {
   invoiceLineCount = 0;
   document.getElementById('ni_lines').innerHTML = '';
   document.getElementById('ni_number').value = '';
@@ -4906,6 +4909,9 @@ function openNewInvoiceModal() {
   document.getElementById('ni_notes').value = '';
   updateInvoiceTotals();
   addInvoiceLine();
+
+  // Ensure customers are loaded before populating the select
+  if (!allCustomers.length) await fetchCustomers();
 
   // Populate customer quick-select
   const custSel = document.getElementById('ni_cust_select');
