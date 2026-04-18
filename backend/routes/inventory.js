@@ -5,6 +5,10 @@ const { createMailer } = require('../services/email');
 
 const router = express.Router();
 
+// Products whose names match this pattern require a lot number on every receipt.
+const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
+const needsLot = desc => LOT_REQUIRED.test(desc || '');
+
 // ── SEAFOOD INVENTORY (Supabase table: seafood_inventory) ────────────────────
 // Column names (updated to match current database):
 //   id uuid PK, description text NOT NULL (product name),
@@ -31,7 +35,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
     cost:           parseFloat(cost)           || 0,
     on_hand_qty:    parseFloat(on_hand_qty)    || 0,
     on_hand_weight: parseFloat(on_hand_weight) || 0,
-    lot_item:       lot_item       || 'N',
+    lot_item:       needsLot(description) ? 'Y' : (lot_item || 'N'),
   }]).select().single(), res);
   if (!data) return;
   res.json(data);
@@ -123,7 +127,7 @@ function buildInventoryAlertEmail(outOfStock, lowStock, analytics) {
 
 router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const mailer = createMailer();
-  if (!mailer) return res.status(503).json({ error: 'Email not configured (SMTP_HOST missing)' });
+  if (!mailer) return res.status(503).json({ error: 'Email not configured (RESEND_API_KEY missing)' });
 
   const { data: products, error } = await supabase.from('seafood_inventory').select('*');
   if (error) return res.status(500).json({ error: error.message });
@@ -152,10 +156,10 @@ router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), 
   });
 
   const html = buildInventoryAlertEmail(outOfStock, lowStock, analytics);
-  const to   = req.body.email || process.env.SMTP_USER || process.env.EMAIL_FROM;
+  const to   = req.body.email || process.env.EMAIL_FROM;
   try {
     await mailer.sendMail({
-      from: process.env.EMAIL_FROM || process.env.SMTP_USER,
+      from: process.env.EMAIL_FROM,
       to,
       subject: `Inventory Alert — ${outOfStock.length} out of stock, ${lowStock.length} low`,
       html,
@@ -170,6 +174,166 @@ router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), 
   }
 });
 
+// ── LOT / BATCH & EXPIRY TRACKING ────────────────────────────────────────────
+// All /lots routes must be registered BEFORE /:id routes to prevent shadowing.
+
+// GET /api/inventory/lots — all lots, enriched with product description
+router.get('/lots', authenticateToken, async (req, res) => {
+  const { data: lots, error } = await supabase
+    .from('inventory_lots')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Enrich with product descriptions in one extra query
+  const itemNumbers = [...new Set((lots || []).map(l => l.item_number))];
+  let descMap = {};
+  if (itemNumbers.length) {
+    const { data: prods } = await supabase
+      .from('seafood_inventory')
+      .select('item_number,description')
+      .in('item_number', itemNumbers);
+    (prods || []).forEach(p => { descMap[p.item_number] = p.description; });
+  }
+  res.json((lots || []).map(l => ({ ...l, item_description: descMap[l.item_number] || null })));
+});
+
+// POST /api/inventory/lots — create a new lot and optionally bump product on_hand_qty
+router.post('/lots', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const {
+    item_number, lot_number, batch_number, supplier_name, country_of_origin,
+    certifications, storage_temp, received_date, expiry_date, best_before_date,
+    qty_received, cost_per_unit, status, notes,
+  } = req.body;
+  if (!item_number) return res.status(400).json({ error: 'item_number required' });
+  if (!lot_number)  return res.status(400).json({ error: 'lot_number required' });
+  const qty = parseFloat(qty_received) || 0;
+  if (qty <= 0) return res.status(400).json({ error: 'qty_received must be > 0' });
+
+  const { data, error } = await supabase.from('inventory_lots').insert([{
+    item_number,
+    lot_number,
+    batch_number:       batch_number       || null,
+    supplier_name:      supplier_name      || null,
+    country_of_origin:  country_of_origin  || null,
+    certifications:     certifications     || null,
+    storage_temp:       storage_temp       || null,
+    received_date:      received_date      || new Date().toISOString().split('T')[0],
+    expiry_date:        expiry_date        || null,
+    best_before_date:   best_before_date   || null,
+    qty_received:       qty,
+    qty_on_hand:        qty,
+    cost_per_unit:      parseFloat(cost_per_unit) || 0,
+    status:             status             || 'active',
+    notes:              notes              || null,
+    created_by:         req.user.name      || req.user.email,
+  }]).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+
+  // Bump master product on_hand_qty and log history
+  const { data: prod } = await supabase.from('seafood_inventory').select('on_hand_qty,description').eq('item_number', item_number).single();
+  if (prod) {
+    const newQty = (parseFloat(prod.on_hand_qty) || 0) + qty;
+    await supabase.from('seafood_inventory').update({ on_hand_qty: newQty, updated_at: new Date().toISOString() }).eq('item_number', item_number);
+    await supabase.from('inventory_stock_history').insert([{
+      item_number,
+      change_qty:  qty,
+      new_qty:     newQty,
+      change_type: 'restock',
+      notes:       `Lot ${lot_number}${supplier_name ? ' · ' + supplier_name : ''}`,
+      created_by:  req.user.name || req.user.email,
+      lot_id:      data.id,
+    }]);
+  }
+
+  res.json({ ...data, item_description: prod?.description || null });
+});
+
+// GET /api/inventory/lots/expiring — lots expiring within N days (default 30)
+router.get('/lots/expiring', authenticateToken, async (req, res) => {
+  const days = Math.min(parseInt(req.query.days) || 30, 365);
+  const future = new Date();
+  future.setDate(future.getDate() + days);
+  const { data, error } = await supabase
+    .from('inventory_lots')
+    .select('*')
+    .eq('status', 'active')
+    .not('expiry_date', 'is', null)
+    .lte('expiry_date', future.toISOString().split('T')[0])
+    .order('expiry_date', { ascending: true });
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+
+// PATCH /api/inventory/lots/:lotId — update lot fields
+router.patch('/lots/:lotId', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const allowed = [
+    'lot_number','batch_number','supplier_name','country_of_origin','certifications',
+    'storage_temp','received_date','expiry_date','best_before_date',
+    'qty_on_hand','cost_per_unit','status','notes',
+  ];
+  const fields = {};
+  allowed.forEach(k => { if (req.body[k] !== undefined) fields[k] = req.body[k]; });
+  const { data, error } = await supabase.from('inventory_lots').update(fields).eq('id', req.params.lotId).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  const { data: prod } = await supabase.from('seafood_inventory').select('description').eq('item_number', data.item_number).single();
+  res.json({ ...data, item_description: prod?.description || null });
+});
+
+// POST /api/inventory/lots/:lotId/deplete — remove qty from a specific lot
+router.post('/lots/:lotId/deplete', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const { qty, change_type, notes } = req.body;
+  const removeQty = parseFloat(qty);
+  if (!removeQty || removeQty <= 0) return res.status(400).json({ error: 'qty must be > 0' });
+
+  const { data: lot, error: lotErr } = await supabase.from('inventory_lots').select('*').eq('id', req.params.lotId).single();
+  if (lotErr || !lot) return res.status(404).json({ error: 'Lot not found' });
+  if (removeQty > (parseFloat(lot.qty_on_hand) || 0))
+    return res.status(400).json({ error: `Cannot deplete more than qty on hand (${lot.qty_on_hand})` });
+
+  const newLotQty = parseFloat(((parseFloat(lot.qty_on_hand) || 0) - removeQty).toFixed(4));
+  const newLotStatus = newLotQty <= 0 ? 'depleted' : lot.status;
+
+  const { data: updLot, error: updErr } = await supabase
+    .from('inventory_lots')
+    .update({ qty_on_hand: newLotQty, status: newLotStatus })
+    .eq('id', req.params.lotId)
+    .select().single();
+  if (updErr) return res.status(500).json({ error: updErr.message });
+
+  // Deduct from master product qty and log to history
+  const { data: prod } = await supabase.from('seafood_inventory').select('on_hand_qty,description').eq('item_number', lot.item_number).single();
+  const newProdQty = parseFloat(((parseFloat(prod?.on_hand_qty) || 0) - removeQty).toFixed(4));
+  const { data: updProd } = await supabase.from('seafood_inventory')
+    .update({ on_hand_qty: newProdQty, updated_at: new Date().toISOString() })
+    .eq('item_number', lot.item_number)
+    .select().single();
+
+  await supabase.from('inventory_stock_history').insert([{
+    item_number:  lot.item_number,
+    change_qty:   -removeQty,
+    new_qty:      newProdQty,
+    change_type:  change_type || 'depletion',
+    notes:        notes || `Lot ${lot.lot_number}`,
+    created_by:   req.user.name || req.user.email,
+    lot_id:       lot.id,
+  }]);
+
+  res.json({
+    lot:     { ...updLot, item_description: prod?.description || null },
+    product: updProd,
+  });
+});
+
+// DELETE /api/inventory/lots/:lotId
+router.delete('/lots/:lotId', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const { error } = await supabase.from('inventory_lots').delete().eq('id', req.params.lotId);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ message: 'Lot deleted' });
+});
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 // POST /api/inventory/:id/restock — add stock and log history
 router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { qty, notes } = req.body;
@@ -177,8 +341,15 @@ router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager'), 
   if (!addQty || addQty <= 0) return res.status(400).json({ error: 'qty must be > 0' });
 
   const { data: item, error: fetchErr } = await supabase
-    .from('seafood_inventory').select('on_hand_qty,description').eq('item_number', req.params.id).single();
+    .from('seafood_inventory').select('on_hand_qty,description,lot_item').eq('item_number', req.params.id).single();
   if (fetchErr) return res.status(404).json({ error: 'Product not found' });
+
+  if (item.lot_item === 'Y') {
+    return res.status(422).json({
+      error: `${item.description} requires a lot number on every receipt. Use "Add Lot" to record this shipment.`,
+      requires_lot: true,
+    });
+  }
 
   const newQty = (parseFloat(item.on_hand_qty) || 0) + addQty;
   const { data, error } = await supabase
@@ -299,6 +470,8 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   const allowed = ['description','category','item_number','unit','cost','on_hand_qty','on_hand_weight','lot_item'];
   const fields = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) fields[k] = req.body[k]; });
+  // Auto-enforce lot requirement when description is updated
+  if (fields.description && needsLot(fields.description)) fields.lot_item = 'Y';
   const data = await dbQuery(supabase.from('seafood_inventory').update(fields).eq('item_number', req.params.id).select().single(), res);
   if (!data) return;
   res.json(data);
