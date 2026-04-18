@@ -1,8 +1,8 @@
 const { Resend } = require('resend');
 
 function createMailer() {
-  if (!process.env.re_gbwLWzbS_NQvh1eRo98YQtmhMpVYCCFq4) return null;
-  const resend = new Resend(process.env.re_gbwLWzbS_NQvh1eRo98YQtmhMpVYCCFq4);
+  if (!process.env.RESEND_API_KEY) return null;
+  const resend = new Resend(process.env.RESEND_API_KEY);
 
   return {
     sendMail: async ({ from, to, subject, html, text, attachments }) => {
