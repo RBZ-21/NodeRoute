@@ -1887,6 +1887,7 @@ if (localStorage.getItem('theme') === 'light') {
   document.body.classList.add('light');
   document.getElementById('themeToggle').textContent = '☀️';
 }
+loadGoogleMaps().catch(() => {});
 
 // ── ORDERS ─────────────────────────────────────────────
 let allOrders = [];
@@ -3028,28 +3029,44 @@ async function fetchAddresses(q) {
     dd.style.display = 'block';
   }
 
-  // 3. Also query Nominatim for generic address lookup
-  try {
-    const r = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&addressdetails=1&countrycodes=us`,
-      { headers: { 'Accept-Language': 'en-US,en' } }
+  // 3. Query Google Places for address/business suggestions
+  if (acService) {
+    acService.getPlacePredictions(
+      { input: q, componentRestrictions: { country: 'us' }, types: ['geocode', 'establishment'] },
+      (predictions, status) => {
+        dd.__placeResults = predictions || [];
+        const placeItems = (predictions || []).slice(0, 5).map((p, i) => `
+          <div class="autocomplete-item" onclick="selectPlaceStop(${i})">
+            <div style="font-weight:600;font-size:13px">${p.structured_formatting.main_text}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">${p.structured_formatting.secondary_text || ''}</div>
+          </div>`).join('');
+        if (!custMatches.length && !placeItems) { dd.style.display = 'none'; return; }
+        dd.innerHTML = custItems + placeItems;
+        dd.style.display = 'block';
+      }
     );
-    const results = await r.json();
-    dd.__results = results;
-
-    const nomItems = results.map((res, i) => {
-      const name = res.name || res.display_name.split(',')[0];
-      return `<div class="autocomplete-item" onclick="selectAddress(${i})" data-idx="${i}">
-        <div style="font-weight:600;font-size:13px">${name}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">${res.display_name}</div>
-      </div>`;
-    }).join('');
-
-    if (!custMatches.length && !results.length) { dd.style.display = 'none'; return; }
-    dd.innerHTML = custItems + nomItems;
-    dd.style.display = 'block';
-  } catch(e) {
-    if (!custMatches.length) dd.style.display = 'none';
+  } else {
+    // Fallback: Nominatim if Places not yet loaded
+    try {
+      const r = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&addressdetails=1&countrycodes=us`,
+        { headers: { 'Accept-Language': 'en-US,en' } }
+      );
+      const results = await r.json();
+      dd.__results = results;
+      const nomItems = results.map((res, i) => {
+        const name = res.name || res.display_name.split(',')[0];
+        return `<div class="autocomplete-item" onclick="selectAddress(${i})" data-idx="${i}">
+          <div style="font-weight:600;font-size:13px">${name}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${res.display_name}</div>
+        </div>`;
+      }).join('');
+      if (!custMatches.length && !results.length) { dd.style.display = 'none'; return; }
+      dd.innerHTML = custItems + nomItems;
+      dd.style.display = 'block';
+    } catch(e) {
+      if (!custMatches.length) dd.style.display = 'none';
+    }
   }
 }
 
@@ -3065,19 +3082,17 @@ async function selectCustomer(idx) {
   document.getElementById('stopPreview').style.display = 'block';
   document.getElementById('addStopBtn').style.display = 'inline-flex';
   document.getElementById('stopNotes').value = '';
-  // Geocode the stored address to get lat/lng
   let lat = 0, lng = 0;
-  if (address) {
-    try {
-      const r = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`,
-        { headers: { 'Accept-Language': 'en-US,en' } }
-      );
-      const res = await r.json();
-      if (res.length) { lat = res[0].lat; lng = res[0].lon; }
-    } catch(e) {}
-  }
   pendingStop = { name, address, lat, lng };
+  if (address && placesGeocoder) {
+    placesGeocoder.geocode({ address }, (results, status) => {
+      if (status === 'OK' && results[0]) {
+        const loc = results[0].geometry.location;
+        pendingStop.lat = loc.lat();
+        pendingStop.lng = loc.lng();
+      }
+    });
+  }
 }
 
 function selectAddress(idx) {
@@ -3092,6 +3107,31 @@ function selectAddress(idx) {
   document.getElementById('addStopBtn').style.display = 'inline-flex';
   document.getElementById('stopNotes').value = '';
   pendingStop = { name, address: res.display_name, lat: res.lat, lng: res.lon };
+}
+
+function selectPlaceStop(idx) {
+  const dd = document.getElementById('stopAutocomplete');
+  const pred = dd.__placeResults[idx];
+  const name = pred.structured_formatting.main_text;
+  const desc = pred.structured_formatting.secondary_text || pred.description;
+  document.getElementById('stopSearchInput').value = name;
+  dd.style.display = 'none';
+  document.getElementById('stopPreviewName').textContent = name;
+  document.getElementById('stopPreviewAddr').textContent = desc;
+  document.getElementById('stopPreview').style.display = 'block';
+  document.getElementById('addStopBtn').style.display = 'inline-flex';
+  document.getElementById('stopNotes').value = '';
+  pendingStop = { name, address: desc, lat: 0, lng: 0 };
+  if (placesGeocoder) {
+    placesGeocoder.geocode({ placeId: pred.place_id }, (results, status) => {
+      if (status === 'OK' && results[0]) {
+        const loc = results[0].geometry.location;
+        const addr = results[0].formatted_address;
+        document.getElementById('stopPreviewAddr').textContent = addr;
+        pendingStop = { name, address: addr, lat: loc.lat(), lng: loc.lng() };
+      }
+    });
+  }
 }
 
 document.addEventListener('click', e => {
@@ -3408,6 +3448,27 @@ function openAddCustomerModal() {
   ['custName','custArea','custCuisine','custAddress','custPhone','custRank'].forEach(id => document.getElementById(id).value = '');
   const r = document.getElementById('custResult'); r.className = 'modal-result'; r.textContent = '';
   document.getElementById('addCustomerModal').classList.add('open');
+  if (typeof google !== 'undefined' && google.maps.places && !document.getElementById('custName').__acInit) {
+    document.getElementById('custName').__acInit = true;
+    const nameInput = document.getElementById('custName');
+    const nameAc = new google.maps.places.Autocomplete(nameInput, {
+      types: ['establishment'], fields: ['name', 'formatted_address', 'formatted_phone_number']
+    });
+    nameAc.addListener('place_changed', () => {
+      const p = nameAc.getPlace();
+      if (p.name) nameInput.value = p.name;
+      if (p.formatted_address) document.getElementById('custAddress').value = p.formatted_address;
+      if (p.formatted_phone_number) document.getElementById('custPhone').value = p.formatted_phone_number;
+    });
+    const addrInput = document.getElementById('custAddress');
+    const addrAc = new google.maps.places.Autocomplete(addrInput, {
+      types: ['address'], fields: ['formatted_address']
+    });
+    addrAc.addListener('place_changed', () => {
+      const p = addrAc.getPlace();
+      if (p.formatted_address) addrInput.value = p.formatted_address;
+    });
+  }
 }
 function closeAddCustomerModal() { document.getElementById('addCustomerModal').classList.remove('open'); }
 
@@ -3669,13 +3730,28 @@ async function loadGoogleMaps() {
     if (!key) return;
     await new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = `https://maps.googleapis.com/maps/api/js?key=${key}`;
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
       s.async = true;
       s.onload = resolve;
       s.onerror = reject;
       document.head.appendChild(s);
     });
+    initPlacesFields();
   } catch(e) { console.warn('Google Maps failed to load', e); gmapsLoaded = false; }
+}
+
+let acService, placesGeocoder;
+function initPlacesFields() {
+  if (typeof google === 'undefined' || !google.maps.places) return;
+  acService = new google.maps.places.AutocompleteService();
+  placesGeocoder = new google.maps.Geocoder();
+
+  // Invoice delivery address
+  const niAddr = document.getElementById('ni_address');
+  if (niAddr) {
+    const ac = new google.maps.places.Autocomplete(niAddr, { types: ['address'], fields: ['formatted_address'] });
+    ac.addListener('place_changed', () => { const p = ac.getPlace(); if (p.formatted_address) niAddr.value = p.formatted_address; });
+  }
 }
 
 async function renderMap() {
