@@ -2546,6 +2546,7 @@ function showTab(name, el) {
   if (name === 'invoices') { renderInprocessOrders(); }
   if (name === 'map') { setTimeout(() => renderMap(), 50); }
   if (name === 'inventory') { renderInventory(); renderInventoryKPIs(); }
+  if (name === 'customers') { fetchCustomers(); }
   if (name === 'forecast') { loadForecast(); renderFishingSeasons(); }
   if (name === 'settings') { initSettings(); }
 }
