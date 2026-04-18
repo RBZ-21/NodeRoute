@@ -69,7 +69,7 @@ router.post('/:id/sign', authenticateToken, async (req, res) => {
       const mailer = createMailer();
       if (mailer) {
         await mailer.sendMail({
-          from: process.env.EMAIL_FROM || `NodeRoute Systems <${process.env.SMTP_USER}>`,
+          from: process.env.EMAIL_FROM,
           to: inv.customer_email,
           subject: `Your Invoice ${inv.invoice_number || inv.id.slice(0,8).toUpperCase()} from NodeRoute`,
           html: `
@@ -107,7 +107,7 @@ router.post('/:id/resend', authenticateToken, async (req, res) => {
   if (!mailer) return res.status(503).json({ error: 'Email not configured on server' });
   const pdfBuffer = await buildInvoicePDF(inv);
   await mailer.sendMail({
-    from: `NodeRoute Systems <${process.env.SMTP_USER}>`,
+    from: process.env.EMAIL_FROM,
     to: inv.customer_email,
     subject: `Invoice ${inv.invoice_number || inv.id.slice(0,8).toUpperCase()} (Resent)`,
     html: `<p>Hi ${inv.customer_name}, please find your invoice attached.</p>`,
