@@ -423,7 +423,7 @@ async function loadPortalMaps() {
   if (portalMapsLoaded) return;
   portalMapsLoaded = true;
   try {
-    const r = await fetch(API + '/config/maps-key', ah());
+    const r = await fetch('/api/config/maps-key');
     const { key } = await r.json();
     if (!key) return;
     await new Promise((resolve, reject) => {
