@@ -293,6 +293,16 @@ td{padding:12px 16px;vertical-align:middle}
 .btn-ghost-accent{background:rgba(61,186,127,0.12);color:var(--accent);border:1px solid rgba(61,186,127,0.35)}
 .btn-ghost-accent:hover{background:rgba(61,186,127,0.22);border-color:var(--accent)}
 
+/* AI HELP */
+.ai-help-shell{display:grid;grid-template-columns:minmax(280px,380px) 1fr;gap:16px;padding:20px}
+.ai-help-form,.ai-help-output-wrap{background:rgba(0,0,0,0.08);border:1px solid var(--border);border-radius:var(--r-card);padding:18px}
+.ai-help-output{min-height:260px;border:1px dashed rgba(61,186,127,0.4);border-radius:12px;padding:16px;background:rgba(61,186,127,0.05);color:var(--text);line-height:1.6;white-space:normal}
+.ai-help-output .muted{color:var(--muted)}
+.ai-help-output h4{font-size:14px;margin:0 0 8px}
+.ai-help-output ul{margin:10px 0 0 18px;padding:0}
+.ai-help-output li{margin-bottom:8px}
+.ai-loading{opacity:0.7}
+
 /* PAGINATION */
 .pagination{display:flex;align-items:center;justify-content:space-between;padding:12px 20px;border-top:1px solid var(--border);font-size:13px;color:var(--muted)}
 .page-btns{display:flex;gap:6px}
@@ -346,12 +356,14 @@ td{padding:12px 16px;vertical-align:middle}
   .main{margin-left:0;padding-bottom:70px}
   .kpi-row{grid-template-columns:1fr 1fr}
   .charts-row,.analytics-row,.analytics-charts{grid-template-columns:1fr}
+  .ai-help-shell{grid-template-columns:1fr}
   .mobile-tabs{display:block}
   .expand-content{grid-template-columns:1fr 1fr}
 }
 @media(max-width:560px){
   .kpi-row{grid-template-columns:1fr}
   .expand-content{grid-template-columns:1fr}
+  .ai-help-shell{padding:16px}
 }
 /* INVOICES */
 .inv-status-pending{background:rgba(245,158,11,0.12);color:var(--warn);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
@@ -510,8 +522,8 @@ td{padding:12px 16px;vertical-align:middle}
 <!-- SIDEBAR -->
 <nav class="sidebar">
   <div class="sidebar-logo">
-    <img src="NodeRoute_Light_logo.png" class="logo-img logo-for-dark" height="28" alt="NodeRoute" style="max-width:160px"/>
-    <img src="NodeRoute_Dark_Logo.png" class="logo-img logo-for-light" height="28" alt="NodeRoute" style="max-width:160px"/>
+    <img src="For_Dark_Theme_Transparent.svg" class="logo-img logo-for-dark" alt="NodeRoute" style="width:min(220px, 100%);height:auto;max-width:220px"/>
+<img src="For_Light_Theme_Transparent.svg" class="logo-img logo-for-light" alt="NodeRoute" style="width:min(300px, 100%);height:auto;max-width:300px"/>
   </div>
   <div class="nav">
     <div class="nav-item active" data-tab="dashboard" onclick="showTab('dashboard',this)">
@@ -593,6 +605,20 @@ td{padding:12px 16px;vertical-align:middle}
       </div>
     </div>
 
+    <!-- GROUP: AI -->
+    <div class="nav-group" id="navgroup-ai">
+      <div class="nav-group-header" onclick="toggleNavGroup('ai')">
+        <span class="nav-icon">🤖</span>
+        AI Help
+        <span class="nav-group-chevron">›</span>
+      </div>
+      <div class="nav-group-items" id="group-ai">
+        <div class="nav-item nav-child" data-tab="aihelp" onclick="showTab('aihelp',this)">
+          <span class="nav-icon">💬</span>Walkthroughs
+        </div>
+      </div>
+    </div>
+
     <div class="nav-item" data-tab="settings" onclick="showTab('settings',this)">
       <span class="nav-icon">⚙️</span>Settings
     </div>
@@ -605,8 +631,8 @@ td{padding:12px 16px;vertical-align:middle}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <img src="NodeRoute_Light_logo.png" class="logo-img logo-for-dark" height="28" alt="NodeRoute" style="max-width:160px"/>
-      <img src="NodeRoute_Dark_Logo.png" class="logo-img logo-for-light" height="28" alt="NodeRoute" style="max-width:160px"/>
+      <img src="For_Dark_Theme_Transparent.svg" class="logo-img logo-for-dark" alt="NodeRoute" style="width:min(220px, 100%);height:auto;max-width:220px"/>
+<img src="For_Light_Theme_Transparent.svg" class="logo-img logo-for-light" alt="NodeRoute" style="width:min(300px, 100%);height:auto;max-width:300px"/>
       <div class="last-updated" id="lastUpdated">Loading…</div>
     </div>
     <div class="topbar-right">
@@ -1238,7 +1264,7 @@ td{padding:12px 16px;vertical-align:middle}
         <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
           <div>
             <div class="fc-section-title" style="margin-bottom:2px">AI Inventory Health Check</div>
-            <div class="fc-section-sub">Claude AI reviews all SKUs — expiry dates, stock levels, and demand — and prioritizes actions</div>
+<div class="fc-section-sub">AI reviews all SKUs — expiry dates, stock levels, and demand — and prioritizes actions</div>
           </div>
           <button class="btn btn-accent" onclick="loadAIInventoryAnalysis()" id="aiInvBtn">Run Health Check</button>
         </div>
@@ -1293,7 +1319,7 @@ td{padding:12px 16px;vertical-align:middle}
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
           <div>
             <div class="fc-section-title" style="margin-bottom:2px">AI Inventory Demand Forecast</div>
-            <div class="fc-section-sub">Claude AI analyzes 12 weeks of stock history to predict demand and reorder needs</div>
+<div class="fc-section-sub">AI analyzes 12 weeks of stock history to predict demand and reorder needs</div>
           </div>
           <div style="display:flex;gap:8px;align-items:center">
             <select id="aiForecastDays" class="filter-select" style="width:130px">
@@ -1341,6 +1367,48 @@ td{padding:12px 16px;vertical-align:middle}
             </tr></thead>
             <tbody id="seasonCalBody"></tbody>
           </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: AI HELP -->
+    <div class="tab-pane" id="tab-aihelp">
+      <div class="table-card">
+        <div class="table-header">
+          <div>
+            <h3>AI Walkthroughs</h3>
+            <div style="font-size:12px;color:var(--muted);margin-top:4px">Ask for a plain-English walkthrough of any function in the app.</div>
+          </div>
+          <button class="btn btn-outline" onclick="resetAIWalkthrough()">Reset</button>
+        </div>
+        <div class="ai-help-shell">
+          <div class="ai-help-form">
+            <label class="modal-label">Function to explain</label>
+            <select id="aiWalkthroughFeature" class="filter-select" style="width:100%;margin-bottom:16px">
+              <option value="Dashboard">Dashboard overview</option>
+              <option value="Orders">Orders</option>
+              <option value="Deliveries">Deliveries</option>
+              <option value="Drivers">Drivers</option>
+              <option value="Routes">Routes</option>
+              <option value="Stops">Stops</option>
+              <option value="Customers">Customers</option>
+              <option value="Vendors">Vendors</option>
+              <option value="Invoices">Invoices</option>
+              <option value="Analytics">Analytics</option>
+              <option value="Inventory">Inventory</option>
+              <option value="Forecasting">Forecasting</option>
+              <option value="Settings">Settings</option>
+            </select>
+            <label class="modal-label">Optional question</label>
+            <textarea id="aiWalkthroughQuestion" class="modal-input" rows="5" placeholder="Example: How do I create an order, assign a driver, and invoice it?"></textarea>
+            <div class="modal-actions" style="justify-content:flex-start">
+              <button class="btn btn-accent" id="aiWalkthroughBtn" onclick="requestWalkthrough()">Get Walkthrough</button>
+            </div>
+          </div>
+          <div class="ai-help-output-wrap">
+            <div class="card-title" style="margin-bottom:12px">Answer</div>
+            <div id="aiWalkthroughOutput" class="ai-help-output">Choose a function and click "Get Walkthrough" to see a step-by-step guide.</div>
+          </div>
         </div>
       </div>
     </div>
@@ -1619,6 +1687,9 @@ td{padding:12px 16px;vertical-align:middle}
     </button>
     <button class="mobile-tab" onclick="showTab('map',this)">
       <span class="mobile-tab-icon">🗺️</span>Map
+    </button>
+    <button class="mobile-tab" onclick="showTab('aihelp',this)">
+      <span class="mobile-tab-icon">🤖</span>AI
     </button>
   </div>
 </div>
@@ -2247,7 +2318,6 @@ function renderOrderQueue() {
       <div class="queue-order-actions">
         ${o.status === 'in_process' ? `<button class="btn btn-accent" style="font-size:11px;padding:5px 10px" onclick="openFulfillModal('${o.id}')">Enter Weights</button>` : ''}
         ${o.status === 'in_process' ? `<button class="btn btn-outline" style="font-size:11px;padding:5px 10px" onclick="openAddonOrder('${o.id}')">Add-on</button>` : ''}
-        ${o.status === 'in_process' ? `<button class="btn btn-outline" style="font-size:11px;padding:5px 10px;color:#3dba7f" onclick="sendTrackingLink('${o.id}')" title="Send tracking link to customer">📍 Track</button>` : ''}
         ${o.status === 'pending' ? `<button class="btn btn-outline" style="font-size:11px;padding:5px 10px" onclick="editOrder('${o.id}')">Edit</button>` : ''}
         <button class="btn btn-outline" style="font-size:11px;padding:5px 10px;color:var(--muted)" onclick="printQueueOrder('${o.id}')">🖨</button>
         <button class="btn btn-outline" style="font-size:11px;padding:5px 10px;color:var(--danger)" onclick="deleteOrder('${o.id}')">×</button>
@@ -2311,28 +2381,6 @@ async function deleteOrder(id) {
   if (!confirm('Delete this order?')) return;
   await fetch(`${API}/orders/${id}`, { method: 'DELETE', headers: authHeaders.headers });
   fetchOrders();
-}
-
-async function sendTrackingLink(id) {
-  const order = allOrders.find(o => o.id === id);
-  if (!order) return;
-  const email = order.customer_email || '';
-  const phone = prompt(`Send tracking link to customer.\nEmail: ${email || '(none saved)'}\nEnter customer phone for SMS (optional, leave blank to skip):`, '');
-  if (phone === null) return; // cancelled
-  try {
-    const res = await fetch(`${API}/orders/${id}/tracking/send`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
-      body: JSON.stringify({ phone: phone.trim() || undefined })
-    });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
-    const sent = [];
-    if (data.emailSent) sent.push('email');
-    if (data.smsSent)  sent.push('SMS');
-    const sentStr = sent.length ? 'Sent via ' + sent.join(' + ') + '.' : 'Link generated (no email/SMS configured).';
-    alert(`Tracking link ready!\n\n${sentStr}\n\nLink: ${data.trackUrl}`);
-  } catch(e) { alert('Error: ' + e.message); }
 }
 
 function openAddonOrder(id) {
@@ -2564,7 +2612,8 @@ async function submitFulfill() {
 const NAV_GROUP_MAP = {
   deliveries:'logistics', map:'logistics', drivers:'logistics', routes:'logistics', stops:'logistics',
   customers:'people', vendors:'people', users:'people',
-  financials:'financials', invoices:'financials', analytics:'financials', inventory:'financials', forecast:'financials'
+  financials:'financials', invoices:'financials', analytics:'financials', inventory:'financials', forecast:'financials',
+  aihelp:'ai'
 };
 
 function toggleNavGroup(name) {
@@ -2586,7 +2635,7 @@ function showTab(name, el) {
     const group = document.getElementById('navgroup-' + groupName);
     if (group && !group.classList.contains('open')) group.classList.add('open');
   }
-  const mobileIdx = ['dashboard','deliveries','drivers','analytics','map'].indexOf(name);
+  const mobileIdx = ['dashboard','deliveries','drivers','analytics','map','aihelp'].indexOf(name);
   if (mobileIdx >= 0) document.querySelectorAll('.mobile-tab')[mobileIdx]?.classList.add('active');
   if (name === 'orders') { fetchOrders(); }
   if (name === 'invoices') { renderInprocessOrders(); }
@@ -2594,6 +2643,7 @@ function showTab(name, el) {
   if (name === 'inventory') { renderInventory(); renderInventoryKPIs(); }
   if (name === 'customers') { fetchCustomers(); }
   if (name === 'forecast') { loadForecast(); renderFishingSeasons(); }
+  if (name === 'aihelp') { initAIHelp(); }
   if (name === 'settings') { initSettings(); }
   if (name === 'financials') { loadFinancials(); }
 }
@@ -3878,13 +3928,11 @@ async function submitUserInvite() {
     document.getElementById('uiName').value = '';
     document.getElementById('uiEmail').value = '';
     await fetchUsers();
-    if (data.emailSent) {
-      setTimeout(() => {
-        closeUserInviteModal();
-        const modal = document.getElementById('userInviteModal');
-        if (modal) modal.classList.remove('open');
-      }, 2000);
-    }
+    setTimeout(() => {
+      closeUserInviteModal();
+      const modal = document.getElementById('userInviteModal');
+      if (modal) modal.classList.remove('open');
+    }, data.emailSent ? 2000 : 2500);
   } catch(e) { r.className = 'modal-result error'; r.textContent = e.message || 'Failed to send invite.'; }
 }
 document.getElementById('userInviteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeUserInviteModal(); });
@@ -4105,12 +4153,10 @@ async function submitInvite() {
     r.innerHTML = `Invite sent for <strong>${name}</strong>!${emailNote}${linkHtml}`;
     document.getElementById('inviteName').value = '';
     document.getElementById('inviteEmail').value = '';
-    if (data.emailSent) {
-      setTimeout(() => {
-        closeInviteModal();
-        r.className = 'modal-result'; r.textContent = '';
-      }, 2500);
-    }
+    setTimeout(() => {
+      closeInviteModal();
+      r.className = 'modal-result'; r.textContent = '';
+    }, data.emailSent ? 2500 : 3000);
   } catch(e) { r.className = 'modal-result error'; r.textContent = e.message || 'Failed to send invite.'; }
 }
 document.getElementById('inviteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeInviteModal(); });
@@ -5339,6 +5385,90 @@ function initSettings() {
   renderColorPicker();
   loadNotifPrefs();
   document.getElementById('settingsNewPw').addEventListener('input', function() { showPwStrength(this.value); });
+}
+
+let aiWalkthroughInitialized = false;
+
+function initAIHelp() {
+  if (aiWalkthroughInitialized) return;
+  aiWalkthroughInitialized = true;
+  const feature = document.getElementById('aiWalkthroughFeature');
+  if (feature && !feature.value) feature.value = 'Dashboard';
+}
+
+function resetAIWalkthrough() {
+  const feature = document.getElementById('aiWalkthroughFeature');
+  const question = document.getElementById('aiWalkthroughQuestion');
+  const output = document.getElementById('aiWalkthroughOutput');
+  if (feature) feature.value = 'Dashboard';
+  if (question) question.value = '';
+  if (output) {
+    output.classList.remove('ai-loading');
+    output.innerHTML = 'Choose a function and click "Get Walkthrough" to see a step-by-step guide.';
+  }
+}
+
+function renderAIWalkthrough(data) {
+  const output = document.getElementById('aiWalkthroughOutput');
+  if (!output) return;
+
+  const escapeHtml = s => String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+
+  const renderList = items => Array.isArray(items) && items.length
+    ? `<ul>${items.map(item => `<li>${escapeHtml(item)}</li>`).join('')}</ul>`
+    : '<div class="muted">None.</div>';
+
+  output.classList.remove('ai-loading');
+  output.innerHTML = `
+    <h4>${escapeHtml(data.title || 'Walkthrough')}</h4>
+    <div>${escapeHtml(data.summary || 'No summary returned.')}</div>
+    <div style="margin-top:14px"><b>Steps</b>${renderList(data.steps)}</div>
+    <div style="margin-top:14px"><b>Tips</b>${renderList(data.tips)}</div>
+    <div style="margin-top:14px"><b>Warnings</b>${renderList(data.warnings)}</div>
+  `;
+}
+
+async function requestWalkthrough() {
+  const featureEl = document.getElementById('aiWalkthroughFeature');
+  const questionEl = document.getElementById('aiWalkthroughQuestion');
+  const output = document.getElementById('aiWalkthroughOutput');
+  const btn = document.getElementById('aiWalkthroughBtn');
+  if (!featureEl || !output) return;
+
+  const feature = featureEl.value.trim();
+  const question = (questionEl?.value || '').trim();
+  if (!feature) {
+    output.innerHTML = '<span class="muted">Pick a function first.</span>';
+    return;
+  }
+
+  output.classList.add('ai-loading');
+  output.innerHTML = 'Generating walkthrough…';
+  if (btn) btn.disabled = true;
+
+  try {
+    const res = await fetch(`${API}/ai/walkthrough`, {
+      method: 'POST',
+      ...authHeaders,
+      body: JSON.stringify({ feature, question }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      output.classList.remove('ai-loading');
+      output.innerHTML = `<span class="muted">${escHtml(data.error || 'AI walkthrough failed.')}</span>`;
+      return;
+    }
+    renderAIWalkthrough(data);
+  } catch (err) {
+    output.classList.remove('ai-loading');
+    output.innerHTML = `<span class="muted">Could not reach the AI service. ${escHtml(err.message || '')}</span>`;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
 }
 
 function renderSettingsAvatar() {

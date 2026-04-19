@@ -67,6 +67,25 @@ Rules:
 4. If expiry is a factor, mention it.
 5. Return JSON with only "subject" and "body" string fields.`;
 
+const WALKTHROUGH_SYSTEM_PROMPT = `You are a friendly internal product guide for the NodeRoute delivery operations app.
+Your job is to explain how to use app functions clearly to a normal user.
+
+Rules:
+1. Respond ONLY with valid JSON.
+2. Keep the answer practical, concise, and specific to the selected function.
+3. If a feature has role restrictions or caveats, mention them in warnings.
+4. Give step-by-step guidance, not marketing copy.
+5. Use short phrases that are easy to scan inside the UI.
+
+Output format:
+{
+  "title": "<short title>",
+  "summary": "<1-2 sentence overview>",
+  "steps": ["<step 1>", "<step 2>", "<step 3>"],
+  "tips": ["<tip 1>", "<tip 2>"],
+  "warnings": ["<warning 1>"]
+}`;
+
 let _client = null;
 
 function getClient() {
@@ -206,4 +225,20 @@ Return JSON with "subject" and "body" only.`;
   return callAI(REORDER_ALERT_SYSTEM_PROMPT, userMessage, 256);
 }
 
-module.exports = { forecastDemand, analyzeInventory, generateReorderAlert };
+/**
+ * Generate a short walkthrough for a feature or function in the app.
+ * @param {string} feature - Feature name selected by the user
+ * @param {string} question - Optional freeform question
+ */
+async function generateWalkthrough(feature, question = '') {
+  const userMessage = `Create a walkthrough for the following NodeRoute feature.
+
+Feature: ${feature}
+User question: ${question || 'No extra question provided.'}
+
+Explain how to use it inside the app, including the usual sequence of actions and any gotchas.`;
+
+  return callAI(WALKTHROUGH_SYSTEM_PROMPT, userMessage, 768);
+}
+
+module.exports = { forecastDemand, analyzeInventory, generateReorderAlert, generateWalkthrough };

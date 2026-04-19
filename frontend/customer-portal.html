@@ -18,6 +18,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 /* ── LOGIN ── */
 #loginScreen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px}
 .login-card{background:var(--surface);border:1px solid var(--border);border-radius:20px;padding:40px 36px;width:100%;max-width:420px;text-align:center}
+.login-logo-img{display:block;width:min(300px,100%);height:auto;margin:0 auto 12px}
 .login-logo{font-size:22px;font-weight:800;color:var(--accent);letter-spacing:.5px;margin-bottom:6px}
 .login-logo span{color:var(--text)}
 .login-sub{color:var(--muted);font-size:14px;margin-bottom:32px}
@@ -33,6 +34,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 /* ── PORTAL SHELL ── */
 #portal{display:none;flex-direction:column;min-height:100vh}
 .topbar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;height:60px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.topbar-brand img{display:block;width:min(220px,42vw);height:auto}
 .topbar-brand{font-size:17px;font-weight:800;color:var(--accent);letter-spacing:.5px}
 .topbar-brand span{color:var(--text)}
 .topbar-right{display:flex;align-items:center;gap:16px}
@@ -188,7 +190,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 <!-- ── LOGIN SCREEN ── -->
 <div id="loginScreen">
   <div class="login-card">
-    <div class="login-logo">NodeRoute <span>Systems</span></div>
+    <img src="For_Light_Theme_Transparent.svg" class="login-logo-img" alt="NodeRoute Systems"/>
     <div class="login-sub">Customer Portal — enter your email to access your account</div>
     <div id="loginError" class="login-error"></div>
     <label class="login-label" for="emailInput">Email address</label>
@@ -219,7 +221,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 <!-- ── PORTAL DASHBOARD ── -->
 <div id="portal">
   <div class="topbar">
-    <div class="topbar-brand">NodeRoute <span>Portal</span></div>
+    <div class="topbar-brand"><img src="For_Light_Theme_Transparent.svg" alt="NodeRoute Portal"/></div>
     <div class="topbar-right">
       <div class="topbar-name" id="topbarName"></div>
       <button class="logout-btn" onclick="doLogout()">Sign out</button>
