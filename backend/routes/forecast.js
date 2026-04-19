@@ -90,7 +90,7 @@ router.get('/inventory/:itemNumber', authenticateToken, requireRole('admin', 'ma
     const forecast = await forecastDemand(product, history || [], days);
     res.json(forecast);
   } catch (err) {
-    if (err.message.includes('ANTHROPIC_API_KEY')) return res.status(503).json({ error: err.message });
+    if (err.message.includes('OPENAI_API_KEY')) return res.status(503).json({ error: err.message });
     res.status(500).json({ error: 'AI forecast failed: ' + err.message });
   }
 });
