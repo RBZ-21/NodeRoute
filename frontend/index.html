@@ -167,7 +167,7 @@ body.light img.logo-for-light{display:inline}
 .dp-detail-row span:first-child{color:var(--muted)}
 .dp-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:600}
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;transition:var(--trans)}
-body::before{content:'';position:fixed;inset:0;background:url('Best_Background.svg') center/cover no-repeat;opacity:0.35;z-index:0;pointer-events:none}
+body::before{content:'';position:fixed;inset:0;background:url('Best_Background.svg') center/cover no-repeat;opacity:0.22;z-index:0;pointer-events:none}
 a{color:inherit;text-decoration:none}
 
 /* SIDEBAR */
@@ -4110,12 +4110,19 @@ async function submitUserInvite() {
   if (!name || !email) { r.className = 'modal-result error'; r.textContent = 'Please fill in all fields.'; return; }
   try {
     const res = await fetch('/api/users/invite', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ name, email, role }) });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
+    const responseText = await res.text();
+    let data = {};
+    try {
+      data = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      data = { error: responseText || 'Unexpected response from server' };
+    }
+    if (!res.ok) throw new Error(data.error || data.message || 'Failed to send invite.');
     r.className = 'modal-result success';
     const emailNote = data.emailSent ? ' Email delivered.' : data.emailError ? ` Email failed: ${data.emailError}` : ' No email server configured.';
+    const providerNote = data.emailProvider ? ` <span style="color:var(--muted)">via ${data.emailProvider}</span>` : '';
     const linkHtml = !data.emailSent ? `<br><small style="word-break:break-all">Copy invite link: <a href="${data.inviteUrl}" target="_blank" style="color:#3dba7f">${data.inviteUrl}</a></small>` : '';
-    r.innerHTML = `Invite sent for <strong>${name}</strong> as <strong>${role}</strong>!${emailNote}${linkHtml}`;
+    r.innerHTML = `Invite sent for <strong>${name}</strong> as <strong>${role}</strong>!${emailNote}${providerNote}${linkHtml}`;
     document.getElementById('uiName').value = '';
     document.getElementById('uiEmail').value = '';
     await fetchUsers();
@@ -4336,12 +4343,19 @@ async function submitInvite() {
       headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
       body: JSON.stringify({ name, email, role: 'driver' })
     });
-    const data = await res.json();
-    if (!res.ok) throw new Error(data.error);
+    const responseText = await res.text();
+    let data = {};
+    try {
+      data = responseText ? JSON.parse(responseText) : {};
+    } catch {
+      data = { error: responseText || 'Unexpected response from server' };
+    }
+    if (!res.ok) throw new Error(data.error || data.message || 'Failed to send invite.');
     r.className = 'modal-result success';
     const emailNote = data.emailSent ? ' Email delivered.' : data.emailError ? ` Email failed: ${data.emailError}` : ' No email server configured.';
+    const providerNote = data.emailProvider ? ` <span style="color:var(--muted)">via ${data.emailProvider}</span>` : '';
     const linkHtml = !data.emailSent ? `<br><small style="word-break:break-all">Copy invite link: <a href="${data.inviteUrl}" target="_blank" style="color:#3dba7f">${data.inviteUrl}</a></small>` : '';
-    r.innerHTML = `Invite sent for <strong>${name}</strong>!${emailNote}${linkHtml}`;
+    r.innerHTML = `Invite sent for <strong>${name}</strong>!${emailNote}${providerNote}${linkHtml}`;
     document.getElementById('inviteName').value = '';
     document.getElementById('inviteEmail').value = '';
     setTimeout(() => {

@@ -2,7 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
-const { createMailer } = require('../services/email');
+const { createConfiguredMailers } = require('../services/email');
 
 const router = express.Router();
 
@@ -47,45 +47,67 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
   // Send real email if SMTP configured
   let emailSent = false;
   let emailError = null;
+  let emailProvider = null;
+  const emailAttempts = [];
   try {
-    const mailer = createMailer();
-    if (mailer) {
-      await mailer.sendMail({
-        from: process.env.EMAIL_FROM,
-        to: email,
-        subject: `You've been invited to NodeRoute`,
-        html: `
-          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
-            <div style="background:#050d2a;padding:24px;border-radius:12px 12px 0 0;text-align:center">
-              <h1 style="color:#3dba7f;margin:0;font-size:24px">NodeRoute Systems</h1>
-            </div>
-            <div style="background:#f8faff;padding:32px;border-radius:0 0 12px 12px">
-              <h2 style="color:#0d1b3e;margin-bottom:8px">Hi ${name},</h2>
-              <p style="color:#334;font-size:15px;line-height:1.6">
-                You've been invited to join <strong>NodeRoute Delivery Systems</strong> as a <strong>${role}</strong>.
-              </p>
-              <div style="text-align:center;margin:32px 0">
-                <a href="${inviteUrl}" style="background:#3dba7f;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:16px;font-weight:600;display:inline-block">
-                  Set Up Your Account
-                </a>
+    const mailers = createConfiguredMailers();
+    if (!mailers.length) {
+      emailError = 'No email provider configured';
+    }
+
+    for (const mailer of mailers) {
+      emailAttempts.push(mailer.provider || 'unknown');
+      try {
+        emailProvider = mailer.provider || 'unknown';
+        console.log(`Sending invite email via ${emailProvider}`, { to: email, from: process.env.EMAIL_FROM });
+        await mailer.sendMail({
+          from: process.env.EMAIL_FROM,
+          to: email,
+          subject: `You've been invited to NodeRoute`,
+          html: `
+            <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+              <div style="background:#050d2a;padding:24px;border-radius:12px 12px 0 0;text-align:center">
+                <h1 style="color:#3dba7f;margin:0;font-size:24px">NodeRoute Systems</h1>
               </div>
-              <p style="color:#667;font-size:13px">This link expires in 48 hours.</p>
-              <p style="color:#667;font-size:13px">Or copy this URL: ${inviteUrl}</p>
+              <div style="background:#f8faff;padding:32px;border-radius:0 0 12px 12px">
+                <h2 style="color:#0d1b3e;margin-bottom:8px">Hi ${name},</h2>
+                <p style="color:#334;font-size:15px;line-height:1.6">
+                  You've been invited to join <strong>NodeRoute Delivery Systems</strong> as a <strong>${role}</strong>.
+                </p>
+                <div style="text-align:center;margin:32px 0">
+                  <a href="${inviteUrl}" style="background:#3dba7f;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:16px;font-weight:600;display:inline-block">
+                    Set Up Your Account
+                  </a>
+                </div>
+                <p style="color:#667;font-size:13px">This link expires in 48 hours.</p>
+                <p style="color:#667;font-size:13px">Or copy this URL: ${inviteUrl}</p>
+              </div>
             </div>
-          </div>
-        `
-      });
-      emailSent = true;
+          `
+        });
+        emailSent = true;
+        emailError = null;
+        break;
+      } catch (providerErr) {
+        emailError = providerErr.message;
+        console.error(`EMAIL ERROR - ${emailProvider} failed for invite email:`, providerErr.message, {
+          provider: emailProvider,
+          hasApiKey: !!process.env.RESEND_API_KEY,
+          from: process.env.EMAIL_FROM,
+          to: email,
+        });
+      }
     }
   } catch(emailErr) {
     emailError = emailErr.message;
     console.error('EMAIL ERROR - Failed to send invite email:', emailErr.message, {
+      provider: emailProvider || 'none',
       hasApiKey: !!process.env.RESEND_API_KEY,
       from: process.env.EMAIL_FROM,
       to: email,
     });
   }
-  res.json({ message: `Invite sent to ${email}`, userId: newUser.id, inviteUrl, emailSent, emailError });
+  res.json({ message: `Invite sent to ${email}`, userId: newUser.id, inviteUrl, emailSent, emailError, emailProvider, emailAttempts });
 });
 
 // Any user can update their own name; admins can update anyone
