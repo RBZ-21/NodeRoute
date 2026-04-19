@@ -496,6 +496,29 @@ td{padding:12px 16px;vertical-align:middle}
 .color-swatch{width:28px;height:28px;border-radius:50%;cursor:pointer;border:3px solid transparent;transition:border-color .15s,transform .15s}
 .color-swatch:hover{transform:scale(1.15)}
 .color-swatch.selected{border-color:#fff}
+
+/* ── PURCHASE ORDER SCAN ── */
+.po-upload-area{display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--border);border-radius:12px;padding:28px 20px;cursor:pointer;transition:var(--trans);text-align:center;min-height:140px;background:var(--bg)}
+.po-upload-area:hover,.po-upload-area.drag-over{border-color:var(--accent);background:rgba(61,186,127,0.05)}
+.po-upload-icon{font-size:36px;margin-bottom:10px;line-height:1}
+.po-upload-hint{font-size:13px;color:var(--muted);line-height:1.5}
+.po-upload-hint strong{color:var(--text)}
+.po-image-preview{display:none;width:100%;max-height:260px;object-fit:contain;border-radius:8px;margin-top:12px;border:1px solid var(--border)}
+.po-vendor-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;background:rgba(61,186,127,0.1);border:1px solid rgba(61,186,127,0.25);font-size:12px;color:var(--accent);margin-bottom:14px}
+.po-review-table{width:100%;border-collapse:collapse;font-size:12px}
+.po-review-table th{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;padding:7px 6px;border-bottom:1px solid var(--border);text-align:left}
+.po-review-table td{padding:4px 4px;vertical-align:middle;border-bottom:1px solid rgba(255,255,255,0.04)}
+.po-review-table tr:last-child td{border-bottom:none}
+.po-cell-input{width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:12px;font-family:'Inter',sans-serif;outline:none;transition:border-color .15s}
+.po-cell-input:focus{border-color:var(--accent)}
+.po-steps{display:flex;align-items:center;gap:6px;margin-bottom:20px;font-size:12px;color:var(--muted)}
+.po-step-dot{width:22px;height:22px;border-radius:50%;background:var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0}
+.po-step-dot.active{background:var(--accent);color:#050d2a}
+.po-step-dot.done{background:rgba(61,186,127,0.2);color:var(--accent)}
+.po-step-line{flex:1;height:1px;background:var(--border)}
+.po-loading-wrap{text-align:center;padding:40px 20px}
+.po-loading-icon{font-size:40px;animation:pulse-scale 1.2s ease-in-out infinite;margin-bottom:14px}
+@keyframes pulse-scale{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}
 </style>
 </head>
 <body>
@@ -845,16 +868,32 @@ td{padding:12px 16px;vertical-align:middle}
         </div>
       </div>
 
-      <!-- Recent Invoices -->
-      <div class="chart-card">
-        <div class="card-title" style="margin-bottom:14px">Recent Invoices</div>
-        <div class="table-card" style="margin:0">
-          <table>
-            <thead><tr><th>Invoice #</th><th>Customer</th><th>Total</th><th>Status</th><th>Date</th></tr></thead>
-            <tbody id="finRecentInvoices">
-              <tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted)">Loading…</td></tr>
-            </tbody>
-          </table>
+      <!-- Recent Invoices + Purchase Orders side by side -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+        <div class="chart-card">
+          <div class="card-title" style="margin-bottom:14px">Recent Invoices (Revenue)</div>
+          <div class="table-card" style="margin:0">
+            <table>
+              <thead><tr><th>Invoice #</th><th>Customer</th><th>Total</th><th>Status</th><th>Date</th></tr></thead>
+              <tbody id="finRecentInvoices">
+                <tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted)">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="chart-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div class="card-title">Purchase Orders (COGS)</div>
+            <button class="btn btn-outline" style="font-size:11px;padding:4px 10px" onclick="closePOScanModal();showTab('inventory',document.querySelector('[data-tab=inventory]'));setTimeout(openPOScanModal,200)">📷 Scan PO</button>
+          </div>
+          <div class="table-card" style="margin:0">
+            <table>
+              <thead><tr><th>PO #</th><th>Vendor</th><th>Items</th><th>Cost</th><th>By</th><th>Date</th></tr></thead>
+              <tbody id="finPOHistory">
+                <tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>
@@ -1144,7 +1183,10 @@ td{padding:12px 16px;vertical-align:middle}
               <option value="out">Out of Stock</option>
             </select>
           </div>
-          <button class="btn btn-accent" onclick="openInventoryModal()">+ Add Product</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-outline" onclick="openPOScanModal()" title="Scan a purchase order photo to auto-add items">📷 Scan PO</button>
+            <button class="btn btn-accent" onclick="openInventoryModal()">+ Add Product</button>
+          </div>
         </div>
         <!-- Table -->
         <div class="table-card">
@@ -1695,6 +1737,93 @@ td{padding:12px 16px;vertical-align:middle}
 </div>
 
 <!-- INVENTORY ITEM MODAL -->
+<!-- ── PURCHASE ORDER SCAN MODAL ─────────────────────────────────────── -->
+<div class="modal-overlay" id="poScanModal">
+  <div class="modal-box" style="width:680px;max-height:90vh;overflow-y:auto;padding:24px">
+
+    <!-- Step indicator -->
+    <div class="po-steps" id="poStepIndicator">
+      <div class="po-step-dot active" id="poStepDot1">1</div>
+      <div class="po-step-line"></div>
+      <div class="po-step-dot" id="poStepDot2">2</div>
+      <div class="po-step-line"></div>
+      <div class="po-step-dot" id="poStepDot3">3</div>
+    </div>
+
+    <!-- STEP 1: Upload -->
+    <div id="poStep1">
+      <h3 style="margin-bottom:6px">Scan Purchase Order</h3>
+      <p class="modal-sub">Take or upload a photo of your vendor invoice / PO — AI will read every line item automatically.</p>
+      <label class="po-upload-area" id="poUploadArea" for="poFileInput"
+        ondragover="event.preventDefault();this.classList.add('drag-over')"
+        ondragleave="this.classList.remove('drag-over')"
+        ondrop="handlePODrop(event)">
+        <div class="po-upload-icon">📷</div>
+        <div class="po-upload-hint">
+          <strong>Tap to photograph or choose a file</strong><br>
+          JPG, PNG, HEIC, PDF · max 15 MB
+        </div>
+        <img id="poImagePreview" class="po-image-preview"/>
+        <input type="file" id="poFileInput" accept="image/*,application/pdf" capture="environment" style="display:none" onchange="handlePOFile(this)"/>
+      </label>
+      <div class="modal-actions" style="margin-top:16px">
+        <button class="btn btn-outline" onclick="closePOScanModal()">Cancel</button>
+        <button class="btn btn-accent" id="poScanBtn" onclick="runPOScan()" disabled>
+          🤖 Scan with AI →
+        </button>
+      </div>
+    </div>
+
+    <!-- STEP 2: Review & Edit -->
+    <div id="poStep2" style="display:none">
+      <h3 style="margin-bottom:6px">Review Items</h3>
+      <p class="modal-sub">Edit any values before saving. All items will be added to inventory.</p>
+      <div id="poVendorBadge"></div>
+      <div style="overflow-x:auto;margin-bottom:16px">
+        <table class="po-review-table" id="poReviewTable">
+          <thead><tr>
+            <th>Description</th><th>Category</th><th>Qty</th><th>Unit</th>
+            <th>Unit Price ($)</th><th>Total ($)</th><th></th>
+          </tr></thead>
+          <tbody id="poReviewBody"></tbody>
+        </table>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+        <div style="font-size:15px;font-weight:700">
+          Total Cost: <span id="poGrandTotal" style="color:var(--accent)">$0.00</span>
+        </div>
+        <div class="modal-actions" style="margin:0">
+          <button class="btn btn-outline" onclick="pOGoToStep(1)">← Re-scan</button>
+          <button class="btn btn-accent" id="poConfirmBtn" onclick="confirmPOScan()">
+            ✓ Save to Inventory
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 3: Success -->
+    <div id="poStep3" style="display:none;text-align:center;padding:24px 0">
+      <div style="font-size:52px;margin-bottom:14px">✅</div>
+      <h3 style="margin-bottom:8px">Inventory Updated</h3>
+      <div id="poSuccessDetail" style="color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:24px"></div>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        <button class="btn btn-outline" onclick="pOGoToStep(1);document.getElementById('poFileInput').value=''">Scan Another</button>
+        <button class="btn btn-accent" onclick="closePOScanModal()">Done</button>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="poLoadingStep" style="display:none">
+      <div class="po-loading-wrap">
+        <div class="po-loading-icon">🔍</div>
+        <div style="font-size:15px;font-weight:600;margin-bottom:6px" id="poLoadingMsg">Scanning purchase order…</div>
+        <div style="font-size:13px;color:var(--muted)">GPT-4o is reading your image</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
 <div class="modal-overlay" id="inventoryModal">
   <div class="modal-box" style="width:520px">
     <h3 id="invModalTitle">Add Product</h3>
@@ -2601,34 +2730,65 @@ function showTab(name, el) {
 // ── FINANCIALS ──────────────────────────────────────────
 let finChartInstance = null;
 async function loadFinancials() {
+  const fmt = n => '$' + parseFloat(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const now = new Date();
+  const thisMonth = now.getMonth();
+  const thisYear  = now.getFullYear();
+
   try {
-    const res = await fetch(API + '/invoices', authHeaders);
-    if (!res.ok) return;
-    const invoices = await res.json();
+    // Fetch invoices (revenue) and purchase orders (costs) in parallel
+    const [invRes, poRes] = await Promise.all([
+      fetch(API + '/invoices',         authHeaders),
+      fetch(API + '/purchase-orders',  authHeaders),
+    ]);
+    const invoices = invRes.ok ? await invRes.json() : [];
+    const pos      = poRes.ok  ? await poRes.json()  : [];
 
-    const fmt = n => '$' + parseFloat(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-    const now = new Date();
-    const thisMonth = now.getMonth();
-    const thisYear = now.getFullYear();
-
-    const totalRev = invoices.reduce((s, i) => s + parseFloat(i.total || 0), 0);
-    const monthRev = invoices.filter(i => {
+    // ── Revenue KPIs ──
+    const totalRev  = invoices.reduce((s, i) => s + parseFloat(i.total || 0), 0);
+    const monthRev  = invoices.filter(i => {
       const d = new Date(i.created_at);
       return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
     }).reduce((s, i) => s + parseFloat(i.total || 0), 0);
     const outstanding = invoices.filter(i => i.status === 'pending').reduce((s, i) => s + parseFloat(i.total || 0), 0);
 
-    document.getElementById('finRevTotal').textContent = fmt(totalRev);
-    document.getElementById('finRevMonth').textContent = fmt(monthRev);
-    document.getElementById('finOutstanding').textContent = fmt(outstanding);
-    document.getElementById('finInvCount').textContent = invoices.length;
+    // ── Cost KPIs (from scanned POs) ──
+    const totalCOGS  = pos.reduce((s, p) => s + parseFloat(p.total_cost || 0), 0);
+    const grossProfit = totalRev - totalCOGS;
+    const margin      = totalRev > 0 ? Math.round((grossProfit / totalRev) * 100) : 0;
 
-    // Status breakdown
+    document.getElementById('finRevTotal').textContent    = fmt(totalRev);
+    document.getElementById('finRevMonth').textContent    = fmt(monthRev);
+    document.getElementById('finOutstanding').textContent = fmt(outstanding);
+    document.getElementById('finInvCount').textContent    = invoices.length;
+
+    // ── Extend KPI row with COGS + margin ──
+    const kpiRow = document.getElementById('fin-kpis');
+    const extraKpis = document.getElementById('finExtraKpis');
+    if (!extraKpis) {
+      const div = document.createElement('div');
+      div.id = 'finExtraKpis';
+      div.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px';
+      div.innerHTML = `
+        <div class="stat-card"><div class="stat-label">Total COGS</div><div class="stat-value" id="finCOGS" style="color:var(--danger)">—</div><div style="font-size:11px;color:var(--muted);margin-top:4px">From purchase orders</div></div>
+        <div class="stat-card"><div class="stat-label">Gross Profit</div><div class="stat-value" id="finGrossProfit">—</div><div style="font-size:11px;color:var(--muted);margin-top:4px">Revenue − COGS</div></div>
+        <div class="stat-card"><div class="stat-label">Gross Margin</div><div class="stat-value" id="finMargin">—</div><div style="font-size:11px;color:var(--muted);margin-top:4px">% of revenue</div></div>
+        <div class="stat-card"><div class="stat-label">PO Count</div><div class="stat-value" id="finPOCount">—</div><div style="font-size:11px;color:var(--muted);margin-top:4px">Purchase orders</div></div>`;
+      kpiRow.after(div);
+    }
+    document.getElementById('finCOGS').textContent       = fmt(totalCOGS);
+    document.getElementById('finGrossProfit').textContent = fmt(grossProfit);
+    document.getElementById('finGrossProfit').style.color = grossProfit >= 0 ? 'var(--accent)' : 'var(--danger)';
+    document.getElementById('finMargin').textContent      = margin + '%';
+    document.getElementById('finMargin').style.color      = margin >= 30 ? 'var(--accent)' : margin >= 15 ? 'var(--warn)' : 'var(--danger)';
+    document.getElementById('finPOCount').textContent     = pos.length;
+
+    // ── Invoice status breakdown ──
     const statusCounts = {};
     invoices.forEach(i => { statusCounts[i.status] = (statusCounts[i.status] || 0) + 1; });
-    const statusColors = { pending: 'var(--warn)', signed: 'var(--accent)', sent: '#a78bfa' };
-    const statusLabels = { pending: 'Pending Signature', signed: 'Signed', sent: 'Sent' };
-    const total = invoices.length || 1;
+    const statusColors  = { pending: 'var(--warn)', signed: 'var(--accent)', sent: '#a78bfa' };
+    const statusLabels  = { pending: 'Pending', signed: 'Signed', sent: 'Sent' };
+    const totalInvs     = invoices.length || 1;
     document.getElementById('finStatusBreakdown').innerHTML = Object.entries(statusCounts).map(([s, c]) => `
       <div style="display:flex;flex-direction:column;gap:4px">
         <div style="display:flex;justify-content:space-between;font-size:12px">
@@ -2636,13 +2796,12 @@ async function loadFinancials() {
           <span style="font-weight:600;color:${statusColors[s]||'var(--text)'}">${c}</span>
         </div>
         <div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden">
-          <div style="height:100%;width:${Math.round(c/total*100)}%;background:${statusColors[s]||'var(--accent)'};border-radius:3px"></div>
+          <div style="height:100%;width:${Math.round(c/totalInvs*100)}%;background:${statusColors[s]||'var(--accent)'};border-radius:3px"></div>
         </div>
-      </div>`).join('');
+      </div>`).join('') || '<div style="color:var(--muted);font-size:13px">No invoices yet</div>';
 
-    // Revenue chart (last 6 months)
-    const months = [];
-    const monthRevs = [];
+    // ── Revenue + COGS chart (last 6 months) ──
+    const months = [], monthRevs = [], monthCOGS = [];
     for (let i = 5; i >= 0; i--) {
       const d = new Date(thisYear, thisMonth - i, 1);
       const label = d.toLocaleDateString('en-US', { month: 'short' });
@@ -2650,8 +2809,13 @@ async function loadFinancials() {
         const cd = new Date(inv.created_at);
         return cd.getMonth() === d.getMonth() && cd.getFullYear() === d.getFullYear();
       }).reduce((s, inv) => s + parseFloat(inv.total || 0), 0);
+      const cogs = pos.filter(p => {
+        const cd = new Date(p.created_at);
+        return cd.getMonth() === d.getMonth() && cd.getFullYear() === d.getFullYear();
+      }).reduce((s, p) => s + parseFloat(p.total_cost || 0), 0);
       months.push(label);
       monthRevs.push(parseFloat(rev.toFixed(2)));
+      monthCOGS.push(parseFloat(cogs.toFixed(2)));
     }
     const ctx = document.getElementById('finRevenueChart').getContext('2d');
     if (finChartInstance) finChartInstance.destroy();
@@ -2659,18 +2823,25 @@ async function loadFinancials() {
       type: 'bar',
       data: {
         labels: months,
-        datasets: [{ label: 'Revenue', data: monthRevs, backgroundColor: 'rgba(61,186,127,0.7)', borderRadius: 4 }]
+        datasets: [
+          { label: 'Revenue',  data: monthRevs, backgroundColor: 'rgba(61,186,127,0.75)',  borderRadius: 4 },
+          { label: 'COGS',     data: monthCOGS, backgroundColor: 'rgba(239,68,68,0.55)',   borderRadius: 4 },
+        ],
       },
-      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } },
-        scales: { y: { ticks: { color: '#888', callback: v => '$' + v.toLocaleString() }, grid: { color: 'rgba(255,255,255,0.05)' } },
-                  x: { ticks: { color: '#888' }, grid: { display: false } } } }
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#888', font: { size: 11 } } } },
+        scales: {
+          y: { ticks: { color: '#888', callback: v => '$' + v.toLocaleString() }, grid: { color: 'rgba(255,255,255,0.05)' } },
+          x: { ticks: { color: '#888' }, grid: { display: false } },
+        },
+      },
     });
 
-    // Recent invoices table
-    const recent = [...invoices].slice(0, 10);
+    // ── Recent invoices ──
     const statusBadge = s => `<span class="status-badge status-${s}">${s}</span>`;
-    document.getElementById('finRecentInvoices').innerHTML = recent.length
-      ? recent.map(i => `<tr>
+    document.getElementById('finRecentInvoices').innerHTML = invoices.slice(0, 10).length
+      ? invoices.slice(0, 10).map(i => `<tr>
           <td style="color:var(--accent);font-weight:600">${i.invoice_number || '—'}</td>
           <td>${escHtml(i.customer_name || '—')}</td>
           <td style="font-weight:600">${fmt(i.total)}</td>
@@ -2678,9 +2849,29 @@ async function loadFinancials() {
           <td style="color:var(--muted)">${new Date(i.created_at).toLocaleDateString()}</td>
         </tr>`).join('')
       : `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted)">No invoices yet</td></tr>`;
+
+    // ── Recent Purchase Orders ──
+    renderPOHistory(pos);
+
   } catch(e) {
     console.error('loadFinancials:', e);
   }
+}
+
+function renderPOHistory(pos) {
+  const el = document.getElementById('finPOHistory');
+  if (!el) return;
+  const fmt = n => '$' + parseFloat(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  el.innerHTML = pos.slice(0, 8).length
+    ? pos.slice(0, 8).map(p => `<tr>
+        <td style="color:var(--accent);font-weight:600">${escHtml(p.po_number || '—')}</td>
+        <td>${escHtml(p.vendor || '—')}</td>
+        <td>${(p.items||[]).length} item${(p.items||[]).length !== 1 ? 's' : ''}</td>
+        <td style="font-weight:600">${fmt(p.total_cost)}</td>
+        <td style="color:var(--muted)">${escHtml(p.confirmed_by || '—')}</td>
+        <td style="color:var(--muted)">${new Date(p.created_at).toLocaleDateString()}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">No purchase orders scanned yet — use 📷 Scan PO in Inventory</td></tr>`;
 }
 
 // ── ALERT ──────────────────────────────────────────────
@@ -5864,6 +6055,200 @@ function renderFishingSeasons() {
     return `<tr><td class="species-name"><div>${species}</div><div style="margin-top:2px">${invCatBadge(cat)}</div></td>${cells}</tr>`;
   }).join('');
 }
+
+// ── PURCHASE ORDER SCAN ──────────────────────────────────────────────────────
+let poData = null; // holds AI-parsed PO while user reviews
+
+function openPOScanModal() {
+  poData = null;
+  document.getElementById('poFileInput').value = '';
+  document.getElementById('poImagePreview').style.display = 'none';
+  document.getElementById('poImagePreview').src = '';
+  document.getElementById('poScanBtn').disabled = true;
+  pOGoToStep(1);
+  document.getElementById('poScanModal').classList.add('open');
+}
+function closePOScanModal() {
+  document.getElementById('poScanModal').classList.remove('open');
+}
+
+function pOGoToStep(n) {
+  ['poStep1','poStep2','poStep3','poLoadingStep'].forEach(id => {
+    document.getElementById(id).style.display = 'none';
+  });
+  if (n === 'loading') {
+    document.getElementById('poLoadingStep').style.display = 'block';
+  } else {
+    document.getElementById('poStep' + n).style.display = 'block';
+  }
+  // Update step dots
+  for (let i = 1; i <= 3; i++) {
+    const dot = document.getElementById('poStepDot' + i);
+    dot.classList.remove('active','done');
+    if (n === 'loading' && i === 1) dot.classList.add('active');
+    else if (i < n) dot.classList.add('done');
+    else if (i === n) dot.classList.add('active');
+  }
+}
+
+function handlePOFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const preview = document.getElementById('poImagePreview');
+  if (file.type.startsWith('image/')) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      preview.src = e.target.result;
+      preview.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+  } else {
+    preview.style.display = 'none';
+  }
+  document.getElementById('poScanBtn').disabled = false;
+}
+
+function handlePODrop(e) {
+  e.preventDefault();
+  document.getElementById('poUploadArea').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  const input = document.getElementById('poFileInput');
+  input.files = dt.files;
+  handlePOFile(input);
+}
+
+async function runPOScan() {
+  const input = document.getElementById('poFileInput');
+  if (!input.files[0]) return;
+  pOGoToStep('loading');
+  document.getElementById('poLoadingMsg').textContent = 'Reading purchase order…';
+
+  const formData = new FormData();
+  formData.append('image', input.files[0]);
+
+  try {
+    const res = await fetch('/api/purchase-orders/scan', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${nrToken}` },
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Scan failed');
+    if (!data.items || !data.items.length) throw new Error('No items found in image — try a clearer photo');
+
+    poData = data;
+    renderPOReview();
+    pOGoToStep(2);
+  } catch (e) {
+    pOGoToStep(1);
+    alert('Scan failed: ' + e.message);
+  }
+}
+
+function renderPOReview() {
+  if (!poData) return;
+  const badge = document.getElementById('poVendorBadge');
+  const parts = [];
+  if (poData.vendor)    parts.push('🏢 ' + poData.vendor);
+  if (poData.po_number) parts.push('# ' + poData.po_number);
+  if (poData.date)      parts.push('📅 ' + poData.date);
+  badge.innerHTML = parts.length
+    ? `<div class="po-vendor-pill">${parts.join(' · ')}</div>`
+    : '';
+
+  const tbody = document.getElementById('poReviewBody');
+  tbody.innerHTML = (poData.items || []).map((item, i) => `
+    <tr id="poRow-${i}">
+      <td><input class="po-cell-input" value="${escHtml(item.description||'')}" style="width:150px" oninput="updatePOItem(${i},'description',this.value)"/></td>
+      <td>
+        <select class="po-cell-input" style="width:100px" onchange="updatePOItem(${i},'category',this.value)">
+          ${['Finfish','Shellfish','Shrimp','Crab','Lobster','Squid','Octopus','Smoked/Cured','Other'].map(c =>
+            `<option${c===item.category?' selected':''}>${c}</option>`).join('')}
+        </select>
+      </td>
+      <td><input class="po-cell-input" type="number" min="0" step="0.01" value="${item.quantity||0}" style="width:62px" oninput="updatePOItem(${i},'quantity',parseFloat(this.value)||0)"/></td>
+      <td>
+        <select class="po-cell-input" style="width:58px" onchange="updatePOItem(${i},'unit',this.value)">
+          ${['lb','kg','ea','cs','box','each'].map(u =>
+            `<option${u===(item.unit||'lb')?' selected':''}>${u}</option>`).join('')}
+        </select>
+      </td>
+      <td><input class="po-cell-input" type="number" min="0" step="0.01" value="${item.unit_price||0}" style="width:72px" oninput="updatePOItem(${i},'unit_price',parseFloat(this.value)||0)"/></td>
+      <td id="poItemLine-${i}" style="font-weight:600;white-space:nowrap">$${parseFloat(item.total||0).toFixed(2)}</td>
+      <td><button class="order-row-del" onclick="removePOItem(${i})" title="Remove">×</button></td>
+    </tr>`).join('');
+
+  updatePOGrandTotal();
+}
+
+function updatePOItem(i, field, value) {
+  if (!poData?.items?.[i]) return;
+  poData.items[i][field] = value;
+  if (field === 'quantity' || field === 'unit_price') {
+    const t = parseFloat((parseFloat(poData.items[i].quantity||0) * parseFloat(poData.items[i].unit_price||0)).toFixed(2));
+    poData.items[i].total = t;
+    const lineEl = document.getElementById('poItemLine-' + i);
+    if (lineEl) lineEl.textContent = '$' + t.toFixed(2);
+    updatePOGrandTotal();
+  }
+}
+
+function removePOItem(i) {
+  if (!poData?.items) return;
+  poData.items.splice(i, 1);
+  renderPOReview();
+}
+
+function updatePOGrandTotal() {
+  const total = (poData?.items || []).reduce((s, it) => s + (parseFloat(it.total) || 0), 0);
+  poData.total_cost = parseFloat(total.toFixed(2));
+  document.getElementById('poGrandTotal').textContent = '$' + total.toFixed(2);
+}
+
+async function confirmPOScan() {
+  if (!poData?.items?.length) return alert('No items to save');
+  const btn = document.getElementById('poConfirmBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  pOGoToStep('loading');
+  document.getElementById('poLoadingMsg').textContent = 'Updating inventory…';
+
+  try {
+    const res = await fetch('/api/purchase-orders/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${nrToken}` },
+      body: JSON.stringify(poData),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Save failed');
+
+    const lines = [];
+    if (result.items_created) lines.push(`${result.items_created} new product${result.items_created > 1 ? 's' : ''} added`);
+    if (result.items_updated) lines.push(`${result.items_updated} product${result.items_updated > 1 ? 's' : ''} restocked`);
+    if (result.purchase_order?.total_cost) lines.push(`Total cost: $${parseFloat(result.purchase_order.total_cost).toFixed(2)}`);
+    if (result.errors?.length) lines.push(`⚠ ${result.errors.length} item(s) had errors`);
+    document.getElementById('poSuccessDetail').innerHTML = lines.map(l => `<div>${l}</div>`).join('');
+
+    pOGoToStep(3);
+    // Refresh inventory and financials
+    fetchInventory();
+    renderInventory();
+    renderInventoryKPIs();
+    if (document.getElementById('tab-financials').classList.contains('active')) loadFinancials();
+  } catch (e) {
+    pOGoToStep(2);
+    alert('Save failed: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '✓ Save to Inventory';
+  }
+}
+
+// Close PO modal on backdrop click
+document.getElementById('poScanModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('poScanModal')) closePOScanModal();
+});
 </script>
 </body>
 </html>

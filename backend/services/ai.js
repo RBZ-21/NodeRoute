@@ -206,4 +206,55 @@ Return JSON with "subject" and "body" only.`;
   return callAI(REORDER_ALERT_SYSTEM_PROMPT, userMessage, 256);
 }
 
-module.exports = { forecastDemand, analyzeInventory, generateReorderAlert };
+const PO_SCAN_PROMPT = `You are a purchase order scanner for a seafood distribution warehouse.
+Extract every line item from this purchase order / vendor invoice image.
+
+Return ONLY valid JSON with this exact structure — no markdown, no extra text:
+{
+  "vendor": "<supplier name or null>",
+  "po_number": "<PO or invoice number or null>",
+  "date": "<date string as shown or null>",
+  "items": [
+    {
+      "description": "<exact product name as written>",
+      "category": "<Finfish|Shellfish|Shrimp|Crab|Lobster|Squid|Octopus|Smoked/Cured|Other>",
+      "quantity": <number>,
+      "unit": "<lb|kg|ea|cs|box|each>",
+      "unit_price": <number>,
+      "total": <number>
+    }
+  ],
+  "total_cost": <grand total as number or null>
+}
+
+Rules:
+- Extract every visible line item — do not skip any
+- quantity and unit_price must be numbers, not strings
+- Infer category from product name (e.g. salmon → Finfish, shrimp → Shrimp)
+- If a value is not legible, use null for that field
+- All monetary amounts in USD as plain numbers (no currency symbols)`;
+
+/**
+ * Use GPT-4o vision to parse a purchase order image into structured line items.
+ * @param {string} base64Image - base64-encoded image data
+ * @param {string} mimeType    - image MIME type (e.g. 'image/jpeg')
+ */
+async function parsePurchaseOrderImage(base64Image, mimeType = 'image/jpeg') {
+  const client = getClient();
+  const response = await client.chat.completions.create({
+    model: 'gpt-4o',
+    max_tokens: 2048,
+    response_format: { type: 'json_object' },
+    messages: [{
+      role: 'user',
+      content: [
+        { type: 'text', text: PO_SCAN_PROMPT },
+        { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Image}`, detail: 'high' } },
+      ],
+    }],
+  });
+  const raw = response.choices[0]?.message?.content?.trim() || '{}';
+  return JSON.parse(raw);
+}
+
+module.exports = { forecastDemand, analyzeInventory, generateReorderAlert, parsePurchaseOrderImage };
