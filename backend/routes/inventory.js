@@ -212,7 +212,7 @@ router.get('/ai-analysis', authenticateToken, requireRole('admin', 'manager'), a
     const analysis = await analyzeInventory(products, historyByItem, expiringLots || []);
     res.json(analysis);
   } catch (err) {
-    if (err.message.includes('ANTHROPIC_API_KEY')) return res.status(503).json({ error: err.message });
+    if (err.message.includes('OPENAI_API_KEY')) return res.status(503).json({ error: err.message });
     res.status(500).json({ error: 'AI analysis failed: ' + err.message });
   }
 });
@@ -561,7 +561,7 @@ router.post('/:id/reorder-alert', authenticateToken, requireRole('admin', 'manag
 
     res.json({ ...alert, emailed: false });
   } catch (err) {
-    if (err.message.includes('ANTHROPIC_API_KEY')) return res.status(503).json({ error: err.message });
+    if (err.message.includes('OPENAI_API_KEY')) return res.status(503).json({ error: err.message });
     res.status(500).json({ error: 'Alert generation failed: ' + err.message });
   }
 });
