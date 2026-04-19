@@ -4,6 +4,7 @@
 <meta charset="UTF-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
 <title>NodeRoute Delivery Systems</title>
+<link rel="icon" href="For_Light_Theme_Transparent.svg" type="image/svg+xml"/>
 <link rel="preconnect" href="https://fonts.googleapis.com"/>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet"/>
 <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
@@ -4119,10 +4120,10 @@ async function submitUserInvite() {
     }
     if (!res.ok) throw new Error(data.error || data.message || 'Failed to send invite.');
     r.className = 'modal-result success';
-    const emailNote = data.emailSent ? ' Email delivered.' : data.emailError ? ` Email failed: ${data.emailError}` : ' No email server configured.';
+    const emailNote = data.emailQueued ? ' Email is being sent.' : data.emailSent ? ' Email delivered.' : data.emailError ? ` Email failed: ${data.emailError}` : ' No email server configured.';
     const providerNote = data.emailProvider ? ` <span style="color:var(--muted)">via ${data.emailProvider}</span>` : '';
     const linkHtml = !data.emailSent ? `<br><small style="word-break:break-all">Copy invite link: <a href="${data.inviteUrl}" target="_blank" style="color:#3dba7f">${data.inviteUrl}</a></small>` : '';
-    r.innerHTML = `Invite sent for <strong>${name}</strong> as <strong>${role}</strong>!${emailNote}${providerNote}${linkHtml}`;
+    r.innerHTML = `Invite created for <strong>${name}</strong> as <strong>${role}</strong>!${emailNote}${providerNote}${linkHtml}`;
     document.getElementById('uiName').value = '';
     document.getElementById('uiEmail').value = '';
     await fetchUsers();
@@ -4352,10 +4353,10 @@ async function submitInvite() {
     }
     if (!res.ok) throw new Error(data.error || data.message || 'Failed to send invite.');
     r.className = 'modal-result success';
-    const emailNote = data.emailSent ? ' Email delivered.' : data.emailError ? ` Email failed: ${data.emailError}` : ' No email server configured.';
+    const emailNote = data.emailQueued ? ' Email is being sent.' : data.emailSent ? ' Email delivered.' : data.emailError ? ` Email failed: ${data.emailError}` : ' No email server configured.';
     const providerNote = data.emailProvider ? ` <span style="color:var(--muted)">via ${data.emailProvider}</span>` : '';
     const linkHtml = !data.emailSent ? `<br><small style="word-break:break-all">Copy invite link: <a href="${data.inviteUrl}" target="_blank" style="color:#3dba7f">${data.inviteUrl}</a></small>` : '';
-    r.innerHTML = `Invite sent for <strong>${name}</strong>!${emailNote}${providerNote}${linkHtml}`;
+    r.innerHTML = `Invite created for <strong>${name}</strong>!${emailNote}${providerNote}${linkHtml}`;
     document.getElementById('inviteName').value = '';
     document.getElementById('inviteEmail').value = '';
     setTimeout(() => {
