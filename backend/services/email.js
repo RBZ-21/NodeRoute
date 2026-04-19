@@ -1,6 +1,33 @@
+const nodemailer = require('nodemailer');
 const { Resend } = require('resend');
 
-function createMailer() {
+function createSmtpMailer() {
+  const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, EMAIL_FROM } = process.env;
+  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS || !EMAIL_FROM) return null;
+
+  const transporter = nodemailer.createTransport({
+    host: SMTP_HOST,
+    port: Number(SMTP_PORT),
+    secure: String(SMTP_SECURE).toLowerCase() === 'true',
+    auth: {
+      user: SMTP_USER,
+      pass: SMTP_PASS,
+    },
+  });
+
+  return {
+    sendMail: async ({ from, to, subject, html, text, attachments }) => transporter.sendMail({
+      from: from || EMAIL_FROM,
+      to: Array.isArray(to) ? to.join(', ') : to,
+      subject,
+      html,
+      text,
+      attachments,
+    }),
+  };
+}
+
+function createResendMailer() {
   if (!process.env.RESEND_API_KEY) return null;
   const resend = new Resend(process.env.RESEND_API_KEY);
 
@@ -25,6 +52,10 @@ function createMailer() {
       return data;
     },
   };
+}
+
+function createMailer() {
+  return createResendMailer() || createSmtpMailer();
 }
 
 module.exports = { createMailer };

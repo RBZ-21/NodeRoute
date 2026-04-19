@@ -1,6 +1,6 @@
 const express = require('express');
 const { supabase, dbQuery } = require('../services/supabase');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
@@ -11,7 +11,7 @@ router.get('/', authenticateToken, async (req, res) => {
   res.json(data || []);
 });
 
-router.post('/', authenticateToken, async (req, res) => {
+router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { customerName, customerEmail, customerAddress, items, notes } = req.body;
   const orderNumber = 'ORD-' + Date.now().toString().slice(-6);
   const data = await dbQuery(supabase.from('orders').insert([{
@@ -29,7 +29,7 @@ router.post('/', authenticateToken, async (req, res) => {
   res.json(data);
 });
 
-router.patch('/:id', authenticateToken, async (req, res) => {
+router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const updates = {};
   if (req.body.customerName !== undefined) updates.customer_name = req.body.customerName;
   if (req.body.items !== undefined) updates.items = req.body.items;
@@ -42,21 +42,21 @@ router.patch('/:id', authenticateToken, async (req, res) => {
   res.json(data);
 });
 
-router.delete('/:id', authenticateToken, async (req, res) => {
+router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const data = await dbQuery(supabase.from('orders').delete().eq('id', req.params.id), res);
   if (data === null) return;
   res.json({ message: 'Order deleted' });
 });
 
 // Send order to processing (prints + marks in_process)
-router.post('/:id/send', authenticateToken, async (req, res) => {
+router.post('/:id/send', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const data = await dbQuery(supabase.from('orders').update({ status: 'in_process' }).eq('id', req.params.id).select().single(), res);
   if (!data) return;
   res.json(data);
 });
 
 // Fulfill order: enter actual weights → generate invoice
-router.post('/:id/fulfill', authenticateToken, async (req, res) => {
+router.post('/:id/fulfill', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { items, driverName, routeId } = req.body;
   const order = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!order) return;

@@ -30,6 +30,7 @@ const { dwellRecords } = require('./routes/stops');
 const routesRouter = require('./routes/routes');
 const customersRouter = require('./routes/customers');
 const forecastRouter = require('./routes/forecast');
+const aiRouter = require('./routes/ai');
 const portalRouter = require('./routes/portal');
 const driverRouter = require('./routes/driver');
 const purchaseOrdersRouter = require('./routes/purchase-orders');
@@ -84,8 +85,10 @@ if (cluster.worker.id === 1) {
 if (!process.env.BASE_URL) {
   console.warn('WARNING: BASE_URL is not set — invite links will use http://localhost and will NOT work in production. Set BASE_URL to your public domain (e.g. https://yourapp.railway.app).');
 }
-if (!process.env.RESEND_API_KEY) {
-  console.warn('WARNING: RESEND_API_KEY is not set — emails will not be sent.');
+const hasResend = !!process.env.RESEND_API_KEY;
+const hasSmtp = !!(process.env.SMTP_HOST && process.env.SMTP_PORT && process.env.SMTP_USER && process.env.SMTP_PASS && process.env.EMAIL_FROM);
+if (!hasResend && !hasSmtp) {
+  console.warn('WARNING: No email provider is configured — invite emails will not be sent. Set RESEND_API_KEY or the SMTP_* and EMAIL_FROM variables.');
 }
 if (!process.env.OPENAI_API_KEY) {
   console.warn('WARNING: OPENAI_API_KEY is not set — AI demand forecasting will not work.');
@@ -102,6 +105,7 @@ app.use('/api/stops', stopsRouter);
 app.use('/api/routes', routesRouter);
 app.use('/api/customers', customersRouter);
 app.use('/api/forecast', forecastRouter);
+app.use('/api/ai', aiRouter);
 app.use('/api/portal', portalRouter);
 app.use('/api/driver', driverRouter);
 app.use('/api/purchase-orders', purchaseOrdersRouter);
