@@ -90,6 +90,9 @@ const hasSmtp = !!(process.env.SMTP_HOST && process.env.SMTP_PORT && process.env
 if (!hasResend && !hasSmtp) {
   console.warn('WARNING: No email provider is configured — invite emails will not be sent. Set RESEND_API_KEY or the SMTP_* and EMAIL_FROM variables.');
 }
+if (hasResend && hasSmtp && String(process.env.EMAIL_PROVIDER || 'auto').toLowerCase() === 'auto') {
+  console.warn('INFO: Both Resend and SMTP are configured. EMAIL_PROVIDER=auto will try Resend first, then SMTP fallback.');
+}
 if (!process.env.OPENAI_API_KEY) {
   console.warn('WARNING: OPENAI_API_KEY is not set — AI demand forecasting will not work.');
 }
