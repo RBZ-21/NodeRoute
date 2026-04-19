@@ -17,6 +17,33 @@ function withTimeout(promise, timeoutMs, provider) {
   ]);
 }
 
+function getConfiguredMailers() {
+  const preferredProvider = String(process.env.EMAIL_PROVIDER || 'auto').toLowerCase();
+  const smtpMailer = createSmtpMailer();
+  const resendMailer = createResendMailer();
+  const ordered = [];
+
+  const pushMailer = (mailer) => {
+    if (mailer) ordered.push(mailer);
+  };
+
+  if (preferredProvider === 'smtp') {
+    pushMailer(smtpMailer);
+    pushMailer(resendMailer);
+    return ordered;
+  }
+
+  if (preferredProvider === 'resend') {
+    pushMailer(resendMailer);
+    pushMailer(smtpMailer);
+    return ordered;
+  }
+
+  pushMailer(resendMailer);
+  pushMailer(smtpMailer);
+  return ordered;
+}
+
 function createSmtpMailer() {
   const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, EMAIL_FROM } = process.env;
   if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS || !EMAIL_FROM) return null;
@@ -78,18 +105,30 @@ function createResendMailer() {
 }
 
 function createMailer() {
-  return createResendMailer() || createSmtpMailer();
+  const mailers = getConfiguredMailers();
+  if (!mailers.length) return null;
+
+  const [primaryMailer, ...fallbackMailers] = mailers;
+  if (!fallbackMailers.length) return primaryMailer;
+
+  return {
+    provider: primaryMailer.provider || 'unknown',
+    sendMail: async (options) => {
+      let lastError = null;
+      for (const mailer of mailers) {
+        try {
+          return await mailer.sendMail(options);
+        } catch (err) {
+          lastError = err;
+        }
+      }
+      throw lastError || new Error('Email delivery failed');
+    },
+  };
 }
 
 function createConfiguredMailers() {
-  const mailers = [];
-  const smtpMailer = createSmtpMailer();
-  const resendMailer = createResendMailer();
-
-  if (smtpMailer) mailers.push(smtpMailer);
-  if (resendMailer) mailers.push(resendMailer);
-
-  return mailers;
+  return getConfiguredMailers();
 }
 
 module.exports = { createMailer, createConfiguredMailers };
