@@ -17,6 +17,13 @@ function withTimeout(promise, timeoutMs, provider) {
   ]);
 }
 
+function resolveFromAddress(provider) {
+  if (process.env.EMAIL_FROM) return process.env.EMAIL_FROM;
+  if (provider === 'smtp' && process.env.SMTP_USER) return process.env.SMTP_USER;
+  if (provider === 'resend') return 'NodeRoute Systems <onboarding@resend.dev>';
+  return null;
+}
+
 function getConfiguredMailers() {
   const preferredProvider = String(process.env.EMAIL_PROVIDER || 'auto').toLowerCase();
   const smtpMailer = createSmtpMailer();
@@ -45,8 +52,8 @@ function getConfiguredMailers() {
 }
 
 function createSmtpMailer() {
-  const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, EMAIL_FROM } = process.env;
-  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS || !EMAIL_FROM) return null;
+  const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS } = process.env;
+  if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) return null;
   const timeoutMs = Number(process.env.EMAIL_SEND_TIMEOUT_MS || 5000);
 
   const transporter = nodemailer.createTransport({
@@ -65,7 +72,7 @@ function createSmtpMailer() {
   return {
     provider: 'smtp',
     sendMail: async ({ from, to, subject, html, text, attachments }) => transporter.sendMail({
-      from: from || EMAIL_FROM,
+      from: from || resolveFromAddress('smtp'),
       to: Array.isArray(to) ? to.join(', ') : to,
       subject,
       html,
@@ -84,7 +91,7 @@ function createResendMailer() {
     provider: 'resend',
     sendMail: async ({ from, to, subject, html, text, attachments }) => {
       const payload = {
-        from: from || process.env.EMAIL_FROM,
+        from: from || resolveFromAddress('resend'),
         to: Array.isArray(to) ? to : [to],
         subject,
         ...(html ? { html } : { text }),
