@@ -33,6 +33,7 @@ const forecastRouter = require('./routes/forecast');
 const aiRouter = require('./routes/ai');
 const portalRouter = require('./routes/portal');
 const driverRouter = require('./routes/driver');
+const purchaseOrdersRouter = require('./routes/purchase-orders');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -107,6 +108,7 @@ app.use('/api/forecast', forecastRouter);
 app.use('/api/ai', aiRouter);
 app.use('/api/portal', portalRouter);
 app.use('/api/driver', driverRouter);
+app.use('/api/purchase-orders', purchaseOrdersRouter);
 
 // Config endpoint — maps key exposed publicly (restricted via Google domain policy)
 const { authenticateToken, requireRole } = require('./middleware/auth');
