@@ -60,4 +60,15 @@ function createMailer() {
   return createResendMailer() || createSmtpMailer();
 }
 
-module.exports = { createMailer };
+function createConfiguredMailers() {
+  const mailers = [];
+  const smtpMailer = createSmtpMailer();
+  const resendMailer = createResendMailer();
+
+  if (smtpMailer) mailers.push(smtpMailer);
+  if (resendMailer) mailers.push(resendMailer);
+
+  return mailers;
+}
+
+module.exports = { createMailer, createConfiguredMailers };
