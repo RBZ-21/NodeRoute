@@ -16,6 +16,7 @@ function createSmtpMailer() {
   });
 
   return {
+    provider: 'smtp',
     sendMail: async ({ from, to, subject, html, text, attachments }) => transporter.sendMail({
       from: from || EMAIL_FROM,
       to: Array.isArray(to) ? to.join(', ') : to,
@@ -32,6 +33,7 @@ function createResendMailer() {
   const resend = new Resend(process.env.RESEND_API_KEY);
 
   return {
+    provider: 'resend',
     sendMail: async ({ from, to, subject, html, text, attachments }) => {
       const payload = {
         from: from || process.env.EMAIL_FROM,

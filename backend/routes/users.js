@@ -47,9 +47,12 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
   // Send real email if SMTP configured
   let emailSent = false;
   let emailError = null;
+  let emailProvider = null;
   try {
     const mailer = createMailer();
     if (mailer) {
+      emailProvider = mailer.provider || 'unknown';
+      console.log(`Sending invite email via ${emailProvider}`, { to: email, from: process.env.EMAIL_FROM });
       await mailer.sendMail({
         from: process.env.EMAIL_FROM,
         to: email,
@@ -76,16 +79,19 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
         `
       });
       emailSent = true;
+    } else {
+      emailError = 'No email provider configured';
     }
   } catch(emailErr) {
     emailError = emailErr.message;
     console.error('EMAIL ERROR - Failed to send invite email:', emailErr.message, {
+      provider: emailProvider || 'none',
       hasApiKey: !!process.env.RESEND_API_KEY,
       from: process.env.EMAIL_FROM,
       to: email,
     });
   }
-  res.json({ message: `Invite sent to ${email}`, userId: newUser.id, inviteUrl, emailSent, emailError });
+  res.json({ message: `Invite sent to ${email}`, userId: newUser.id, inviteUrl, emailSent, emailError, emailProvider });
 });
 
 // Any user can update their own name; admins can update anyone
