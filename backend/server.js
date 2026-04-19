@@ -1,4 +1,18 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+
+const cluster = require('cluster');
+const os = require('os');
+
+if (cluster.isPrimary) {
+  const numCPUs = os.cpus().length;
+  console.log(`Primary ${process.pid} starting ${numCPUs} workers`);
+  for (let i = 0; i < numCPUs; i++) cluster.fork();
+  cluster.on('exit', (worker, code, signal) => {
+    console.warn(`Worker ${worker.process.pid} died (${signal || code}). Restarting…`);
+    cluster.fork();
+  });
+} else {
+
 const express = require('express');
 const path = require('path');
 const bcrypt = require('bcryptjs');
@@ -18,6 +32,7 @@ const customersRouter = require('./routes/customers');
 const forecastRouter = require('./routes/forecast');
 const portalRouter = require('./routes/portal');
 const driverRouter = require('./routes/driver');
+const purchaseOrdersRouter = require('./routes/purchase-orders');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -61,13 +76,19 @@ async function ensureAdminExists() {
   }
 }
 
-ensureAdminExists().catch(err => console.error('ensureAdminExists failed:', err.message));
+// Only one worker seeds the admin to avoid race conditions
+if (cluster.worker.id === 1) {
+  ensureAdminExists().catch(err => console.error('ensureAdminExists failed:', err.message));
+}
 
 if (!process.env.BASE_URL) {
   console.warn('WARNING: BASE_URL is not set — invite links will use http://localhost and will NOT work in production. Set BASE_URL to your public domain (e.g. https://yourapp.railway.app).');
 }
-if (!process.env.SMTP_HOST) {
-  console.warn('WARNING: SMTP_HOST is not set — invite emails will not be sent. Set SMTP_HOST, SMTP_USER, and SMTP_PASS to enable email delivery.');
+if (!process.env.RESEND_API_KEY) {
+  console.warn('WARNING: RESEND_API_KEY is not set — emails will not be sent.');
+}
+if (!process.env.OPENAI_API_KEY) {
+  console.warn('WARNING: OPENAI_API_KEY is not set — AI demand forecasting will not work.');
 }
 
 // Mount routers
@@ -83,10 +104,11 @@ app.use('/api/customers', customersRouter);
 app.use('/api/forecast', forecastRouter);
 app.use('/api/portal', portalRouter);
 app.use('/api/driver', driverRouter);
+app.use('/api/purchase-orders', purchaseOrdersRouter);
 
-// Config endpoint
+// Config endpoint — maps key exposed publicly (restricted via Google domain policy)
 const { authenticateToken, requireRole } = require('./middleware/auth');
-app.get('/api/config/maps-key', authenticateToken, (req, res) => {
+app.get('/api/config/maps-key', (req, res) => {
   res.json({ key: process.env.GOOGLE_MAPS_KEY || '' });
 });
 
@@ -101,9 +123,9 @@ app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager
 // ── PAGES ─────────────────────────────────────────────────────────────────────
 app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
 app.get('/dashboard', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
+app.get('/driver', (req, res) => res.sendFile(path.join(frontendDir, 'driver.html')));
 app.get('/landing', (req, res) => res.sendFile(path.join(frontendDir, 'landing.html')));
 app.get('/portal', (req, res) => res.sendFile(path.join(frontendDir, 'customer-portal.html')));
-app.get('/driver', (req, res) => res.sendFile(path.join(frontendDir, 'driver.html')));
 
 // ── 404 for unknown API routes (must be before the global error handler) ──────
 app.use('/api', (req, res) => {
@@ -117,4 +139,6 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
-app.listen(PORT, () => console.log(`NodeRoute API running on http://localhost:${PORT}`));
+app.listen(PORT, () => console.log(`Worker ${process.pid} listening on http://localhost:${PORT}`));
+
+} // end cluster worker block

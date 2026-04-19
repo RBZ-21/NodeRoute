@@ -22,7 +22,9 @@ body.light{
 }
 body.light::before{opacity:0.06}
 svg.logo-filter{position:absolute;width:0;height:0}
-img.logo-img{filter:url(#remove-white)}
+img.logo-for-light{display:none}
+body.light img.logo-for-dark{display:none}
+body.light img.logo-for-light{display:inline}
 /* STOPS / ROUTES / CUSTOMERS */
 .autocomplete-wrap{position:relative}
 .autocomplete-dropdown{position:absolute;top:100%;left:0;right:0;background:var(--surface);border:1px solid var(--border);border-radius:8px;z-index:200;max-height:260px;overflow-y:auto;display:none;box-shadow:0 8px 24px rgba(0,0,0,0.3)}
@@ -169,28 +171,28 @@ body::before{content:'';position:fixed;inset:0;background:url('noderoute-bg.png'
 a{color:inherit;text-decoration:none}
 
 /* SIDEBAR */
-.sidebar{width:240px;min-height:100vh;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;left:0;top:0;bottom:0;z-index:100;transition:var(--trans)}
-.sidebar-logo{padding:24px 20px 16px;border-bottom:1px solid var(--border)}
+.sidebar{width:200px;min-height:100vh;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;left:0;top:0;bottom:0;z-index:100;transition:var(--trans)}
+.sidebar-logo{padding:14px 14px 12px;border-bottom:1px solid var(--border)}
 .logo-mark{font-size:20px;font-weight:700;letter-spacing:-0.5px}
 .logo-mark span{color:var(--accent)}
 .logo-sub{font-size:11px;color:var(--muted);margin-top:2px}
 .nav{flex:1;padding:16px 0}
-.nav-item{display:flex;align-items:center;gap:12px;padding:10px 20px;cursor:pointer;border-radius:0;transition:var(--trans);font-size:14px;font-weight:500;color:var(--muted);position:relative}
+.nav-item{display:flex;align-items:center;gap:10px;padding:8px 14px;cursor:pointer;border-radius:0;transition:var(--trans);font-size:13px;font-weight:500;color:var(--muted);position:relative}
 .nav-item:hover{color:var(--text);background:rgba(61,186,127,0.06)}
 .nav-item.active{color:var(--accent);background:rgba(61,186,127,0.1)}
 .nav-item.active::before{content:'';position:absolute;left:0;top:0;bottom:0;width:3px;background:var(--accent);border-radius:0 2px 2px 0}
 .nav-icon{width:16px;height:16px;display:flex;align-items:center;justify-content:center;flex-shrink:0}
-.sidebar-footer{padding:16px 20px;border-top:1px solid var(--border);font-size:12px;color:var(--muted)}
-.nav-group-header{display:flex;align-items:center;gap:12px;padding:8px 20px;cursor:pointer;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;transition:var(--trans);user-select:none}
+.sidebar-footer{padding:10px 14px;border-top:1px solid var(--border);font-size:11px;color:var(--muted)}
+.nav-group-header{display:flex;align-items:center;gap:8px;padding:6px 14px;cursor:pointer;font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;transition:var(--trans);user-select:none}
 .nav-group-header:hover{color:var(--text);background:rgba(61,186,127,0.04)}
 .nav-group-chevron{margin-left:auto;font-size:10px;transition:transform 0.2s ease;line-height:1}
 .nav-group.open .nav-group-chevron{transform:rotate(90deg)}
 .nav-group-items{overflow:hidden;display:none}
 .nav-group.open .nav-group-items{display:block}
-.nav-child{padding-left:40px !important}
+.nav-child{padding-left:32px !important}
 
 /* MAIN */
-.main{margin-left:240px;flex:1;display:flex;flex-direction:column;min-height:100vh}
+.main{margin-left:200px;flex:1;display:flex;flex-direction:column;min-height:100vh}
 .topbar{height:56px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:sticky;top:0;z-index:50}
 .topbar-left{display:flex;align-items:center;gap:16px}
 .topbar-brand{font-size:16px;font-weight:700}
@@ -233,7 +235,8 @@ a{color:inherit;text-decoration:none}
 .analytics-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:24px}
 .stat-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:20px}
 .stat-big{font-size:40px;font-weight:700;color:var(--accent);line-height:1;margin-bottom:4px}
-.stat-label{font-size:12px;color:var(--muted);margin-bottom:12px}
+.stat-value{font-size:28px;font-weight:700;color:var(--text);line-height:1;margin-bottom:4px}
+.stat-label{font-size:12px;color:var(--muted);margin-bottom:8px}
 .stat-sub{font-size:12px;color:var(--muted);display:flex;flex-direction:column;gap:4px}
 .stat-sub span{display:flex;justify-content:space-between}
 .stat-sub b{color:var(--text)}
@@ -493,6 +496,29 @@ td{padding:12px 16px;vertical-align:middle}
 .color-swatch{width:28px;height:28px;border-radius:50%;cursor:pointer;border:3px solid transparent;transition:border-color .15s,transform .15s}
 .color-swatch:hover{transform:scale(1.15)}
 .color-swatch.selected{border-color:#fff}
+
+/* ── PURCHASE ORDER SCAN ── */
+.po-upload-area{display:flex;flex-direction:column;align-items:center;justify-content:center;border:2px dashed var(--border);border-radius:12px;padding:28px 20px;cursor:pointer;transition:var(--trans);text-align:center;min-height:140px;background:var(--bg)}
+.po-upload-area:hover,.po-upload-area.drag-over{border-color:var(--accent);background:rgba(61,186,127,0.05)}
+.po-upload-icon{font-size:36px;margin-bottom:10px;line-height:1}
+.po-upload-hint{font-size:13px;color:var(--muted);line-height:1.5}
+.po-upload-hint strong{color:var(--text)}
+.po-image-preview{display:none;width:100%;max-height:260px;object-fit:contain;border-radius:8px;margin-top:12px;border:1px solid var(--border)}
+.po-vendor-pill{display:inline-flex;align-items:center;gap:6px;padding:5px 12px;border-radius:20px;background:rgba(61,186,127,0.1);border:1px solid rgba(61,186,127,0.25);font-size:12px;color:var(--accent);margin-bottom:14px}
+.po-review-table{width:100%;border-collapse:collapse;font-size:12px}
+.po-review-table th{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;padding:7px 6px;border-bottom:1px solid var(--border);text-align:left}
+.po-review-table td{padding:4px 4px;vertical-align:middle;border-bottom:1px solid rgba(255,255,255,0.04)}
+.po-review-table tr:last-child td{border-bottom:none}
+.po-cell-input{width:100%;padding:5px 7px;background:var(--bg);border:1px solid var(--border);border-radius:5px;color:var(--text);font-size:12px;font-family:'Inter',sans-serif;outline:none;transition:border-color .15s}
+.po-cell-input:focus{border-color:var(--accent)}
+.po-steps{display:flex;align-items:center;gap:6px;margin-bottom:20px;font-size:12px;color:var(--muted)}
+.po-step-dot{width:22px;height:22px;border-radius:50%;background:var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0}
+.po-step-dot.active{background:var(--accent);color:#050d2a}
+.po-step-dot.done{background:rgba(61,186,127,0.2);color:var(--accent)}
+.po-step-line{flex:1;height:1px;background:var(--border)}
+.po-loading-wrap{text-align:center;padding:40px 20px}
+.po-loading-icon{font-size:40px;animation:pulse-scale 1.2s ease-in-out infinite;margin-bottom:14px}
+@keyframes pulse-scale{0%,100%{transform:scale(1)}50%{transform:scale(1.15)}}
 </style>
 </head>
 <body>
@@ -507,41 +533,39 @@ td{padding:12px 16px;vertical-align:middle}
 <!-- SIDEBAR -->
 <nav class="sidebar">
   <div class="sidebar-logo">
-    <img src="Dark_Theme_Transparent.png" class="logo-img" height="32" alt="NodeRoute" style="max-width: 240px;"/>
+    <img src="NodeRoute_Light_logo.png" class="logo-img logo-for-dark" height="28" alt="NodeRoute" style="max-width:160px"/>
+    <img src="NodeRoute_Dark_Logo.png" class="logo-img logo-for-light" height="28" alt="NodeRoute" style="max-width:160px"/>
   </div>
   <div class="nav">
     <div class="nav-item active" data-tab="dashboard" onclick="showTab('dashboard',this)">
-      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></span>Dashboard
-    </div>
-    <div class="nav-item" data-tab="deliveries" onclick="showTab('deliveries',this)">
-      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></span>Deliveries
-    </div>
-    <div class="nav-item" data-tab="analytics" onclick="showTab('analytics',this)">
-      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></svg></span>Analytics
-    </div>
-    <div class="nav-item" data-tab="map" onclick="showTab('map',this)">
-      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" x2="9" y1="3" y2="18"/><line x1="15" x2="15" y1="6" y2="21"/></svg></span>Live Map
+      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg></span>Dashboard
     </div>
     <div class="nav-item" data-tab="orders" onclick="showTab('orders',this)">
-      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></span>Orders
+      <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="8" y="2" width="8" height="4" rx="1"/><path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2"/></svg></span>Orders
     </div>
 
-    <!-- GROUP: Places -->
-    <div class="nav-group" id="navgroup-places">
-      <div class="nav-group-header" onclick="toggleNavGroup('places')">
-        <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></span>
-        Places
+    <!-- GROUP: Logistics -->
+    <div class="nav-group" id="navgroup-logistics">
+      <div class="nav-group-header" onclick="toggleNavGroup('logistics')">
+        <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m7.5 4.27 9 5.15"/><path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/><path d="m3.3 7 8.7 5 8.7-5"/><path d="M12 22V12"/></svg></span>
+        Logistics
         <span class="nav-group-chevron">›</span>
       </div>
-      <div class="nav-group-items" id="group-places">
-        <div class="nav-item nav-child" data-tab="drivers" onclick="showTab('drivers',this)">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect x="9" y="11" width="14" height="10" rx="2"/><circle cx="12" cy="21" r="1"/><circle cx="20" cy="21" r="1"/></svg></span>Drivers
+      <div class="nav-group-items" id="group-logistics">
+        <div class="nav-item nav-child" data-tab="deliveries" onclick="showTab('deliveries',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect x="9" y="11" width="14" height="10" rx="2"/><circle cx="12" cy="21" r="1"/><circle cx="20" cy="21" r="1"/></svg></span>Deliveries
         </div>
-        <div class="nav-item nav-child" data-tab="stops" onclick="showTab('stops',this)">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></span>Stops
+        <div class="nav-item nav-child" data-tab="map" onclick="showTab('map',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="3 6 9 3 15 6 21 3 21 18 15 21 9 18 3 21"/><line x1="9" x2="9" y1="3" y2="18"/><line x1="15" x2="15" y1="6" y2="21"/></svg></span>Live Map
+        </div>
+        <div class="nav-item nav-child" data-tab="drivers" onclick="showTab('drivers',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 17H3a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11a2 2 0 0 1 2 2v3"/><rect x="9" y="11" width="14" height="10" rx="2"/><circle cx="12" cy="21" r="1"/><circle cx="20" cy="21" r="1"/></svg></span>Drivers
         </div>
         <div class="nav-item nav-child" data-tab="routes" onclick="showTab('routes',this)">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg></span>Routes
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/></svg></span>Routes
+        </div>
+        <div class="nav-item nav-child" data-tab="stops" onclick="showTab('stops',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z"/><circle cx="12" cy="10" r="3"/></svg></span>Stops
         </div>
       </div>
     </div>
@@ -549,39 +573,45 @@ td{padding:12px 16px;vertical-align:middle}
     <!-- GROUP: People -->
     <div class="nav-group" id="navgroup-people">
       <div class="nav-group-header" onclick="toggleNavGroup('people')">
-        <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
+        <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>
         People
         <span class="nav-group-chevron">›</span>
       </div>
       <div class="nav-group-items" id="group-people">
-        <div class="nav-item nav-child" id="usersNavItem" style="display:none" data-tab="users" onclick="showTab('users',this)">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>Users
+        <div class="nav-item nav-child" data-tab="customers" onclick="showTab('customers',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>Customers
         </div>
         <div class="nav-item nav-child" data-tab="vendors" onclick="showTab('vendors',this)">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>Vendors
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>Vendors
         </div>
-        <div class="nav-item nav-child" data-tab="customers" onclick="showTab('customers',this)">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>Customers
+        <div class="nav-item nav-child" id="usersNavItem" style="display:none" data-tab="users" onclick="showTab('users',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>Users
         </div>
       </div>
     </div>
 
-    <!-- GROUP: Things -->
-    <div class="nav-group" id="navgroup-things">
-      <div class="nav-group-header" onclick="toggleNavGroup('things')">
-        <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></span>
-        Things
+    <!-- GROUP: Financials -->
+    <div class="nav-group" id="navgroup-financials">
+      <div class="nav-group-header" onclick="toggleNavGroup('financials')">
+        <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></span>
+        Financials
         <span class="nav-group-chevron">›</span>
       </div>
-      <div class="nav-group-items" id="group-things">
+      <div class="nav-group-items" id="group-financials">
+        <div class="nav-item nav-child" data-tab="financials" onclick="showTab('financials',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></svg></span>Overview
+        </div>
+        <div class="nav-item nav-child" data-tab="invoices" onclick="showTab('invoices',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></svg></span>Invoices
+        </div>
+        <div class="nav-item nav-child" data-tab="analytics" onclick="showTab('analytics',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></svg></span>Analytics
+        </div>
         <div class="nav-item nav-child" data-tab="inventory" onclick="showTab('inventory',this)">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></span>Inventory
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg></span>Inventory
         </div>
         <div class="nav-item nav-child" data-tab="forecast" onclick="showTab('forecast',this)">
           <span class="nav-icon">🔮</span>Forecasting
-        </div>
-        <div class="nav-item nav-child" data-tab="invoices" onclick="showTab('invoices',this)">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></svg></span>Invoices
         </div>
       </div>
     </div>
@@ -598,7 +628,8 @@ td{padding:12px 16px;vertical-align:middle}
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
-      <img src="For_Light_Theme_Transparent.svg" class="logo-img" height="28" alt="NodeRoute" style="max-width:220px"/>
+      <img src="NodeRoute_Light_logo.png" class="logo-img logo-for-dark" height="28" alt="NodeRoute" style="max-width:160px"/>
+      <img src="NodeRoute_Dark_Logo.png" class="logo-img logo-for-light" height="28" alt="NodeRoute" style="max-width:160px"/>
       <div class="last-updated" id="lastUpdated">Loading…</div>
     </div>
     <div class="topbar-right">
@@ -810,6 +841,63 @@ td{padding:12px 16px;vertical-align:middle}
     </div>
 
     <!-- TAB: ANALYTICS -->
+    <!-- TAB: FINANCIALS OVERVIEW -->
+    <div class="tab-pane" id="tab-financials">
+      <div class="section-header">
+        <div class="section-title" style="margin:0">Financial Overview</div>
+        <button class="btn btn-accent" onclick="showTab('invoices',document.querySelector('[data-tab=invoices]'))">+ New Invoice</button>
+      </div>
+
+      <!-- KPI Cards -->
+      <div id="fin-kpis" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px">
+        <div class="stat-card"><div class="stat-label">Total Revenue</div><div class="stat-value" id="finRevTotal" style="color:var(--accent)">—</div><div style="font-size:11px;color:var(--muted);margin-top:4px">All time</div></div>
+        <div class="stat-card"><div class="stat-label">This Month</div><div class="stat-value" id="finRevMonth">—</div><div style="font-size:11px;color:var(--muted);margin-top:4px">Current month</div></div>
+        <div class="stat-card"><div class="stat-label">Outstanding</div><div class="stat-value" id="finOutstanding" style="color:var(--warn)">—</div><div style="font-size:11px;color:var(--muted);margin-top:4px">Pending signature</div></div>
+        <div class="stat-card"><div class="stat-label">Invoices</div><div class="stat-value" id="finInvCount">—</div><div style="font-size:11px;color:var(--muted);margin-top:4px">Total issued</div></div>
+      </div>
+
+      <!-- Status breakdown + Revenue chart -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+        <div class="chart-card">
+          <div class="card-title" style="margin-bottom:14px">Invoice Status</div>
+          <div id="finStatusBreakdown" style="display:flex;flex-direction:column;gap:10px"></div>
+        </div>
+        <div class="chart-card">
+          <div class="card-title" style="margin-bottom:14px">Revenue (Last 6 Months)</div>
+          <div style="position:relative;height:160px"><canvas id="finRevenueChart"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Recent Invoices + Purchase Orders side by side -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+        <div class="chart-card">
+          <div class="card-title" style="margin-bottom:14px">Recent Invoices (Revenue)</div>
+          <div class="table-card" style="margin:0">
+            <table>
+              <thead><tr><th>Invoice #</th><th>Customer</th><th>Total</th><th>Status</th><th>Date</th></tr></thead>
+              <tbody id="finRecentInvoices">
+                <tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted)">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="chart-card">
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+            <div class="card-title">Purchase Orders (COGS)</div>
+            <button class="btn btn-outline" style="font-size:11px;padding:4px 10px" onclick="closePOScanModal();showTab('inventory',document.querySelector('[data-tab=inventory]'));setTimeout(openPOScanModal,200)">📷 Scan PO</button>
+          </div>
+          <div class="table-card" style="margin:0">
+            <table>
+              <thead><tr><th>PO #</th><th>Vendor</th><th>Items</th><th>Cost</th><th>By</th><th>Date</th></tr></thead>
+              <tbody id="finPOHistory">
+                <tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">Loading…</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div class="tab-pane" id="tab-analytics">
       <div class="section-title">Driver Efficiency Rankings</div>
       <div class="ranking-table-wrap">
@@ -899,7 +987,7 @@ td{padding:12px 16px;vertical-align:middle}
       <div class="table-card">
         <table>
           <thead><tr>
-            <th>#</th><th>Restaurant</th><th>Area</th><th>Cuisine</th><th>Address</th><th>Phone</th><th></th>
+            <th>#</th><th>Company</th><th>Contact</th><th>Phone</th><th>Fax</th><th>Payment Terms</th><th></th>
           </tr></thead>
           <tbody id="customersTable">
             <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr>
@@ -1063,6 +1151,7 @@ td{padding:12px 16px;vertical-align:middle}
         <div class="inv-sub-tab active" onclick="showInvTab('products',this)">Products</div>
         <div class="inv-sub-tab" onclick="showInvTab('lots',this)">🏷 Lots &amp; Batches</div>
         <div class="inv-sub-tab" onclick="showInvTab('analytics',this)">📊 Analytics &amp; Predictions</div>
+        <div class="inv-sub-tab" onclick="showInvTab('ai',this)">🤖 AI Health Check</div>
       </div>
 
       <!-- PANE: Products -->
@@ -1094,7 +1183,10 @@ td{padding:12px 16px;vertical-align:middle}
               <option value="out">Out of Stock</option>
             </select>
           </div>
-          <button class="btn btn-accent" onclick="openInventoryModal()">+ Add Product</button>
+          <div style="display:flex;gap:8px">
+            <button class="btn btn-outline" onclick="openPOScanModal()" title="Scan a purchase order photo to auto-add items">📷 Scan PO</button>
+            <button class="btn btn-accent" onclick="openInventoryModal()">+ Add Product</button>
+          </div>
         </div>
         <!-- Table -->
         <div class="table-card">
@@ -1182,12 +1274,26 @@ td{padding:12px 16px;vertical-align:middle}
           <div style="text-align:center;padding:40px;color:var(--muted)">Loading analytics…</div>
         </div>
       </div>
+
+      <!-- PANE: AI Health Check -->
+      <div class="inv-sub-pane" id="inv-pane-ai">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+          <div>
+            <div class="fc-section-title" style="margin-bottom:2px">AI Inventory Health Check</div>
+            <div class="fc-section-sub">Claude AI reviews all SKUs — expiry dates, stock levels, and demand — and prioritizes actions</div>
+          </div>
+          <button class="btn btn-accent" onclick="loadAIInventoryAnalysis()" id="aiInvBtn">Run Health Check</button>
+        </div>
+        <div id="aiInvStatus" style="display:none;color:var(--muted);font-size:13px;margin-bottom:12px;padding:10px;background:var(--card);border-radius:8px;border:1px solid var(--border)"></div>
+        <div id="aiInvResults"></div>
+      </div>
     </div>
 
     <!-- TAB: FORECAST -->
     <div class="tab-pane" id="tab-forecast">
       <div class="fc-sub-tabs">
         <div class="fc-sub-tab active" onclick="showFcTab('orders',this)">📦 Order Forecasting</div>
+        <div class="fc-sub-tab" onclick="showFcTab('ai',this)">🤖 AI Demand Forecast</div>
         <div class="fc-sub-tab" onclick="showFcTab('seasons',this)">🌊 Fishing Seasons</div>
       </div>
 
@@ -1222,6 +1328,28 @@ td{padding:12px 16px;vertical-align:middle}
           <div class="fc-section-sub" style="margin-top:-10px;margin-bottom:14px">Repeat order patterns and estimated next order window</div>
           <div id="fcCustomerDemand"><div style="color:var(--muted);font-size:13px">Loading…</div></div>
         </div>
+      </div>
+
+      <!-- PANE: AI Demand Forecast -->
+      <div class="fc-sub-pane" id="fc-pane-ai">
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+          <div>
+            <div class="fc-section-title" style="margin-bottom:2px">AI Inventory Demand Forecast</div>
+            <div class="fc-section-sub">Claude AI analyzes 12 weeks of stock history to predict demand and reorder needs</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center">
+            <select id="aiForecastDays" class="filter-select" style="width:130px">
+              <option value="7">7-day forecast</option>
+              <option value="14" selected>14-day forecast</option>
+              <option value="30">30-day forecast</option>
+            </select>
+            <button class="btn btn-accent" onclick="loadAIForecast()" id="aiForecastBtn">
+              Run AI Forecast
+            </button>
+          </div>
+        </div>
+        <div id="aiForecastStatus" style="display:none;color:var(--muted);font-size:13px;margin-bottom:12px;padding:10px;background:var(--card);border-radius:8px;border:1px solid var(--border)"></div>
+        <div id="aiForecastResults"></div>
       </div>
 
       <!-- PANE: Fishing Seasons -->
@@ -1586,29 +1714,116 @@ td{padding:12px 16px;vertical-align:middle}
 <!-- ADD CUSTOMER MODAL -->
 <div class="modal-overlay" id="addCustomerModal">
   <div class="modal-box">
-    <h3>Add Restaurant</h3>
-    <p class="modal-sub">Manually add a restaurant to the list.</p>
-    <label class="modal-label">Restaurant Name *</label>
+    <h3>Add Customer</h3>
+    <p class="modal-sub">Manually add a customer to the list.</p>
+    <label class="modal-label">Company Name *</label>
     <input class="modal-input" id="custName" type="text" placeholder="e.g. Husk Restaurant">
-    <label class="modal-label">Area</label>
-    <input class="modal-input" id="custArea" type="text" placeholder="e.g. Downtown Charleston">
-    <label class="modal-label">Cuisine</label>
-    <input class="modal-input" id="custCuisine" type="text" placeholder="e.g. Contemporary Southern">
-    <label class="modal-label">Address</label>
-    <input class="modal-input" id="custAddress" type="text" placeholder="76 Queen St, Charleston, SC">
+    <label class="modal-label">Customer #</label>
+    <input class="modal-input" id="custNumber" type="text" placeholder="e.g. 476">
     <label class="modal-label">Phone</label>
-    <input class="modal-input" id="custPhone" type="tel" placeholder="(843) 555-0100">
-    <label class="modal-label">Rank</label>
-    <input class="modal-input" id="custRank" type="number" placeholder="e.g. 226">
+    <input class="modal-input" id="custPhone" type="tel" placeholder="843 5772500">
+    <label class="modal-label">Fax</label>
+    <input class="modal-input" id="custFax" type="tel" placeholder="843 5772501">
+    <label class="modal-label">Contact Name</label>
+    <input class="modal-input" id="custContact" type="text" placeholder="e.g. John Smith">
+    <label class="modal-label">Payment Terms</label>
+    <input class="modal-input" id="custPayment" type="text" placeholder="e.g. NET 14 DAYS">
     <div class="modal-result" id="custResult"></div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeAddCustomerModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="submitAddCustomer()">Add Restaurant</button>
+      <button class="btn btn-accent" onclick="submitAddCustomer()">Add Customer</button>
     </div>
   </div>
 </div>
 
 <!-- INVENTORY ITEM MODAL -->
+<!-- ── PURCHASE ORDER SCAN MODAL ─────────────────────────────────────── -->
+<div class="modal-overlay" id="poScanModal">
+  <div class="modal-box" style="width:680px;max-height:90vh;overflow-y:auto;padding:24px">
+
+    <!-- Step indicator -->
+    <div class="po-steps" id="poStepIndicator">
+      <div class="po-step-dot active" id="poStepDot1">1</div>
+      <div class="po-step-line"></div>
+      <div class="po-step-dot" id="poStepDot2">2</div>
+      <div class="po-step-line"></div>
+      <div class="po-step-dot" id="poStepDot3">3</div>
+    </div>
+
+    <!-- STEP 1: Upload -->
+    <div id="poStep1">
+      <h3 style="margin-bottom:6px">Scan Purchase Order</h3>
+      <p class="modal-sub">Take or upload a photo of your vendor invoice / PO — AI will read every line item automatically.</p>
+      <label class="po-upload-area" id="poUploadArea" for="poFileInput"
+        ondragover="event.preventDefault();this.classList.add('drag-over')"
+        ondragleave="this.classList.remove('drag-over')"
+        ondrop="handlePODrop(event)">
+        <div class="po-upload-icon">📷</div>
+        <div class="po-upload-hint">
+          <strong>Tap to photograph or choose a file</strong><br>
+          JPG, PNG, HEIC, PDF · max 15 MB
+        </div>
+        <img id="poImagePreview" class="po-image-preview"/>
+        <input type="file" id="poFileInput" accept="image/*,application/pdf" capture="environment" style="display:none" onchange="handlePOFile(this)"/>
+      </label>
+      <div class="modal-actions" style="margin-top:16px">
+        <button class="btn btn-outline" onclick="closePOScanModal()">Cancel</button>
+        <button class="btn btn-accent" id="poScanBtn" onclick="runPOScan()" disabled>
+          🤖 Scan with AI →
+        </button>
+      </div>
+    </div>
+
+    <!-- STEP 2: Review & Edit -->
+    <div id="poStep2" style="display:none">
+      <h3 style="margin-bottom:6px">Review Items</h3>
+      <p class="modal-sub">Edit any values before saving. All items will be added to inventory.</p>
+      <div id="poVendorBadge"></div>
+      <div style="overflow-x:auto;margin-bottom:16px">
+        <table class="po-review-table" id="poReviewTable">
+          <thead><tr>
+            <th>Description</th><th>Category</th><th>Qty</th><th>Unit</th>
+            <th>Unit Price ($)</th><th>Total ($)</th><th></th>
+          </tr></thead>
+          <tbody id="poReviewBody"></tbody>
+        </table>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:12px">
+        <div style="font-size:15px;font-weight:700">
+          Total Cost: <span id="poGrandTotal" style="color:var(--accent)">$0.00</span>
+        </div>
+        <div class="modal-actions" style="margin:0">
+          <button class="btn btn-outline" onclick="pOGoToStep(1)">← Re-scan</button>
+          <button class="btn btn-accent" id="poConfirmBtn" onclick="confirmPOScan()">
+            ✓ Save to Inventory
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- STEP 3: Success -->
+    <div id="poStep3" style="display:none;text-align:center;padding:24px 0">
+      <div style="font-size:52px;margin-bottom:14px">✅</div>
+      <h3 style="margin-bottom:8px">Inventory Updated</h3>
+      <div id="poSuccessDetail" style="color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:24px"></div>
+      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap">
+        <button class="btn btn-outline" onclick="pOGoToStep(1);document.getElementById('poFileInput').value=''">Scan Another</button>
+        <button class="btn btn-accent" onclick="closePOScanModal()">Done</button>
+      </div>
+    </div>
+
+    <!-- Loading -->
+    <div id="poLoadingStep" style="display:none">
+      <div class="po-loading-wrap">
+        <div class="po-loading-icon">🔍</div>
+        <div style="font-size:15px;font-weight:600;margin-bottom:6px" id="poLoadingMsg">Scanning purchase order…</div>
+        <div style="font-size:13px;color:var(--muted)">GPT-4o is reading your image</div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
 <div class="modal-overlay" id="inventoryModal">
   <div class="modal-box" style="width:520px">
     <h3 id="invModalTitle">Add Product</h3>
@@ -1850,6 +2065,7 @@ td{padding:12px 16px;vertical-align:middle}
 
 <script>
 const API = '/api';
+function escHtml(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 const nrToken = localStorage.getItem('nr_token');
 const nrUser = JSON.parse(localStorage.getItem('nr_user') || 'null');
 if (!nrToken || !nrUser) { window.location.href = '/'; }
@@ -1883,6 +2099,7 @@ if (localStorage.getItem('theme') === 'light') {
   document.body.classList.add('light');
   document.getElementById('themeToggle').textContent = '☀️';
 }
+loadGoogleMaps().catch(() => {});
 
 // ── ORDERS ─────────────────────────────────────────────
 let allOrders = [];
@@ -2474,9 +2691,9 @@ async function submitFulfill() {
 
 // ── TABS ───────────────────────────────────────────────
 const NAV_GROUP_MAP = {
-  drivers:'places', stops:'places', routes:'places',
-  users:'people', vendors:'people', customers:'people',
-  inventory:'things', forecast:'things', invoices:'things'
+  deliveries:'logistics', map:'logistics', drivers:'logistics', routes:'logistics', stops:'logistics',
+  customers:'people', vendors:'people', users:'people',
+  financials:'financials', invoices:'financials', analytics:'financials', inventory:'financials', forecast:'financials'
 };
 
 function toggleNavGroup(name) {
@@ -2504,8 +2721,157 @@ function showTab(name, el) {
   if (name === 'invoices') { renderInprocessOrders(); }
   if (name === 'map') { setTimeout(() => renderMap(), 50); }
   if (name === 'inventory') { renderInventory(); renderInventoryKPIs(); }
+  if (name === 'customers') { fetchCustomers(); }
   if (name === 'forecast') { loadForecast(); renderFishingSeasons(); }
   if (name === 'settings') { initSettings(); }
+  if (name === 'financials') { loadFinancials(); }
+}
+
+// ── FINANCIALS ──────────────────────────────────────────
+let finChartInstance = null;
+async function loadFinancials() {
+  const fmt = n => '$' + parseFloat(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const now = new Date();
+  const thisMonth = now.getMonth();
+  const thisYear  = now.getFullYear();
+
+  try {
+    // Fetch invoices (revenue) and purchase orders (costs) in parallel
+    const [invRes, poRes] = await Promise.all([
+      fetch(API + '/invoices',         authHeaders),
+      fetch(API + '/purchase-orders',  authHeaders),
+    ]);
+    const invoices = invRes.ok ? await invRes.json() : [];
+    const pos      = poRes.ok  ? await poRes.json()  : [];
+
+    // ── Revenue KPIs ──
+    const totalRev  = invoices.reduce((s, i) => s + parseFloat(i.total || 0), 0);
+    const monthRev  = invoices.filter(i => {
+      const d = new Date(i.created_at);
+      return d.getMonth() === thisMonth && d.getFullYear() === thisYear;
+    }).reduce((s, i) => s + parseFloat(i.total || 0), 0);
+    const outstanding = invoices.filter(i => i.status === 'pending').reduce((s, i) => s + parseFloat(i.total || 0), 0);
+
+    // ── Cost KPIs (from scanned POs) ──
+    const totalCOGS  = pos.reduce((s, p) => s + parseFloat(p.total_cost || 0), 0);
+    const grossProfit = totalRev - totalCOGS;
+    const margin      = totalRev > 0 ? Math.round((grossProfit / totalRev) * 100) : 0;
+
+    document.getElementById('finRevTotal').textContent    = fmt(totalRev);
+    document.getElementById('finRevMonth').textContent    = fmt(monthRev);
+    document.getElementById('finOutstanding').textContent = fmt(outstanding);
+    document.getElementById('finInvCount').textContent    = invoices.length;
+
+    // ── Extend KPI row with COGS + margin ──
+    const kpiRow = document.getElementById('fin-kpis');
+    const extraKpis = document.getElementById('finExtraKpis');
+    if (!extraKpis) {
+      const div = document.createElement('div');
+      div.id = 'finExtraKpis';
+      div.style.cssText = 'display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:14px;margin-bottom:24px';
+      div.innerHTML = `
+        <div class="stat-card"><div class="stat-label">Total COGS</div><div class="stat-value" id="finCOGS" style="color:var(--danger)">—</div><div style="font-size:11px;color:var(--muted);margin-top:4px">From purchase orders</div></div>
+        <div class="stat-card"><div class="stat-label">Gross Profit</div><div class="stat-value" id="finGrossProfit">—</div><div style="font-size:11px;color:var(--muted);margin-top:4px">Revenue − COGS</div></div>
+        <div class="stat-card"><div class="stat-label">Gross Margin</div><div class="stat-value" id="finMargin">—</div><div style="font-size:11px;color:var(--muted);margin-top:4px">% of revenue</div></div>
+        <div class="stat-card"><div class="stat-label">PO Count</div><div class="stat-value" id="finPOCount">—</div><div style="font-size:11px;color:var(--muted);margin-top:4px">Purchase orders</div></div>`;
+      kpiRow.after(div);
+    }
+    document.getElementById('finCOGS').textContent       = fmt(totalCOGS);
+    document.getElementById('finGrossProfit').textContent = fmt(grossProfit);
+    document.getElementById('finGrossProfit').style.color = grossProfit >= 0 ? 'var(--accent)' : 'var(--danger)';
+    document.getElementById('finMargin').textContent      = margin + '%';
+    document.getElementById('finMargin').style.color      = margin >= 30 ? 'var(--accent)' : margin >= 15 ? 'var(--warn)' : 'var(--danger)';
+    document.getElementById('finPOCount').textContent     = pos.length;
+
+    // ── Invoice status breakdown ──
+    const statusCounts = {};
+    invoices.forEach(i => { statusCounts[i.status] = (statusCounts[i.status] || 0) + 1; });
+    const statusColors  = { pending: 'var(--warn)', signed: 'var(--accent)', sent: '#a78bfa' };
+    const statusLabels  = { pending: 'Pending', signed: 'Signed', sent: 'Sent' };
+    const totalInvs     = invoices.length || 1;
+    document.getElementById('finStatusBreakdown').innerHTML = Object.entries(statusCounts).map(([s, c]) => `
+      <div style="display:flex;flex-direction:column;gap:4px">
+        <div style="display:flex;justify-content:space-between;font-size:12px">
+          <span style="color:var(--muted)">${statusLabels[s] || s}</span>
+          <span style="font-weight:600;color:${statusColors[s]||'var(--text)'}">${c}</span>
+        </div>
+        <div style="height:5px;background:var(--border);border-radius:3px;overflow:hidden">
+          <div style="height:100%;width:${Math.round(c/totalInvs*100)}%;background:${statusColors[s]||'var(--accent)'};border-radius:3px"></div>
+        </div>
+      </div>`).join('') || '<div style="color:var(--muted);font-size:13px">No invoices yet</div>';
+
+    // ── Revenue + COGS chart (last 6 months) ──
+    const months = [], monthRevs = [], monthCOGS = [];
+    for (let i = 5; i >= 0; i--) {
+      const d = new Date(thisYear, thisMonth - i, 1);
+      const label = d.toLocaleDateString('en-US', { month: 'short' });
+      const rev = invoices.filter(inv => {
+        const cd = new Date(inv.created_at);
+        return cd.getMonth() === d.getMonth() && cd.getFullYear() === d.getFullYear();
+      }).reduce((s, inv) => s + parseFloat(inv.total || 0), 0);
+      const cogs = pos.filter(p => {
+        const cd = new Date(p.created_at);
+        return cd.getMonth() === d.getMonth() && cd.getFullYear() === d.getFullYear();
+      }).reduce((s, p) => s + parseFloat(p.total_cost || 0), 0);
+      months.push(label);
+      monthRevs.push(parseFloat(rev.toFixed(2)));
+      monthCOGS.push(parseFloat(cogs.toFixed(2)));
+    }
+    const ctx = document.getElementById('finRevenueChart').getContext('2d');
+    if (finChartInstance) finChartInstance.destroy();
+    finChartInstance = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: months,
+        datasets: [
+          { label: 'Revenue',  data: monthRevs, backgroundColor: 'rgba(61,186,127,0.75)',  borderRadius: 4 },
+          { label: 'COGS',     data: monthCOGS, backgroundColor: 'rgba(239,68,68,0.55)',   borderRadius: 4 },
+        ],
+      },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { labels: { color: '#888', font: { size: 11 } } } },
+        scales: {
+          y: { ticks: { color: '#888', callback: v => '$' + v.toLocaleString() }, grid: { color: 'rgba(255,255,255,0.05)' } },
+          x: { ticks: { color: '#888' }, grid: { display: false } },
+        },
+      },
+    });
+
+    // ── Recent invoices ──
+    const statusBadge = s => `<span class="status-badge status-${s}">${s}</span>`;
+    document.getElementById('finRecentInvoices').innerHTML = invoices.slice(0, 10).length
+      ? invoices.slice(0, 10).map(i => `<tr>
+          <td style="color:var(--accent);font-weight:600">${i.invoice_number || '—'}</td>
+          <td>${escHtml(i.customer_name || '—')}</td>
+          <td style="font-weight:600">${fmt(i.total)}</td>
+          <td>${statusBadge(i.status)}</td>
+          <td style="color:var(--muted)">${new Date(i.created_at).toLocaleDateString()}</td>
+        </tr>`).join('')
+      : `<tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted)">No invoices yet</td></tr>`;
+
+    // ── Recent Purchase Orders ──
+    renderPOHistory(pos);
+
+  } catch(e) {
+    console.error('loadFinancials:', e);
+  }
+}
+
+function renderPOHistory(pos) {
+  const el = document.getElementById('finPOHistory');
+  if (!el) return;
+  const fmt = n => '$' + parseFloat(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  el.innerHTML = pos.slice(0, 8).length
+    ? pos.slice(0, 8).map(p => `<tr>
+        <td style="color:var(--accent);font-weight:600">${escHtml(p.po_number || '—')}</td>
+        <td>${escHtml(p.vendor || '—')}</td>
+        <td>${(p.items||[]).length} item${(p.items||[]).length !== 1 ? 's' : ''}</td>
+        <td style="font-weight:600">${fmt(p.total_cost)}</td>
+        <td style="color:var(--muted)">${escHtml(p.confirmed_by || '—')}</td>
+        <td style="color:var(--muted)">${new Date(p.created_at).toLocaleDateString()}</td>
+      </tr>`).join('')
+    : `<tr><td colspan="6" style="text-align:center;padding:24px;color:var(--muted)">No purchase orders scanned yet — use 📷 Scan PO in Inventory</td></tr>`;
 }
 
 // ── ALERT ──────────────────────────────────────────────
@@ -3024,28 +3390,44 @@ async function fetchAddresses(q) {
     dd.style.display = 'block';
   }
 
-  // 3. Also query Nominatim for generic address lookup
-  try {
-    const r = await fetch(
-      `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&addressdetails=1&countrycodes=us`,
-      { headers: { 'Accept-Language': 'en-US,en' } }
+  // 3. Query Google Places for address/business suggestions
+  if (acService) {
+    acService.getPlacePredictions(
+      { input: q, componentRestrictions: { country: 'us' }, types: ['geocode', 'establishment'] },
+      (predictions, status) => {
+        dd.__placeResults = predictions || [];
+        const placeItems = (predictions || []).slice(0, 5).map((p, i) => `
+          <div class="autocomplete-item" onclick="selectPlaceStop(${i})">
+            <div style="font-weight:600;font-size:13px">${p.structured_formatting.main_text}</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:2px">${p.structured_formatting.secondary_text || ''}</div>
+          </div>`).join('');
+        if (!custMatches.length && !placeItems) { dd.style.display = 'none'; return; }
+        dd.innerHTML = custItems + placeItems;
+        dd.style.display = 'block';
+      }
     );
-    const results = await r.json();
-    dd.__results = results;
-
-    const nomItems = results.map((res, i) => {
-      const name = res.name || res.display_name.split(',')[0];
-      return `<div class="autocomplete-item" onclick="selectAddress(${i})" data-idx="${i}">
-        <div style="font-weight:600;font-size:13px">${name}</div>
-        <div style="font-size:11px;color:var(--muted);margin-top:2px">${res.display_name}</div>
-      </div>`;
-    }).join('');
-
-    if (!custMatches.length && !results.length) { dd.style.display = 'none'; return; }
-    dd.innerHTML = custItems + nomItems;
-    dd.style.display = 'block';
-  } catch(e) {
-    if (!custMatches.length) dd.style.display = 'none';
+  } else {
+    // Fallback: Nominatim if Places not yet loaded
+    try {
+      const r = await fetch(
+        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(q)}&format=json&limit=5&addressdetails=1&countrycodes=us`,
+        { headers: { 'Accept-Language': 'en-US,en' } }
+      );
+      const results = await r.json();
+      dd.__results = results;
+      const nomItems = results.map((res, i) => {
+        const name = res.name || res.display_name.split(',')[0];
+        return `<div class="autocomplete-item" onclick="selectAddress(${i})" data-idx="${i}">
+          <div style="font-weight:600;font-size:13px">${name}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:2px">${res.display_name}</div>
+        </div>`;
+      }).join('');
+      if (!custMatches.length && !results.length) { dd.style.display = 'none'; return; }
+      dd.innerHTML = custItems + nomItems;
+      dd.style.display = 'block';
+    } catch(e) {
+      if (!custMatches.length) dd.style.display = 'none';
+    }
   }
 }
 
@@ -3061,19 +3443,17 @@ async function selectCustomer(idx) {
   document.getElementById('stopPreview').style.display = 'block';
   document.getElementById('addStopBtn').style.display = 'inline-flex';
   document.getElementById('stopNotes').value = '';
-  // Geocode the stored address to get lat/lng
   let lat = 0, lng = 0;
-  if (address) {
-    try {
-      const r = await fetch(
-        `https://nominatim.openstreetmap.org/search?q=${encodeURIComponent(address)}&format=json&limit=1`,
-        { headers: { 'Accept-Language': 'en-US,en' } }
-      );
-      const res = await r.json();
-      if (res.length) { lat = res[0].lat; lng = res[0].lon; }
-    } catch(e) {}
-  }
   pendingStop = { name, address, lat, lng };
+  if (address && placesGeocoder) {
+    placesGeocoder.geocode({ address }, (results, status) => {
+      if (status === 'OK' && results[0]) {
+        const loc = results[0].geometry.location;
+        pendingStop.lat = loc.lat();
+        pendingStop.lng = loc.lng();
+      }
+    });
+  }
 }
 
 function selectAddress(idx) {
@@ -3088,6 +3468,31 @@ function selectAddress(idx) {
   document.getElementById('addStopBtn').style.display = 'inline-flex';
   document.getElementById('stopNotes').value = '';
   pendingStop = { name, address: res.display_name, lat: res.lat, lng: res.lon };
+}
+
+function selectPlaceStop(idx) {
+  const dd = document.getElementById('stopAutocomplete');
+  const pred = dd.__placeResults[idx];
+  const name = pred.structured_formatting.main_text;
+  const desc = pred.structured_formatting.secondary_text || pred.description;
+  document.getElementById('stopSearchInput').value = name;
+  dd.style.display = 'none';
+  document.getElementById('stopPreviewName').textContent = name;
+  document.getElementById('stopPreviewAddr').textContent = desc;
+  document.getElementById('stopPreview').style.display = 'block';
+  document.getElementById('addStopBtn').style.display = 'inline-flex';
+  document.getElementById('stopNotes').value = '';
+  pendingStop = { name, address: desc, lat: 0, lng: 0 };
+  if (placesGeocoder) {
+    placesGeocoder.geocode({ placeId: pred.place_id }, (results, status) => {
+      if (status === 'OK' && results[0]) {
+        const loc = results[0].geometry.location;
+        const addr = results[0].formatted_address;
+        document.getElementById('stopPreviewAddr').textContent = addr;
+        pendingStop = { name, address: addr, lat: loc.lat(), lng: loc.lng() };
+      }
+    });
+  }
 }
 
 document.addEventListener('click', e => {
@@ -3401,24 +3806,45 @@ document.getElementById('addCustomerModal').addEventListener('click', e => { if 
 let allCustomers = [];
 
 function openAddCustomerModal() {
-  ['custName','custArea','custCuisine','custAddress','custPhone','custRank'].forEach(id => document.getElementById(id).value = '');
+  ['custName','custNumber','custPhone','custFax','custContact','custPayment'].forEach(id => document.getElementById(id).value = '');
   const r = document.getElementById('custResult'); r.className = 'modal-result'; r.textContent = '';
   document.getElementById('addCustomerModal').classList.add('open');
+  if (typeof google !== 'undefined' && google.maps.places && !document.getElementById('custName').__acInit) {
+    document.getElementById('custName').__acInit = true;
+    const nameInput = document.getElementById('custName');
+    const nameAc = new google.maps.places.Autocomplete(nameInput, {
+      types: ['establishment'], fields: ['name', 'formatted_address', 'formatted_phone_number']
+    });
+    nameAc.addListener('place_changed', () => {
+      const p = nameAc.getPlace();
+      if (p.name) nameInput.value = p.name;
+      if (p.formatted_address) document.getElementById('custAddress').value = p.formatted_address;
+      if (p.formatted_phone_number) document.getElementById('custPhone').value = p.formatted_phone_number;
+    });
+    const addrInput = document.getElementById('custAddress');
+    const addrAc = new google.maps.places.Autocomplete(addrInput, {
+      types: ['address'], fields: ['formatted_address']
+    });
+    addrAc.addListener('place_changed', () => {
+      const p = addrAc.getPlace();
+      if (p.formatted_address) addrInput.value = p.formatted_address;
+    });
+  }
 }
 function closeAddCustomerModal() { document.getElementById('addCustomerModal').classList.remove('open'); }
 
 async function submitAddCustomer() {
-  const Restaurant = document.getElementById('custName').value.trim();
+  const company_name = document.getElementById('custName').value.trim();
   const r = document.getElementById('custResult');
-  if (!Restaurant) { r.className = 'modal-result error'; r.textContent = 'Restaurant name is required.'; return; }
+  if (!company_name) { r.className = 'modal-result error'; r.textContent = 'Company name is required.'; return; }
   try {
     const res = await fetch('/api/customers', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({
-      Restaurant,
-      Area: document.getElementById('custArea').value.trim(),
-      Cuisine: document.getElementById('custCuisine').value.trim(),
-      Address: document.getElementById('custAddress').value.trim(),
-      Phone: document.getElementById('custPhone').value.trim(),
-      Rank: document.getElementById('custRank').value ? parseInt(document.getElementById('custRank').value) : null
+      company_name,
+      customer_number: document.getElementById('custNumber').value.trim() || null,
+      phone_number: document.getElementById('custPhone').value.trim() || null,
+      fax_number: document.getElementById('custFax').value.trim() || null,
+      contact_name: document.getElementById('custContact').value.trim() || null,
+      payment_terms: document.getElementById('custPayment').value.trim() || null
     })});
     if (!res.ok) throw new Error((await res.json()).error);
     const c = await res.json();
@@ -3428,38 +3854,41 @@ async function submitAddCustomer() {
   } catch(e2) { r.className = 'modal-result error'; r.textContent = e2.message; }
 }
 
-async function deleteCustomer(rank, name) {
+async function deleteCustomer(id, name) {
   if (!confirm(`Remove ${name}?`)) return;
-  await fetch(`/api/customers/${rank}`, { method: 'DELETE', ...authHeaders });
-  allCustomers = allCustomers.filter(c => c.Rank !== rank);
+  await fetch(`/api/customers/${id}`, { method: 'DELETE', ...authHeaders });
+  allCustomers = allCustomers.filter(c => c.id !== id);
   renderCustomersTable();
 }
 
 function renderCustomersTable() {
   const tbody = document.getElementById('customersTable');
   if (!allCustomers.length) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">No restaurants yet. Add one above.</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">No customers yet. Add one above.</td></tr>`;
     return;
   }
   tbody.innerHTML = allCustomers.map(c => `
     <tr>
-      <td style="color:var(--muted);font-size:12px;font-weight:600">${c.Rank ?? '–'}</td>
-      <td><strong>${c.Restaurant||'–'}</strong></td>
-      <td style="color:var(--muted);font-size:12px">${c.Area||'–'}</td>
-      <td style="color:var(--muted);font-size:12px">${c.Cuisine||'–'}</td>
-      <td style="color:var(--muted);font-size:12px;max-width:180px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${c.Address||'–'}</td>
-      <td style="color:var(--muted);font-size:12px">${c.Phone||'–'}</td>
-      <td><button class="user-action-btn danger" onclick="deleteCustomer(${c.Rank},'${(c.Restaurant||'').replace(/'/g,"\\'")}')">Remove</button></td>
+      <td style="color:var(--muted);font-size:12px;font-weight:600">${c.customer_number ?? '–'}</td>
+      <td><strong>${c.company_name||'–'}</strong></td>
+      <td style="color:var(--muted);font-size:12px">${c.contact_name||'–'}</td>
+      <td style="color:var(--muted);font-size:12px">${c.phone_number||'–'}</td>
+      <td style="color:var(--muted);font-size:12px">${c.fax_number||'–'}</td>
+      <td style="color:var(--muted);font-size:12px">${c.payment_terms||'–'}</td>
+      <td><button class="user-action-btn danger" onclick="deleteCustomer(${c.id},'${(c.company_name||'').replace(/'/g,"\\'")}')">Remove</button></td>
     </tr>`).join('');
 }
 
 async function fetchCustomers() {
   try {
-    const r = await fetch('/api/customers', authHeaders);
+    const r = await fetch(API + '/customers', authHeaders);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     const data = await r.json();
     allCustomers = Array.isArray(data) ? data : [];
     renderCustomersTable();
-  } catch(e) {}
+  } catch(e) {
+    console.error('fetchCustomers failed:', e.message);
+  }
 }
 
 // ── GEOFENCE / DWELL TIME ──────────────────────────────
@@ -3665,13 +4094,28 @@ async function loadGoogleMaps() {
     if (!key) return;
     await new Promise((resolve, reject) => {
       const s = document.createElement('script');
-      s.src = `https://maps.googleapis.com/maps/api/js?key=${key}`;
+      s.src = `https://maps.googleapis.com/maps/api/js?key=${key}&libraries=places`;
       s.async = true;
       s.onload = resolve;
       s.onerror = reject;
       document.head.appendChild(s);
     });
+    initPlacesFields();
   } catch(e) { console.warn('Google Maps failed to load', e); gmapsLoaded = false; }
+}
+
+let acService, placesGeocoder;
+function initPlacesFields() {
+  if (typeof google === 'undefined' || !google.maps.places) return;
+  acService = new google.maps.places.AutocompleteService();
+  placesGeocoder = new google.maps.Geocoder();
+
+  // Invoice delivery address
+  const niAddr = document.getElementById('ni_address');
+  if (niAddr) {
+    const ac = new google.maps.places.Autocomplete(niAddr, { types: ['address'], fields: ['formatted_address'] });
+    ac.addListener('place_changed', () => { const p = ac.getPlace(); if (p.formatted_address) niAddr.value = p.formatted_address; });
+  }
 }
 
 async function renderMap() {
@@ -3942,6 +4386,7 @@ function renderInventory() {
       <div style="display:flex;gap:5px;white-space:nowrap">
         ${stockBtn}
         <button class="user-action-btn" style="color:#a78bfa;border-color:rgba(124,58,237,0.3)" onclick="openYieldModal('${item.item_number}','${safeDesc}',${item.avg_yield||'null'},${item.yield_count||0})">⚖ Yield</button>
+        <button class="user-action-btn" style="color:#3dba7f;border-color:rgba(61,186,127,0.3)" onclick="sendAIReorderAlert('${item.item_number}','${safeDesc}')">🤖 Alert</button>
         <button class="user-action-btn" onclick="openInventoryModal('${item.item_number}')">Edit</button>
         <button class="user-action-btn danger" onclick="deleteInventoryItem('${item.item_number}','${safeDesc}')">×</button>
       </div>` : '—';
@@ -4777,7 +5222,7 @@ function renderInvoices() {
 // ── NEW INVOICE MODAL ──────────────────────────────────
 let invoiceLineCount = 0;
 
-function openNewInvoiceModal() {
+async function openNewInvoiceModal() {
   invoiceLineCount = 0;
   document.getElementById('ni_lines').innerHTML = '';
   document.getElementById('ni_number').value = '';
@@ -4787,6 +5232,9 @@ function openNewInvoiceModal() {
   document.getElementById('ni_notes').value = '';
   updateInvoiceTotals();
   addInvoiceLine();
+
+  // Ensure customers are loaded before populating the select
+  if (!allCustomers.length) await fetchCustomers();
 
   // Populate customer quick-select
   const custSel = document.getElementById('ni_cust_select');
@@ -5381,6 +5829,216 @@ const FISHING_SEASONS = [
   ['Bluefish','Other',['C','C','C','A','G','P','P','P','G','G','A','C']],
 ];
 
+// ── AI REORDER ALERT ────────────────────────────────────
+async function sendAIReorderAlert(itemNumber, productName) {
+  const email = prompt(`AI will generate a reorder alert for "${productName}".\n\nEnter an email address to send it to (leave blank to just preview):`);
+  if (email === null) return; // cancelled
+
+  showAlert(`Generating AI reorder alert for ${productName}…`, 'info');
+  try {
+    const body = email ? JSON.stringify({ email }) : '{}';
+    const res  = await fetch(API + '/inventory/' + itemNumber + '/reorder-alert', {
+      method:  'POST',
+      headers: { ...authHeaders.headers, 'Content-Type': 'application/json' },
+      body,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || res.statusText);
+    }
+    const alert = await res.json();
+    const sent  = alert.emailed ? `\n\nSent to: ${alert.to}` : '\n\n(Preview only — no email sent)';
+    showAlertModal('AI Reorder Alert Generated', `<strong>${alert.subject}</strong><br><br>${alert.body.replace(/\n/g,'<br>')}${sent.replace(/\n/g,'<br>')}`);
+  } catch (e) {
+    showAlert('Alert generation failed: ' + e.message, 'error');
+  }
+}
+
+function showAlertModal(title, htmlContent) {
+  const existing = document.getElementById('aiAlertModal');
+  if (existing) existing.remove();
+  const modal = document.createElement('div');
+  modal.id = 'aiAlertModal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px';
+  modal.innerHTML = `
+    <div style="background:var(--card);border:1px solid var(--border);border-radius:12px;padding:24px;max-width:520px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.5)">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px">
+        <div style="font-weight:700;font-size:15px;color:var(--accent)">🤖 ${title}</div>
+        <button onclick="document.getElementById('aiAlertModal').remove()" style="background:none;border:none;color:var(--muted);cursor:pointer;font-size:20px">×</button>
+      </div>
+      <div style="font-size:13px;line-height:1.6;color:#e5e7eb">${htmlContent}</div>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if (e.target === modal) modal.remove(); });
+}
+
+// ── AI INVENTORY HEALTH CHECK ──────────────────────────
+async function loadAIInventoryAnalysis() {
+  const btn    = document.getElementById('aiInvBtn');
+  const status = document.getElementById('aiInvStatus');
+  const results = document.getElementById('aiInvResults');
+
+  btn.disabled = true;
+  btn.textContent = 'Analyzing…';
+  status.style.display = 'block';
+  status.style.color = 'var(--muted)';
+  status.textContent = '⏳ Running AI health check across all inventory SKUs… This may take 30–60 seconds.';
+  results.innerHTML = '';
+
+  try {
+    const res = await fetch(API + '/inventory/ai-analysis', authHeaders);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || res.statusText);
+    }
+    const analysis = await res.json();
+    status.style.display = 'none';
+    renderAIInventoryAnalysis(analysis);
+  } catch (e) {
+    status.textContent = '❌ ' + e.message;
+    status.style.color = 'var(--danger)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Run Health Check';
+  }
+}
+
+function renderAIInventoryAnalysis(data) {
+  const el = document.getElementById('aiInvResults');
+  if (!data || !data.action_items) {
+    el.innerHTML = '<div style="color:var(--muted);padding:20px">No analysis data returned.</div>';
+    return;
+  }
+
+  const s = data.summary || {};
+  const summaryHtml = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:12px;margin-bottom:20px">
+      <div class="kpi-card"><div class="kpi-label">SKUs Analyzed</div><div class="kpi-value">${data.total_skus_analyzed || 0}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Critical</div><div class="kpi-value" style="color:var(--danger)">${s.critical_items || 0}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Warnings</div><div class="kpi-value" style="color:var(--warning)">${s.warning_items || 0}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Overstocked</div><div class="kpi-value" style="color:#818cf8">${s.overstocked_items || 0}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Healthy</div><div class="kpi-value green">${s.healthy_items || 0}</div></div>
+    </div>
+    <div style="font-size:11px;color:var(--muted);margin-bottom:12px">Analysis date: ${data.analysis_date || '—'}</div>`;
+
+  const PRIORITY_COLOR = { CRITICAL: 'var(--danger)', WARNING: 'var(--warning)', INFO: 'var(--muted)' };
+  const PRIORITY_BG    = { CRITICAL: '#2a0a0a', WARNING: '#2a1a0a', INFO: 'var(--card)' };
+  const ACTION_LABEL   = {
+    REORDER:       { label: 'REORDER',       color: 'var(--danger)' },
+    EXPEDITE_SALE: { label: 'EXPEDITE SALE', color: 'var(--warning)' },
+    REDUCE_ORDER:  { label: 'REDUCE ORDER',  color: '#818cf8' },
+    MONITOR:       { label: 'MONITOR',       color: 'var(--muted)' },
+  };
+
+  const itemsHtml = (data.action_items || []).map(item => {
+    const pc = PRIORITY_COLOR[item.priority] || 'var(--muted)';
+    const bg = PRIORITY_BG[item.priority]    || 'var(--card)';
+    const ac = ACTION_LABEL[item.action]     || { label: item.action, color: 'var(--muted)' };
+    return `
+      <div style="background:${bg};border:1px solid var(--border);border-left:3px solid ${pc};border-radius:8px;padding:12px 16px;margin-bottom:8px;display:flex;gap:14px;align-items:flex-start;flex-wrap:wrap">
+        <div style="min-width:80px">
+          <div style="font-weight:700;font-size:12px;color:${pc}">${item.priority}</div>
+          <div style="font-size:11px;color:${ac.color};margin-top:3px;font-weight:600">${ac.label}</div>
+        </div>
+        <div style="flex:1;min-width:160px">
+          <div style="font-weight:600;font-size:13px">${item.product_name}</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:1px">${item.product_id} · Stock: ${item.current_stock}</div>
+          <div style="font-size:12px;color:#ccc;margin-top:6px">${item.reason}</div>
+        </div>
+        <div style="font-size:12px;color:var(--accent);max-width:260px;text-align:right;align-self:center">${item.suggested_action}</div>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = summaryHtml + `<div class="fc-chart-card" style="padding:16px">${itemsHtml}</div>`;
+}
+
+// ── AI DEMAND FORECASTING ───────────────────────────────
+async function loadAIForecast() {
+  const btn    = document.getElementById('aiForecastBtn');
+  const status = document.getElementById('aiForecastStatus');
+  const results = document.getElementById('aiForecastResults');
+  const days   = document.getElementById('aiForecastDays').value;
+
+  btn.disabled = true;
+  btn.textContent = 'Running…';
+  status.style.display = 'block';
+  status.textContent = '⏳ Fetching inventory data and running AI analysis… This may take 30–60 seconds.';
+  results.innerHTML = '';
+
+  try {
+    const res = await fetch(API + '/forecast/inventory?days=' + days, authHeaders);
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || res.statusText);
+    }
+    const forecasts = await res.json();
+    status.style.display = 'none';
+    renderAIForecastResults(forecasts);
+  } catch (e) {
+    status.textContent = '❌ ' + e.message;
+    status.style.color = 'var(--danger)';
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Run AI Forecast';
+  }
+}
+
+function renderAIForecastResults(forecasts) {
+  const el = document.getElementById('aiForecastResults');
+  if (!forecasts.length) {
+    el.innerHTML = '<div style="color:var(--muted);padding:20px">No inventory products found.</div>';
+    return;
+  }
+
+  const reorderItems = forecasts.filter(f => f.reorder_recommended);
+  const summaryHtml = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px">
+      <div class="kpi-card"><div class="kpi-label">Products Analyzed</div><div class="kpi-value">${forecasts.length}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Reorder Recommended</div><div class="kpi-value" style="color:var(--warning)">${reorderItems.length}</div></div>
+      <div class="kpi-card"><div class="kpi-label">High Confidence</div><div class="kpi-value green">${forecasts.filter(f=>f.confidence==='high').length}</div></div>
+      <div class="kpi-card"><div class="kpi-label">Increasing Demand</div><div class="kpi-value" style="color:#818cf8">${forecasts.filter(f=>f.trend==='increasing').length}</div></div>
+    </div>`;
+
+  const rowsHtml = forecasts.map(f => {
+    const trendColor = f.trend === 'increasing' ? '#818cf8' : f.trend === 'decreasing' ? 'var(--danger)' : 'var(--muted)';
+    const trendIcon  = f.trend === 'increasing' ? '↑' : f.trend === 'decreasing' ? '↓' : '→';
+    const confColor  = f.confidence === 'high' ? 'var(--accent)' : f.confidence === 'medium' ? 'var(--warning)' : 'var(--muted)';
+    const reorderBadge = f.reorder_recommended
+      ? `<span style="background:#422;color:var(--warning);padding:2px 7px;border-radius:4px;font-size:11px;font-weight:600">REORDER</span>`
+      : `<span style="background:#1a3a26;color:var(--accent);padding:2px 7px;border-radius:4px;font-size:11px">OK</span>`;
+    return `
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px 16px;margin-bottom:10px">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap">
+          <div style="flex:1;min-width:160px">
+            <div style="font-weight:600;font-size:14px;margin-bottom:2px">${f.product_name}</div>
+            <div style="font-size:11px;color:var(--muted)">${f.product_id}</div>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap">
+            ${reorderBadge}
+            <span style="color:${trendColor};font-weight:600;font-size:13px">${trendIcon} ${f.trend}</span>
+            <span style="color:${confColor};font-size:12px;border:1px solid ${confColor};border-radius:4px;padding:1px 6px">${f.confidence}</span>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px;margin:10px 0 8px">
+          <div style="background:var(--bg);border-radius:6px;padding:8px 10px">
+            <div style="font-size:11px;color:var(--muted)">Predicted demand</div>
+            <div style="font-weight:700;font-size:18px">${f.predicted_demand_units}</div>
+            <div style="font-size:11px;color:var(--muted)">units / ${f.forecast_period_days}d</div>
+          </div>
+          ${f.reorder_recommended ? `
+          <div style="background:#2a1a0a;border-radius:6px;padding:8px 10px">
+            <div style="font-size:11px;color:var(--muted)">Suggested reorder</div>
+            <div style="font-weight:700;font-size:18px;color:var(--warning)">${f.suggested_reorder_quantity}</div>
+            <div style="font-size:11px;color:var(--muted)">units</div>
+          </div>` : ''}
+        </div>
+        <div style="font-size:12px;color:#aaa;border-top:1px solid var(--border);padding-top:8px;margin-top:4px">${f.reasoning}</div>
+      </div>`;
+  }).join('');
+
+  el.innerHTML = summaryHtml + `<div class="fc-chart-card" style="padding:16px">${rowsHtml}</div>`;
+}
+
 function renderFishingSeasons() {
   const catFilter = document.getElementById('seasonCatFilter')?.value || '';
   const tbody = document.getElementById('seasonCalBody');
@@ -5397,6 +6055,200 @@ function renderFishingSeasons() {
     return `<tr><td class="species-name"><div>${species}</div><div style="margin-top:2px">${invCatBadge(cat)}</div></td>${cells}</tr>`;
   }).join('');
 }
+
+// ── PURCHASE ORDER SCAN ──────────────────────────────────────────────────────
+let poData = null; // holds AI-parsed PO while user reviews
+
+function openPOScanModal() {
+  poData = null;
+  document.getElementById('poFileInput').value = '';
+  document.getElementById('poImagePreview').style.display = 'none';
+  document.getElementById('poImagePreview').src = '';
+  document.getElementById('poScanBtn').disabled = true;
+  pOGoToStep(1);
+  document.getElementById('poScanModal').classList.add('open');
+}
+function closePOScanModal() {
+  document.getElementById('poScanModal').classList.remove('open');
+}
+
+function pOGoToStep(n) {
+  ['poStep1','poStep2','poStep3','poLoadingStep'].forEach(id => {
+    document.getElementById(id).style.display = 'none';
+  });
+  if (n === 'loading') {
+    document.getElementById('poLoadingStep').style.display = 'block';
+  } else {
+    document.getElementById('poStep' + n).style.display = 'block';
+  }
+  // Update step dots
+  for (let i = 1; i <= 3; i++) {
+    const dot = document.getElementById('poStepDot' + i);
+    dot.classList.remove('active','done');
+    if (n === 'loading' && i === 1) dot.classList.add('active');
+    else if (i < n) dot.classList.add('done');
+    else if (i === n) dot.classList.add('active');
+  }
+}
+
+function handlePOFile(input) {
+  const file = input.files[0];
+  if (!file) return;
+  const preview = document.getElementById('poImagePreview');
+  if (file.type.startsWith('image/')) {
+    const reader = new FileReader();
+    reader.onload = e => {
+      preview.src = e.target.result;
+      preview.style.display = 'block';
+    };
+    reader.readAsDataURL(file);
+  } else {
+    preview.style.display = 'none';
+  }
+  document.getElementById('poScanBtn').disabled = false;
+}
+
+function handlePODrop(e) {
+  e.preventDefault();
+  document.getElementById('poUploadArea').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  const dt = new DataTransfer();
+  dt.items.add(file);
+  const input = document.getElementById('poFileInput');
+  input.files = dt.files;
+  handlePOFile(input);
+}
+
+async function runPOScan() {
+  const input = document.getElementById('poFileInput');
+  if (!input.files[0]) return;
+  pOGoToStep('loading');
+  document.getElementById('poLoadingMsg').textContent = 'Reading purchase order…';
+
+  const formData = new FormData();
+  formData.append('image', input.files[0]);
+
+  try {
+    const res = await fetch('/api/purchase-orders/scan', {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${nrToken}` },
+      body: formData,
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Scan failed');
+    if (!data.items || !data.items.length) throw new Error('No items found in image — try a clearer photo');
+
+    poData = data;
+    renderPOReview();
+    pOGoToStep(2);
+  } catch (e) {
+    pOGoToStep(1);
+    alert('Scan failed: ' + e.message);
+  }
+}
+
+function renderPOReview() {
+  if (!poData) return;
+  const badge = document.getElementById('poVendorBadge');
+  const parts = [];
+  if (poData.vendor)    parts.push('🏢 ' + poData.vendor);
+  if (poData.po_number) parts.push('# ' + poData.po_number);
+  if (poData.date)      parts.push('📅 ' + poData.date);
+  badge.innerHTML = parts.length
+    ? `<div class="po-vendor-pill">${parts.join(' · ')}</div>`
+    : '';
+
+  const tbody = document.getElementById('poReviewBody');
+  tbody.innerHTML = (poData.items || []).map((item, i) => `
+    <tr id="poRow-${i}">
+      <td><input class="po-cell-input" value="${escHtml(item.description||'')}" style="width:150px" oninput="updatePOItem(${i},'description',this.value)"/></td>
+      <td>
+        <select class="po-cell-input" style="width:100px" onchange="updatePOItem(${i},'category',this.value)">
+          ${['Finfish','Shellfish','Shrimp','Crab','Lobster','Squid','Octopus','Smoked/Cured','Other'].map(c =>
+            `<option${c===item.category?' selected':''}>${c}</option>`).join('')}
+        </select>
+      </td>
+      <td><input class="po-cell-input" type="number" min="0" step="0.01" value="${item.quantity||0}" style="width:62px" oninput="updatePOItem(${i},'quantity',parseFloat(this.value)||0)"/></td>
+      <td>
+        <select class="po-cell-input" style="width:58px" onchange="updatePOItem(${i},'unit',this.value)">
+          ${['lb','kg','ea','cs','box','each'].map(u =>
+            `<option${u===(item.unit||'lb')?' selected':''}>${u}</option>`).join('')}
+        </select>
+      </td>
+      <td><input class="po-cell-input" type="number" min="0" step="0.01" value="${item.unit_price||0}" style="width:72px" oninput="updatePOItem(${i},'unit_price',parseFloat(this.value)||0)"/></td>
+      <td id="poItemLine-${i}" style="font-weight:600;white-space:nowrap">$${parseFloat(item.total||0).toFixed(2)}</td>
+      <td><button class="order-row-del" onclick="removePOItem(${i})" title="Remove">×</button></td>
+    </tr>`).join('');
+
+  updatePOGrandTotal();
+}
+
+function updatePOItem(i, field, value) {
+  if (!poData?.items?.[i]) return;
+  poData.items[i][field] = value;
+  if (field === 'quantity' || field === 'unit_price') {
+    const t = parseFloat((parseFloat(poData.items[i].quantity||0) * parseFloat(poData.items[i].unit_price||0)).toFixed(2));
+    poData.items[i].total = t;
+    const lineEl = document.getElementById('poItemLine-' + i);
+    if (lineEl) lineEl.textContent = '$' + t.toFixed(2);
+    updatePOGrandTotal();
+  }
+}
+
+function removePOItem(i) {
+  if (!poData?.items) return;
+  poData.items.splice(i, 1);
+  renderPOReview();
+}
+
+function updatePOGrandTotal() {
+  const total = (poData?.items || []).reduce((s, it) => s + (parseFloat(it.total) || 0), 0);
+  poData.total_cost = parseFloat(total.toFixed(2));
+  document.getElementById('poGrandTotal').textContent = '$' + total.toFixed(2);
+}
+
+async function confirmPOScan() {
+  if (!poData?.items?.length) return alert('No items to save');
+  const btn = document.getElementById('poConfirmBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  pOGoToStep('loading');
+  document.getElementById('poLoadingMsg').textContent = 'Updating inventory…';
+
+  try {
+    const res = await fetch('/api/purchase-orders/confirm', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${nrToken}` },
+      body: JSON.stringify(poData),
+    });
+    const result = await res.json();
+    if (!res.ok) throw new Error(result.error || 'Save failed');
+
+    const lines = [];
+    if (result.items_created) lines.push(`${result.items_created} new product${result.items_created > 1 ? 's' : ''} added`);
+    if (result.items_updated) lines.push(`${result.items_updated} product${result.items_updated > 1 ? 's' : ''} restocked`);
+    if (result.purchase_order?.total_cost) lines.push(`Total cost: $${parseFloat(result.purchase_order.total_cost).toFixed(2)}`);
+    if (result.errors?.length) lines.push(`⚠ ${result.errors.length} item(s) had errors`);
+    document.getElementById('poSuccessDetail').innerHTML = lines.map(l => `<div>${l}</div>`).join('');
+
+    pOGoToStep(3);
+    // Refresh inventory and financials
+    fetchInventory();
+    renderInventory();
+    renderInventoryKPIs();
+    if (document.getElementById('tab-financials').classList.contains('active')) loadFinancials();
+  } catch (e) {
+    pOGoToStep(2);
+    alert('Save failed: ' + e.message);
+  } finally {
+    btn.disabled = false; btn.textContent = '✓ Save to Inventory';
+  }
+}
+
+// Close PO modal on backdrop click
+document.getElementById('poScanModal').addEventListener('click', e => {
+  if (e.target === document.getElementById('poScanModal')) closePOScanModal();
+});
 </script>
 </body>
 </html>
