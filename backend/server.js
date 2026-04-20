@@ -4,9 +4,14 @@ const cluster = require('cluster');
 const os = require('os');
 
 if (cluster.isPrimary) {
-  const numCPUs = os.cpus().length;
-  console.log(`Primary ${process.pid} starting ${numCPUs} workers`);
-  for (let i = 0; i < numCPUs; i++) cluster.fork();
+  const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
+  const requestedWorkers = Number(process.env.WORKERS);
+  const numWorkers = Number.isInteger(requestedWorkers) && requestedWorkers > 0
+    ? requestedWorkers
+    : (isProduction ? 1 : Math.min(os.cpus().length, 4));
+
+  console.log(`Primary ${process.pid} starting ${numWorkers} worker${numWorkers === 1 ? '' : 's'}`);
+  for (let i = 0; i < numWorkers; i++) cluster.fork();
   cluster.on('exit', (worker, code, signal) => {
     console.warn(`Worker ${worker.process.pid} died (${signal || code}). Restarting…`);
     cluster.fork();
@@ -119,6 +124,10 @@ app.get('/api/config/maps-key', (req, res) => {
   res.json({ key: process.env.GOOGLE_MAPS_KEY || '' });
 });
 
+app.get('/healthz', (req, res) => {
+  res.json({ ok: true });
+});
+
 // Dwell records (top-level path, shares in-memory state with stops router)
 app.get('/api/dwell', authenticateToken, (req, res) => res.json(dwellRecords));
 
@@ -148,6 +157,6 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
-app.listen(PORT, () => console.log(`Worker ${process.pid} listening on http://localhost:${PORT}`));
+app.listen(PORT, '0.0.0.0', () => console.log(`Worker ${process.pid} listening on http://0.0.0.0:${PORT}`));
 
 } // end cluster worker block
