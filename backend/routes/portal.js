@@ -1,13 +1,132 @@
 const express = require('express');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const { supabase } = require('../services/supabase');
 const { buildInvoicePDF } = require('../services/pdf');
+const { createConfiguredMailers } = require('../services/email');
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'noderoute-dev-secret-change-in-production';
+const PORTAL_CODE_TTL_MS = Number(process.env.PORTAL_CODE_TTL_MS || 10 * 60 * 1000);
+const PORTAL_MAX_VERIFY_ATTEMPTS = Number(process.env.PORTAL_MAX_VERIFY_ATTEMPTS || 5);
+const PORTAL_RESEND_COOLDOWN_MS = Number(process.env.PORTAL_RESEND_COOLDOWN_MS || 60 * 1000);
+const PORTAL_AUTH_RATE_WINDOW_MS = Number(process.env.PORTAL_AUTH_RATE_WINDOW_MS || 15 * 60 * 1000);
+const PORTAL_AUTH_RATE_LIMIT = Number(process.env.PORTAL_AUTH_RATE_LIMIT || 5);
+const portalChallenges = new Map();
+const authAttempts = new Map();
 
 function signPortalJWT(email, name) {
   return jwt.sign({ email, name, role: 'customer' }, JWT_SECRET, { expiresIn: '24h' });
+}
+
+function normalizeEmail(email) {
+  return String(email || '').trim().toLowerCase();
+}
+
+function generateVerificationCode() {
+  return String(Math.floor(100000 + Math.random() * 900000));
+}
+
+function hashCode(challengeId, code) {
+  return crypto.createHash('sha256').update(`${challengeId}:${String(code || '').trim()}`).digest('hex');
+}
+
+function codesMatch(expectedHash, actualHash) {
+  const expected = Buffer.from(String(expectedHash || ''), 'utf8');
+  const actual = Buffer.from(String(actualHash || ''), 'utf8');
+  if (expected.length !== actual.length) return false;
+  return crypto.timingSafeEqual(expected, actual);
+}
+
+function pruneExpiredChallenges() {
+  const now = Date.now();
+  for (const [challengeId, challenge] of portalChallenges.entries()) {
+    if (challenge.expiresAt <= now) portalChallenges.delete(challengeId);
+  }
+}
+
+function touchRateLimitBucket(email) {
+  const now = Date.now();
+  const key = normalizeEmail(email);
+  const bucket = authAttempts.get(key) || [];
+  const fresh = bucket.filter((timestamp) => now - timestamp < PORTAL_AUTH_RATE_WINDOW_MS);
+  fresh.push(now);
+  authAttempts.set(key, fresh);
+  return fresh.length;
+}
+
+function canRequestCode(email) {
+  const key = normalizeEmail(email);
+  const bucket = authAttempts.get(key) || [];
+  const now = Date.now();
+  const fresh = bucket.filter((timestamp) => now - timestamp < PORTAL_AUTH_RATE_WINDOW_MS);
+  authAttempts.set(key, fresh);
+  return fresh.length < PORTAL_AUTH_RATE_LIMIT;
+}
+
+async function resolvePortalCustomer(email) {
+  const normalized = normalizeEmail(email);
+  const { data: invoices, error: invoiceError } = await supabase
+    .from('invoices')
+    .select('customer_name')
+    .ilike('customer_email', normalized)
+    .limit(1);
+  if (invoiceError) throw invoiceError;
+  if (invoices && invoices.length > 0) {
+    return { email: normalized, name: invoices[0].customer_name || normalized };
+  }
+
+  const { data: orders, error: orderError } = await supabase
+    .from('orders')
+    .select('customer_name')
+    .ilike('customer_email', normalized)
+    .limit(1);
+  if (orderError) throw orderError;
+  if (orders && orders.length > 0) {
+    return { email: normalized, name: orders[0].customer_name || normalized };
+  }
+
+  return null;
+}
+
+async function sendPortalCodeEmail({ email, name, code }) {
+  const mailers = createConfiguredMailers();
+  if (!mailers.length) throw new Error('Customer portal email verification is not configured');
+
+  let lastError = null;
+  for (const mailer of mailers) {
+    try {
+      await mailer.sendMail({
+        to: email,
+        subject: 'Your NodeRoute customer portal verification code',
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:560px;margin:0 auto;color:#102040">
+            <div style="background:#050d2a;padding:24px;border-radius:12px 12px 0 0;text-align:center">
+              <h1 style="color:#3dba7f;margin:0;font-size:24px">NodeRoute Customer Portal</h1>
+            </div>
+            <div style="background:#f8faff;padding:32px;border:1px solid #dde3f5;border-top:none;border-radius:0 0 12px 12px">
+              <p style="font-size:15px;line-height:1.6;margin:0 0 16px">Hi ${name || 'there'},</p>
+              <p style="font-size:15px;line-height:1.6;margin:0 0 20px">
+                Use the verification code below to access your customer portal. The code expires in 10 minutes.
+              </p>
+              <div style="font-size:34px;font-weight:700;letter-spacing:0.3em;text-align:center;color:#050d2a;background:#e8f5ee;border:1px solid #b8e0c8;border-radius:12px;padding:18px 20px;margin:0 0 20px">
+                ${code}
+              </div>
+              <p style="font-size:13px;line-height:1.6;color:#667085;margin:0">
+                If you did not request this code, you can ignore this email.
+              </p>
+            </div>
+          </div>
+        `,
+        text: `Your NodeRoute customer portal verification code is ${code}. It expires in 10 minutes.`,
+      });
+      return;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  throw lastError || new Error('Could not send portal verification email');
 }
 
 function authenticatePortalToken(req, res, next) {
@@ -25,35 +144,85 @@ function authenticatePortalToken(req, res, next) {
   next();
 }
 
-// POST /api/portal/auth — issue a 24h portal token if the email has invoices or orders
+// POST /api/portal/auth — send a short-lived verification code to the customer email
 router.post('/auth', async (req, res) => {
-  const { email } = req.body;
-  if (!email) return res.status(400).json({ error: 'Email required' });
-  const normalized = email.trim().toLowerCase();
+  pruneExpiredChallenges();
 
-  const { data: invoices } = await supabase
-    .from('invoices')
-    .select('customer_name')
-    .ilike('customer_email', normalized)
-    .limit(1);
-
-  if (invoices && invoices.length > 0) {
-    const name = invoices[0].customer_name || normalized;
-    return res.json({ token: signPortalJWT(normalized, name), name });
+  const normalized = normalizeEmail(req.body?.email);
+  if (!normalized) return res.status(400).json({ error: 'Email required' });
+  if (!canRequestCode(normalized)) {
+    return res.status(429).json({ error: 'Too many portal login attempts. Please wait a few minutes and try again.' });
   }
 
-  const { data: orders } = await supabase
-    .from('orders')
-    .select('customer_name')
-    .ilike('customer_email', normalized)
-    .limit(1);
+  try {
+    const customer = await resolvePortalCustomer(normalized);
+    if (!customer) {
+      touchRateLimitBucket(normalized);
+      return res.status(404).json({ error: 'No account found for that email. Contact your NodeRoute representative.' });
+    }
 
-  if (orders && orders.length > 0) {
-    const name = orders[0].customer_name || normalized;
-    return res.json({ token: signPortalJWT(normalized, name), name });
+    const existing = [...portalChallenges.values()].find((challenge) => challenge.email === normalized);
+    if (existing && Date.now() - existing.lastSentAt < PORTAL_RESEND_COOLDOWN_MS) {
+      return res.status(429).json({ error: 'A verification code was just sent. Please wait a moment before requesting another one.' });
+    }
+
+    const challengeId = crypto.randomBytes(24).toString('hex');
+    const code = generateVerificationCode();
+    const challenge = {
+      id: challengeId,
+      email: customer.email,
+      name: customer.name,
+      codeHash: hashCode(challengeId, code),
+      expiresAt: Date.now() + PORTAL_CODE_TTL_MS,
+      attemptsLeft: PORTAL_MAX_VERIFY_ATTEMPTS,
+      lastSentAt: Date.now(),
+    };
+
+    if (existing) portalChallenges.delete(existing.id);
+    await sendPortalCodeEmail({ email: customer.email, name: customer.name, code });
+    portalChallenges.set(challengeId, challenge);
+    touchRateLimitBucket(normalized);
+
+    return res.json({
+      challengeId,
+      maskedEmail: customer.email.replace(/(^.).*(@.*$)/, '$1***$2'),
+      name: customer.name,
+      expiresInSeconds: Math.floor(PORTAL_CODE_TTL_MS / 1000),
+    });
+  } catch (error) {
+    console.error('portal/auth:', error.message);
+    return res.status(500).json({ error: error.message || 'Could not start customer portal sign-in' });
+  }
+});
+
+router.post('/verify', async (req, res) => {
+  pruneExpiredChallenges();
+
+  const challengeId = String(req.body?.challengeId || '').trim();
+  const code = String(req.body?.code || '').trim();
+  if (!challengeId || !code) return res.status(400).json({ error: 'Challenge ID and verification code are required' });
+
+  const challenge = portalChallenges.get(challengeId);
+  if (!challenge || challenge.expiresAt <= Date.now()) {
+    if (challenge) portalChallenges.delete(challengeId);
+    return res.status(401).json({ error: 'This verification code has expired. Please request a new one.' });
   }
 
-  return res.status(404).json({ error: 'No account found for that email. Contact your NodeRoute representative.' });
+  if (!codesMatch(challenge.codeHash, hashCode(challengeId, code))) {
+    challenge.attemptsLeft -= 1;
+    if (challenge.attemptsLeft <= 0) {
+      portalChallenges.delete(challengeId);
+      return res.status(401).json({ error: 'Too many incorrect attempts. Please request a new verification code.' });
+    }
+    return res.status(401).json({ error: `Incorrect code. ${challenge.attemptsLeft} attempt${challenge.attemptsLeft === 1 ? '' : 's'} remaining.` });
+  }
+
+  portalChallenges.delete(challengeId);
+  return res.json({
+    token: signPortalJWT(challenge.email, challenge.name),
+    name: challenge.name,
+    email: challenge.email,
+  });
 });
 
 // GET /api/portal/me

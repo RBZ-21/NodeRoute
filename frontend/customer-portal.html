@@ -33,6 +33,10 @@ body > *{position:relative;z-index:1}
 .login-btn:disabled{opacity:0.6;cursor:not-allowed}
 .login-error{background:rgba(239,68,68,0.12);color:#fca5a5;border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px;display:none;text-align:left}
 .login-error.show{display:block}
+.login-note{display:none;background:rgba(61,186,127,0.12);color:#bdf3d5;border:1px solid rgba(61,186,127,0.22);border-radius:8px;padding:10px 14px;font-size:13px;margin-bottom:16px;text-align:left;line-height:1.5}
+.login-note.show{display:block}
+.login-secondary{width:100%;padding:11px 13px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;transition:var(--trans);margin-top:10px}
+.login-secondary:hover{border-color:var(--accent);color:var(--accent)}
 
 /* ── PORTAL SHELL ── */
 #portal{display:none;flex-direction:column;min-height:100vh}
@@ -194,11 +198,17 @@ body > *{position:relative;z-index:1}
 <div id="loginScreen">
   <div class="login-card">
     <img src="For_Light_Theme_Transparent.svg" class="login-logo-img" alt="NodeRoute Systems"/>
-    <div class="login-sub">Customer Portal — enter your email to access your account</div>
+    <div id="loginSub" class="login-sub">Customer Portal — enter your email to receive a secure verification code</div>
     <div id="loginError" class="login-error"></div>
+    <div id="loginNote" class="login-note"></div>
     <label class="login-label" for="emailInput">Email address</label>
     <input id="emailInput" class="login-input" type="email" placeholder="you@restaurant.com" autocomplete="email"/>
-    <button id="loginBtn" class="login-btn" onclick="doLogin()">Access Portal</button>
+    <div id="codeStep" style="display:none">
+      <label class="login-label" for="codeInput">Verification code</label>
+      <input id="codeInput" class="login-input" type="text" inputmode="numeric" maxlength="6" placeholder="Enter the 6-digit code"/>
+    </div>
+    <button id="loginBtn" class="login-btn" onclick="handleLoginAction()">Email Verification Code</button>
+    <button id="loginBackBtn" class="login-secondary" style="display:none" onclick="resetLoginFlow()">Use a different email</button>
   </div>
 </div>
 
@@ -378,6 +388,8 @@ const API = '/api/portal';
 let portalToken = null;
 let allInvoices = [];
 let allFishData = [];
+let portalChallengeId = null;
+let portalLoginName = '';
 
 // ── SESSION ───────────────────────────────────────────────────────────────────
 function getStoredToken() { try { return sessionStorage.getItem('portal_token'); } catch { return null; } }
@@ -386,33 +398,86 @@ function clearToken()     { try { sessionStorage.removeItem('portal_token'); } c
 function ah()             { return { headers: { 'Authorization': 'Bearer ' + portalToken, 'Content-Type': 'application/json' } }; }
 
 // ── LOGIN ─────────────────────────────────────────────────────────────────────
-async function doLogin() {
+function handleLoginAction() {
+  if (portalChallengeId) return verifyLoginCode();
+  return requestLoginCode();
+}
+
+async function requestLoginCode() {
   const email = document.getElementById('emailInput').value.trim();
   if (!email) return showLoginError('Please enter your email address.');
   const btn = document.getElementById('loginBtn');
-  btn.disabled = true; btn.textContent = 'Checking…';
-  hideLoginError();
+  btn.disabled = true; btn.textContent = 'Sending…';
+  clearLoginMessages();
   try {
     const res  = await fetch(API + '/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
     const data = await res.json();
     if (!res.ok) { showLoginError(data.error || 'Login failed.'); return; }
+    portalChallengeId = data.challengeId;
+    portalLoginName = data.name || email;
+    document.getElementById('emailInput').disabled = true;
+    document.getElementById('codeStep').style.display = 'block';
+    document.getElementById('loginBackBtn').style.display = 'block';
+    document.getElementById('loginBtn').textContent = 'Verify & Access Portal';
+    document.getElementById('loginSub').textContent = 'Enter the 6-digit code sent to your email';
+    showLoginNote(`We sent a verification code to ${data.maskedEmail || email}.`);
+    document.getElementById('codeInput').focus();
+  } catch { showLoginError('Could not reach the server. Please try again.'); }
+  finally   { btn.disabled = false; if (!portalChallengeId) btn.textContent = 'Email Verification Code'; }
+}
+
+async function verifyLoginCode() {
+  const code = document.getElementById('codeInput').value.trim();
+  if (!code) return showLoginError('Enter the verification code from your email.');
+  const btn = document.getElementById('loginBtn');
+  btn.disabled = true; btn.textContent = 'Verifying…';
+  clearLoginMessages();
+  try {
+    const res = await fetch(API + '/verify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ challengeId: portalChallengeId, code }),
+    });
+    const data = await res.json();
+    if (!res.ok) { showLoginError(data.error || 'Could not verify code.'); return; }
     portalToken = data.token;
     storeToken(portalToken);
-    enterPortal(data.name || email);
-  } catch { showLoginError('Could not reach the server. Please try again.'); }
-  finally   { btn.disabled = false; btn.textContent = 'Access Portal'; }
+    enterPortal(data.name || portalLoginName || document.getElementById('emailInput').value.trim());
+  } catch {
+    showLoginError('Could not verify the code right now. Please try again.');
+  } finally {
+    btn.disabled = false;
+    if (portalChallengeId) btn.textContent = 'Verify & Access Portal';
+  }
+}
+
+function resetLoginFlow() {
+  portalChallengeId = null;
+  portalLoginName = '';
+  document.getElementById('emailInput').disabled = false;
+  document.getElementById('codeInput').value = '';
+  document.getElementById('codeStep').style.display = 'none';
+  document.getElementById('loginBackBtn').style.display = 'none';
+  document.getElementById('loginBtn').textContent = 'Email Verification Code';
+  document.getElementById('loginSub').textContent = 'Customer Portal — enter your email to receive a secure verification code';
+  clearLoginMessages();
 }
 
 function doLogout() {
   portalToken = null; clearToken(); allInvoices = []; allFishData = [];
+  resetLoginFlow();
   document.getElementById('portal').style.display      = 'none';
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('emailInput').value          = '';
 }
 
 function showLoginError(msg) { const e = document.getElementById('loginError'); e.textContent = msg; e.classList.add('show'); }
+function showLoginNote(msg)  { const e = document.getElementById('loginNote'); e.textContent = msg; e.classList.add('show'); }
 function hideLoginError()    { document.getElementById('loginError').classList.remove('show'); }
-document.getElementById('emailInput').addEventListener('keydown', e => { if (e.key === 'Enter') doLogin(); });
+function hideLoginNote()     { document.getElementById('loginNote').classList.remove('show'); }
+function clearLoginMessages(){ hideLoginError(); hideLoginNote(); }
+document.getElementById('emailInput').addEventListener('keydown', e => { if (e.key === 'Enter') handleLoginAction(); });
+document.getElementById('codeInput').addEventListener('keydown', e => { if (e.key === 'Enter') handleLoginAction(); });
 
 // ── ENTER PORTAL ──────────────────────────────────────────────────────────────
 function enterPortal(name) {

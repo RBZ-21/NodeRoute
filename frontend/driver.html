@@ -216,6 +216,8 @@ let driverUser  = null;
 let allRoutes   = [];
 let activeRoute = null;
 let stopState   = {}; // stopId → 'arrived' | 'departed'
+let locationWatchId = null;
+let lastLocationSignature = '';
 
 // ── AUTH ─────────────────────────────────────────────────────────────────────
 function ah() { return { headers: { Authorization: 'Bearer ' + driverToken, 'Content-Type': 'application/json' } }; }
@@ -241,6 +243,7 @@ async function doLogin() {
 }
 
 function doLogout() {
+  stopLocationSharing();
   driverToken = null; driverUser = null; allRoutes = []; activeRoute = null; stopState = {};
   sessionStorage.removeItem('drv_token'); sessionStorage.removeItem('drv_user');
   document.getElementById('app').style.display        = 'none';
@@ -257,7 +260,51 @@ function enterApp() {
   document.getElementById('loginScreen').style.display  = 'none';
   document.getElementById('app').style.display          = 'flex';
   document.getElementById('driverNameDisplay').textContent = driverUser.name || driverUser.email;
+  startLocationSharing();
   loadRoutes();
+}
+
+function startLocationSharing() {
+  if (!navigator.geolocation || locationWatchId !== null) return;
+  locationWatchId = navigator.geolocation.watchPosition(
+    (position) => sendLocationUpdate(position.coords),
+    () => {},
+    { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 }
+  );
+}
+
+function stopLocationSharing() {
+  if (locationWatchId !== null && navigator.geolocation) {
+    navigator.geolocation.clearWatch(locationWatchId);
+  }
+  locationWatchId = null;
+  lastLocationSignature = '';
+}
+
+async function sendLocationUpdate(coords) {
+  if (!driverToken || !coords) return;
+
+  const payload = {
+    lat: Number(coords.latitude.toFixed(6)),
+    lng: Number(coords.longitude.toFixed(6)),
+    heading: Number.isFinite(coords.heading) ? Number(coords.heading.toFixed(1)) : 0,
+    speed_mph: Number.isFinite(coords.speed) && coords.speed >= 0
+      ? Number((coords.speed * 2.23694).toFixed(1))
+      : 0,
+  };
+  const signature = `${payload.lat}:${payload.lng}:${payload.heading}:${payload.speed_mph}`;
+  if (signature === lastLocationSignature) return;
+  lastLocationSignature = signature;
+
+  try {
+    await fetch('/api/driver/location', {
+      method: 'PATCH',
+      ...ah(),
+      body: JSON.stringify(payload),
+    });
+  } catch {
+    // Keep the app usable even when location sync is unavailable.
+  }
 }
 
 // ── TABS ─────────────────────────────────────────────────────────────────────

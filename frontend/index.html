@@ -2481,6 +2481,7 @@ function renderOrderQueue() {
         ${o.status === 'in_process' ? `<button class="btn btn-accent" style="font-size:11px;padding:5px 10px" onclick="openFulfillModal('${o.id}')">Enter Weights</button>` : ''}
         ${o.status === 'in_process' ? `<button class="btn btn-outline" style="font-size:11px;padding:5px 10px" onclick="openAddonOrder('${o.id}')">Add-on</button>` : ''}
         ${o.status === 'pending' ? `<button class="btn btn-outline" style="font-size:11px;padding:5px 10px" onclick="editOrder('${o.id}')">Edit</button>` : ''}
+        <button class="btn btn-outline" style="font-size:11px;padding:5px 10px" onclick="copyTrackingLink('${o.id}')">🔗 Track</button>
         <button class="btn btn-outline" style="font-size:11px;padding:5px 10px;color:var(--muted)" onclick="printQueueOrder('${o.id}')">🖨</button>
         <button class="btn btn-outline" style="font-size:11px;padding:5px 10px;color:var(--danger)" onclick="deleteOrder('${o.id}')">×</button>
       </div>
@@ -2508,7 +2509,10 @@ function renderInprocessOrders() {
         <span style="color:var(--muted);font-size:13px;margin-left:8px">${o.customer_name}</span>
         <div style="font-size:12px;color:var(--muted);margin-top:2px">${itemsSummary}</div>
       </div>
-      <button class="btn btn-accent" style="font-size:12px;padding:6px 14px" onclick="openFulfillModal('${o.id}');showTab('orders',null)">Enter Weights & Invoice →</button>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="btn btn-outline" style="font-size:12px;padding:6px 14px" onclick="copyTrackingLink('${o.id}')">🔗 Tracking Link</button>
+        <button class="btn btn-accent" style="font-size:12px;padding:6px 14px" onclick="openFulfillModal('${o.id}');showTab('orders',null)">Enter Weights & Invoice →</button>
+      </div>
     </div>`;
   }).join('');
 }
@@ -2521,6 +2525,32 @@ function timeSince(dateStr) {
   const hrs = Math.floor(mins / 60);
   if (hrs < 24) return hrs + 'h ago';
   return Math.floor(hrs / 24) + 'd ago';
+}
+
+async function copyTrackingLink(orderId) {
+  try {
+    const response = await fetch(`${API}/orders/${orderId}/tracking-link`, {
+      method: 'POST',
+      headers: authHeaders.headers,
+    });
+    const data = await response.json();
+    if (!response.ok) throw new Error(data.error || 'Could not create tracking link');
+
+    const url = data.tracking_url;
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(url);
+    } else {
+      const input = document.createElement('input');
+      input.value = url;
+      document.body.appendChild(input);
+      input.select();
+      document.execCommand('copy');
+      input.remove();
+    }
+    showToast('Tracking link copied');
+  } catch (error) {
+    alert(error.message || 'Could not copy tracking link');
+  }
 }
 
 function editOrder(id) {

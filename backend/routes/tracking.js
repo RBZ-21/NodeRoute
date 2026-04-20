@@ -1,0 +1,189 @@
+const express = require('express');
+const { supabase } = require('../services/supabase');
+const { dwellRecords } = require('./stops');
+
+const router = express.Router();
+
+function toNumber(value, fallback = null) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function normalize(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
+
+function haversineMiles(a, b) {
+  const lat1 = toNumber(a?.lat);
+  const lng1 = toNumber(a?.lng);
+  const lat2 = toNumber(b?.lat);
+  const lng2 = toNumber(b?.lng);
+  if ([lat1, lng1, lat2, lng2].some((value) => value === null)) return null;
+
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const earthRadiusMiles = 3958.8;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const startLat = toRad(lat1);
+  const endLat = toRad(lat2);
+
+  const aCalc =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(startLat) * Math.cos(endLat) * Math.sin(dLng / 2) ** 2;
+
+  return earthRadiusMiles * 2 * Math.atan2(Math.sqrt(aCalc), Math.sqrt(1 - aCalc));
+}
+
+function buildDestination(order, orderedStops, matchedStopIndex) {
+  const customerLat = toNumber(order.customer_lat);
+  const customerLng = toNumber(order.customer_lng);
+  if (customerLat !== null && customerLng !== null) {
+    return { lat: customerLat, lng: customerLng };
+  }
+
+  if (matchedStopIndex >= 0) {
+    return {
+      lat: toNumber(orderedStops[matchedStopIndex].lat),
+      lng: toNumber(orderedStops[matchedStopIndex].lng),
+    };
+  }
+
+  return { lat: null, lng: null };
+}
+
+function findMatchingStopIndex(order, orderedStops) {
+  const orderAddress = normalize(order.customer_address);
+  const orderName = normalize(order.customer_name);
+
+  return orderedStops.findIndex((stop) => {
+    const stopAddress = normalize(stop.address);
+    const stopName = normalize(stop.name);
+    return (
+      (!!orderAddress && stopAddress === orderAddress) ||
+      (!!orderName && stopName === orderName) ||
+      (!!orderAddress && !!stopAddress && (stopAddress.includes(orderAddress) || orderAddress.includes(stopAddress))) ||
+      (!!orderName && !!stopName && (stopName.includes(orderName) || orderName.includes(stopName)))
+    );
+  });
+}
+
+function buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes) {
+  const miles = haversineMiles(driver, destination);
+  if (miles === null) return null;
+
+  const speedMph = Math.max(18, toNumber(driver.speed_mph, 28));
+  const driveMinutes = Math.max(1, Math.round((miles / speedMph) * 60));
+  const dwellMinutes = Math.max(0, Math.round(activeDwellMinutes + Math.max(stopsBeforeYou - 1, 0) * 8));
+  const totalMinutes = driveMinutes + dwellMinutes;
+  const etaDate = new Date(Date.now() + totalMinutes * 60 * 1000);
+
+  return {
+    totalMinutes,
+    driveMinutes,
+    dwellMinutes,
+    etaTime: etaDate.toISOString(),
+    legs: [{ withTraffic: false }],
+  };
+}
+
+router.get('/:token', async (req, res) => {
+  const token = String(req.params.token || '').trim();
+  if (!token) return res.status(400).json({ error: 'Tracking token required' });
+
+  const { data: order, error: orderError } = await supabase
+    .from('orders')
+    .select(`
+      id,
+      order_number,
+      customer_name,
+      customer_address,
+      status,
+      driver_name,
+      route_id,
+      tracking_expires_at,
+      customer_lat,
+      customer_lng
+    `)
+    .eq('tracking_token', token)
+    .single();
+
+  if (orderError || !order) {
+    return res.status(404).json({ error: 'This tracking link is invalid or no longer available.' });
+  }
+
+  if (order.tracking_expires_at && new Date(order.tracking_expires_at).getTime() <= Date.now()) {
+    return res.status(410).json({ error: 'This tracking link has expired. Please request a new one.' });
+  }
+
+  let route = null;
+  let orderedStops = [];
+  if (order.route_id) {
+    const { data: routeData } = await supabase
+      .from('routes')
+      .select('id, name, driver, stop_ids')
+      .eq('id', order.route_id)
+      .single();
+    route = routeData || null;
+
+    if (route?.stop_ids?.length) {
+      const { data: routeStops } = await supabase
+        .from('stops')
+        .select('id, name, address, lat, lng')
+        .in('id', route.stop_ids);
+
+      const stopMap = Object.fromEntries((routeStops || []).map((stop) => [stop.id, stop]));
+      orderedStops = (route.stop_ids || []).map((stopId) => stopMap[stopId]).filter(Boolean);
+    }
+  }
+
+  const matchedStopIndex = findMatchingStopIndex(order, orderedStops);
+  const destination = buildDestination(order, orderedStops, matchedStopIndex);
+  const driverName = order.driver_name || route?.driver || 'NodeRoute Driver';
+
+  const { data: driverLocations } = await supabase
+    .from('driver_locations')
+    .select('driver_name, lat, lng, heading, speed_mph, updated_at')
+    .ilike('driver_name', driverName)
+    .limit(1);
+
+  const driverLocation = driverLocations && driverLocations.length ? driverLocations[0] : null;
+  const driver = {
+    name: driverName,
+    lat: toNumber(driverLocation?.lat, destination.lat ?? 32.7765),
+    lng: toNumber(driverLocation?.lng, destination.lng ?? -79.9311),
+    heading: toNumber(driverLocation?.heading, 0),
+    speed_mph: toNumber(driverLocation?.speed_mph, 28),
+    updatedAt: driverLocation?.updated_at || null,
+  };
+
+  const relevantDwell = dwellRecords.filter((record) => String(record.routeId || '') === String(order.route_id || ''));
+  const completedStopIds = new Set(relevantDwell.filter((record) => record.departedAt).map((record) => record.stopId));
+  const activeDwell = relevantDwell.find((record) => !record.departedAt) || null;
+  const activeDwellMinutes = activeDwell ? (Date.now() - new Date(activeDwell.arrivedAt).getTime()) / 60000 : 0;
+
+  const stopsBeforeYou =
+    matchedStopIndex >= 0
+      ? orderedStops.slice(0, matchedStopIndex).filter((stop) => !completedStopIds.has(stop.id)).length
+      : 0;
+
+  const delivered = order.status === 'invoiced' || order.status === 'delivered';
+  const eta = delivered ? null : buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes);
+
+  res.json({
+    orderId: order.id,
+    orderNumber: order.order_number,
+    status: order.status,
+    deliveryAddress: order.customer_address,
+    customerName: order.customer_name,
+    stopsBeforeYou,
+    totalRouteStops: orderedStops.length,
+    driver,
+    destination,
+    eta,
+  });
+});
+
+module.exports = router;

@@ -55,6 +55,7 @@ function createSmtpMailer() {
   const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS } = process.env;
   if (!SMTP_HOST || !SMTP_PORT || !SMTP_USER || !SMTP_PASS) return null;
   const timeoutMs = Number(process.env.EMAIL_SEND_TIMEOUT_MS || 5000);
+  const rejectUnauthorized = String(process.env.SMTP_TLS_REJECT_UNAUTHORIZED || 'true').toLowerCase() !== 'false';
 
   const transporter = nodemailer.createTransport({
     host: SMTP_HOST,
@@ -66,6 +67,10 @@ function createSmtpMailer() {
     auth: {
       user: SMTP_USER,
       pass: SMTP_PASS,
+    },
+    tls: {
+      servername: SMTP_HOST,
+      rejectUnauthorized,
     },
   });
 
