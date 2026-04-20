@@ -128,11 +128,13 @@ app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager
 }, (req, res) => res.redirect(307, '/api/users/invite'));
 
 // ── PAGES ─────────────────────────────────────────────────────────────────────
-app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
+app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'landing.html')));
+app.get('/login', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
 app.get('/dashboard', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
 app.get('/driver', (req, res) => res.sendFile(path.join(frontendDir, 'driver.html')));
 app.get('/landing', (req, res) => res.sendFile(path.join(frontendDir, 'landing.html')));
 app.get('/portal', (req, res) => res.sendFile(path.join(frontendDir, 'customer-portal.html')));
+app.get('/customer-portal', (req, res) => res.sendFile(path.join(frontendDir, 'customer-portal.html')));
 
 // ── 404 for unknown API routes (must be before the global error handler) ──────
 app.use('/api', (req, res) => {
