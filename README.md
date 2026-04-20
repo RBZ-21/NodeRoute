@@ -29,6 +29,8 @@ NodeRoute is a Node/Express delivery operations app with static frontend pages f
 - `RESEND_API_KEY` or SMTP settings (`SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USER`, `SMTP_PASS`)
 - `OPENAI_API_KEY` for forecasting features
 
+For production deploys, `SUPABASE_URL`, `SUPABASE_SERVICE_KEY`, `JWT_SECRET`, and `BASE_URL` should all be set in the runtime environment. The app will only fall back to local in-memory demo data when Supabase is missing in non-production runs.
+
 ## Current Cleanup Notes
 
 - Delivery stats and driver analytics still rely on hard-coded demo data in `backend/routes/deliveries.js`.
