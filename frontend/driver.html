@@ -8,13 +8,16 @@
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#050d2a;--surface:#0d1b3e;--border:#1a2f5e;
+  --bg:#070809;--surface:rgba(15,16,18,0.88);--border:rgba(255,255,255,0.08);
   --accent:#3dba7f;--warn:#f59e0b;--danger:#ef4444;
   --text:#fff;--muted:#8899bb;
   --tab-h:68px;--top-h:56px;
 }
 html,body{height:100%;overflow:hidden}
-body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text)}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);position:relative;isolation:isolate}
+body::before{content:'';position:fixed;inset:0;background:url('Best_Background.svg') center/cover no-repeat;opacity:.26;pointer-events:none;z-index:0}
+body::after{content:'';position:fixed;inset:0;background:linear-gradient(180deg,rgba(7,8,9,.56),rgba(7,8,9,.82));pointer-events:none;z-index:0}
+body > *{position:relative;z-index:1}
 
 /* ── LOGIN ── */
 #loginScreen{height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:24px}
@@ -65,7 +68,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .progress-bar-fill{height:100%;background:var(--accent);border-radius:4px;transition:.4s}
 
 .stop-list{display:flex;flex-direction:column;gap:10px}
-.stop-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;position:relative;transition:.2s}
+.stop-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:14px 16px;position:relative;transition:.2s;backdrop-filter:blur(10px)}
 .stop-card.done{opacity:.55;border-color:rgba(61,186,127,.2)}
 .stop-card.active-stop{border-color:var(--warn);box-shadow:0 0 0 1px var(--warn)}
 .stop-card.done .stop-name{text-decoration:line-through;color:var(--muted)}
@@ -95,7 +98,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 
 /* ── ANALYTICS PANEL ── */
 .stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:20px}
-.stat-tile{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 16px}
+.stat-tile{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:18px 16px;backdrop-filter:blur(10px)}
 .stat-tile-label{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px}
 .stat-tile-value{font-size:30px;font-weight:800}
 .stat-tile-value.green{color:var(--accent)}
@@ -103,14 +106,14 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .stat-tile-sub{font-size:11px;color:var(--muted);margin-top:4px}
 
 .section-label{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:10px}
-.driver-perf-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px}
+.driver-perf-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px;backdrop-filter:blur(10px)}
 .perf-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid rgba(255,255,255,.05);font-size:13px}
 .perf-row:last-child{border-bottom:none}
 .perf-label{color:var(--muted)}
 .perf-val{font-weight:600}
 
 /* ── NOTES PANEL ── */
-.notes-hero{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:16px}
+.notes-hero{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;margin-bottom:16px;backdrop-filter:blur(10px)}
 .notes-stop-label{font-size:11px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:6px}
 .notes-stop-name{font-size:20px;font-weight:700;margin-bottom:4px}
 .notes-stop-addr{font-size:13px;color:var(--muted);margin-bottom:16px}
@@ -122,7 +125,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .copy-btn{margin-top:14px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);color:var(--warn);padding:8px 20px;border-radius:8px;font-size:13px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer}
 .copy-btn:active{background:rgba(245,158,11,.22)}
 
-.notes-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px}
+.notes-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;backdrop-filter:blur(10px)}
 .notes-card-title{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:10px;font-weight:600}
 .notes-text{font-size:15px;line-height:1.7;color:var(--text)}
 .notes-empty{font-size:14px;color:var(--muted);font-style:italic}

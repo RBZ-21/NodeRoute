@@ -8,12 +8,15 @@
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
 :root{
-  --bg:#050d2a;--surface:#0d1b3e;--border:#1a2f5e;
+  --bg:#070809;--surface:rgba(15,16,18,0.88);--border:rgba(255,255,255,0.08);
   --accent:#3dba7f;--warn:#f59e0b;--danger:#ef4444;--purple:#7c3aed;
   --text:#ffffff;--muted:#8899bb;
   --r:12px;--trans:0.2s ease all;
 }
-body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--text);min-height:100vh;position:relative;isolation:isolate}
+body::before{content:'';position:fixed;inset:0;background:url('Best_Background.svg') center/cover no-repeat;opacity:.26;pointer-events:none;z-index:0}
+body::after{content:'';position:fixed;inset:0;background:linear-gradient(180deg,rgba(7,8,9,.56),rgba(7,8,9,.82));pointer-events:none;z-index:0}
+body > *{position:relative;z-index:1}
 
 /* ── LOGIN ── */
 #loginScreen{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:100vh;padding:24px}
@@ -45,7 +48,7 @@ body{font-family:'Inter',system-ui,sans-serif;background:var(--bg);color:var(--t
 .portal-body{flex:1;padding:24px;max-width:960px;margin:0 auto;width:100%}
 
 /* ── BALANCE HERO ── */
-.balance-hero{background:linear-gradient(135deg,#0d1b3e 0%,#0f2244 100%);border:1px solid var(--border);border-radius:16px;padding:24px 28px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px}
+.balance-hero{background:linear-gradient(135deg,rgba(18,19,21,.9) 0%,rgba(10,11,13,.92) 100%);border:1px solid var(--border);border-radius:16px;padding:24px 28px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px;backdrop-filter:blur(10px)}
 .balance-left{}
 .balance-label{font-size:12px;text-transform:uppercase;letter-spacing:.7px;color:var(--muted);margin-bottom:6px}
 .balance-amount{font-size:40px;font-weight:800;line-height:1;color:#fff}
