@@ -44,6 +44,11 @@ body > *{position:relative;z-index:1}
 .topbar-brand{font-size:15px;font-weight:800;color:var(--accent)}
 .topbar-brand span{color:var(--text)}
 .driver-name{font-size:13px;color:var(--muted);font-weight:500}
+.driver-meta{display:flex;flex-direction:column;gap:3px}
+.location-status{font-size:11px;font-weight:600}
+.location-status.ok{color:var(--accent)}
+.location-status.warn{color:var(--warn)}
+.location-status.err{color:#fca5a5}
 .route-select{background:var(--bg);border:1px solid var(--border);color:var(--text);border-radius:8px;padding:6px 10px;font-size:13px;font-family:'Inter',sans-serif;outline:none;max-width:180px}
 .logout-btn{background:none;border:1px solid var(--border);color:var(--muted);padding:5px 12px;border-radius:7px;font-size:12px;font-family:'Inter',sans-serif;cursor:pointer}
 
@@ -164,7 +169,10 @@ body > *{position:relative;z-index:1}
     <div class="topbar-left">
       <div>
         <div class="topbar-brand"><img src="For_Light_Theme_Transparent.svg" alt="NodeRoute Driver"/></div>
-        <div class="driver-name" id="driverNameDisplay"></div>
+        <div class="driver-meta">
+          <div class="driver-name" id="driverNameDisplay"></div>
+          <div class="location-status" id="locationStatus">Location sync idle</div>
+        </div>
       </div>
     </div>
     <div style="display:flex;align-items:center;gap:8px">
@@ -216,8 +224,10 @@ let driverUser  = null;
 let allRoutes   = [];
 let activeRoute = null;
 let stopState   = {}; // stopId → 'arrived' | 'departed'
+let dwellState  = [];
 let locationWatchId = null;
 let lastLocationSignature = '';
+let locationStatus = { text: 'Location sync idle', tone: '' };
 
 // ── AUTH ─────────────────────────────────────────────────────────────────────
 function ah() { return { headers: { Authorization: 'Bearer ' + driverToken, 'Content-Type': 'application/json' } }; }
@@ -244,11 +254,12 @@ async function doLogin() {
 
 function doLogout() {
   stopLocationSharing();
-  driverToken = null; driverUser = null; allRoutes = []; activeRoute = null; stopState = {};
+  driverToken = null; driverUser = null; allRoutes = []; activeRoute = null; stopState = {}; dwellState = [];
   sessionStorage.removeItem('drv_token'); sessionStorage.removeItem('drv_user');
   document.getElementById('app').style.display        = 'none';
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('loginPw').value = '';
+  setLocationStatus('Location sync idle', '');
 }
 
 function showErr(m) { const e=document.getElementById('loginErr'); e.textContent=m; e.classList.add('show'); }
@@ -260,15 +271,20 @@ function enterApp() {
   document.getElementById('loginScreen').style.display  = 'none';
   document.getElementById('app').style.display          = 'flex';
   document.getElementById('driverNameDisplay').textContent = driverUser.name || driverUser.email;
+  setLocationStatus('Starting location sync…', 'warn');
   startLocationSharing();
   loadRoutes();
 }
 
 function startLocationSharing() {
-  if (!navigator.geolocation || locationWatchId !== null) return;
+  if (!navigator.geolocation) {
+    setLocationStatus('Location sharing unavailable in this browser', 'err');
+    return;
+  }
+  if (locationWatchId !== null) return;
   locationWatchId = navigator.geolocation.watchPosition(
     (position) => sendLocationUpdate(position.coords),
-    () => {},
+    () => setLocationStatus('Location permission blocked', 'err'),
     { enableHighAccuracy: true, maximumAge: 15000, timeout: 10000 }
   );
 }
@@ -279,6 +295,7 @@ function stopLocationSharing() {
   }
   locationWatchId = null;
   lastLocationSignature = '';
+  setLocationStatus('Location sync stopped', '');
 }
 
 async function sendLocationUpdate(coords) {
@@ -295,15 +312,21 @@ async function sendLocationUpdate(coords) {
   const signature = `${payload.lat}:${payload.lng}:${payload.heading}:${payload.speed_mph}`;
   if (signature === lastLocationSignature) return;
   lastLocationSignature = signature;
+  setLocationStatus('Syncing location…', 'warn');
 
   try {
-    await fetch('/api/driver/location', {
+    const res = await fetch('/api/driver/location', {
       method: 'PATCH',
       ...ah(),
       body: JSON.stringify(payload),
     });
+    if (!res.ok) {
+      setLocationStatus('Location sync unavailable', 'err');
+      return;
+    }
+    setLocationStatus(`Live at ${payload.lat.toFixed(3)}, ${payload.lng.toFixed(3)}`, 'ok');
   } catch {
-    // Keep the app usable even when location sync is unavailable.
+    setLocationStatus('Location sync unavailable', 'err');
   }
 }
 
@@ -320,16 +343,31 @@ function showTab(tab) {
 // ── ROUTES ───────────────────────────────────────────────────────────────────
 async function loadRoutes() {
   try {
-    const res  = await fetch('/api/driver/routes', ah());
+    const [routesRes, dwellRes] = await Promise.all([
+      fetch('/api/driver/routes', ah()),
+      fetch('/api/dwell', ah()),
+    ]);
+    const res = routesRes;
     if (res.status === 401) { doLogout(); return; }
     const data = await res.json();
+    dwellState = dwellRes.ok ? await dwellRes.json() : [];
     allRoutes  = Array.isArray(data) ? data : [];
+    hydrateStopState();
     populateRouteSelect();
     if (allRoutes.length) selectRoute(allRoutes[0].id);
     else renderEmptyRoute();
   } catch {
     document.getElementById('routeContent').innerHTML = errHtml('Could not load routes');
   }
+}
+
+function hydrateStopState() {
+  const nextState = {};
+  (Array.isArray(dwellState) ? dwellState : []).forEach(record => {
+    if (!record || !record.stopId) return;
+    nextState[record.stopId] = record.departedAt ? 'departed' : 'arrived';
+  });
+  stopState = nextState;
 }
 
 function populateRouteSelect() {
@@ -419,21 +457,56 @@ function renderRoute() {
 }
 
 async function markArrive(stopId, routeId) {
+  const previous = stopState[stopId];
   stopState[stopId] = 'arrived';
   renderRoute();
   renderNotes();
-  try { await fetch(`/api/stops/${stopId}/arrive`, { method:'POST', ...ah(), body: JSON.stringify({ routeId }) }); }
-  catch { /* non-blocking */ }
-  showToast('Arrived at stop');
+  try {
+    const res = await fetch(`/api/stops/${stopId}/arrive`, { method:'POST', ...ah(), body: JSON.stringify({ routeId }) });
+    if (!res.ok) throw new Error('arrive failed');
+    const record = await res.json();
+    mergeDwellRecord(record);
+    hydrateStopState();
+    renderRoute();
+    renderNotes();
+    showToast('Arrived at stop');
+  } catch {
+    if (previous) stopState[stopId] = previous;
+    else delete stopState[stopId];
+    showToast('Could not sync arrival right now');
+    renderRoute();
+    renderNotes();
+  }
 }
 
 async function markDepart(stopId, routeId) {
+  const previous = stopState[stopId];
   stopState[stopId] = 'departed';
   renderRoute();
   renderNotes();
-  try { await fetch(`/api/stops/${stopId}/depart`, { method:'POST', ...ah(), body: JSON.stringify({ routeId }) }); }
-  catch { /* non-blocking */ }
-  showToast('Stop completed ✓');
+  try {
+    const res = await fetch(`/api/stops/${stopId}/depart`, { method:'POST', ...ah(), body: JSON.stringify({ routeId }) });
+    if (!res.ok) throw new Error('depart failed');
+    const record = await res.json();
+    mergeDwellRecord(record);
+    hydrateStopState();
+    renderRoute();
+    renderNotes();
+    showToast('Stop completed ✓');
+  } catch {
+    if (previous) stopState[stopId] = previous;
+    else delete stopState[stopId];
+    showToast('Could not sync departure right now');
+    renderRoute();
+    renderNotes();
+  }
+}
+
+function mergeDwellRecord(record) {
+  if (!record || !record.id) return;
+  const index = dwellState.findIndex(item => item.id === record.id);
+  if (index >= 0) dwellState[index] = record;
+  else dwellState.push(record);
 }
 
 // ── ANALYTICS ────────────────────────────────────────────────────────────────
@@ -562,6 +635,13 @@ function esc(s) {
 }
 function errHtml(m) {
   return `<div class="empty-state"><div class="empty-state-icon">⚠️</div><h3>${m}</h3></div>`;
+}
+function setLocationStatus(text, tone) {
+  locationStatus = { text, tone };
+  const el = document.getElementById('locationStatus');
+  if (!el) return;
+  el.textContent = text;
+  el.className = `location-status${tone ? ' ' + tone : ''}`;
 }
 let toastTimer;
 function showToast(msg) {

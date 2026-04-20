@@ -37,6 +37,10 @@ body > *{position:relative;z-index:1}
 .login-note.show{display:block}
 .login-secondary{width:100%;padding:11px 13px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:8px;font-size:14px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer;transition:var(--trans);margin-top:10px}
 .login-secondary:hover{border-color:var(--accent);color:var(--accent)}
+.login-actions{display:flex;gap:10px;flex-wrap:wrap;margin-top:10px}
+.login-actions .login-secondary{margin-top:0;flex:1}
+.login-hint{display:none;font-size:12px;color:var(--muted);margin-top:12px;line-height:1.5;text-align:left}
+.login-hint.show{display:block}
 
 /* ── PORTAL SHELL ── */
 #portal{display:none;flex-direction:column;min-height:100vh}
@@ -130,6 +134,7 @@ body > *{position:relative;z-index:1}
 .save-success.show{display:inline}
 .save-error{font-size:13px;color:#fca5a5;display:none}
 .save-error.show{display:inline}
+.btn-loading{opacity:.7;cursor:wait}
 
 /* ── PRICING HELP ── */
 .pricing-controls{display:flex;align-items:center;gap:14px;margin-bottom:20px;flex-wrap:wrap}
@@ -206,9 +211,13 @@ body > *{position:relative;z-index:1}
     <div id="codeStep" style="display:none">
       <label class="login-label" for="codeInput">Verification code</label>
       <input id="codeInput" class="login-input" type="text" inputmode="numeric" maxlength="6" placeholder="Enter the 6-digit code"/>
+      <div id="loginHint" class="login-hint"></div>
     </div>
     <button id="loginBtn" class="login-btn" onclick="handleLoginAction()">Email Verification Code</button>
-    <button id="loginBackBtn" class="login-secondary" style="display:none" onclick="resetLoginFlow()">Use a different email</button>
+    <div id="loginActions" class="login-actions" style="display:none">
+      <button id="loginResendBtn" class="login-secondary" onclick="resendLoginCode()">Resend code</button>
+      <button id="loginBackBtn" class="login-secondary" onclick="resetLoginFlow()">Use a different email</button>
+    </div>
   </div>
 </div>
 
@@ -315,7 +324,7 @@ body > *{position:relative;z-index:1}
           </div>
         </div>
         <div class="form-save-row">
-          <button class="btn-sm btn-primary" onclick="saveContact()">Save Changes</button>
+          <button id="cfSaveBtn" class="btn-sm btn-primary" onclick="saveContact()">Save Changes</button>
           <span class="save-success" id="cfSuccess">Saved!</span>
           <span class="save-error" id="cfError"></span>
         </div>
@@ -390,6 +399,9 @@ let allInvoices = [];
 let allFishData = [];
 let portalChallengeId = null;
 let portalLoginName = '';
+let portalCodeExpiresAt = 0;
+let portalResendAvailableAt = 0;
+let portalResendTimer = null;
 
 // ── SESSION ───────────────────────────────────────────────────────────────────
 function getStoredToken() { try { return sessionStorage.getItem('portal_token'); } catch { return null; } }
@@ -412,18 +424,34 @@ async function requestLoginCode() {
   try {
     const res  = await fetch(API + '/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) });
     const data = await res.json();
-    if (!res.ok) { showLoginError(data.error || 'Login failed.'); return; }
+    if (!res.ok) {
+      if (res.status === 429 && data.retryAfterSeconds && portalChallengeId) {
+        portalResendAvailableAt = Date.now() + (Number(data.retryAfterSeconds) * 1000);
+        updatePortalCodeHint();
+      }
+      showLoginError(data.error || 'Login failed.');
+      return;
+    }
     portalChallengeId = data.challengeId;
     portalLoginName = data.name || email;
+    portalCodeExpiresAt = Date.now() + ((Number(data.expiresInSeconds) || 600) * 1000);
+    portalResendAvailableAt = Date.now() + ((Number(data.retryAfterSeconds) || 60) * 1000);
     document.getElementById('emailInput').disabled = true;
     document.getElementById('codeStep').style.display = 'block';
-    document.getElementById('loginBackBtn').style.display = 'block';
+    document.getElementById('loginActions').style.display = 'flex';
     document.getElementById('loginBtn').textContent = 'Verify & Access Portal';
     document.getElementById('loginSub').textContent = 'Enter the 6-digit code sent to your email';
     showLoginNote(`We sent a verification code to ${data.maskedEmail || email}.`);
+    startPortalCodeTimer();
     document.getElementById('codeInput').focus();
   } catch { showLoginError('Could not reach the server. Please try again.'); }
   finally   { btn.disabled = false; if (!portalChallengeId) btn.textContent = 'Email Verification Code'; }
+}
+
+async function resendLoginCode() {
+  if (!portalChallengeId) return;
+  if (Date.now() < portalResendAvailableAt) return;
+  await requestLoginCode();
 }
 
 async function verifyLoginCode() {
@@ -454,13 +482,17 @@ async function verifyLoginCode() {
 function resetLoginFlow() {
   portalChallengeId = null;
   portalLoginName = '';
+  portalCodeExpiresAt = 0;
+  portalResendAvailableAt = 0;
+  stopPortalCodeTimer();
   document.getElementById('emailInput').disabled = false;
   document.getElementById('codeInput').value = '';
   document.getElementById('codeStep').style.display = 'none';
-  document.getElementById('loginBackBtn').style.display = 'none';
+  document.getElementById('loginActions').style.display = 'none';
   document.getElementById('loginBtn').textContent = 'Email Verification Code';
   document.getElementById('loginSub').textContent = 'Customer Portal — enter your email to receive a secure verification code';
   clearLoginMessages();
+  setLoginHint('');
 }
 
 function doLogout() {
@@ -476,6 +508,36 @@ function showLoginNote(msg)  { const e = document.getElementById('loginNote'); e
 function hideLoginError()    { document.getElementById('loginError').classList.remove('show'); }
 function hideLoginNote()     { document.getElementById('loginNote').classList.remove('show'); }
 function clearLoginMessages(){ hideLoginError(); hideLoginNote(); }
+function setLoginHint(msg)   {
+  const e = document.getElementById('loginHint');
+  e.textContent = msg;
+  e.classList.toggle('show', !!msg);
+}
+function startPortalCodeTimer() {
+  stopPortalCodeTimer();
+  updatePortalCodeHint();
+  portalResendTimer = setInterval(updatePortalCodeHint, 1000);
+}
+function stopPortalCodeTimer() {
+  if (portalResendTimer) clearInterval(portalResendTimer);
+  portalResendTimer = null;
+}
+function updatePortalCodeHint() {
+  if (!portalChallengeId) return setLoginHint('');
+  const expiresMs = Math.max(0, portalCodeExpiresAt - Date.now());
+  const resendMs = Math.max(0, portalResendAvailableAt - Date.now());
+  const resendBtn = document.getElementById('loginResendBtn');
+  const expireMin = Math.floor(expiresMs / 60000);
+  const expireSec = Math.floor((expiresMs % 60000) / 1000);
+  const resendSec = Math.ceil(resendMs / 1000);
+  resendBtn.disabled = resendMs > 0;
+  resendBtn.textContent = resendMs > 0 ? `Resend in ${resendSec}s` : 'Resend code';
+  if (expiresMs <= 0) {
+    setLoginHint('This code expired. Request a fresh code to keep going.');
+    return;
+  }
+  setLoginHint(`Code expires in ${expireMin}:${String(expireSec).padStart(2, '0')}.`);
+}
 document.getElementById('emailInput').addEventListener('keydown', e => { if (e.key === 'Enter') handleLoginAction(); });
 document.getElementById('codeInput').addEventListener('keydown', e => { if (e.key === 'Enter') handleLoginAction(); });
 
@@ -679,24 +741,39 @@ async function saveContact() {
   };
   document.getElementById('cfSuccess').classList.remove('show');
   document.getElementById('cfError').classList.remove('show');
+  setContactSaving(true);
   try {
-    // Save contact info and door code in parallel
     const [res1, res2] = await Promise.all([
       fetch(API + '/contact',  { method: 'PATCH', ...ah(), body: JSON.stringify(payload) }),
       fetch(API + '/doorcode', { method: 'PATCH', ...ah(), body: JSON.stringify({ door_code: doorCode }) }),
     ]);
-    const d1 = await res1.json();
-    if (!res1.ok) {
-      document.getElementById('cfError').textContent = d1.error || 'Could not save.';
+    const [d1, d2] = await Promise.all([res1.json().catch(() => ({})), res2.json().catch(() => ({}))]);
+    if (!res1.ok || !res2.ok) {
+      const msg = d1.error || d2.error || 'Could not save your contact details right now.';
+      document.getElementById('cfError').textContent = msg;
       document.getElementById('cfError').classList.add('show');
-    } else {
-      document.getElementById('cfSuccess').classList.add('show');
-      setTimeout(() => document.getElementById('cfSuccess').classList.remove('show'), 3000);
+      return;
     }
+    document.getElementById('cfSuccess').classList.add('show');
+    setTimeout(() => document.getElementById('cfSuccess').classList.remove('show'), 3000);
   } catch {
     document.getElementById('cfError').textContent = 'Network error.';
     document.getElementById('cfError').classList.add('show');
+  } finally {
+    setContactSaving(false);
   }
+}
+
+function setContactSaving(isSaving) {
+  const ids = ['cfName', 'cfPhone', 'cfEmail', 'cfCompany', 'cfAddress', 'cfDoorCode'];
+  ids.forEach(id => {
+    const el = document.getElementById(id);
+    if (el && id !== 'cfEmail') el.disabled = isSaving;
+  });
+  const btn = document.getElementById('cfSaveBtn');
+  btn.disabled = isSaving;
+  btn.classList.toggle('btn-loading', isSaving);
+  btn.textContent = isSaving ? 'Saving…' : 'Save Changes';
 }
 
 // ── PRICING HELP ──────────────────────────────────────────────────────────────
