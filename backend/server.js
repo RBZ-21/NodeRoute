@@ -1,23 +1,5 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 
-const cluster = require('cluster');
-const os = require('os');
-
-if (cluster.isPrimary) {
-  const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-  const requestedWorkers = Number(process.env.WORKERS);
-  const numWorkers = Number.isInteger(requestedWorkers) && requestedWorkers > 0
-    ? requestedWorkers
-    : (isProduction ? 1 : Math.min(os.cpus().length, 4));
-
-  console.log(`Primary ${process.pid} starting ${numWorkers} worker${numWorkers === 1 ? '' : 's'}`);
-  for (let i = 0; i < numWorkers; i++) cluster.fork();
-  cluster.on('exit', (worker, code, signal) => {
-    console.warn(`Worker ${worker.process.pid} died (${signal || code}). Restarting…`);
-    cluster.fork();
-  });
-} else {
-
 const express = require('express');
 const path = require('path');
 const bcrypt = require('bcryptjs');
@@ -82,10 +64,7 @@ async function ensureAdminExists() {
   }
 }
 
-// Only one worker seeds the admin to avoid race conditions
-if (cluster.worker.id === 1) {
-  ensureAdminExists().catch(err => console.error('ensureAdminExists failed:', err.message));
-}
+ensureAdminExists().catch(err => console.error('ensureAdminExists failed:', err.message));
 
 if (!process.env.BASE_URL) {
   console.warn('WARNING: BASE_URL is not set — invite links will use http://localhost and will NOT work in production. Set BASE_URL to your public domain (e.g. https://yourapp.railway.app).');
@@ -157,6 +136,4 @@ app.use((err, req, res, next) => {
   res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`Worker ${process.pid} listening on http://0.0.0.0:${PORT}`));
-
-} // end cluster worker block
+app.listen(PORT, '0.0.0.0', () => console.log(`Server ${process.pid} listening on http://0.0.0.0:${PORT}`));
