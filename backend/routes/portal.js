@@ -163,7 +163,11 @@ router.post('/auth', async (req, res) => {
 
     const existing = [...portalChallenges.values()].find((challenge) => challenge.email === normalized);
     if (existing && Date.now() - existing.lastSentAt < PORTAL_RESEND_COOLDOWN_MS) {
-      return res.status(429).json({ error: 'A verification code was just sent. Please wait a moment before requesting another one.' });
+      const retryAfterSeconds = Math.ceil((PORTAL_RESEND_COOLDOWN_MS - (Date.now() - existing.lastSentAt)) / 1000);
+      return res.status(429).json({
+        error: 'A verification code was just sent. Please wait a moment before requesting another one.',
+        retryAfterSeconds,
+      });
     }
 
     const challengeId = crypto.randomBytes(24).toString('hex');

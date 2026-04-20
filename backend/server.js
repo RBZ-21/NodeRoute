@@ -110,7 +110,12 @@ app.get('/healthz', (req, res) => {
 });
 
 // Dwell records (top-level path, shares in-memory state with stops router)
-app.get('/api/dwell', authenticateToken, (req, res) => res.json(dwellRecords));
+app.get('/api/dwell', authenticateToken, (req, res) => {
+  if (req.user.role === 'driver') {
+    return res.json(dwellRecords.filter((record) => record.driverId === req.user.id));
+  }
+  res.json(dwellRecords);
+});
 
 // Legacy alias: /api/drivers/invite → /api/users/invite
 app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager'), (req, res, next) => {
