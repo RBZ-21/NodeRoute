@@ -1,90 +1,185 @@
 const OpenAI = require('openai');
 
+const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+const DEFAULT_VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4o';
+
 const FORECAST_SYSTEM_PROMPT = `You are a demand forecasting analyst for a seafood and perishable goods delivery warehouse.
 Your job is to analyze historical sales data and predict future demand accurately.
 
 Rules you MUST follow:
-1. Always respond with ONLY valid JSON — no markdown, no explanation outside the JSON.
-2. Account for trends (is demand rising, falling, or flat?).
-3. Account for perishable goods — overstocking causes spoilage and financial loss.
-4. If fewer than 3 data points exist, return confidence: "low".
-5. All quantity predictions must be whole integers.
-
-Output format — always return exactly this structure:
-{
-  "product_id": "<string>",
-  "product_name": "<string>",
-  "forecast_period_days": <number>,
-  "predicted_demand_units": <integer>,
-  "reorder_recommended": <true|false>,
-  "suggested_reorder_quantity": <integer>,
-  "confidence": "<low|medium|high>",
-  "trend": "<increasing|decreasing|stable>",
-  "reasoning": "<1-2 sentence plain English explanation>"
-}`;
+1. Focus on recent consumption patterns first, then adjust for trend.
+2. Perishable goods should avoid aggressive over-ordering.
+3. If history is sparse, lower confidence instead of inventing certainty.
+4. Use whole integers for all unit counts.
+5. Keep reasoning practical and concise.`;
 
 const INVENTORY_SYSTEM_PROMPT = `You are a warehouse inventory management AI for a seafood distribution and delivery business.
-You specialize in perishable goods — spoilage prevention and waste reduction are top priorities.
+You specialize in perishable goods, spoilage prevention, and waste reduction.
 
 Rules:
-1. Respond ONLY with valid JSON — no text outside the JSON object.
-2. Prioritize: CRITICAL (act today) → WARNING (act this week) → INFO (monitor only).
-3. Any perishable item expiring within 3 days is automatically CRITICAL.
-4. Overstocked = current stock > 2x average weekly demand.
-5. Keep all "reason" fields under 20 words.
-6. Sort action_items: CRITICAL first, then WARNING, then INFO.
-
-Output JSON format:
-{
-  "analysis_date": "<ISO date>",
-  "total_skus_analyzed": <integer>,
-  "summary": {
-    "critical_items": <integer>,
-    "warning_items": <integer>,
-    "overstocked_items": <integer>,
-    "healthy_items": <integer>
-  },
-  "action_items": [
-    {
-      "priority": "CRITICAL|WARNING|INFO",
-      "action": "REORDER|EXPEDITE_SALE|REDUCE_ORDER|MONITOR",
-      "product_id": "<string>",
-      "product_name": "<string>",
-      "current_stock": <integer>,
-      "reason": "<under 20 words>",
-      "suggested_action": "<specific next step>"
-    }
-  ]
-}`;
+1. Prioritize CRITICAL first, then WARNING, then INFO.
+2. Any item expiring within 3 days should be treated as urgent.
+3. Keep reasons short and operationally useful.
+4. Suggested actions should be specific next steps, not generic advice.`;
 
 const REORDER_ALERT_SYSTEM_PROMPT = `You are an operations alert writer for a seafood warehouse delivery company.
-Write short, urgent reorder alert messages for the warehouse team.
+Write short, direct reorder alerts for the warehouse team.
 
 Rules:
-1. Keep messages under 3 sentences.
-2. Always include: product name, days until stockout, and recommended order quantity.
-3. Tone: professional and direct. No filler.
-4. If expiry is a factor, mention it.
-5. Return JSON with only "subject" and "body" string fields.`;
+1. Keep the message under 3 sentences.
+2. Always include product name, days until stockout, and recommended order quantity.
+3. If expiry is relevant, mention it clearly.
+4. Be concise and operational.`;
 
 const WALKTHROUGH_SYSTEM_PROMPT = `You are a friendly internal product guide for the NodeRoute delivery operations app.
-Your job is to explain how to use app functions clearly to a normal user.
+Explain features clearly to normal users.
 
 Rules:
-1. Respond ONLY with valid JSON.
-2. Keep the answer practical, concise, and specific to the selected function.
-3. If a feature has role restrictions or caveats, mention them in warnings.
-4. Give step-by-step guidance, not marketing copy.
-5. Use short phrases that are easy to scan inside the UI.
+1. Be practical, not promotional.
+2. Keep steps short and easy to scan.
+3. Mention role restrictions or gotchas in warnings.
+4. Use simple language that fits inside the UI.`;
 
-Output format:
-{
-  "title": "<short title>",
-  "summary": "<1-2 sentence overview>",
-  "steps": ["<step 1>", "<step 2>", "<step 3>"],
-  "tips": ["<tip 1>", "<tip 2>"],
-  "warnings": ["<warning 1>"]
-}`;
+const PO_SCAN_PROMPT = `You are a purchase order scanner for a seafood distribution warehouse.
+Extract every visible line item from this purchase order or vendor invoice image.
+
+Rules:
+1. Return structured JSON only.
+2. Preserve the written product description exactly when possible.
+3. Infer category from the product name if it is not explicit.
+4. If a value is not legible, return null for that field.
+5. Quantities and prices must be numbers, not strings.`;
+
+const FORECAST_SCHEMA = {
+  name: 'inventory_demand_forecast',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: [
+      'product_id',
+      'product_name',
+      'forecast_period_days',
+      'predicted_demand_units',
+      'reorder_recommended',
+      'suggested_reorder_quantity',
+      'confidence',
+      'trend',
+      'reasoning',
+    ],
+    properties: {
+      product_id: { type: 'string' },
+      product_name: { type: 'string' },
+      forecast_period_days: { type: 'integer' },
+      predicted_demand_units: { type: 'integer' },
+      reorder_recommended: { type: 'boolean' },
+      suggested_reorder_quantity: { type: 'integer' },
+      confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
+      trend: { type: 'string', enum: ['increasing', 'decreasing', 'stable'] },
+      reasoning: { type: 'string' },
+    },
+  },
+};
+
+const INVENTORY_ANALYSIS_SCHEMA = {
+  name: 'inventory_health_analysis',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['analysis_date', 'total_skus_analyzed', 'summary', 'action_items'],
+    properties: {
+      analysis_date: { type: 'string' },
+      total_skus_analyzed: { type: 'integer' },
+      summary: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['critical_items', 'warning_items', 'overstocked_items', 'healthy_items'],
+        properties: {
+          critical_items: { type: 'integer' },
+          warning_items: { type: 'integer' },
+          overstocked_items: { type: 'integer' },
+          healthy_items: { type: 'integer' },
+        },
+      },
+      action_items: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['priority', 'action', 'product_id', 'product_name', 'current_stock', 'reason', 'suggested_action'],
+          properties: {
+            priority: { type: 'string', enum: ['CRITICAL', 'WARNING', 'INFO'] },
+            action: { type: 'string', enum: ['REORDER', 'EXPEDITE_SALE', 'REDUCE_ORDER', 'MONITOR'] },
+            product_id: { type: 'string' },
+            product_name: { type: 'string' },
+            current_stock: { type: 'integer' },
+            reason: { type: 'string' },
+            suggested_action: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+};
+
+const REORDER_ALERT_SCHEMA = {
+  name: 'reorder_alert_message',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['subject', 'body'],
+    properties: {
+      subject: { type: 'string' },
+      body: { type: 'string' },
+    },
+  },
+};
+
+const WALKTHROUGH_SCHEMA = {
+  name: 'feature_walkthrough',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['title', 'summary', 'steps', 'tips', 'warnings'],
+    properties: {
+      title: { type: 'string' },
+      summary: { type: 'string' },
+      steps: { type: 'array', items: { type: 'string' } },
+      tips: { type: 'array', items: { type: 'string' } },
+      warnings: { type: 'array', items: { type: 'string' } },
+    },
+  },
+};
+
+const PO_SCAN_SCHEMA = {
+  name: 'purchase_order_scan',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['vendor', 'po_number', 'date', 'items', 'total_cost'],
+    properties: {
+      vendor: { type: ['string', 'null'] },
+      po_number: { type: ['string', 'null'] },
+      date: { type: ['string', 'null'] },
+      total_cost: { type: ['number', 'null'] },
+      items: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['description', 'category', 'quantity', 'unit', 'unit_price', 'total'],
+          properties: {
+            description: { type: ['string', 'null'] },
+            category: { type: ['string', 'null'] },
+            quantity: { type: ['number', 'null'] },
+            unit: { type: ['string', 'null'] },
+            unit_price: { type: ['number', 'null'] },
+            total: { type: ['number', 'null'] },
+          },
+        },
+      },
+    },
+  },
+};
 
 let _client = null;
 
@@ -97,95 +192,340 @@ function getClient() {
   return _client;
 }
 
-async function callAI(systemPrompt, userMessage, maxTokens = 512) {
-  const client = getClient();
-  const response = await client.chat.completions.create({
-    model: 'gpt-4o-mini',
-    max_tokens: maxTokens,
-    response_format: { type: 'json_object' },
-    messages: [
-      { role: 'system', content: systemPrompt },
-      { role: 'user',   content: userMessage },
-    ],
-  });
-  const raw = response.choices[0]?.message?.content?.trim() || '{}';
-  return JSON.parse(raw);
+function numberOr(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
 }
 
-/**
- * @param {Object} product  - { item_number, description, unit, on_hand_qty, cost, category }
- * @param {Array}  history  - array of { change_qty, change_type, created_at } (newest first)
- * @param {number} forecastDays - how many days ahead to forecast (default 14)
- */
-async function forecastDemand(product, history, forecastDays = 14) {
-  const weeklyBuckets = buildWeeklyBuckets(history, 12);
+function intOr(value, fallback = 0) {
+  return Math.round(numberOr(value, fallback));
+}
 
-  const userMessage = `Analyze demand for this seafood/perishable product and provide a ${forecastDays}-day forecast.
+function stringOr(value, fallback = '') {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  return normalized || fallback;
+}
 
-Product:
-- ID: ${product.item_number}
-- Name: ${product.description}
-- Category: ${product.category || 'Seafood'}
-- Unit: ${product.unit || 'lb'}
-- Current stock on hand: ${product.on_hand_qty} ${product.unit || 'lb'}
-- Cost per unit: $${product.cost || 0}
+function clamp(value, min, max) {
+  return Math.max(min, Math.min(max, value));
+}
 
-Weekly usage history (last ${weeklyBuckets.length} weeks, oldest→newest):
-${weeklyBuckets.map(w => `  Week of ${w.week}: used ${w.used} ${product.unit || 'units'}`).join('\n')}
+function safeJsonParse(raw) {
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+}
 
-Total data points available: ${weeklyBuckets.filter(w => w.used > 0).length}
+function extractMessageContent(messageContent) {
+  if (typeof messageContent === 'string') return messageContent.trim();
+  if (!Array.isArray(messageContent)) return '';
+  return messageContent
+    .filter((part) => part && (part.type === 'text' || part.type === 'output_text'))
+    .map((part) => String(part.text || part.content || '').trim())
+    .filter(Boolean)
+    .join('\n')
+    .trim();
+}
 
-Forecast period: ${forecastDays} days`;
+async function callAI({ systemPrompt, userMessage, schema, maxTokens = 700, model = DEFAULT_MODEL }) {
+  const client = getClient();
+  const response = await client.chat.completions.create({
+    model,
+    max_tokens: maxTokens,
+    response_format: {
+      type: 'json_schema',
+      json_schema: {
+        name: schema.name,
+        strict: true,
+        schema: schema.schema,
+      },
+    },
+    messages: [
+      { role: 'system', content: systemPrompt },
+      { role: 'user', content: userMessage },
+    ],
+  });
 
-  return callAI(FORECAST_SYSTEM_PROMPT, userMessage, 512);
+  const choice = response.choices && response.choices[0];
+  const refusal = choice && choice.message && choice.message.refusal;
+  if (refusal) throw new Error(`Model refused request: ${refusal}`);
+
+  const raw = extractMessageContent(choice && choice.message && choice.message.content);
+  const parsed = safeJsonParse(raw);
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('Model returned invalid structured JSON');
+  }
+  return parsed;
 }
 
 function buildWeeklyBuckets(history, numWeeks) {
   const buckets = [];
   const now = Date.now();
-  for (let i = numWeeks - 1; i >= 0; i--) {
+  for (let i = numWeeks - 1; i >= 0; i -= 1) {
     const weekStart = new Date(now - (i + 1) * 7 * 86400000);
-    const weekEnd   = new Date(now - i * 7 * 86400000);
+    const weekEnd = new Date(now - i * 7 * 86400000);
     const label = weekStart.toISOString().split('T')[0];
     const used = (history || [])
-      .filter(h => {
-        const d = new Date(h.created_at);
-        return d >= weekStart && d < weekEnd && parseFloat(h.change_qty) < 0;
+      .filter((entry) => {
+        const createdAt = new Date(entry.created_at);
+        return createdAt >= weekStart && createdAt < weekEnd && numberOr(entry.change_qty, 0) < 0;
       })
-      .reduce((sum, h) => sum + Math.abs(parseFloat(h.change_qty)), 0);
-    buckets.push({ week: label, used: parseFloat(used.toFixed(2)) });
+      .reduce((sum, entry) => sum + Math.abs(numberOr(entry.change_qty, 0)), 0);
+    buckets.push({ week: label, used: Number(used.toFixed(2)) });
   }
   return buckets;
 }
 
-/**
- * @param {Array} products       - [{ item_number, description, category, unit, on_hand_qty, cost }]
- * @param {Object} historyByItem - { [item_number]: [{ change_qty, created_at }] }
- * @param {Array} expiringLots   - [{ item_number, lot_number, expiry_date, qty_on_hand }]
- */
-async function analyzeInventory(products, historyByItem, expiringLots) {
-  const today = new Date().toISOString().split('T')[0];
+function summarizeTrend(values) {
+  if (values.length < 2) return 'stable';
+  const half = Math.max(1, Math.floor(values.length / 2));
+  const early = values.slice(0, half);
+  const late = values.slice(-half);
+  const earlyAvg = early.reduce((sum, value) => sum + value, 0) / early.length;
+  const lateAvg = late.reduce((sum, value) => sum + value, 0) / late.length;
+  if (lateAvg > earlyAvg * 1.15) return 'increasing';
+  if (lateAvg < earlyAvg * 0.85) return 'decreasing';
+  return 'stable';
+}
 
-  const inventoryPayload = products.map(p => {
-    const history = historyByItem[p.item_number] || [];
-    const weeklyBuckets = buildWeeklyBuckets(history, 4);
-    const avgWeeklyDemand = parseFloat(
-      (weeklyBuckets.reduce((s, w) => s + w.used, 0) / 4).toFixed(2)
-    );
-    const expiring = expiringLots.filter(l => l.item_number === p.item_number);
-    const soonestExpiry = expiring.length
-      ? expiring.sort((a, b) => new Date(a.expiry_date) - new Date(b.expiry_date))[0]
+function heuristicForecast(product, history, forecastDays) {
+  const weeklyBuckets = buildWeeklyBuckets(history, 12);
+  const nonZero = weeklyBuckets.filter((bucket) => bucket.used > 0);
+  const recentBuckets = weeklyBuckets.slice(-4);
+  const recentActive = recentBuckets.filter((bucket) => bucket.used > 0);
+  const referenceBuckets = recentActive.length >= 2
+    ? recentActive
+    : (nonZero.length ? nonZero.slice(-6) : recentBuckets);
+  const averageWeekly = referenceBuckets.reduce((sum, bucket) => sum + bucket.used, 0) / Math.max(referenceBuckets.length, 1);
+  const dailyUsage = averageWeekly / 7;
+  const predictedDemand = Math.max(0, Math.round(dailyUsage * forecastDays));
+  const currentStock = numberOr(product.on_hand_qty, 0);
+  const shortage = predictedDemand - currentStock;
+  const trend = summarizeTrend(referenceBuckets.map((bucket) => bucket.used));
+  const confidence = recentActive.length < 2 ? 'low' : recentActive.length < 4 ? 'medium' : 'high';
+  const suggestedReorder = shortage > 0 ? Math.max(0, Math.round(shortage + dailyUsage * 3)) : 0;
+
+  return {
+    product_id: stringOr(product.item_number, 'unknown'),
+    product_name: stringOr(product.description, 'Unknown product'),
+    forecast_period_days: intOr(forecastDays, 14),
+    predicted_demand_units: predictedDemand,
+    reorder_recommended: suggestedReorder > 0,
+    suggested_reorder_quantity: suggestedReorder,
+    confidence,
+    trend,
+    reasoning: confidence === 'low'
+      ? 'Limited history is available, so this forecast uses recent average usage with low confidence.'
+      : `Based on recent weekly usage, demand looks ${trend} over the next ${forecastDays} days.`,
+  };
+}
+
+function isForecastPlausible(result, history, forecastDays) {
+  if (!result || typeof result !== 'object') return false;
+  const weeklyBuckets = buildWeeklyBuckets(history, 12);
+  const totalRecentUsage = weeklyBuckets.reduce((sum, bucket) => sum + bucket.used, 0);
+  const predicted = Math.max(0, intOr(result.predicted_demand_units, 0));
+  const suggested = Math.max(0, intOr(result.suggested_reorder_quantity, 0));
+  const horizon = Math.max(1, intOr(forecastDays, 14));
+
+  if (totalRecentUsage > 0 && predicted === 0) return false;
+  if (predicted > Math.ceil(totalRecentUsage * 3 + horizon * 10)) return false;
+  if (result.reorder_recommended === true && suggested === 0) return false;
+  return true;
+}
+
+function normalizeForecast(result, product, forecastDays, history) {
+  const fallback = heuristicForecast(product, history, forecastDays);
+  const source = isForecastPlausible(result, history, forecastDays) ? result : fallback;
+  return {
+    product_id: stringOr(source && source.product_id, fallback.product_id),
+    product_name: stringOr(source && source.product_name, fallback.product_name),
+    forecast_period_days: clamp(intOr(source && source.forecast_period_days, fallback.forecast_period_days), 1, 90),
+    predicted_demand_units: Math.max(0, intOr(source && source.predicted_demand_units, fallback.predicted_demand_units)),
+    reorder_recommended: typeof (source && source.reorder_recommended) === 'boolean'
+      ? source.reorder_recommended
+      : fallback.reorder_recommended,
+    suggested_reorder_quantity: Math.max(0, intOr(source && source.suggested_reorder_quantity, fallback.suggested_reorder_quantity)),
+    confidence: ['low', 'medium', 'high'].includes(source && source.confidence) ? source.confidence : fallback.confidence,
+    trend: ['increasing', 'decreasing', 'stable'].includes(source && source.trend) ? source.trend : fallback.trend,
+    reasoning: stringOr(source && source.reasoning, fallback.reasoning),
+  };
+}
+
+async function forecastDemand(product, history, forecastDays = 14) {
+  const weeklyBuckets = buildWeeklyBuckets(history, 12);
+  const userMessage = `Analyze demand for this seafood/perishable product and provide a ${forecastDays}-day forecast.
+
+Product:
+- ID: ${stringOr(product.item_number, 'unknown')}
+- Name: ${stringOr(product.description, 'Unknown product')}
+- Category: ${stringOr(product.category, 'Seafood')}
+- Unit: ${stringOr(product.unit, 'lb')}
+- Current stock on hand: ${numberOr(product.on_hand_qty, 0)} ${stringOr(product.unit, 'lb')}
+- Cost per unit: $${numberOr(product.cost, 0)}
+
+Weekly usage history (last ${weeklyBuckets.length} weeks, oldest to newest):
+${weeklyBuckets.map((week) => `- Week of ${week.week}: used ${week.used} ${stringOr(product.unit, 'units')}`).join('\n')}
+
+Weeks with usage data: ${weeklyBuckets.filter((week) => week.used > 0).length}
+Forecast period: ${forecastDays} days`;
+
+  try {
+    const aiResult = await callAI({
+      systemPrompt: FORECAST_SYSTEM_PROMPT,
+      userMessage,
+      schema: FORECAST_SCHEMA,
+      maxTokens: 500,
+    });
+    return normalizeForecast(aiResult, product, forecastDays, history);
+  } catch (error) {
+    if (String(error.message || '').includes('OPENAI_API_KEY')) throw error;
+    return normalizeForecast(null, product, forecastDays, history);
+  }
+}
+
+function heuristicInventoryAnalysis(products, historyByItem, expiringLots) {
+  const analysisDate = new Date().toISOString();
+  const actionItems = [];
+
+  for (const product of products) {
+    const currentStock = Math.max(0, intOr(product.on_hand_qty, 0));
+    const weekly = buildWeeklyBuckets(historyByItem[product.item_number] || [], 4).map((bucket) => bucket.used);
+    const avgWeeklyDemand = weekly.reduce((sum, value) => sum + value, 0) / Math.max(weekly.length, 1);
+    const expiring = (expiringLots || [])
+      .filter((lot) => lot.item_number === product.item_number)
+      .sort((a, b) => new Date(a.expiry_date) - new Date(b.expiry_date));
+    const soonest = expiring[0];
+    const daysToExpiry = soonest && soonest.expiry_date
+      ? Math.round((new Date(soonest.expiry_date) - Date.now()) / 86400000)
       : null;
 
+    if (daysToExpiry !== null && daysToExpiry <= 3 && currentStock > 0) {
+      actionItems.push({
+        priority: 'CRITICAL',
+        action: 'EXPEDITE_SALE',
+        product_id: stringOr(product.item_number, 'unknown'),
+        product_name: stringOr(product.description, 'Unknown product'),
+        current_stock: currentStock,
+        reason: 'Lot expires within 3 days.',
+        suggested_action: `Move ${product.description} urgently before ${soonest.expiry_date}.`,
+      });
+      continue;
+    }
+
+    if (avgWeeklyDemand > 0 && currentStock <= Math.ceil(avgWeeklyDemand * 0.5)) {
+      actionItems.push({
+        priority: 'CRITICAL',
+        action: 'REORDER',
+        product_id: stringOr(product.item_number, 'unknown'),
+        product_name: stringOr(product.description, 'Unknown product'),
+        current_stock: currentStock,
+        reason: 'Stock is below half of weekly demand.',
+        suggested_action: `Reorder ${Math.max(1, Math.round(avgWeeklyDemand * 2 - currentStock))} units now.`,
+      });
+      continue;
+    }
+
+    if (avgWeeklyDemand > 0 && currentStock > avgWeeklyDemand * 2) {
+      actionItems.push({
+        priority: 'WARNING',
+        action: 'REDUCE_ORDER',
+        product_id: stringOr(product.item_number, 'unknown'),
+        product_name: stringOr(product.description, 'Unknown product'),
+        current_stock: currentStock,
+        reason: 'Stock is more than two weeks of demand.',
+        suggested_action: `Slow purchasing and review spoilage risk for ${product.description}.`,
+      });
+      continue;
+    }
+
+    if (currentStock === 0) {
+      actionItems.push({
+        priority: 'WARNING',
+        action: 'REORDER',
+        product_id: stringOr(product.item_number, 'unknown'),
+        product_name: stringOr(product.description, 'Unknown product'),
+        current_stock: currentStock,
+        reason: 'Current stock is zero.',
+        suggested_action: `Check if ${product.description} should be reordered or retired.`,
+      });
+    }
+  }
+
+  const summary = {
+    critical_items: actionItems.filter((item) => item.priority === 'CRITICAL').length,
+    warning_items: actionItems.filter((item) => item.priority === 'WARNING').length,
+    overstocked_items: actionItems.filter((item) => item.action === 'REDUCE_ORDER').length,
+    healthy_items: Math.max(0, products.length - actionItems.length),
+  };
+
+  actionItems.sort((a, b) => {
+    const rank = { CRITICAL: 0, WARNING: 1, INFO: 2 };
+    return rank[a.priority] - rank[b.priority];
+  });
+
+  return {
+    analysis_date: analysisDate,
+    total_skus_analyzed: products.length,
+    summary,
+    action_items: actionItems,
+  };
+}
+
+function normalizeInventoryAnalysis(result, products, historyByItem, expiringLots) {
+  const fallback = heuristicInventoryAnalysis(products, historyByItem, expiringLots);
+  const rawItems = Array.isArray(result && result.action_items) ? result.action_items : fallback.action_items;
+  const actionItems = rawItems.map((item) => ({
+    priority: ['CRITICAL', 'WARNING', 'INFO'].includes(item && item.priority) ? item.priority : 'INFO',
+    action: ['REORDER', 'EXPEDITE_SALE', 'REDUCE_ORDER', 'MONITOR'].includes(item && item.action) ? item.action : 'MONITOR',
+    product_id: stringOr(item && item.product_id, 'unknown'),
+    product_name: stringOr(item && item.product_name, 'Unknown product'),
+    current_stock: Math.max(0, intOr(item && item.current_stock, 0)),
+    reason: stringOr(item && item.reason, 'Review this item.'),
+    suggested_action: stringOr(item && item.suggested_action, 'Monitor this item.'),
+  }));
+
+  actionItems.sort((a, b) => {
+    const rank = { CRITICAL: 0, WARNING: 1, INFO: 2 };
+    return rank[a.priority] - rank[b.priority];
+  });
+
+  const summary = result && result.summary ? {
+    critical_items: Math.max(0, intOr(result.summary.critical_items, actionItems.filter((item) => item.priority === 'CRITICAL').length)),
+    warning_items: Math.max(0, intOr(result.summary.warning_items, actionItems.filter((item) => item.priority === 'WARNING').length)),
+    overstocked_items: Math.max(0, intOr(result.summary.overstocked_items, actionItems.filter((item) => item.action === 'REDUCE_ORDER').length)),
+    healthy_items: Math.max(0, intOr(result.summary.healthy_items, Math.max(0, products.length - actionItems.length))),
+  } : fallback.summary;
+
+  return {
+    analysis_date: stringOr(result && result.analysis_date, fallback.analysis_date),
+    total_skus_analyzed: Math.max(0, intOr(result && result.total_skus_analyzed, fallback.total_skus_analyzed)),
+    summary,
+    action_items: actionItems,
+  };
+}
+
+async function analyzeInventory(products, historyByItem, expiringLots) {
+  const today = new Date().toISOString().split('T')[0];
+  const inventoryPayload = products.map((product) => {
+    const history = historyByItem[product.item_number] || [];
+    const weeklyBuckets = buildWeeklyBuckets(history, 4);
+    const avgWeeklyDemand = Number((weeklyBuckets.reduce((sum, bucket) => sum + bucket.used, 0) / 4).toFixed(2));
+    const expiring = (expiringLots || [])
+      .filter((lot) => lot.item_number === product.item_number)
+      .sort((a, b) => new Date(a.expiry_date) - new Date(b.expiry_date));
+    const soonestExpiry = expiring[0] || null;
+
     return {
-      product_id:          p.item_number,
-      product_name:        p.description,
-      current_stock:       Math.round(p.on_hand_qty || 0),
-      unit:                p.unit || 'lb',
-      min_stock_threshold: Math.round(avgWeeklyDemand * 0.5),
-      avg_weekly_demand:   avgWeeklyDemand,
-      expiry_date:         soonestExpiry ? soonestExpiry.expiry_date : null,
-      cost_per_unit:       parseFloat(p.cost) || 0,
+      product_id: stringOr(product.item_number, 'unknown'),
+      product_name: stringOr(product.description, 'Unknown product'),
+      current_stock: Math.max(0, intOr(product.on_hand_qty, 0)),
+      unit: stringOr(product.unit, 'lb'),
+      avg_weekly_demand: avgWeeklyDemand,
+      expiry_date: soonestExpiry ? soonestExpiry.expiry_date : null,
+      cost_per_unit: numberOr(product.cost, 0),
     };
   });
 
@@ -194,92 +534,163 @@ async function analyzeInventory(products, historyByItem, expiringLots) {
 Inventory data:
 ${JSON.stringify(inventoryPayload, null, 2)}
 
-Today is ${today}. CRITICAL items first. Return only the JSON.`;
+Return the highest-priority action items first.`;
 
-  return callAI(INVENTORY_SYSTEM_PROMPT, userMessage, 4096);
+  try {
+    const aiResult = await callAI({
+      systemPrompt: INVENTORY_SYSTEM_PROMPT,
+      userMessage,
+      schema: INVENTORY_ANALYSIS_SCHEMA,
+      maxTokens: 2200,
+    });
+    return normalizeInventoryAnalysis(aiResult, products, historyByItem, expiringLots);
+  } catch (error) {
+    if (String(error.message || '').includes('OPENAI_API_KEY')) throw error;
+    return normalizeInventoryAnalysis(null, products, historyByItem, expiringLots);
+  }
 }
 
-/**
- * @param {Object} product     - { item_number, description, unit, on_hand_qty, cost }
- * @param {number} dailyUsage  - average daily usage
- * @param {number} reorderQty  - suggested reorder quantity
- * @param {string|null} expiryDate - ISO date string or null
- */
-async function generateReorderAlert(product, dailyUsage, reorderQty, expiryDate = null) {
-  const currentStock = Math.round(parseFloat(product.on_hand_qty) || 0);
-  const daysUntilStockout = dailyUsage > 0
-    ? Math.round(currentStock / dailyUsage)
-    : null;
+function heuristicReorderAlert(product, dailyUsage, reorderQty, expiryDate) {
+  const currentStock = Math.max(0, intOr(product.on_hand_qty, 0));
+  const daysUntilStockout = dailyUsage > 0 ? Math.max(0, Math.round(currentStock / dailyUsage)) : null;
+  const name = stringOr(product.description, 'Unknown product');
+  const expiryNote = expiryDate ? ` Expiry to watch: ${expiryDate}.` : '';
+  return {
+    subject: `Reorder alert: ${name}`,
+    body: `${name} has about ${daysUntilStockout !== null ? daysUntilStockout : 'unknown'} day(s) until stockout. Recommended order quantity: ${Math.max(0, intOr(reorderQty, 0))} ${stringOr(product.unit, 'units')}.${expiryNote}`.trim(),
+  };
+}
 
+function normalizeReorderAlert(result, product, dailyUsage, reorderQty, expiryDate) {
+  const fallback = heuristicReorderAlert(product, dailyUsage, reorderQty, expiryDate);
+  return {
+    subject: stringOr(result && result.subject, fallback.subject),
+    body: stringOr(result && result.body, fallback.body),
+  };
+}
+
+async function generateReorderAlert(product, dailyUsage, reorderQty, expiryDate = null) {
+  const currentStock = Math.max(0, intOr(product.on_hand_qty, 0));
+  const daysUntilStockout = dailyUsage > 0 ? Math.round(currentStock / dailyUsage) : null;
   const userMessage = `Write a reorder alert for this item:
 
-Product: ${product.description}
-Current Stock: ${currentStock} ${product.unit || 'lb'}
-Daily Average Usage: ${parseFloat(dailyUsage).toFixed(2)} ${product.unit || 'lb'}
-Recommended Reorder Quantity: ${reorderQty} ${product.unit || 'lb'}
+Product: ${stringOr(product.description, 'Unknown product')}
+Current Stock: ${currentStock} ${stringOr(product.unit, 'lb')}
+Daily Average Usage: ${numberOr(dailyUsage, 0).toFixed(2)} ${stringOr(product.unit, 'lb')}
+Recommended Reorder Quantity: ${Math.max(0, intOr(reorderQty, 0))} ${stringOr(product.unit, 'lb')}
 Expiry Date: ${expiryDate || 'N/A'}
-Days Until Stockout: ${daysUntilStockout !== null ? daysUntilStockout : 'Unknown'}
+Days Until Stockout: ${daysUntilStockout !== null ? daysUntilStockout : 'Unknown'}`;
 
-Return JSON with "subject" and "body" only.`;
-
-  return callAI(REORDER_ALERT_SYSTEM_PROMPT, userMessage, 256);
+  try {
+    const aiResult = await callAI({
+      systemPrompt: REORDER_ALERT_SYSTEM_PROMPT,
+      userMessage,
+      schema: REORDER_ALERT_SCHEMA,
+      maxTokens: 220,
+    });
+    return normalizeReorderAlert(aiResult, product, dailyUsage, reorderQty, expiryDate);
+  } catch (error) {
+    if (String(error.message || '').includes('OPENAI_API_KEY')) throw error;
+    return normalizeReorderAlert(null, product, dailyUsage, reorderQty, expiryDate);
+  }
 }
 
-/**
- * Generate a short walkthrough for a feature or function in the app.
- * @param {string} feature - Feature name selected by the user
- * @param {string} question - Optional freeform question
- */
+function heuristicWalkthrough(feature, question = '') {
+  const title = `${feature} Walkthrough`;
+  const q = stringOr(question);
+  return {
+    title,
+    summary: q
+      ? `This guide explains how to use ${feature} and addresses your question: ${q}`
+      : `This guide explains the usual workflow for ${feature}.`,
+    steps: [
+      `Open the ${feature} area from the main navigation.`,
+      'Review the available fields and required inputs before making changes.',
+      'Complete the action, then confirm the result in the related table or status panel.',
+    ],
+    tips: [
+      'Use recent records or examples already in the app to match the expected format.',
+      'Refresh the page data after major updates if totals or statuses look stale.',
+    ],
+    warnings: [
+      'Some actions may be limited by your role permissions.',
+    ],
+  };
+}
+
+function normalizeWalkthrough(result, feature, question) {
+  const fallback = heuristicWalkthrough(feature, question);
+  return {
+    title: stringOr(result && result.title, fallback.title),
+    summary: stringOr(result && result.summary, fallback.summary),
+    steps: Array.isArray(result && result.steps) && result.steps.length ? result.steps.map((item) => stringOr(item)).filter(Boolean) : fallback.steps,
+    tips: Array.isArray(result && result.tips) && result.tips.length ? result.tips.map((item) => stringOr(item)).filter(Boolean) : fallback.tips,
+    warnings: Array.isArray(result && result.warnings) ? result.warnings.map((item) => stringOr(item)).filter(Boolean) : fallback.warnings,
+  };
+}
+
 async function generateWalkthrough(feature, question = '') {
   const userMessage = `Create a walkthrough for the following NodeRoute feature.
 
-Feature: ${feature}
+Feature: ${stringOr(feature, 'Dashboard')}
 User question: ${question || 'No extra question provided.'}
 
 Explain how to use it inside the app, including the usual sequence of actions and any gotchas.`;
 
-  return callAI(WALKTHROUGH_SYSTEM_PROMPT, userMessage, 768);
+  try {
+    const aiResult = await callAI({
+      systemPrompt: WALKTHROUGH_SYSTEM_PROMPT,
+      userMessage,
+      schema: WALKTHROUGH_SCHEMA,
+      maxTokens: 700,
+    });
+    return normalizeWalkthrough(aiResult, feature, question);
+  } catch (error) {
+    if (String(error.message || '').includes('OPENAI_API_KEY')) throw error;
+    return normalizeWalkthrough(null, feature, question);
+  }
 }
 
-const PO_SCAN_PROMPT = `You are a purchase order scanner for a seafood distribution warehouse.
-Extract every line item from this purchase order / vendor invoice image.
+function normalizePOScan(result) {
+  const items = Array.isArray(result && result.items) ? result.items : [];
+  const normalizedItems = items.map((item) => {
+    const quantity = item && item.quantity == null ? null : numberOr(item && item.quantity, null);
+    const unitPrice = item && item.unit_price == null ? null : numberOr(item && item.unit_price, null);
+    const total = item && item.total == null ? null : numberOr(item && item.total, null);
+    return {
+      description: item && item.description != null ? stringOr(item.description) : null,
+      category: item && item.category != null ? stringOr(item.category) : null,
+      quantity,
+      unit: item && item.unit != null ? stringOr(item.unit) : null,
+      unit_price: unitPrice,
+      total: total != null ? total : (quantity != null && unitPrice != null ? Number((quantity * unitPrice).toFixed(2)) : null),
+    };
+  });
 
-Return ONLY valid JSON with this exact structure — no markdown, no extra text:
-{
-  "vendor": "<supplier name or null>",
-  "po_number": "<PO or invoice number or null>",
-  "date": "<date string as shown or null>",
-  "items": [
-    {
-      "description": "<exact product name as written>",
-      "category": "<Finfish|Shellfish|Shrimp|Crab|Lobster|Squid|Octopus|Smoked/Cured|Other>",
-      "quantity": <number>,
-      "unit": "<lb|kg|ea|cs|box|each>",
-      "unit_price": <number>,
-      "total": <number>
-    }
-  ],
-  "total_cost": <grand total as number or null>
+  const computedTotal = normalizedItems.reduce((sum, item) => sum + numberOr(item.total, 0), 0);
+
+  return {
+    vendor: result && result.vendor != null ? stringOr(result.vendor) || null : null,
+    po_number: result && result.po_number != null ? stringOr(result.po_number) || null : null,
+    date: result && result.date != null ? stringOr(result.date) || null : null,
+    items: normalizedItems,
+    total_cost: result && result.total_cost != null ? numberOr(result.total_cost, computedTotal) : Number(computedTotal.toFixed(2)),
+  };
 }
 
-Rules:
-- Extract every visible line item — do not skip any
-- quantity and unit_price must be numbers, not strings
-- Infer category from product name (e.g. salmon → Finfish, shrimp → Shrimp)
-- If a value is not legible, use null for that field
-- All monetary amounts in USD as plain numbers (no currency symbols)`;
-
-/**
- * Use GPT-4o vision to parse a purchase order image into structured line items.
- * @param {string} base64Image - base64-encoded image data
- * @param {string} mimeType    - image MIME type (e.g. 'image/jpeg')
- */
 async function parsePurchaseOrderImage(base64Image, mimeType = 'image/jpeg') {
   const client = getClient();
   const response = await client.chat.completions.create({
-    model: 'gpt-4o',
-    max_tokens: 2048,
-    response_format: { type: 'json_object' },
+    model: DEFAULT_VISION_MODEL,
+    max_tokens: 1800,
+    response_format: {
+      type: 'json_schema',
+      json_schema: {
+        name: PO_SCAN_SCHEMA.name,
+        strict: true,
+        schema: PO_SCAN_SCHEMA.schema,
+      },
+    },
     messages: [{
       role: 'user',
       content: [
@@ -288,8 +699,17 @@ async function parsePurchaseOrderImage(base64Image, mimeType = 'image/jpeg') {
       ],
     }],
   });
-  const raw = response.choices[0]?.message?.content?.trim() || '{}';
-  return JSON.parse(raw);
+
+  const choice = response.choices && response.choices[0];
+  const refusal = choice && choice.message && choice.message.refusal;
+  if (refusal) throw new Error(`Model refused request: ${refusal}`);
+
+  const raw = extractMessageContent(choice && choice.message && choice.message.content);
+  const parsed = safeJsonParse(raw);
+  if (!parsed || typeof parsed !== 'object') {
+    throw new Error('PO scan returned invalid structured JSON');
+  }
+  return normalizePOScan(parsed);
 }
 
 module.exports = {
@@ -298,4 +718,5 @@ module.exports = {
   generateReorderAlert,
   generateWalkthrough,
   parsePurchaseOrderImage,
+  buildWeeklyBuckets,
 };
