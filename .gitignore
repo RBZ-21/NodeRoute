@@ -143,3 +143,6 @@ backend/data/users.json
 
 # Nested lock files inside node_modules
 **/node_modules/.package-lock.json
+
+# Local agent worktrees
+.claude/worktrees/

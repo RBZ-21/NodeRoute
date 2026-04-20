@@ -124,35 +124,34 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
   console.log(`\nINVITE for ${name} (${email}) as ${role}:\n${inviteUrl}\n`);
   const queuedMailers = createConfiguredMailers();
   const emailQueued = queuedMailers.length > 0;
-  const emailProvider = queuedMailers[0]?.provider || null;
-  const emailAttempts = queuedMailers.map((mailer) => mailer.provider || 'unknown');
+
+  let emailResult = {
+    emailSent: false,
+    emailError: emailQueued ? null : 'No email provider configured',
+    emailProvider: null,
+    emailAttempts: [],
+  };
+
   if (emailQueued) {
-    setImmediate(() => {
-      void sendInviteEmail({ name, email, role, inviteUrl }).then((result) => {
-        console.log('Invite email result:', {
-          email,
-          provider: result.emailProvider,
-          attempts: result.emailAttempts,
-          sent: result.emailSent,
-          error: result.emailError,
-        });
-      }).catch((err) => {
-        console.error('EMAIL ERROR - Unexpected invite email failure:', err.message, {
-          email,
-          from: process.env.EMAIL_FROM,
-        });
-      });
+    emailResult = await sendInviteEmail({ name, email, role, inviteUrl });
+    console.log('Invite email result:', {
+      email,
+      provider: emailResult.emailProvider,
+      attempts: emailResult.emailAttempts,
+      sent: emailResult.emailSent,
+      error: emailResult.emailError,
     });
   }
+
   res.json({
     message: `Invite created for ${email}`,
     userId: newUser.id,
     inviteUrl,
-    emailSent: false,
+    emailSent: emailResult.emailSent,
     emailQueued,
-    emailError: emailQueued ? null : 'No email provider configured',
-    emailProvider,
-    emailAttempts,
+    emailError: emailResult.emailError,
+    emailProvider: emailResult.emailProvider,
+    emailAttempts: emailResult.emailAttempts,
   });
 });
 

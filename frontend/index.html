@@ -1179,6 +1179,7 @@ td{padding:12px 16px;vertical-align:middle}
         <div class="inv-sub-tab" onclick="showInvTab('lots',this)">🏷 Lots &amp; Batches</div>
         <div class="inv-sub-tab" onclick="showInvTab('analytics',this)">📊 Analytics &amp; Predictions</div>
         <div class="inv-sub-tab" onclick="showInvTab('ai',this)">🤖 AI Health Check</div>
+        <div class="inv-sub-tab" onclick="showInvTab('reorder',this)">🔔 Reorder Alert</div>
       </div>
 
       <!-- PANE: Products -->
@@ -1313,6 +1314,37 @@ td{padding:12px 16px;vertical-align:middle}
         </div>
         <div id="aiInvStatus" style="display:none;color:var(--muted);font-size:13px;margin-bottom:12px;padding:10px;background:var(--card);border-radius:8px;border:1px solid var(--border)"></div>
         <div id="aiInvResults"></div>
+      </div>
+
+      <!-- PANE: Reorder Alert -->
+      <div class="inv-sub-pane" id="inv-pane-reorder">
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:10px">
+          <div>
+            <div class="fc-section-title" style="margin-bottom:2px">AI Reorder Alert Generator</div>
+            <div class="fc-section-sub">AI drafts an urgent reorder alert for a specific SKU — optionally send it by email</div>
+          </div>
+        </div>
+        <div class="fc-chart-card" style="padding:16px;margin-bottom:16px">
+          <div style="display:grid;grid-template-columns:2fr 1fr 2fr;gap:12px;align-items:flex-end;flex-wrap:wrap">
+            <div>
+              <label class="modal-label">Product</label>
+              <select id="reorderAlertProduct" class="modal-input" style="margin-bottom:0;cursor:pointer"></select>
+            </div>
+            <div>
+              <label class="modal-label">Reorder qty <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+              <input type="number" id="reorderAlertQty" class="modal-input" style="margin-bottom:0" placeholder="Auto (2-week supply)" min="1">
+            </div>
+            <div>
+              <label class="modal-label">Email to <span style="color:var(--muted);font-weight:400">(optional)</span></label>
+              <input type="email" id="reorderAlertEmail" class="modal-input" style="margin-bottom:0" placeholder="vendor@example.com">
+            </div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:14px">
+            <button class="btn btn-accent" onclick="runReorderAlert()" id="reorderAlertBtn">Generate Alert</button>
+          </div>
+        </div>
+        <div id="reorderAlertStatus" style="display:none;font-size:13px;margin-bottom:12px;padding:10px;background:var(--card);border-radius:8px;border:1px solid var(--border)"></div>
+        <div id="reorderAlertResults"></div>
       </div>
     </div>
 
@@ -4655,6 +4687,7 @@ function showInvTab(name, el) {
   document.getElementById('inv-pane-' + name)?.classList.add('active');
   if (name === 'analytics') fetchInventoryAnalytics();
   if (name === 'lots') fetchLots();
+  if (name === 'reorder') populateReorderAlertDropdown();
 }
 
 // ── YIELD MODAL ────────────────────────────────────────
@@ -6095,6 +6128,75 @@ function renderAIInventoryAnalysis(data) {
   }).join('');
 
   el.innerHTML = summaryHtml + `<div class="fc-chart-card" style="padding:16px">${itemsHtml}</div>`;
+}
+
+// ── AI REORDER ALERT ────────────────────────────────────
+function populateReorderAlertDropdown() {
+  const sel = document.getElementById('reorderAlertProduct');
+  if (!sel) return;
+  sel.innerHTML = '<option value="">— Select product —</option>' +
+    allInventory.map(i => `<option value="${i.item_number}">${i.description} (#${i.item_number})</option>`).join('');
+}
+
+async function runReorderAlert() {
+  const btn     = document.getElementById('reorderAlertBtn');
+  const status  = document.getElementById('reorderAlertStatus');
+  const results = document.getElementById('reorderAlertResults');
+  const id      = document.getElementById('reorderAlertProduct').value;
+  const qty     = document.getElementById('reorderAlertQty').value;
+  const email   = document.getElementById('reorderAlertEmail').value.trim();
+
+  if (!id) {
+    status.style.display = 'block';
+    status.style.color = 'var(--danger)';
+    status.textContent = '❌ Please select a product first.';
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = 'Generating…';
+  status.style.display = 'block';
+  status.style.color = 'var(--muted)';
+  status.textContent = '⏳ AI is drafting the reorder alert…';
+  results.innerHTML = '';
+
+  try {
+    const body = {};
+    if (qty)   body.reorder_qty = parseInt(qty, 10);
+    if (email) body.email = email;
+
+    const res = await fetch(`${API}/inventory/${id}/reorder-alert`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+      body: JSON.stringify(body),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || res.statusText);
+
+    status.style.display = 'none';
+    renderReorderAlert(data);
+  } catch (e) {
+    status.style.color = 'var(--danger)';
+    status.textContent = '❌ ' + e.message;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Generate Alert';
+  }
+}
+
+function renderReorderAlert(data) {
+  const el = document.getElementById('reorderAlertResults');
+  const emailBadge = data.emailed
+    ? `<span style="background:rgba(61,186,127,0.15);color:var(--accent);border:1px solid rgba(61,186,127,0.4);padding:3px 10px;border-radius:4px;font-size:11px;font-weight:600;margin-left:10px">✓ Emailed to ${data.to}</span>`
+    : '';
+  el.innerHTML = `
+    <div class="fc-chart-card" style="padding:20px">
+      <div style="display:flex;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:8px">
+        <div style="font-weight:700;font-size:15px">${data.subject || 'Reorder Alert'}</div>
+        ${emailBadge}
+      </div>
+      <div style="font-size:13px;color:var(--text);line-height:1.7;white-space:pre-wrap;border-top:1px solid var(--border);padding-top:14px">${data.body || ''}</div>
+    </div>`;
 }
 
 // ── AI DEMAND FORECASTING ───────────────────────────────
