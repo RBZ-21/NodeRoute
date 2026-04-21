@@ -50,13 +50,19 @@ function buildInvoicePDF(inv) {
     // Items rows
     const items = inv.items || [];
     items.forEach((item, i) => {
-      if (i % 2 === 0) doc.rect(50, y - 2, doc.page.width - 100, 20).fill('#fafafa');
+      const notes = item.notes ? String(item.notes) : '';
+      const rowHeight = notes ? 32 : 20;
+      if (i % 2 === 0) doc.rect(50, y - 2, doc.page.width - 100, rowHeight).fill('#fafafa');
       doc.fillColor('#222').font('Helvetica').fontSize(10);
       doc.text(item.description || '', 58, y, { width: 268 });
+      if (notes) {
+        doc.fillColor(MUTED).font('Helvetica-Oblique').fontSize(8).text(notes, 58, y + 12, { width: 268 });
+      }
+      doc.fillColor('#222').font('Helvetica').fontSize(10);
       doc.text(String(item.quantity || ''), 330, y, { width: 50, align: 'right' });
       doc.text(`$${parseFloat(item.unit_price||0).toFixed(2)}`, 388, y, { width: 80, align: 'right' });
       doc.text(`$${parseFloat(item.total||0).toFixed(2)}`,      476, y, { width: 74, align: 'right' });
-      y += 20;
+      y += rowHeight;
     });
 
     y += 10;

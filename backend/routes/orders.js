@@ -32,7 +32,7 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { customerName, customerEmail, customerAddress, items, notes } = req.body;
+  const { customerName, customerEmail, customerAddress, items, charges, notes } = req.body;
   const orderNumber = 'ORD-' + Date.now().toString().slice(-6);
   const trackingToken = generateTrackingToken();
   const insertResult = await insertRecordWithOptionalScope(supabase, 'orders', {
@@ -41,6 +41,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
     customer_email: customerEmail || null,
     customer_address: customerAddress || null,
     items: items || [],
+    charges: Array.isArray(charges) ? charges : [],
     status: 'pending',
     notes: notes || null,
     driver_name: null,
@@ -63,7 +64,10 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const updates = {};
   if (req.body.customerName !== undefined) updates.customer_name = req.body.customerName;
+  if (req.body.customerEmail !== undefined) updates.customer_email = req.body.customerEmail || null;
+  if (req.body.customerAddress !== undefined) updates.customer_address = req.body.customerAddress || null;
   if (req.body.items !== undefined) updates.items = req.body.items;
+  if (req.body.charges !== undefined) updates.charges = Array.isArray(req.body.charges) ? req.body.charges : [];
   if (req.body.status !== undefined) updates.status = req.body.status;
   if (req.body.driverName !== undefined) updates.driver_name = req.body.driverName;
   if (req.body.routeId !== undefined) updates.route_id = req.body.routeId;
@@ -84,6 +88,9 @@ router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async 
 
 // Send order to processing (prints + marks in_process)
 router.post('/:id/send', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
+  if (!existing) return res.status(404).json({ error: 'Order not found' });
+  if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const data = await dbQuery(supabase.from('orders').update({ status: 'in_process' }).eq('id', req.params.id).select().single(), res);
   if (!data) return;
   res.json(data);
@@ -94,15 +101,39 @@ router.post('/:id/fulfill', authenticateToken, requireRole('admin', 'manager'), 
   const { items, driverName, routeId } = req.body;
   const order = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!order) return;
-  const invoiceItems = items.map(it => {
+  if (!rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
+  const fulfilledItems = Array.isArray(items) ? items : (order.items || []);
+  const invoiceItems = fulfilledItems.map(it => {
     const qty = it.unit === 'lb' ? (it.actual_weight || it.requested_weight || 0) : (it.requested_qty || 0);
-    return { description: it.name, quantity: qty, unit: it.unit, unit_price: it.unit_price, total: parseFloat((qty * it.unit_price).toFixed(2)) };
+    return {
+      description: it.name,
+      notes: it.notes || null,
+      quantity: qty,
+      requested_weight: it.requested_weight || null,
+      actual_weight: it.actual_weight || null,
+      unit: it.unit,
+      unit_price: it.unit_price,
+      total: parseFloat((qty * it.unit_price).toFixed(2)),
+    };
+  });
+  (Array.isArray(order.charges) ? order.charges : []).forEach(charge => {
+    const amount = parseFloat(charge.amount) || 0;
+    if (amount > 0) {
+      invoiceItems.push({
+        description: charge.label || 'Additional Charge',
+        notes: charge.type === 'percent' ? `${charge.value}%` : null,
+        quantity: 1,
+        unit: 'charge',
+        unit_price: amount,
+        total: amount,
+      });
+    }
   });
   const subtotal = invoiceItems.reduce((s, i) => s + i.total, 0);
   const tax = parseFloat((subtotal * 0.09).toFixed(2));
   const total = parseFloat((subtotal + tax).toFixed(2));
   const invoiceNumber = 'INV-' + Date.now().toString().slice(-6);
-  const invoice = await dbQuery(supabase.from('invoices').insert([{
+  const invoiceInsert = await insertRecordWithOptionalScope(supabase, 'invoices', {
     invoice_number: invoiceNumber,
     customer_name: order.customer_name,
     customer_email: order.customer_email,
@@ -112,12 +143,15 @@ router.post('/:id/fulfill', authenticateToken, requireRole('admin', 'manager'), 
     driver_name: driverName || null,
     status: 'pending',
     notes: order.notes || null
-  }]).select().single(), res);
+  }, req.context);
+  if (invoiceInsert.error) return res.status(500).json({ error: invoiceInsert.error.message });
+  const invoice = invoiceInsert.data;
   if (!invoice) return;
   const trackingToken = order.tracking_token || generateTrackingToken();
   const trackingExpiresAt = order.tracking_expires_at || trackingExpiry();
   await supabase.from('orders').update({
     status: 'invoiced',
+    items: fulfilledItems,
     driver_name: driverName || null,
     route_id: routeId || null,
     tracking_token: trackingToken,
@@ -136,12 +170,13 @@ router.post('/:id/tracking-link', authenticateToken, requireRole('admin', 'manag
   const order = await dbQuery(
     supabase
       .from('orders')
-      .select('id, order_number, tracking_token, tracking_expires_at')
+      .select('*')
       .eq('id', req.params.id)
       .single(),
     res
   );
   if (!order) return;
+  if (!rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
   const shouldRegenerate =
     !!req.body?.regenerate ||

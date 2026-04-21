@@ -4,6 +4,12 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createMailer } = require('../services/email');
 const { buildInvoicePDF } = require('../services/pdf');
 const { loadDriverInvoiceScope } = require('../services/driver-invoice-access');
+const {
+  buildScopeFields,
+  filterRowsByContext,
+  insertRecordWithOptionalScope,
+  rowMatchesContext,
+} = require('../services/operating-context');
 
 const router = express.Router();
 
@@ -12,6 +18,11 @@ async function canDriverAccessInvoice(req, invoice) {
   if (!invoice?.id) return false;
   const scope = await loadDriverInvoiceScope(supabase, req.user, req.context);
   return scope.assignedInvoiceIds.has(invoice.id);
+}
+
+async function canAccessInvoice(req, invoice) {
+  if (req.user?.role === 'driver') return canDriverAccessInvoice(req, invoice);
+  return rowMatchesContext(invoice, req.context);
 }
 
 async function sendInvoiceEmail(inv, subjectPrefix = 'Your Invoice') {
@@ -67,16 +78,15 @@ router.get('/', authenticateToken, async (req, res) => {
 
   const data = await dbQuery(supabase.from('invoices').select('*').order('created_at', { ascending: false }), res);
   if (!data) return;
-  if (req.user.role === 'driver') {
-    return res.json(data.filter(inv => canDriverAccessInvoice(req.user, inv)));
-  }
-  res.json(data);
+  res.json(filterRowsByContext(data, req.context));
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { invoice_number, customer_name, customer_email, customer_address, items, subtotal, tax, total, driver_name, driver_id, notes, entree_invoice_id } = req.body;
   if (!customer_name) return res.status(400).json({ error: 'Customer name required' });
-  const data = await dbQuery(supabase.from('invoices').insert([{ invoice_number, customer_name, customer_email, customer_address, items: items||[], subtotal: subtotal||0, tax: tax||0, total: total||0, status: 'pending', driver_name, driver_id: driver_id || null, notes, entree_invoice_id }]).select().single(), res);
+  const insertResult = await insertRecordWithOptionalScope(supabase, 'invoices', { invoice_number, customer_name, customer_email, customer_address, items: items||[], subtotal: subtotal||0, tax: tax||0, total: total||0, status: 'pending', driver_name, driver_id: driver_id || null, notes, entree_invoice_id }, req.context);
+  if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
+  const data = insertResult.data;
   if (!data) return;
   res.json(data);
 });
@@ -103,7 +113,10 @@ router.post('/import', authenticateToken, requireRole('admin', 'manager'), async
     entree_invoice_id: e.InvoiceNumber || e.InvoiceID || null,
     status: 'pending',
   }));
-  const data = await dbQuery(supabase.from('invoices').insert(mapped).select(), res);
+  const data = await dbQuery(supabase.from('invoices').insert(mapped.map(inv => ({
+    ...inv,
+    ...buildScopeFields(req.context),
+  }))).select(), res);
   if (!data) return;
   res.json({ imported: data.length, invoices: data });
 });
@@ -115,7 +128,7 @@ router.post('/:id/sign', authenticateToken, async (req, res) => {
 
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
-  if (!(await canDriverAccessInvoice(req, inv))) return res.status(403).json({ error: 'Forbidden' });
+  if (!(await canAccessInvoice(req, inv))) return res.status(403).json({ error: 'Forbidden' });
 
   // Update invoice as signed
   const updated = await dbQuery(supabase.from('invoices').update({ signature_data, status: 'signed', signed_at: new Date().toISOString() }).eq('id', req.params.id).select().single(), res);
@@ -141,6 +154,7 @@ router.post('/:id/sign', authenticateToken, async (req, res) => {
 router.post('/:id/email', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!rowMatchesContext(inv, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
   try {
     const result = await sendInvoiceEmail(inv);
@@ -157,6 +171,7 @@ router.post('/:id/email', authenticateToken, requireRole('admin', 'manager'), as
 router.post('/:id/resend', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!rowMatchesContext(inv, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
   try {
     const result = await sendInvoiceEmail(inv, 'Invoice');
@@ -173,7 +188,7 @@ router.post('/:id/resend', authenticateToken, requireRole('admin', 'manager'), a
 router.get('/:id/pdf', authenticateToken, async (req, res) => {
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
-  if (!(await canDriverAccessInvoice(req, inv))) return res.status(403).json({ error: 'Forbidden' });
+  if (!(await canAccessInvoice(req, inv))) return res.status(403).json({ error: 'Forbidden' });
   const pdfBuffer = await buildInvoicePDF(inv);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="invoice-${inv.invoice_number || inv.id.slice(0,8)}.pdf"`);

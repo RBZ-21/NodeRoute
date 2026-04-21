@@ -3,6 +3,7 @@
   "version": "1.0.0",
   "scripts": {
     "start": "node backend/server.js",
+    "test": "npm --prefix backend test",
     "postinstall": "cd backend && npm install"
   }
 }

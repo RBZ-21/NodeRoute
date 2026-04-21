@@ -1096,7 +1096,8 @@ td{padding:12px 16px;vertical-align:middle}
             <table class="order-items-table" id="orderItemsTable">
               <thead>
                 <tr>
-                  <th style="width:35%">Product</th>
+                  <th style="width:28%">Product</th>
+                  <th style="width:24%">Notes</th>
                   <th style="width:80px">Unit</th>
                   <th style="width:90px">Amount</th>
                   <th style="width:90px">$/Unit</th>
@@ -1220,6 +1221,8 @@ td{padding:12px 16px;vertical-align:middle}
           </div>
           <div style="display:flex;gap:8px">
             <button class="btn btn-outline" onclick="printInventorySheet()">🖨 Print Sheet</button>
+            <button class="btn btn-outline" onclick="printInventoryCountSheet()">🧾 Count Sheet</button>
+            <button class="btn btn-outline" onclick="openInventoryCountModal()">Count Inventory</button>
             <button class="btn btn-outline" onclick="openPOScanModal()" title="Scan a purchase order photo to auto-add items">📷 Scan PO</button>
             <button class="btn btn-accent" onclick="openInventoryModal()">+ Add Product</button>
           </div>
@@ -2011,11 +2014,37 @@ td{padding:12px 16px;vertical-align:middle}
         </select>
         <div id="invLotHint" style="display:none;font-size:11px;color:#a78bfa;margin-top:-8px;margin-bottom:8px;padding:6px 10px;background:rgba(124,58,237,0.08);border-radius:6px">⚠ Mussels, clams &amp; oysters require a lot number on every shipment.</div>
       </div>
+      <div style="grid-column:1 / -1">
+        <label class="modal-label">Product Notes</label>
+        <input class="modal-input" id="invNotes" placeholder="Optional product handling, prep, or ordering notes"/>
+      </div>
     </div>
     <div class="modal-result" id="invResult"></div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeInventoryModal()">Cancel</button>
       <button class="btn btn-accent" id="invSubmitBtn" onclick="submitInventoryItem()">Add Product</button>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay" id="inventoryCountModal">
+  <div class="modal-box" style="width:min(760px,96vw)">
+    <h3>Count Inventory</h3>
+    <p class="modal-sub">Enter the physical count. Submitted quantities replace the current on-hand quantity.</p>
+    <div style="display:flex;gap:10px;align-items:center;margin-bottom:12px;flex-wrap:wrap">
+      <input class="modal-input" id="inventoryCountNotes" placeholder="Count notes / month" style="flex:1;min-width:220px;margin-bottom:0"/>
+      <button class="btn btn-outline" onclick="printInventoryCountSheet()" type="button">Print Count Sheet</button>
+    </div>
+    <div class="table-card" style="max-height:430px;overflow:auto">
+      <table>
+        <thead><tr><th>Product</th><th>Current</th><th style="width:150px">Counted Qty</th></tr></thead>
+        <tbody id="inventoryCountRows"></tbody>
+      </table>
+    </div>
+    <div class="modal-result" id="inventoryCountResult"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeInventoryCountModal()">Cancel</button>
+      <button class="btn btn-accent" onclick="submitInventoryCount()">Complete Count</button>
     </div>
   </div>
 </div>
@@ -2243,6 +2272,29 @@ let orderEditingId = null;
 let selectedCustomerForOrder = null;
 let custAcIndex = -1;
 
+function customerName(c) {
+  return c?.company_name || c?.Restaurant || c?.customer_name || c?.name || '';
+}
+
+function customerEmail(c) {
+  return c?.email || c?.Email || c?.customer_email || '';
+}
+
+function customerAddress(c) {
+  return c?.address || c?.Address || c?.customer_address || c?.company_address || '';
+}
+
+function customerSearchText(c) {
+  return [
+    customerName(c),
+    c?.customer_number,
+    c?.contact_name,
+    c?.phone_number,
+    customerEmail(c),
+    customerAddress(c),
+  ].filter(Boolean).join(' ').toLowerCase();
+}
+
 function clearOrderForm() {
   orderEditingId = null;
   selectedCustomerForOrder = null;
@@ -2274,20 +2326,23 @@ function clearOrderForm() {
   document.getElementById('orderCustomerInput').focus();
 }
 
-function addOrderRow(name='', unit='lb', amount='', price='') {
+function addOrderRow(name='', unit='lb', amount='', price='', notes='', itemNumber='') {
   const tbody = document.getElementById('orderItemsBody');
   const idx = tbody.rows.length;
   const tr = document.createElement('tr');
   tr.dataset.idx = idx;
+  tr.dataset.itemNumber = itemNumber || '';
   tr.innerHTML = `
     <td>
       <div style="position:relative">
-        <input class="order-item-input" placeholder="Product name" value="${name}"
+        <input class="order-item-input" placeholder="Product name" value="${escHtml(name)}"
           onchange="recalcOrder()" oninput="suggestProduct(this)"
           onkeydown="orderItemKeydown(event,${idx},'name')" tabindex="0" data-field="name"/>
         <div class="cust-ac-drop prod-ac-drop" style="z-index:200"></div>
       </div>
     </td>
+    <td><input class="order-item-input" placeholder="Cut, pack, substitutions…" value="${escHtml(notes)}"
+      onkeydown="orderItemKeydown(event,${idx},'notes')" tabindex="0" data-field="notes"/></td>
     <td>
       <div class="unit-toggle">
         <button class="unit-btn ${unit==='lb'?'active':''}" onclick="setUnit(this,'lb')" type="button" tabindex="-1">lb</button>
@@ -2405,6 +2460,8 @@ function getOrderItems() {
     const unitActual = tr.querySelector('.unit-btn.active')?.textContent?.trim() === 'lb' ? 'lb' : 'each';
     return {
       name: tr.querySelector('[data-field="name"]')?.value?.trim() || '',
+      item_number: tr.dataset.itemNumber || '',
+      notes: tr.querySelector('[data-field="notes"]')?.value?.trim() || '',
       unit: unitActual,
       requested_qty: unitActual === 'each' ? (parseFloat(tr.querySelector('[data-field="amount"]')?.value) || 0) : null,
       requested_weight: unitActual === 'lb' ? (parseFloat(tr.querySelector('[data-field="amount"]')?.value) || 0) : null,
@@ -2433,7 +2490,7 @@ async function sendOrderToProcessing() {
   try {
     let order;
     if (orderEditingId) {
-      const r = await fetch(`${API}/orders/${orderEditingId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ items, notes: payload.notes }) });
+      const r = await fetch(`${API}/orders/${orderEditingId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ customerName: payload.customerName, customerEmail: payload.customerEmail, customerAddress: payload.customerAddress, items, charges: payload.charges, notes: payload.notes }) });
       order = await r.json();
       order = (await (await fetch(`${API}/orders/${orderEditingId}/send`, { method: 'POST', headers: authHeaders.headers })).json());
     } else {
@@ -2592,9 +2649,20 @@ function editOrder(id) {
   document.getElementById('orderCustomerEmail').value = order.customer_email || '';
   document.getElementById('orderCustomerAddress').value = order.customer_address || '';
   document.getElementById('orderNotes').value = order.notes || '';
+  ['fuel','service','minimum'].forEach(key => {
+    const charge = (order.charges || []).find(c => c.key === key);
+    const input = document.getElementById('chargeVal-' + key);
+    const btn = document.getElementById('chargeTypBtn-' + key);
+    orderChargeTypes[key] = charge?.type || (key === 'minimum' ? 'flat' : 'percent');
+    if (input) input.value = charge?.value || '';
+    if (btn) {
+      btn.textContent = orderChargeTypes[key] === 'percent' ? '%' : '$';
+      btn.className = 'charge-type-btn ' + (orderChargeTypes[key] === 'percent' ? 'pct-active' : 'flat-active');
+    }
+  });
   document.getElementById('orderItemsBody').innerHTML = '';
   (order.items || []).forEach(i => {
-    addOrderRow(i.name, i.unit || 'lb', i.unit === 'lb' ? i.requested_weight : i.requested_qty, i.unit_price);
+    addOrderRow(i.name, i.unit || 'lb', i.unit === 'lb' ? i.requested_weight : i.requested_qty, i.unit_price, i.notes || '', i.item_number || '');
   });
   if (!order.items?.length) addOrderRow();
   recalcOrder();
@@ -2636,7 +2704,8 @@ function printOrderSlip(order) {
   const items = order.items || [];
   const rows = items.map(i => {
     const amt = i.unit === 'lb' ? `${i.requested_weight} lb` : `${i.requested_qty} ea`;
-    return `<tr><td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:14px">${i.name}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:14px;text-align:right">${amt}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:14px;text-align:right">$${i.unit_price?.toFixed(2)||'—'}/unit</td></tr>`;
+    const note = i.notes ? `<div style="font-size:12px;color:#666;margin-top:2px;font-style:italic">${escHtml(i.notes)}</div>` : '';
+    return `<tr><td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:14px">${escHtml(i.name)}${note}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:14px;text-align:right">${amt}</td><td style="padding:8px 12px;border-bottom:1px solid #eee;font-size:14px;text-align:right">$${i.unit_price?.toFixed(2)||'—'}/unit</td></tr>`;
   }).join('');
   const win = window.open('', '_blank', 'width=600,height=800');
   win.document.write(`<!DOCTYPE html><html><head><title>Order ${order.order_number}</title>
@@ -2669,17 +2738,25 @@ function filterOrderCustomers() {
   const drop = document.getElementById('orderCustDrop');
   custAcIndex = -1;
   if (!q || q.length < 1) { drop.style.display = 'none'; return; }
+  if (!allCustomers.length && !filterOrderCustomers.loading) {
+    filterOrderCustomers.loading = true;
+    fetchCustomers().finally(() => {
+      filterOrderCustomers.loading = false;
+      filterOrderCustomers();
+    });
+  }
   const matches = allCustomers.filter(c => {
-    const name = (c.Restaurant || c.name || '').toLowerCase();
-    return name.includes(q);
+    return customerSearchText(c).includes(q);
   }).slice(0, 10);
   if (!matches.length) { drop.style.display = 'none'; return; }
   drop.innerHTML = matches.map((c, i) => {
-    const name = c.Restaurant || c.name || '';
-    const addr = c.Address || '';
-    return `<div class="cust-ac-item" data-idx="${i}" onclick="selectOrderCustomer(${JSON.stringify(name).replace(/"/g,'&quot;')}, ${JSON.stringify(c.Email||'').replace(/"/g,'&quot;')}, ${JSON.stringify(addr).replace(/"/g,'&quot;')})">
-      <div style="font-weight:600">${name}</div>
-      ${addr ? `<div style="font-size:11px;color:var(--muted)">${addr}</div>` : ''}
+    const name = customerName(c);
+    const addr = customerAddress(c);
+    const meta = [c.customer_number, c.contact_name, c.phone_number].filter(Boolean).join(' · ');
+    return `<div class="cust-ac-item" data-idx="${i}" onclick="selectOrderCustomer(${JSON.stringify(name).replace(/"/g,'&quot;')}, ${JSON.stringify(customerEmail(c)).replace(/"/g,'&quot;')}, ${JSON.stringify(addr).replace(/"/g,'&quot;')})">
+      <div style="font-weight:600">${escHtml(name)}</div>
+      ${meta ? `<div style="font-size:11px;color:var(--muted)">${escHtml(meta)}</div>` : ''}
+      ${addr ? `<div style="font-size:11px;color:var(--muted)">${escHtml(addr)}</div>` : ''}
     </div>`;
   }).join('');
   drop.style.display = 'block';
@@ -2712,15 +2789,21 @@ function suggestProduct(input) {
   if (!q || q.length < 1) { drop.style.display = 'none'; return; }
   const matches = allInventory.filter(p => (p.description || '').toLowerCase().includes(q)).slice(0, 6);
   if (!matches.length) { drop.style.display = 'none'; return; }
-  drop.innerHTML = matches.map(p => `<div class="cust-ac-item" onclick="selectProduct(this, ${JSON.stringify(p.description)}, ${p.cost || 0}, ${JSON.stringify(p.unit||'EACH')})">
-    <div style="font-weight:600">${p.description}</div>
-    <div style="font-size:11px;color:var(--muted)">$${(p.cost||0).toFixed(2)}/${p.unit||'unit'}</div>
-  </div>`).join('');
+  drop.innerHTML = matches.map(p => {
+    const nameArg = JSON.stringify(p.description || '').replace(/"/g,'&quot;');
+    const unitArg = JSON.stringify(p.unit || 'EACH').replace(/"/g,'&quot;');
+    const itemArg = JSON.stringify(p.item_number || '').replace(/"/g,'&quot;');
+    return `<div class="cust-ac-item" onclick="selectProduct(this, ${nameArg}, ${p.cost || 0}, ${unitArg}, ${itemArg})">
+      <div style="font-weight:600">${escHtml(p.description)}</div>
+      <div style="font-size:11px;color:var(--muted)">#${escHtml(p.item_number||'—')} · $${(p.cost||0).toFixed(2)}/${p.unit||'unit'}</div>
+    </div>`;
+  }).join('');
   drop.style.display = 'block';
 }
 
-function selectProduct(el, name, price, unit) {
+function selectProduct(el, name, price, unit, itemNumber = '') {
   const row = el.closest('tr');
+  row.dataset.itemNumber = itemNumber || '';
   row.querySelector('[data-field="name"]').value = name;
   row.querySelector('[data-field="price"]').value = price;
   // Set unit
@@ -2762,6 +2845,7 @@ function openFulfillModal(id) {
         <div style="flex:1">
           <div style="font-weight:600;font-size:13px">${item.name}</div>
           <div style="font-size:12px;color:var(--muted)">Requested: ${item.requested_weight} lb · $${item.unit_price}/lb</div>
+          ${item.notes ? `<div style="font-size:12px;color:var(--muted);font-style:italic;margin-top:2px">${escHtml(item.notes)}</div>` : ''}
         </div>
         <div style="display:flex;align-items:center;gap:6px">
           <input type="number" step="0.01" min="0" class="order-item-input" style="width:90px" placeholder="Actual lb"
@@ -2774,6 +2858,7 @@ function openFulfillModal(id) {
         <div style="flex:1">
           <div style="font-weight:600;font-size:13px">${item.name}</div>
           <div style="font-size:12px;color:var(--muted)">${item.requested_qty} × ea · $${item.unit_price}/ea</div>
+          ${item.notes ? `<div style="font-size:12px;color:var(--muted);font-style:italic;margin-top:2px">${escHtml(item.notes)}</div>` : ''}
         </div>
         <div style="font-size:12px;color:var(--accent)">Fixed qty</div>
       </div>`;
@@ -3572,8 +3657,8 @@ async function fetchAddresses(q) {
 
   // 1. Match against loaded customers (250 restaurants) by name, address, or area
   const custMatches = allCustomers.filter(c =>
-    (c.Restaurant||'').toLowerCase().includes(ql) ||
-    (c.Address||'').toLowerCase().includes(ql) ||
+    customerName(c).toLowerCase().includes(ql) ||
+    customerAddress(c).toLowerCase().includes(ql) ||
     (c.Area||'').toLowerCase().includes(ql)
   ).slice(0, 5);
 
@@ -3581,10 +3666,10 @@ async function fetchAddresses(q) {
   const custItems = custMatches.map((c, i) => `
     <div class="autocomplete-item" onclick="selectCustomer(${i})" data-cust="${i}">
       <div style="display:flex;align-items:center;gap:8px">
-        <div style="font-weight:600;font-size:13px">${c.Restaurant}</div>
+        <div style="font-weight:600;font-size:13px">${escHtml(customerName(c))}</div>
         <span style="font-size:10px;padding:1px 7px;border-radius:10px;background:rgba(61,186,127,0.12);color:var(--accent);font-weight:600">Customer</span>
       </div>
-      <div style="font-size:11px;color:var(--muted);margin-top:2px">${c.Address || c.Area || ''}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:2px">${escHtml(customerAddress(c) || c.Area || '')}</div>
     </div>`).join('');
 
   dd.__custMatches = custMatches;
@@ -3640,8 +3725,8 @@ async function fetchAddresses(q) {
 async function selectCustomer(idx) {
   const dd = document.getElementById('stopAutocomplete');
   const c = dd.__custMatches[idx];
-  const name = c.Restaurant;
-  const address = c.Address || '';
+  const name = customerName(c);
+  const address = customerAddress(c) || '';
   dd.style.display = 'none';
   document.getElementById('stopSearchInput').value = name;
   document.getElementById('stopPreviewName').textContent = name;
@@ -3794,6 +3879,20 @@ async function fetchStops() {
 }
 
 // ── ROUTES TAB ─────────────────────────────────────────
+function normalizeRoute(route) {
+  const stopIds = Array.isArray(route?.stopIds)
+    ? route.stopIds
+    : Array.isArray(route?.stop_ids)
+      ? route.stop_ids
+      : [];
+  return {
+    ...route,
+    stopIds,
+    driver: route?.driver || route?.driverName || route?.driver_name || '',
+    driverId: route?.driverId || route?.driver_id || '',
+  };
+}
+
 function openNewRouteModal() {
   const modal = document.getElementById('newRouteModal');
   const nameInput = document.getElementById('routeName');
@@ -3844,7 +3943,7 @@ async function createRouteRequest({ name, stopIds = [], driver = {}, notes = '' 
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to create route');
-  allRoutes.push(data);
+  allRoutes.push(normalizeRoute(data));
   renderRoutes();
   return data;
 }
@@ -3897,6 +3996,7 @@ function renderRoutes() {
     el.innerHTML = `<div class="empty-state"><div class="empty-state-icon">🛣️</div><h3>No routes yet</h3><p>Create a route to group stops into a delivery run.</p></div>`;
     return;
   }
+  allRoutes = allRoutes.map(normalizeRoute);
   el.innerHTML = allRoutes.map(route => {
     const routeStops = route.stopIds.map(id => allStops.find(s => s.id === id)).filter(Boolean);
     const assignedDriverLabel = route.driver ? `Assigned to ${route.driver} · ` : '';
@@ -4063,7 +4163,8 @@ async function autoSort(mode) {
 async function fetchRoutes() {
   try {
     const r = await fetch('/api/routes', authHeaders);
-    allRoutes = await r.json();
+    const data = await r.json();
+    allRoutes = Array.isArray(data) ? data.map(normalizeRoute) : [];
     renderRoutes();
   } catch(e) {}
 }
@@ -4632,9 +4733,10 @@ function getInvFiltered() {
     const matchQ = !q || (item.description||'').toLowerCase().includes(q) || (item.item_number||'').toLowerCase().includes(q);
     const matchCat = !cat || item.category === cat;
     let matchSt = true;
-    if (st === 'out') matchSt = (item.stock_qty || 0) <= 0;
-    else if (st === 'low') matchSt = (item.stock_qty || 0) > 0 && (item.stock_qty || 0) <= (item.low_stock_threshold || 10);
-    else if (st === 'in') matchSt = (item.stock_qty || 0) > (item.low_stock_threshold || 10);
+    const qty = parseFloat(item.on_hand_qty) || 0;
+    if (st === 'out') matchSt = qty <= 0;
+    else if (st === 'low') matchSt = qty > 0 && qty <= (item.low_stock_threshold || 10);
+    else if (st === 'in') matchSt = qty > (item.low_stock_threshold || 10);
     return matchQ && matchCat && matchSt;
   });
 }
@@ -4685,7 +4787,7 @@ function renderInventory() {
       </div>` : '—';
     const lotBadge = lotReq ? `<span style="font-size:9px;font-weight:700;color:#a78bfa;background:rgba(124,58,237,0.12);padding:1px 6px;border-radius:6px;margin-left:6px;vertical-align:middle">LOT REQ.</span>` : '';
     return `<tr>
-      <td><strong>${item.description || '—'}</strong>${lotBadge}<div style="font-size:11px;color:var(--muted);margin-top:2px">#${item.item_number||'—'}</div></td>
+      <td><strong>${item.description || '—'}</strong>${lotBadge}<div style="font-size:11px;color:var(--muted);margin-top:2px">#${item.item_number||'—'}</div>${item.notes ? `<div style="font-size:11px;color:var(--muted);font-style:italic;margin-top:3px">${escHtml(item.notes)}</div>` : ''}</td>
       <td>${invCatBadge(item.category)}</td>
       <td style="color:var(--muted);font-size:12px">${item.unit || '—'}</td>
       <td style="font-weight:600;color:var(--accent)">${cost}</td>
@@ -4747,7 +4849,7 @@ function openInventoryModal(editId) {
   document.getElementById('invEditId').value = editId || '';
 
   if (editId) {
-    const item = allInventory.find(i => i.id === editId);
+    const item = allInventory.find(i => i.item_number === editId || i.id === editId);
     if (!item) return;
     document.getElementById('invModalTitle').textContent = 'Edit Product';
     document.getElementById('invSubmitBtn').textContent = 'Save Changes';
@@ -4759,10 +4861,11 @@ function openInventoryModal(editId) {
     document.getElementById('invStock').value = item.on_hand_qty ?? '';
     document.getElementById('invWeight').value = item.on_hand_weight ?? '';
     document.getElementById('invLotItem').value = item.lot_item || 'N';
+    document.getElementById('invNotes').value = item.notes || '';
   } else {
     document.getElementById('invModalTitle').textContent = 'Add Product';
     document.getElementById('invSubmitBtn').textContent = 'Add Product';
-    ['invName','invSku','invPrice','invStock','invWeight'].forEach(id => document.getElementById(id).value = '');
+    ['invName','invSku','invPrice','invStock','invWeight','invNotes'].forEach(id => document.getElementById(id).value = '');
     document.getElementById('invCategory').value = 'Other';
     document.getElementById('invUnit').value = 'EACH';
     document.getElementById('invLotItem').value = 'N';
@@ -4801,6 +4904,7 @@ async function submitInventoryItem() {
     on_hand_qty:    parseFloat(document.getElementById('invStock').value) || 0,
     on_hand_weight: parseFloat(document.getElementById('invWeight').value) || 0,
     lot_item:       document.getElementById('invLotItem').value,
+    notes:          document.getElementById('invNotes').value.trim(),
   };
   try {
     const url = editId ? `${API}/inventory/${editId}` : `${API}/inventory`;
@@ -4809,7 +4913,7 @@ async function submitInventoryItem() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Request failed');
     if (editId) {
-      const idx = allInventory.findIndex(i => i.id === editId);
+      const idx = allInventory.findIndex(i => i.item_number === editId || i.id === editId);
       if (idx > -1) allInventory[idx] = data;
     } else {
       allInventory.push(data);
@@ -4831,6 +4935,74 @@ async function deleteInventoryItem(id, name) {
     renderInventoryKPIs();
     populateInvPickerList();
   } catch(e) { alert('Delete failed: ' + e.message); }
+}
+
+function openInventoryCountModal() {
+  const modal = document.getElementById('inventoryCountModal');
+  const result = document.getElementById('inventoryCountResult');
+  document.getElementById('inventoryCountNotes').value = new Date().toLocaleString('en-US', { month: 'long', year: 'numeric' }) + ' count';
+  if (result) { result.className = 'modal-result'; result.textContent = ''; }
+  renderInventoryCountRows();
+  modal.classList.add('open');
+  setTimeout(() => modal.querySelector('[data-count-input]')?.focus(), 50);
+}
+
+function closeInventoryCountModal() {
+  document.getElementById('inventoryCountModal').classList.remove('open');
+}
+
+function renderInventoryCountRows() {
+  const tbody = document.getElementById('inventoryCountRows');
+  const items = getInvFiltered();
+  if (!items.length) {
+    tbody.innerHTML = tableEmptyState(3, '🧾', 'No products to count', 'Clear inventory filters or add products first.');
+    return;
+  }
+  tbody.innerHTML = items.map(item => {
+    const qty = item.on_hand_qty != null ? item.on_hand_qty : 0;
+    return `<tr>
+      <td><strong>${escHtml(item.description || '—')}</strong><div style="font-size:11px;color:var(--muted)">#${escHtml(item.item_number || '—')} · ${escHtml(item.unit || '')}</div></td>
+      <td style="color:var(--muted)">${qty} ${escHtml(item.unit || '')}</td>
+      <td><input class="modal-input" data-count-input data-item-number="${escHtml(item.item_number || '')}" type="number" min="0" step="0.01" value="${qty}" style="margin:0"/></td>
+    </tr>`;
+  }).join('');
+}
+
+async function submitInventoryCount() {
+  const result = document.getElementById('inventoryCountResult');
+  const items = [...document.querySelectorAll('[data-count-input]')].map(input => ({
+    item_number: input.dataset.itemNumber,
+    counted_qty: parseFloat(input.value),
+  })).filter(item => item.item_number && Number.isFinite(item.counted_qty) && item.counted_qty >= 0);
+
+  if (!items.length) {
+    result.className = 'modal-result error';
+    result.textContent = 'Enter at least one valid count.';
+    return;
+  }
+
+  try {
+    const res = await fetch(`${API}/inventory/count`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+      body: JSON.stringify({ items, notes: document.getElementById('inventoryCountNotes').value.trim() }),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Inventory count failed');
+    (data.items || []).forEach(updated => {
+      const idx = allInventory.findIndex(item => item.item_number === updated.item_number || item.id === updated.id);
+      if (idx > -1) allInventory[idx] = updated;
+    });
+    renderInventory();
+    renderInventoryKPIs();
+    populateInvPickerList();
+    result.className = 'modal-result success';
+    result.textContent = `Updated ${data.updated || 0} product count${data.updated === 1 ? '' : 's'}.`;
+    setTimeout(closeInventoryCountModal, 900);
+  } catch (e) {
+    result.className = 'modal-result error';
+    result.textContent = e.message;
+  }
 }
 
 // ── RESTOCK MODAL ──────────────────────────────────────
@@ -4865,7 +5037,7 @@ async function submitRestock() {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error);
-    const idx = allInventory.findIndex(i => i.id === id);
+    const idx = allInventory.findIndex(i => i.item_number === id || i.id === id);
     if (idx > -1) allInventory[idx] = data;
     renderInventory();
     renderInventoryKPIs();
@@ -4876,6 +5048,7 @@ async function submitRestock() {
 
 // Wire inventory modal close-on-backdrop
 document.getElementById('inventoryModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeInventoryModal(); });
+document.getElementById('inventoryCountModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeInventoryCountModal(); });
 document.getElementById('restockModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeRestockModal(); });
 document.getElementById('yieldModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeYieldModal(); });
 document.getElementById('lotModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeLotModal(); });
@@ -5582,11 +5755,12 @@ function printInvoice(invoiceId) {
   const status = invoiceField(inv, 'status') || '—';
   const rows = items.map(item => {
     const desc = invoiceField(item, 'description') || '—';
+    const lineNotes = invoiceField(item, 'notes');
     const qty = parseFloat(invoiceField(item, 'quantity') || 0);
     const unitPrice = parseFloat(invoiceField(item, 'unitPrice', 'unit_price') || 0);
     const lineTotal = parseFloat(invoiceField(item, 'total') || (qty * unitPrice));
     return `<tr>
-      <td>${escHtml(desc)}</td>
+      <td>${escHtml(desc)}${lineNotes ? `<div class="muted" style="font-size:12px;font-style:italic;margin-top:2px">${escHtml(String(lineNotes))}</div>` : ''}</td>
       <td style="text-align:right">${qty}</td>
       <td style="text-align:right">$${unitPrice.toFixed(2)}</td>
       <td style="text-align:right">$${lineTotal.toFixed(2)}</td>
@@ -5691,6 +5865,30 @@ function printInventorySheet() {
   `);
 }
 
+function printInventoryCountSheet() {
+  const items = getInvFiltered();
+  const rows = items.map(item => `<tr>
+    <td>${escHtml(String(item.description || '—'))}<div class="muted" style="font-size:11px">#${escHtml(String(item.item_number || '—'))}</div></td>
+    <td>${escHtml(String(item.category || '—'))}</td>
+    <td>${escHtml(String(item.unit || '—'))}</td>
+    <td style="text-align:right">${parseFloat(item.on_hand_qty || 0)}</td>
+    <td style="height:34px;border:1px solid #999"></td>
+    <td style="height:34px;border:1px solid #999"></td>
+  </tr>`).join('');
+  openPrintPreview('Monthly Inventory Count Sheet', `
+    <h1>Monthly Inventory Count Sheet</h1>
+    <div class="muted">${new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</div>
+    <div style="margin:18px 0;display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div>Counted by: _________________________</div>
+      <div>Date: _________________________</div>
+    </div>
+    <table>
+      <thead><tr><th>Product</th><th>Category</th><th>Unit</th><th style="text-align:right">System Qty</th><th>Counted Qty</th><th>Notes / Initials</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="6" style="text-align:center">No inventory items match the current filters</td></tr>'}</tbody>
+    </table>
+  `);
+}
+
 // ── NEW INVOICE MODAL ──────────────────────────────────
 let invoiceLineCount = 0;
 
@@ -5712,8 +5910,8 @@ async function openNewInvoiceModal() {
   const custSel = document.getElementById('ni_cust_select');
   if (custSel) {
     custSel.innerHTML = '<option value="">— Search &amp; select a customer —</option>' +
-      [...allCustomers].sort((a,b)=>(a.Restaurant||'').localeCompare(b.Restaurant||'')).map((c,i) =>
-        `<option value="${i}">${c.Restaurant || '—'}${c.Area ? ' · ' + c.Area : ''}</option>`
+      [...allCustomers].sort((a,b)=>customerName(a).localeCompare(customerName(b))).map((c,i) =>
+        `<option value="${i}">${escHtml(customerName(c) || '—')}${c.Area ? ' · ' + escHtml(c.Area) : ''}</option>`
       ).join('');
     custSel.value = '';
   }
@@ -5738,14 +5936,13 @@ function onInvoiceCustomerSelected() {
   if (!sel || sel.value === '') return;
   const idx = parseInt(sel.value);
   // Sort same way as options
-  const sorted = [...allCustomers].sort((a,b)=>(a.Restaurant||'').localeCompare(b.Restaurant||''));
+  const sorted = [...allCustomers].sort((a,b)=>customerName(a).localeCompare(customerName(b)));
   const c = sorted[idx];
   if (!c) return;
-  document.getElementById('ni_customer').value = c.Restaurant || '';
-  document.getElementById('ni_address').value = c.Address || '';
-  // Email not stored in customers table — leave as-is if blank
+  document.getElementById('ni_customer').value = customerName(c) || '';
+  document.getElementById('ni_address').value = customerAddress(c) || '';
   if (!document.getElementById('ni_email').value) {
-    document.getElementById('ni_email').value = '';
+    document.getElementById('ni_email').value = customerEmail(c) || '';
   }
 }
 
@@ -6124,7 +6321,7 @@ async function requestWalkthrough() {
   try {
     const res = await fetch(`${API}/ai/walkthrough`, {
       method: 'POST',
-      ...authHeaders,
+      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
       body: JSON.stringify({ feature, question }),
     });
     const data = await res.json().catch(() => ({}));
@@ -6971,6 +7168,7 @@ bindModalKeyboard('userInviteModal', submitUserInvite, closeUserInviteModal);
 bindModalKeyboard('addCustomerModal', submitAddCustomer, closeAddCustomerModal);
 bindModalKeyboard('inviteModal', submitInvite, closeInviteModal);
 bindModalKeyboard('inventoryModal', submitInventoryItem, closeInventoryModal);
+bindModalKeyboard('inventoryCountModal', submitInventoryCount, closeInventoryCountModal);
 bindModalKeyboard('restockModal', submitRestock, closeRestockModal);
 bindModalKeyboard('yieldModal', submitYield, closeYieldModal);
 bindModalKeyboard('lotModal', submitLot, closeLotModal);

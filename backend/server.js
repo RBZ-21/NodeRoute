@@ -27,7 +27,13 @@ const settingsRouter = require('./routes/settings');
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(express.json());
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' }));
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  next();
+});
 
 // CORS
 app.use((req, res, next) => {
@@ -81,6 +87,14 @@ if (hasResend && hasSmtp && String(process.env.EMAIL_PROVIDER || 'auto').toLower
 }
 if (!process.env.OPENAI_API_KEY) {
   console.warn('WARNING: OPENAI_API_KEY is not set — AI demand forecasting will not work.');
+}
+if (process.env.NODE_ENV === 'production') {
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'noderoute-dev-secret-change-in-production') {
+    console.warn('SECURITY WARNING: Set JWT_SECRET in production. The development fallback secret is not safe.');
+  }
+  if (ADMIN_PASSWORD === 'Admin@123') {
+    console.warn('SECURITY WARNING: Set ADMIN_PASSWORD in production before first boot.');
+  }
 }
 
 // Mount routers

@@ -19,7 +19,7 @@ const needsLot = desc => LOT_REQUIRED.test(desc || '');
 // Column names (updated to match current database):
 //   id uuid PK, description text NOT NULL (product name),
 //   category text, item_number text, unit text,
-//   cost numeric, on_hand_qty numeric, on_hand_weight numeric,
+//   cost numeric, on_hand_qty numeric, on_hand_weight numeric, notes text,
 //   lot_item text, created_at timestamptz DEFAULT now()
 // Analytics columns (migration 20260415_inventory_enhancements):
 //   avg_yield numeric, yield_count integer, updated_at timestamptz, alert_sent_at timestamptz
@@ -31,7 +31,7 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { description, category, item_number, unit, cost, on_hand_qty, on_hand_weight, lot_item } = req.body;
+  const { description, category, item_number, unit, cost, on_hand_qty, on_hand_weight, lot_item, notes } = req.body;
   if (!description) return res.status(400).json({ error: 'Product description required' });
   const insertResult = await insertRecordWithOptionalScope(supabase, 'seafood_inventory', {
     description,
@@ -42,6 +42,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
     on_hand_qty:    parseFloat(on_hand_qty)    || 0,
     on_hand_weight: parseFloat(on_hand_weight) || 0,
     lot_item:       needsLot(description) ? 'Y' : (lot_item || 'N'),
+    notes:          notes || null,
   }, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
@@ -384,6 +385,60 @@ router.delete('/lots/:lotId', authenticateToken, requireRole('admin', 'manager')
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// POST /api/inventory/count — replace product stock quantities after a physical count
+router.post('/count', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const entries = Array.isArray(req.body.items) ? req.body.items : [];
+  const countNotes = req.body.notes || 'Physical inventory count';
+  const normalized = entries
+    .map(entry => ({
+      item_number: String(entry.item_number || '').trim(),
+      counted_qty: parseFloat(entry.counted_qty),
+    }))
+    .filter(entry => entry.item_number && Number.isFinite(entry.counted_qty) && entry.counted_qty >= 0);
+
+  if (!normalized.length) return res.status(400).json({ error: 'At least one counted item is required' });
+
+  const itemNumbers = normalized.map(entry => entry.item_number);
+  const { data: existing, error: fetchErr } = await supabase
+    .from('seafood_inventory')
+    .select('*')
+    .in('item_number', itemNumbers);
+  if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+
+  const existingByNumber = new Map((filterRowsByContext(existing || [], req.context)).map(item => [item.item_number, item]));
+  const updatedItems = [];
+
+  for (const entry of normalized) {
+    const current = existingByNumber.get(entry.item_number);
+    if (!current) continue;
+
+    const oldQty = parseFloat(current.on_hand_qty) || 0;
+    const newQty = parseFloat(entry.counted_qty.toFixed(4));
+    const delta = parseFloat((newQty - oldQty).toFixed(4));
+
+    const { data: updated, error: updateErr } = await supabase
+      .from('seafood_inventory')
+      .update({ on_hand_qty: newQty, updated_at: new Date().toISOString() })
+      .eq('item_number', entry.item_number)
+      .select()
+      .single();
+    if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+    await supabase.from('inventory_stock_history').insert([{
+      item_number: entry.item_number,
+      change_qty: delta,
+      new_qty: newQty,
+      change_type: 'count',
+      notes: countNotes,
+      created_by: req.user.name || req.user.email,
+    }]);
+
+    updatedItems.push(updated);
+  }
+
+  res.json({ updated: updatedItems.length, items: updatedItems });
+});
+
 // POST /api/inventory/:id/restock — add stock and log history
 router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { qty, notes } = req.body;
@@ -579,7 +634,7 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   const existing = await dbQuery(supabase.from('seafood_inventory').select('*').eq('item_number', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Product not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
-  const allowed = ['description','category','item_number','unit','cost','on_hand_qty','on_hand_weight','lot_item'];
+  const allowed = ['description','category','item_number','unit','cost','on_hand_qty','on_hand_weight','lot_item','notes'];
   const fields = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) fields[k] = req.body[k]; });
   // Auto-enforce lot requirement when description is updated

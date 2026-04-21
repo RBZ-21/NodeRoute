@@ -646,7 +646,7 @@ Explain how to use it inside the app, including the usual sequence of actions an
     });
     return normalizeWalkthrough(aiResult, feature, question);
   } catch (error) {
-    if (String(error.message || '').includes('OPENAI_API_KEY')) throw error;
+    console.warn('AI walkthrough fallback:', error.message);
     return normalizeWalkthrough(null, feature, question);
   }
 }

@@ -37,10 +37,17 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   const existing = await dbQuery(supabase.from('routes').select('*').eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Route not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
-  const payload = { ...req.body };
-  if (payload.stopIds !== undefined) { payload.stop_ids = payload.stopIds; delete payload.stopIds; }
-  if (payload.driverName !== undefined) { payload.driver = payload.driverName || ''; delete payload.driverName; }
-  if (payload.driverId !== undefined) { payload.driver_id = payload.driverId || null; delete payload.driverId; }
+  const payload = {};
+  if (req.body.name !== undefined) payload.name = String(req.body.name || '').trim();
+  if (req.body.stopIds !== undefined) payload.stop_ids = Array.isArray(req.body.stopIds) ? req.body.stopIds : [];
+  if (req.body.stop_ids !== undefined) payload.stop_ids = Array.isArray(req.body.stop_ids) ? req.body.stop_ids : [];
+  if (req.body.driverName !== undefined) payload.driver = req.body.driverName || '';
+  if (req.body.driver !== undefined) payload.driver = req.body.driver || '';
+  if (req.body.driverId !== undefined) payload.driver_id = req.body.driverId || null;
+  if (req.body.driver_id !== undefined) payload.driver_id = req.body.driver_id || null;
+  if (req.body.notes !== undefined) payload.notes = req.body.notes || '';
+  if (!Object.keys(payload).length) return res.status(400).json({ error: 'No valid route fields provided' });
+  if (payload.name === '') return res.status(400).json({ error: 'Route name required' });
   const data = await dbQuery(supabase.from('routes').update(payload).eq('id', req.params.id).select().single(), res);
   if (!data) return;
   res.json(data);
