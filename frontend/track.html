@@ -7,21 +7,29 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet"/>
   <style>
     *{margin:0;padding:0;box-sizing:border-box}
-    body{font-family:'Inter',system-ui,sans-serif;background:#050607;color:#fff;min-height:100vh;display:flex;flex-direction:column;position:relative;isolation:isolate}
+    body{font-family:'Inter',system-ui,sans-serif;background:#050607;color:#fff;min-height:100vh;position:relative;isolation:isolate}
     body::before{content:'';position:fixed;inset:0;background:url('Best_Background.svg') center/cover no-repeat;opacity:.26;pointer-events:none;z-index:0}
     body::after{content:'';position:fixed;inset:0;background:linear-gradient(180deg,rgba(5,6,7,.56),rgba(5,6,7,.82));pointer-events:none;z-index:0}
     body > *{position:relative;z-index:1}
+    .track-shell{max-width:1120px;margin:0 auto;padding-bottom:32px}
 
     /* Header */
-    .header{background:rgba(16,17,19,.9);border-bottom:1px solid rgba(255,255,255,0.08);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;backdrop-filter:blur(10px)}
+    .header{background:rgba(16,17,19,.9);border-bottom:1px solid rgba(255,255,255,0.08);padding:14px 20px;display:flex;align-items:center;justify-content:space-between;backdrop-filter:blur(10px)}
     .header-brand{font-size:16px;font-weight:700;color:#3dba7f;letter-spacing:.5px}
     .header-order{font-size:12px;color:#8899bb}
 
-    /* Map */
-    #map{flex:1;min-height:300px;width:100%}
+    /* Map hero */
+    .map-hero{position:relative;height:min(58vh,560px);min-height:340px;border-bottom-left-radius:26px;border-bottom-right-radius:26px;overflow:hidden;border:1px solid rgba(255,255,255,.08);border-top:none}
+    #map{height:100%;width:100%}
+    .map-hero::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(5,6,7,.12) 0%,rgba(5,6,7,.18) 38%,rgba(5,6,7,.82) 100%);pointer-events:none}
+    .map-hero-copy{position:absolute;left:24px;right:24px;bottom:24px;display:flex;align-items:end;justify-content:space-between;gap:16px;z-index:2}
+    .map-hero-copy h1{font-size:clamp(28px,5vw,44px);line-height:1;letter-spacing:-.04em}
+    .map-hero-copy p{margin-top:8px;color:#c8d3e0;max-width:560px;line-height:1.6}
+    .hero-chip{display:inline-flex;align-items:center;gap:8px;padding:6px 12px;border-radius:999px;background:rgba(61,186,127,.12);border:1px solid rgba(61,186,127,.28);color:#9cf0c4;font-size:12px;font-weight:600}
 
-    /* Bottom card */
-    .card{background:rgba(16,17,19,.9);border-top:1px solid rgba(255,255,255,0.08);padding:20px;flex-shrink:0;backdrop-filter:blur(10px)}
+    /* Sheet */
+    .sheet-wrap{padding:0 18px}
+    .card{background:rgba(16,17,19,.94);border:1px solid rgba(255,255,255,0.08);padding:22px;backdrop-filter:blur(14px);border-radius:24px;box-shadow:0 18px 50px rgba(0,0,0,.35);margin:-72px auto 0;max-width:960px}
 
     /* Status pill */
     .status-row{display:flex;align-items:center;gap:10px;margin-bottom:16px}
@@ -36,6 +44,15 @@
     .eta-time{font-size:52px;font-weight:800;color:#fff;line-height:1;letter-spacing:-2px}
     .eta-label{font-size:13px;color:#8899bb;margin-top:4px}
     .eta-arrive{font-size:14px;color:#3dba7f;margin-top:6px;font-weight:600}
+
+    /* Timeline */
+    .timeline{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin:0 0 18px}
+    .timeline-step{padding:14px 12px;border-radius:16px;background:rgba(8,9,11,.72);border:1px solid rgba(255,255,255,.06)}
+    .timeline-step.active{border-color:rgba(61,186,127,.38);background:rgba(19,46,34,.72)}
+    .timeline-step.done{border-color:rgba(61,186,127,.22)}
+    .timeline-kicker{font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#8899bb;margin-bottom:6px}
+    .timeline-step.active .timeline-kicker,.timeline-step.done .timeline-kicker{color:#9cf0c4}
+    .timeline-label{font-size:14px;font-weight:700}
 
     /* Stop progress */
     .stop-progress{background:rgba(8,9,11,.78);border-radius:12px;padding:14px;margin-bottom:16px;border:1px solid rgba(255,255,255,0.06)}
@@ -64,6 +81,19 @@
     .driver-sub{font-size:11px;color:#8899bb}
     .driver-freshness{font-size:10px;color:#8899bb;margin-left:auto}
 
+    /* Notify */
+    .notify-card{display:flex;align-items:center;justify-content:space-between;gap:16px;background:rgba(8,9,11,.74);border:1px solid rgba(255,255,255,.06);border-radius:16px;padding:16px 18px;margin-bottom:18px}
+    .notify-copy h3{font-size:15px;margin-bottom:4px}
+    .notify-copy p{font-size:13px;color:#9ba9b8;line-height:1.6}
+    .notify-toggle{display:inline-flex;align-items:center;gap:12px;flex-shrink:0}
+    .toggle-label{font-size:12px;color:#c8d3e0;font-weight:600}
+    .switch{position:relative;width:52px;height:30px;display:inline-block}
+    .switch input{opacity:0;width:0;height:0}
+    .slider{position:absolute;inset:0;background:#2a3340;border-radius:999px;transition:.2s;border:1px solid rgba(255,255,255,.12)}
+    .slider::before{content:'';position:absolute;width:22px;height:22px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s}
+    .switch input:checked + .slider{background:#123222;border-color:rgba(61,186,127,.48)}
+    .switch input:checked + .slider::before{transform:translateX(22px);background:#9cf0c4}
+
     /* Refresh notice */
     .refresh-note{text-align:center;font-size:11px;color:#4a5568;margin-top:16px}
 
@@ -73,17 +103,38 @@
     .center-msg p{color:#8899bb;font-size:14px;line-height:1.6}
     .spinner{width:36px;height:36px;border:3px solid rgba(61,186,127,.2);border-top-color:#3dba7f;border-radius:50%;animation:spin .8s linear infinite}
     @keyframes spin{to{transform:rotate(360deg)}}
+    .detail-grid{display:grid;grid-template-columns:1fr 1fr;gap:0 18px}
+    .eta-time,.header-order,.detail-val,.driver-freshness{font-variant-numeric:tabular-nums}
+
+    @media(max-width:760px){
+      .map-hero{height:52vh;min-height:320px;border-bottom-left-radius:22px;border-bottom-right-radius:22px}
+      .map-hero-copy{left:18px;right:18px;bottom:18px;flex-direction:column;align-items:flex-start}
+      .card{margin-top:-54px;padding:20px}
+      .timeline{grid-template-columns:1fr 1fr}
+      .notify-card{flex-direction:column;align-items:flex-start}
+      .detail-grid{grid-template-columns:1fr}
+    }
   </style>
 </head>
 <body>
-
+<div class="track-shell">
 <div class="header">
   <div class="header-brand">NodeRoute Systems</div>
   <div id="headerOrder" class="header-order"></div>
 </div>
 
-<div id="map"></div>
+<div class="map-hero">
+  <div id="map"></div>
+  <div class="map-hero-copy">
+    <div>
+      <div class="hero-chip">Live route visibility</div>
+      <h1>Track your delivery</h1>
+      <p id="heroSummary">We’ll keep this page updated as your driver moves toward your stop.</p>
+    </div>
+  </div>
+</div>
 
+<div class="sheet-wrap">
 <div id="mainCard" class="card" style="display:none">
 
   <!-- Status -->
@@ -97,6 +148,22 @@
     <div class="eta-time" id="etaMins">—</div>
     <div class="eta-label">minutes away</div>
     <div class="eta-arrive" id="etaArrive"></div>
+  </div>
+
+  <div class="timeline" id="timeline"></div>
+
+  <div class="notify-card">
+    <div class="notify-copy">
+      <h3>Notify me about delivery updates</h3>
+      <p id="notifyStatus">Turn this on to keep update reminders enabled on this device while you follow the route.</p>
+    </div>
+    <div class="notify-toggle">
+      <span class="toggle-label">Updates</span>
+      <label class="switch">
+        <input type="checkbox" id="notifyToggle" onchange="toggleNotifyPreference(this.checked)"/>
+        <span class="slider"></span>
+      </label>
+    </div>
   </div>
 
   <!-- Stop progress bar -->
@@ -117,7 +184,7 @@
   </div>
 
   <!-- Details -->
-  <div style="margin-top:4px">
+  <div class="detail-grid" style="margin-top:4px">
     <div class="detail-row">
       <span class="detail-label">Delivering to</span>
       <span class="detail-val" id="detailAddress">—</span>
@@ -138,6 +205,8 @@
 
   <div class="refresh-note" id="refreshNote">Updates every 30 seconds · <span id="lastUpdated"></span></div>
 </div>
+</div>
+</div>
 
 <!-- Loading / error states -->
 <div id="loadingMsg" class="center-msg">
@@ -149,6 +218,7 @@
   <h2 id="errorTitle">Link not found</h2>
   <p id="errorBody">This tracking link may have expired or is invalid. Contact your NodeRoute rep for assistance.</p>
 </div>
+</div>
 
 <script>
   const token   = new URLSearchParams(location.search).get('t');
@@ -156,6 +226,7 @@
   let trackData = null;
   let refreshTimer;
   let minsCountdown;
+  const notifyStorageKey = `nr-track-notify:${token || 'unknown'}`;
 
   if (!token) { showError('No tracking token', 'This link is missing a tracking token. Please use the link from your email.'); }
   else { loadGoogleMaps().then(() => fetchTracking()); }
@@ -195,6 +266,9 @@
   function renderTracking(d) {
     // Header
     document.getElementById('headerOrder').textContent = d.orderNumber || '';
+    document.getElementById('heroSummary').textContent = d.deliveryAddress
+      ? `Following your stop at ${d.deliveryAddress}. This page refreshes automatically so you can stay ahead of the driver.`
+      : 'This page refreshes automatically so you can stay ahead of the driver.';
 
     // Status
     const delivered = d.status === 'invoiced' || d.status === 'delivered';
@@ -233,7 +307,12 @@
     // Stop progress bar
     if (d.stopsBeforeYou > 0 || d.totalRouteStops > 0) {
       renderStopProgress(d.stopsBeforeYou, d.totalRouteStops);
+    } else {
+      document.getElementById('stopProgressWrap').style.display = 'none';
     }
+
+    renderTimeline(d, delivered);
+    syncNotifyPreference(d);
 
     // Last updated
     document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
@@ -288,6 +367,56 @@
     }
     track.innerHTML  = trackHTML;
     labels.innerHTML = labelsHTML;
+  }
+
+  function renderTimeline(d, delivered) {
+    const steps = [
+      { key: 'placed', label: 'Order placed', state: 'done' },
+      { key: 'picked', label: 'Picked up', state: d.status === 'pending' ? 'active' : 'done' },
+      { key: 'route', label: 'En route', state: delivered ? 'done' : 'active' },
+      { key: 'delivered', label: 'Delivered', state: delivered ? 'done' : 'pending' },
+    ];
+    const timeline = document.getElementById('timeline');
+    timeline.innerHTML = steps.map((step, index) => `
+      <div class="timeline-step ${step.state === 'done' ? 'done' : ''} ${step.state === 'active' ? 'active' : ''}">
+        <div class="timeline-kicker">${step.state === 'done' ? 'Complete' : step.state === 'active' ? 'Current' : 'Upcoming'}</div>
+        <div class="timeline-label">${index + 1}. ${step.label}</div>
+      </div>
+    `).join('');
+  }
+
+  function getNotifyPreference() {
+    try {
+      return localStorage.getItem(notifyStorageKey) === 'on';
+    } catch {
+      return false;
+    }
+  }
+
+  function toggleNotifyPreference(enabled) {
+    try {
+      localStorage.setItem(notifyStorageKey, enabled ? 'on' : 'off');
+    } catch {}
+    syncNotifyPreference(trackData);
+  }
+
+  function syncNotifyPreference(data) {
+    const toggle = document.getElementById('notifyToggle');
+    const status = document.getElementById('notifyStatus');
+    if (!toggle || !status) return;
+    const enabled = getNotifyPreference();
+    toggle.checked = enabled;
+    const email = data && (data.customerEmail || data.email);
+    const phone = data && (data.customerPhone || data.phone);
+    if (enabled) {
+      status.textContent = email || phone
+        ? `Update reminders are enabled on this device${email ? ` for ${email}` : phone ? ` for ${phone}` : ''}.`
+        : 'Update reminders are enabled on this device while you keep this tracking page handy.';
+    } else {
+      status.textContent = email || phone
+        ? `Turn this on to keep reminder updates enabled on this device${email ? ` for ${email}` : phone ? ` for ${phone}` : ''}.`
+        : 'Turn this on to keep update reminders enabled on this device while you follow the route.';
+    }
   }
 
   function renderMap(d) {
@@ -346,7 +475,7 @@
       const bounds = new google.maps.LatLngBounds();
       bounds.extend(driverPos);
       bounds.extend(destPos);
-      googleMap.fitBounds(bounds, { top: 20, right: 20, bottom: 20, left: 20 });
+      googleMap.fitBounds(bounds, { top: 40, right: 40, bottom: 80, left: 40 });
 
       // Draw route line
       if (routeLine) routeLine.setMap(null);

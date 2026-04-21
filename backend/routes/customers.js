@@ -5,7 +5,7 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const router = express.Router();
 
 // ── CUSTOMERS (Supabase: "Customers") ─────────────
-router.get('/', authenticateToken, async (req, res) => {
+router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const data = await dbQuery(supabase.from('Customers').select('*').order('customer_number', { ascending: true }), res);
   if (!data) return;
   res.json(data);

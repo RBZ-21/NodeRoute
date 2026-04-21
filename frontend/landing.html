@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>NodeRoute Systems — Real-Time Inventory &amp; Delivery Tracking</title>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
+  <link href="https://api.fontshare.com/v2/css?f[]=satoshi@400,500,700,900&display=swap" rel="stylesheet" />
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -108,6 +109,9 @@
       line-height: 1.18;
       letter-spacing: -0.03em;
       margin-bottom: 16px;
+    }
+    h1, h2, h3, .section-title, .hero-headline, .logo-text {
+      font-family: 'Satoshi', 'Inter', system-ui, sans-serif;
     }
 
     .section-subtitle {
@@ -268,7 +272,7 @@
       position: absolute;
       border-radius: 50%;
       filter: blur(100px);
-      opacity: 0.15;
+      opacity: 0.035;
     }
     .hero-bg-circle:nth-child(1) {
       width: 600px; height: 600px;
@@ -333,10 +337,7 @@
     }
 
     .hero-headline .highlight {
-      background: linear-gradient(135deg, var(--teal-light) 0%, #ffad35 100%);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      color: var(--teal-light);
     }
 
     .hero-sub {
@@ -377,7 +378,7 @@
     }
     .stat-label {
       font-size: 13px;
-      color: var(--text-subtle);
+      color: var(--text-muted);
       margin-top: 4px;
     }
 
@@ -392,8 +393,9 @@
 
     .pain-grid {
       display: grid;
-      grid-template-columns: repeat(3, 1fr);
+      grid-template-columns: repeat(6, 1fr);
       gap: 24px;
+      align-items: stretch;
     }
 
     @media (max-width: 900px) { .pain-grid { grid-template-columns: 1fr; } }
@@ -448,6 +450,27 @@
       font-size: 15px;
       color: var(--text-muted);
       line-height: 1.7;
+    }
+    .pain-card:nth-child(1) {
+      grid-column: span 3;
+      padding: 40px 36px;
+      background: linear-gradient(180deg, rgba(77,207,145,0.08), rgba(13,27,62,0.92));
+    }
+    .pain-card:nth-child(2) {
+      grid-column: span 2;
+      margin-top: 18px;
+    }
+    .pain-card:nth-child(3) {
+      grid-column: span 1;
+      margin-top: 46px;
+    }
+    @media (max-width: 900px) {
+      .pain-card:nth-child(1),
+      .pain-card:nth-child(2),
+      .pain-card:nth-child(3) {
+        grid-column: auto;
+        margin-top: 0;
+      }
     }
 
     /* ─── ABOUT ─── */
@@ -522,8 +545,19 @@
       color: var(--text-muted);
       line-height: 1.75;
       font-style: italic;
-      border-left: 3px solid var(--teal);
-      padding-left: 16px;
+      padding-left: 34px;
+      position: relative;
+    }
+    .founder-quote::before {
+      content: '“';
+      position: absolute;
+      left: 0;
+      top: -8px;
+      font-family: 'Satoshi', 'Inter', system-ui, sans-serif;
+      font-size: 42px;
+      line-height: 1;
+      color: var(--teal-light);
+      opacity: 0.7;
     }
 
     .journey-pills {
@@ -1184,7 +1218,7 @@
     <div class="footer-inner">
       <div class="footer-brand">
         <a href="#" class="nav-logo" style="text-decoration:none;">
-          <img src="For_Light_Theme_Transparent.svg" alt="NodeRoute Delivery Systems" style="width:min(260px, 60vw);height:auto"/>
+          <img src="For_Dark_Theme_Transparent.svg" alt="NodeRoute Delivery Systems" style="width:min(260px, 60vw);height:auto"/>
         </a>
         <span class="footer-tagline">Total visibility for your logistics operation.</span>
       </div>

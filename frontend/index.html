@@ -60,9 +60,10 @@ body.light img.logo-for-light{display:inline}
 .stop-route-select{background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:4px 8px;flex:1;min-width:100px}
 .stop-route-btn{background:rgba(61,186,127,0.12);border:1px solid var(--accent);color:var(--accent);border-radius:6px;font-size:12px;font-weight:600;padding:4px 10px;cursor:pointer;white-space:nowrap}
 .stop-route-btn:hover{background:rgba(61,186,127,0.22)}
-.empty-state{text-align:center;padding:60px 20px;color:var(--muted)}
-.empty-state-icon{font-size:48px;margin-bottom:16px}
-.empty-state h3{font-size:16px;color:var(--text);margin-bottom:8px}
+.empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:56px 24px;color:var(--muted)}
+.empty-state-icon{width:72px;height:72px;border-radius:22px;display:flex;align-items:center;justify-content:center;font-size:34px;margin-bottom:4px;background:linear-gradient(180deg,rgba(61,186,127,0.14),rgba(61,186,127,0.05));border:1px solid rgba(61,186,127,0.18);box-shadow:inset 0 1px 0 rgba(255,255,255,0.05)}
+.empty-state h3{font-size:17px;color:var(--text);margin:0}
+.empty-state p{max-width:420px;line-height:1.65}
 .customer-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:400px;text-align:center;color:var(--muted)}
 .db-badge{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border-radius:20px;border:1px dashed var(--border);font-size:13px;margin-bottom:24px}
 .section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
@@ -76,10 +77,10 @@ body.light img.logo-for-light{display:inline}
 .user-action-btn:hover{border-color:var(--accent);color:var(--text)}
 .user-action-btn.danger:hover{border-color:var(--danger);color:var(--danger)}
 /* ORDERS */
-.order-entry-wrap{display:grid;grid-template-columns:1fr 380px;gap:20px;align-items:start}
-@media(max-width:900px){.order-entry-wrap{grid-template-columns:1fr}}
+.order-entry-wrap{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(320px,.85fr);gap:20px;align-items:start}
+@media(max-width:900px){.order-entry-wrap{grid-template-columns:1fr}.order-queue-card{position:static}}
 .order-form-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:20px}
-.order-queue-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:20px;max-height:calc(100vh - 180px);overflow-y:auto}
+.order-queue-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:20px;position:sticky;top:80px;align-self:start}
 .order-items-table{width:100%;border-collapse:collapse;margin:12px 0}
 .order-items-table th{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;padding:8px 6px;border-bottom:1px solid var(--border);text-align:left}
 .order-items-table td{padding:5px 4px;vertical-align:middle}
@@ -170,6 +171,9 @@ body.light img.logo-for-light{display:inline}
 body{font-family:'Inter',sans-serif;background:var(--bg);color:var(--text);min-height:100vh;display:flex;transition:var(--trans)}
 body::before{content:'';position:fixed;inset:0;background:url('Best_Background.svg') center/cover no-repeat;opacity:0.22;z-index:0;pointer-events:none}
 a{color:inherit;text-decoration:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+[role="button"]:focus-visible,th[onclick]:focus-visible,tr[onclick]:focus-visible{box-shadow:0 0 0 2px rgba(61,186,127,0.22)}
+table,th,td,.kpi-value,.stat-big,.stat-value,.queue-order-num,.dp-stat-val,.dp-progress-lbl,.days-pill,.inv-status-pending,.inv-status-signed,.inv-status-sent{font-variant-numeric:tabular-nums}
 
 /* SIDEBAR */
 .sidebar{width:200px;min-height:100vh;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;left:0;top:0;bottom:0;z-index:100;transition:var(--trans)}
@@ -268,12 +272,12 @@ td{padding:12px 16px;vertical-align:middle}
 /* BADGES */
 .badge-status{display:inline-flex;align-items:center;gap:5px;padding:3px 10px;border-radius:20px;font-size:11px;font-weight:600}
 .badge-status::before{content:'';width:6px;height:6px;border-radius:50%;flex-shrink:0}
-.badge-delivered{background:rgba(61,186,127,0.12);color:var(--accent)}.badge-delivered::before{background:var(--accent)}
-.badge-in-transit{background:rgba(124,58,237,0.15);color:#a78bfa}.badge-in-transit::before{background:#a78bfa}
-.badge-pending{background:rgba(245,158,11,0.12);color:var(--warn)}.badge-pending::before{background:var(--warn)}
-.badge-failed{background:rgba(239,68,68,0.12);color:var(--danger)}.badge-failed::before{background:var(--danger)}
-.badge-on-duty{background:rgba(61,186,127,0.12);color:var(--accent)}
-.badge-off-duty{background:rgba(136,153,187,0.12);color:var(--muted)}
+.badge-delivered{background:#123222;color:#9cf0c4}.badge-delivered::before{background:#9cf0c4}
+.badge-in-transit{background:#24173f;color:#c9b1ff}.badge-in-transit::before{background:#c9b1ff}
+.badge-pending{background:#3a2808;color:#ffd27a}.badge-pending::before{background:#ffd27a}
+.badge-failed{background:#3b1414;color:#ffb3b3}.badge-failed::before{background:#ffb3b3}
+.badge-on-duty{background:#123222;color:#9cf0c4}
+.badge-off-duty{background:#222831;color:#c3cfdb}
 
 /* ONTIME */
 .ontime-yes{color:var(--accent);font-weight:700}
@@ -367,9 +371,9 @@ td{padding:12px 16px;vertical-align:middle}
   .ai-help-shell{padding:16px}
 }
 /* INVOICES */
-.inv-status-pending{background:rgba(245,158,11,0.12);color:var(--warn);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
-.inv-status-signed{background:rgba(124,58,237,0.12);color:#a78bfa;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
-.inv-status-sent{background:rgba(61,186,127,0.12);color:var(--accent);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.inv-status-pending{background:#3a2808;color:#ffd27a;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.inv-status-signed{background:#24173f;color:#d0bfff;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.inv-status-sent{background:#123222;color:#9cf0c4;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
 .ni-line{display:grid;grid-template-columns:1fr 60px 90px 32px;gap:6px;margin-bottom:6px;align-items:center}
 
 /* INVENTORY */
@@ -1027,7 +1031,10 @@ td{padding:12px 16px;vertical-align:middle}
     <div class="tab-pane" id="tab-invoices">
       <div class="section-header">
         <div class="section-title" style="margin:0">Invoices</div>
-        <button class="btn btn-accent" onclick="openNewInvoiceModal()">+ New Invoice</button>
+        <div style="display:flex;gap:8px;flex-wrap:wrap">
+          <button class="btn btn-outline" onclick="printInvoicesReport()">🖨 Print List</button>
+          <button class="btn btn-accent" onclick="openNewInvoiceModal()">+ New Invoice</button>
+        </div>
       </div>
       <!-- In-Process Orders section -->
       <div class="inprocess-section" id="inprocessSection" style="display:none">
@@ -1212,6 +1219,7 @@ td{padding:12px 16px;vertical-align:middle}
             </select>
           </div>
           <div style="display:flex;gap:8px">
+            <button class="btn btn-outline" onclick="printInventorySheet()">🖨 Print Sheet</button>
             <button class="btn btn-outline" onclick="openPOScanModal()" title="Scan a purchase order photo to auto-add items">📷 Scan PO</button>
             <button class="btn btn-accent" onclick="openInventoryModal()">+ Add Product</button>
           </div>
@@ -2186,6 +2194,12 @@ td{padding:12px 16px;vertical-align:middle}
 <script>
 const API = '/api';
 function escHtml(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function richEmptyState(icon, title, body) {
+  return `<div class="empty-state"><div class="empty-state-icon">${icon}</div><h3>${title}</h3><p>${body}</p></div>`;
+}
+function tableEmptyState(colspan, icon, title, body) {
+  return `<tr><td colspan="${colspan}" style="padding:0">${richEmptyState(icon, title, body)}</td></tr>`;
+}
 const nrToken = localStorage.getItem('nr_token');
 const nrUser = JSON.parse(localStorage.getItem('nr_user') || 'null');
 if (!nrToken || !nrUser) { window.location.href = '/'; }
@@ -2476,7 +2490,7 @@ function renderOrderQueue() {
   const count = document.getElementById('queueCount');
   if (count) count.textContent = orders.length + ' order' + (orders.length !== 1 ? 's' : '');
   if (!orders.length) {
-    container.innerHTML = `<div style="text-align:center;padding:32px;color:var(--muted)">No orders</div>`;
+    container.innerHTML = richEmptyState('📥', 'Order queue is clear', 'New orders will appear here as soon as they are entered.');
     return;
   }
   container.innerHTML = orders.map(o => {
@@ -2775,6 +2789,7 @@ function openFulfillModal(id) {
     allRoutes.map(r => `<option value="${r.id}">${r.name}${r.driver ? ' ('+r.driver+')' : ''}</option>`).join('');
   document.getElementById('fulfillResult').style.display = 'none';
   document.getElementById('fulfillModal').classList.add('open');
+  focusElement('[id^="fw-"], #fulfillDriver');
 }
 
 function closeFulfillModal() {
@@ -2856,6 +2871,59 @@ function showTab(name, el) {
   if (name === 'settings') { initSettings(); }
   if (name === 'financials') { loadFinancials(); }
 }
+
+function isNativeKeyboardTarget(el) {
+  return !!el && ['BUTTON', 'A', 'INPUT', 'SELECT', 'TEXTAREA', 'SUMMARY'].includes(el.tagName);
+}
+
+function enhanceKeyboardAccessibility(root = document) {
+  root.querySelectorAll('[onclick]').forEach(el => {
+    if (isNativeKeyboardTarget(el)) return;
+    if (!el.hasAttribute('tabindex')) el.tabIndex = 0;
+    if (!el.hasAttribute('role')) el.setAttribute('role', 'button');
+  });
+}
+
+function focusElement(target) {
+  const el = typeof target === 'string' ? document.querySelector(target) : target;
+  if (!el) return;
+  setTimeout(() => {
+    if (typeof el.focus === 'function') el.focus();
+    if (typeof el.select === 'function' && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA')) el.select();
+  }, 0);
+}
+
+function bindModalKeyboard(modalId, submitFn, closeFn) {
+  const modal = document.getElementById(modalId);
+  if (!modal || modal.dataset.keyboardBound === 'true') return;
+  modal.dataset.keyboardBound = 'true';
+  modal.addEventListener('keydown', e => {
+    if (e.defaultPrevented) return;
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      if (typeof closeFn === 'function') closeFn();
+      return;
+    }
+    if (e.key !== 'Enter' || e.shiftKey) return;
+    const target = e.target;
+    if (!target) return;
+    if (target.tagName === 'TEXTAREA' || target.type === 'button' || target.type === 'submit') return;
+    e.preventDefault();
+    if (typeof submitFn === 'function') submitFn();
+  });
+}
+
+enhanceKeyboardAccessibility();
+new MutationObserver(() => enhanceKeyboardAccessibility()).observe(document.body, { childList: true, subtree: true });
+document.addEventListener('keydown', e => {
+  if (e.defaultPrevented) return;
+  const target = e.target;
+  if (!target || isNativeKeyboardTarget(target)) return;
+  if ((e.key === 'Enter' || e.key === ' ') && typeof target.click === 'function') {
+    e.preventDefault();
+    target.click();
+  }
+});
 
 // ── FINANCIALS ──────────────────────────────────────────
 let finChartInstance = null;
@@ -3232,6 +3300,10 @@ function onTimeBadge(v) {
 let expandedRow = null;
 function renderDashTable() {
   const tbody = document.getElementById('dashDelivTable');
+  if (!allDeliveries.length) {
+    tbody.innerHTML = tableEmptyState(6, '🚚', 'No active deliveries', 'Once dispatch starts assigning work, live delivery activity will show up here.');
+    return;
+  }
   tbody.innerHTML = allDeliveries.map(d => `
     <tr onclick="toggleExpand(${d.id})" id="row-${d.id}">
       <td><strong>${d.orderId}</strong></td>
@@ -3325,8 +3397,11 @@ function renderDeliveries() {
   const pages = Math.max(1, Math.ceil(total / PAGE_SIZE));
   if (delivPage > pages) delivPage = 1;
   const slice = filtered.slice((delivPage - 1) * PAGE_SIZE, delivPage * PAGE_SIZE);
-
-  document.getElementById('delivTable').innerHTML = slice.map(d => `
+  const tbody = document.getElementById('delivTable');
+  if (!filtered.length) {
+    tbody.innerHTML = tableEmptyState(8, '🧭', 'No deliveries match those filters', 'Try clearing one of the filters or wait for the next route to be dispatched.');
+  } else {
+    tbody.innerHTML = slice.map(d => `
     <tr onclick="toggleExpand2(${d.id})" id="drow-${d.id}">
       <td><strong>${d.orderId}</strong></td>
       <td>${d.restaurantName}</td>
@@ -3359,6 +3434,7 @@ function renderDeliveries() {
       </td>
     </tr>
   `).join('');
+  }
 
   document.getElementById('delivPageInfo').textContent = `${total} results · Page ${delivPage} of ${pages}`;
   const btns = document.getElementById('delivPageBtns');
@@ -3719,15 +3795,27 @@ async function fetchStops() {
 
 // ── ROUTES TAB ─────────────────────────────────────────
 function openNewRouteModal() {
-  document.getElementById('routeName').value = '';
-  document.getElementById('routeNotes').value = '';
+  const modal = document.getElementById('newRouteModal');
+  const nameInput = document.getElementById('routeName');
+  const notesInput = document.getElementById('routeNotes');
+  const driverSelect = document.getElementById('routeDriver');
+  const picker = document.getElementById('routeStopPicker');
   const r = document.getElementById('routeResult');
+
+  // If the modal wiring is missing, still let the dispatcher create a named route.
+  if (!modal || !nameInput || !notesInput || !driverSelect || !picker || !r) {
+    promptNewRouteName();
+    return;
+  }
+
+  nameInput.value = '';
+  notesInput.value = '';
   r.className = 'modal-result'; r.textContent = '';
   // populate driver select
-  const sel = document.getElementById('routeDriver');
-  sel.innerHTML = '<option value="">— Unassigned —</option>' + allDrivers.map(d => `<option value="${d.name}">${d.name}</option>`).join('');
+  driverSelect.innerHTML = '<option value="">— Unassigned —</option>' + allDrivers
+    .map(d => `<option value="${d.id}" data-driver-name="${escHtml(d.name)}">${d.name}${d.vehicleId ? ' · ' + d.vehicleId : ''}</option>`)
+    .join('');
   // populate stop picker (checkboxes)
-  const picker = document.getElementById('routeStopPicker');
   if (!allStops.length) {
     picker.innerHTML = '<div style="padding:12px;font-size:13px;color:var(--muted)">No stops added yet — go to the Stops tab first.</div>';
   } else {
@@ -3738,21 +3826,60 @@ function openNewRouteModal() {
       </label>
     `).join('');
   }
-  document.getElementById('newRouteModal').classList.add('open');
+  modal.classList.add('open');
+  setTimeout(() => nameInput.focus(), 0);
 }
-function closeNewRouteModal() { document.getElementById('newRouteModal').classList.remove('open'); }
+function closeNewRouteModal() {
+  const modal = document.getElementById('newRouteModal');
+  if (modal) modal.classList.remove('open');
+}
+
+async function createRouteRequest({ name, stopIds = [], driver = {}, notes = '' }) {
+  const assignedDriverId = driver.id || '';
+  const assignedDriverName = driver.name || '';
+  const res = await fetch('/api/routes', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+    body: JSON.stringify({ name, stopIds, driverId: assignedDriverId, driverName: assignedDriverName, notes }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Failed to create route');
+  allRoutes.push(data);
+  renderRoutes();
+  return data;
+}
+
+async function promptNewRouteName() {
+  const name = window.prompt('Name this route before adding stops:', '');
+  if (name === null) return;
+  const trimmed = name.trim();
+  if (!trimmed) {
+    alert('Route name is required.');
+    return;
+  }
+  try {
+    await createRouteRequest({ name: trimmed });
+  } catch (e) {
+    alert(e.message);
+  }
+}
 
 async function submitNewRoute() {
   const name = document.getElementById('routeName').value.trim();
   const r = document.getElementById('routeResult');
   if (!name) { r.className = 'modal-result error'; r.textContent = 'Route name is required.'; return; }
   const stopIds = [...document.querySelectorAll('#routeStopPicker input:checked')].map(cb => cb.value);
+  const selectedDriverOption = document.getElementById('routeDriver').selectedOptions[0];
   try {
-    const res = await fetch('/api/routes', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ name, stopIds, driver: document.getElementById('routeDriver').value, notes: document.getElementById('routeNotes').value.trim() }) });
-    if (!res.ok) throw new Error((await res.json()).error);
-    const route = await res.json();
-    allRoutes.push(route);
-    renderRoutes();
+    await createRouteRequest({
+      name,
+      stopIds,
+      driver: selectedDriverOption ? {
+        id: selectedDriverOption.value,
+        name: selectedDriverOption.dataset.driverName || '',
+      } : {},
+      notes: document.getElementById('routeNotes').value.trim(),
+    });
     closeNewRouteModal();
   } catch(e) { r.className = 'modal-result error'; r.textContent = e.message; }
 }
@@ -3772,12 +3899,13 @@ function renderRoutes() {
   }
   el.innerHTML = allRoutes.map(route => {
     const routeStops = route.stopIds.map(id => allStops.find(s => s.id === id)).filter(Boolean);
+    const assignedDriverLabel = route.driver ? `Assigned to ${route.driver} · ` : '';
     return `
     <div class="route-card" style="margin-bottom:12px" onclick="openRouteDetail('${route.id}')">
       <div class="route-header">
         <div>
           <div class="route-name">${route.name} <span style="font-size:12px;color:var(--muted);font-weight:400">— click to open</span></div>
-          <div class="route-meta">${route.driver ? `Driver: ${route.driver} · ` : ''}${routeStops.length} stop${routeStops.length!==1?'s':''}</div>
+          <div class="route-meta">${assignedDriverLabel}${routeStops.length} stop${routeStops.length!==1?'s':''}</div>
         </div>
         <button class="user-action-btn danger" onclick="event.stopPropagation();deleteRoute('${route.id}')">Delete</button>
       </div>
@@ -3815,7 +3943,7 @@ function renderRouteDetail() {
   const stops = route.stopIds.map(id => allStops.find(s => s.id === id)).filter(Boolean);
   document.getElementById('routeDetailName').textContent = route.name;
   document.getElementById('routeDetailMeta').textContent =
-    `${stops.length} stop${stops.length!==1?'s':''}${route.driver ? ' · Driver: ' + route.driver : ''}`;
+    `${stops.length} stop${stops.length!==1?'s':''}${route.driver ? ' · Assigned to ' + route.driver : ''}`;
   const container = document.getElementById('routeDetailStops');
   if (!stops.length) {
     container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📍</div><h3>No stops in this route</h3><p>Add stops from the Stops tab.</p></div>`;
@@ -3940,7 +4068,13 @@ async function fetchRoutes() {
   } catch(e) {}
 }
 
-document.getElementById('newRouteModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeNewRouteModal(); });
+document.getElementById('newRouteModal')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeNewRouteModal(); });
+document.getElementById('routeName')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter') {
+    e.preventDefault();
+    submitNewRoute();
+  }
+});
 document.getElementById('addCustomerModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeAddCustomerModal(); });
 
 // ── CUSTOMERS TAB ──────────────────────────────────────
@@ -3950,6 +4084,7 @@ function openAddCustomerModal() {
   ['custName','custNumber','custPhone','custFax','custContact','custPayment'].forEach(id => document.getElementById(id).value = '');
   const r = document.getElementById('custResult'); r.className = 'modal-result'; r.textContent = '';
   document.getElementById('addCustomerModal').classList.add('open');
+  focusElement('#custName');
   if (typeof google !== 'undefined' && google.maps.places && !document.getElementById('custName').__acInit) {
     document.getElementById('custName').__acInit = true;
     const nameInput = document.getElementById('custName');
@@ -4005,7 +4140,7 @@ async function deleteCustomer(id, name) {
 function renderCustomersTable() {
   const tbody = document.getElementById('customersTable');
   if (!allCustomers.length) {
-    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">No customers yet. Add one above.</td></tr>`;
+    tbody.innerHTML = tableEmptyState(7, '🏪', 'No customers yet', 'Add your first restaurant or retail account to start creating invoices and orders.');
     return;
   }
   tbody.innerHTML = allCustomers.map(c => `
@@ -4146,7 +4281,12 @@ async function fetchUsers() {
 function renderUsersTable() {
   const roleClass = { admin: 'role-admin', manager: 'role-manager', driver: 'role-driver' };
   const isAdmin = nrUser && nrUser.role === 'admin';
-  document.getElementById('usersTable').innerHTML = allUsers.map(u => `
+  const tbody = document.getElementById('usersTable');
+  if (!allUsers.length) {
+    tbody.innerHTML = tableEmptyState(6, '👥', 'No team members found', 'Invite dispatchers or drivers to start collaborating inside the app.');
+    return;
+  }
+  tbody.innerHTML = allUsers.map(u => `
     <tr>
       <td><strong>${u.name}</strong></td>
       <td style="color:var(--muted)">${u.email}</td>
@@ -4191,6 +4331,7 @@ function openUserInviteModal() {
   document.getElementById('uiRole').value = 'driver';
   const r = document.getElementById('uiResult');
   r.className = 'modal-result'; r.textContent = '';
+  focusElement('#uiName');
 }
 function closeUserInviteModal() { document.getElementById('userInviteModal').classList.remove('open'); }
 async function submitUserInvite() {
@@ -4419,6 +4560,7 @@ function openInviteModal() {
   document.getElementById('inviteEmail').value = '';
   const r = document.getElementById('inviteResult');
   r.className = 'modal-result'; r.textContent = '';
+  focusElement('#inviteName');
 }
 function closeInviteModal() {
   document.getElementById('inviteModal').classList.remove('open');
@@ -4515,9 +4657,9 @@ function renderInventory() {
   const tbody = document.getElementById('inventoryTable');
   if (!tbody) return;
   if (!filtered.length) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--muted)">
-      ${allInventory.length ? 'No products match your filters.' : 'No products yet. Click <strong>+ Add Product</strong> to get started.'}
-    </td></tr>`;
+    tbody.innerHTML = allInventory.length
+      ? tableEmptyState(8, '🧊', 'No inventory matches these filters', 'Try widening the search or changing category and stock filters.')
+      : tableEmptyState(8, '📦', 'No inventory yet', 'Add your first product to start building printable inventory sheets and stock alerts.');
     return;
   }
   const isManager = nrUser && (nrUser.role === 'admin' || nrUser.role === 'manager');
@@ -4626,6 +4768,7 @@ function openInventoryModal(editId) {
     document.getElementById('invLotItem').value = 'N';
   }
   modal.classList.add('open');
+  focusElement('#invName');
 }
 
 function closeInventoryModal() {
@@ -4704,6 +4847,7 @@ function openRestockModal(id, name, currentQty) {
   const r = document.getElementById('restockResult');
   r.className = 'modal-result'; r.textContent = '';
   document.getElementById('restockModal').classList.add('open');
+  focusElement('#restockQty');
 }
 
 function closeRestockModal() { document.getElementById('restockModal').classList.remove('open'); }
@@ -4761,6 +4905,7 @@ function openYieldModal(id, name, currentAvg, sampleCount) {
   document.getElementById('yieldSampleCount').textContent = sampleCount || 0;
   document.getElementById('yieldPreview').innerHTML = '<span style="color:var(--muted)">Enter weights above to see yield %</span>';
   document.getElementById('yieldModal').classList.add('open');
+  focusElement('#yieldRaw');
 }
 
 function closeYieldModal() { document.getElementById('yieldModal').classList.remove('open'); }
@@ -4882,9 +5027,9 @@ function renderLots() {
   const tbody = document.getElementById('lotsTable');
   if (!tbody) return;
   if (!filtered.length) {
-    tbody.innerHTML = `<tr><td colspan="8" style="text-align:center;padding:40px;color:var(--muted)">
-      ${allLots.length ? 'No lots match your filters.' : 'No lots yet. Click <strong>+ Add Lot</strong> to begin tracking.'}
-    </td></tr>`;
+    tbody.innerHTML = allLots.length
+      ? tableEmptyState(8, '🔎', 'No lots match those filters', 'Adjust the product, status, or search filters to find the batch you need.')
+      : tableEmptyState(8, '🧾', 'No lots yet', 'Add your first lot to start tracking expiry dates, recalls, and on-hand quantity by batch.');
     return;
   }
   filtered.sort((a, b) => {
@@ -5012,6 +5157,7 @@ function openAddLotModal(preSelectItemNumber) {
     }
   }
   document.getElementById('lotModal').classList.add('open');
+  focusElement(preSelectItemNumber ? '#lotNumber' : '#lotProduct');
 }
 
 function openEditLotModal(lotId) {
@@ -5038,6 +5184,7 @@ function openEditLotModal(lotId) {
   const sel = document.getElementById('lotProduct');
   sel.innerHTML = '<option value="">— Select product —</option>' + allInventory.map(i=>`<option value="${i.item_number}"${i.item_number===lot.item_number?' selected':''}>${i.description} (#${i.item_number})</option>`).join('');
   document.getElementById('lotModal').classList.add('open');
+  focusElement('#lotNumber');
 }
 
 function closeLotModal() { document.getElementById('lotModal').classList.remove('open'); }
@@ -5097,6 +5244,7 @@ function openDepleteLotModal(lotId, lotNumber, productName, qtyOnHand) {
   document.getElementById('depleteResult').className = 'modal-result';
   document.getElementById('depleteResult').textContent = '';
   document.getElementById('depleteLotModal').classList.add('open');
+  focusElement('#depleteQty');
 }
 
 function closeDepleteLotModal() { document.getElementById('depleteLotModal').classList.remove('open'); }
@@ -5176,7 +5324,7 @@ async function fetchInventoryAnalytics() {
 function renderInventoryAnalytics(data) {
   const el = document.getElementById('invAnalyticsContent');
   if (!el) return;
-  if (!data.length) { el.innerHTML = '<div style="color:var(--muted);padding:20px">No products found.</div>'; return; }
+  if (!data.length) { el.innerHTML = richEmptyState('📊', 'No product analytics yet', 'Usage trends and restock predictions will appear once inventory activity builds up.'); return; }
 
   // Sort: urgent first, then soon, then ok, then no-data
   const urgency = item => {
@@ -5347,20 +5495,21 @@ function renderInvoices() {
   const tb = document.getElementById('invoicesTable');
   if (!tb) return;
   if (!list.length) {
-    tb.innerHTML = '<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">No invoices found</td></tr>';
+    tb.innerHTML = tableEmptyState(7, '🧾', 'No invoices found', 'Try a different search or status filter, or create a new invoice from the button above.');
     return;
   }
   tb.innerHTML = list.map(inv => {
     const total = typeof inv.total === 'number' ? '$' + inv.total.toFixed(2) : (inv.total || '—');
     const date = inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : '—';
     const statusLabel = inv.status === 'pending' ? 'Pending Signature' : inv.status === 'signed' ? 'Signed' : inv.status === 'sent' ? 'Sent' : inv.status || '—';
-      const canEmail = !!(inv.customerEmail || inv.customer_email);
-      const actions = `
-        ${inv.status === 'pending' ? `<button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="openSignModal('${inv.id}')">Sign</button>` : ''}
-        <button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="downloadInvoicePDF('${inv.id}')">PDF</button>
-        ${canEmail ? `<button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="emailInvoice('${inv.id}')">Email</button>` : ''}
-        ${canEmail ? `<button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="resendInvoiceEmail('${inv.id}')">Resend</button>` : ''}
-      `;
+    const canEmail = !!(inv.customerEmail || inv.customer_email);
+    const actions = `
+      ${inv.status === 'pending' ? `<button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="openSignModal('${inv.id}')">Sign</button>` : ''}
+      <button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="printInvoice('${inv.id}')">Print</button>
+      <button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="downloadInvoicePDF('${inv.id}')">PDF</button>
+      ${canEmail ? `<button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="emailInvoice('${inv.id}')">Email</button>` : ''}
+      ${canEmail ? `<button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="resendInvoiceEmail('${inv.id}')">Resend</button>` : ''}
+    `;
     return `<tr>
       <td>${inv.invoiceNumber || '—'}</td>
       <td>${inv.customerName || '—'}</td>
@@ -5371,6 +5520,175 @@ function renderInvoices() {
       <td style="white-space:nowrap">${actions}</td>
     </tr>`;
   }).join('');
+}
+
+function invoiceField(inv, ...keys) {
+  for (const key of keys) {
+    if (inv && inv[key] != null && inv[key] !== '') return inv[key];
+  }
+  return '';
+}
+
+function openPrintPreview(title, bodyHtml) {
+  const win = window.open('', '_blank', 'width=900,height=1000');
+  if (!win) {
+    alert('Popup blocked. Allow popups to use print preview.');
+    return;
+  }
+  win.document.write(`<!DOCTYPE html><html><head><title>${escHtml(title)}</title>
+  <style>
+    body{font-family:Arial,sans-serif;padding:24px;color:#111;line-height:1.4}
+    h1{font-size:24px;margin-bottom:6px}
+    h2{font-size:16px;margin:0 0 8px}
+    table{width:100%;border-collapse:collapse;margin-top:14px}
+    th{background:#f5f5f5;padding:8px 10px;text-align:left;font-size:12px;text-transform:uppercase;color:#666}
+    td{padding:8px 10px;border-bottom:1px solid #e6e6e6;font-size:14px;vertical-align:top}
+    .print-actions{display:flex;gap:10px;justify-content:flex-end;margin-bottom:16px}
+    .print-btn{background:#3dba7f;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-size:14px}
+    .muted{color:#666}
+    .meta-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;margin:18px 0}
+    .meta-card{background:#f8f8f8;border-radius:8px;padding:12px 14px}
+    .totals{margin-top:18px;margin-left:auto;max-width:280px}
+    .totals-row{display:flex;justify-content:space-between;padding:6px 0;font-size:14px}
+    .totals-row.total{font-weight:700;border-top:1px solid #bbb;margin-top:4px;padding-top:10px}
+    @media print {.print-actions{display:none} body{padding:0.4in}}
+  </style></head><body>
+  <div class="print-actions">
+    <button class="print-btn" onclick="window.print()">Print</button>
+  </div>
+  ${bodyHtml}
+  </body></html>`);
+  win.document.close();
+  setTimeout(() => win.print(), 300);
+}
+
+function printInvoice(invoiceId) {
+  const inv = allInvoices.find(i => i.id === invoiceId);
+  if (!inv) {
+    alert('Invoice not found.');
+    return;
+  }
+  const items = Array.isArray(inv.items) ? inv.items : [];
+  const invoiceNumber = invoiceField(inv, 'invoiceNumber', 'invoice_number', 'id') || '—';
+  const customerName = invoiceField(inv, 'customerName', 'customer_name') || '—';
+  const customerEmail = invoiceField(inv, 'customerEmail', 'customer_email');
+  const customerAddress = invoiceField(inv, 'deliveryAddress', 'customer_address');
+  const driverName = invoiceField(inv, 'driverName', 'driver_name', 'driver');
+  const createdAt = invoiceField(inv, 'createdAt', 'created_at');
+  const subtotal = parseFloat(invoiceField(inv, 'subtotal') || 0);
+  const tax = parseFloat(invoiceField(inv, 'tax') || 0);
+  const total = parseFloat(invoiceField(inv, 'total') || 0);
+  const notes = invoiceField(inv, 'notes');
+  const status = invoiceField(inv, 'status') || '—';
+  const rows = items.map(item => {
+    const desc = invoiceField(item, 'description') || '—';
+    const qty = parseFloat(invoiceField(item, 'quantity') || 0);
+    const unitPrice = parseFloat(invoiceField(item, 'unitPrice', 'unit_price') || 0);
+    const lineTotal = parseFloat(invoiceField(item, 'total') || (qty * unitPrice));
+    return `<tr>
+      <td>${escHtml(desc)}</td>
+      <td style="text-align:right">${qty}</td>
+      <td style="text-align:right">$${unitPrice.toFixed(2)}</td>
+      <td style="text-align:right">$${lineTotal.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+  openPrintPreview(`Invoice ${invoiceNumber}`, `
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:20px">
+      <div>
+        <h1>Invoice ${escHtml(String(invoiceNumber))}</h1>
+        <div class="muted">${createdAt ? new Date(createdAt).toLocaleString() : ''}</div>
+      </div>
+      <div style="text-align:right">
+        <h2>NodeRoute</h2>
+        <div class="muted">Printable invoice copy</div>
+      </div>
+    </div>
+    <div class="meta-grid">
+      <div class="meta-card">
+        <strong>Customer</strong><br>
+        ${escHtml(String(customerName))}<br>
+        ${customerAddress ? `<span class="muted">${escHtml(String(customerAddress))}</span><br>` : ''}
+        ${customerEmail ? `<span class="muted">${escHtml(String(customerEmail))}</span>` : ''}
+      </div>
+      <div class="meta-card">
+        <strong>Delivery</strong><br>
+        ${driverName ? `Assigned to ${escHtml(String(driverName))}<br>` : 'Unassigned<br>'}
+        <span class="muted">Status: ${escHtml(String(status))}</span>
+      </div>
+    </div>
+    <table>
+      <thead><tr><th>Item</th><th style="text-align:right">Qty</th><th style="text-align:right">Unit Price</th><th style="text-align:right">Line Total</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="4" style="text-align:center">No line items</td></tr>'}</tbody>
+    </table>
+    <div class="totals">
+      <div class="totals-row"><span>Subtotal</span><span>$${subtotal.toFixed(2)}</span></div>
+      <div class="totals-row"><span>Tax</span><span>$${tax.toFixed(2)}</span></div>
+      <div class="totals-row total"><span>Total</span><span>$${total.toFixed(2)}</span></div>
+    </div>
+    ${notes ? `<div style="margin-top:18px"><strong>Notes</strong><div class="muted" style="margin-top:6px">${escHtml(String(notes))}</div></div>` : ''}
+  `);
+}
+
+function printInvoicesReport() {
+  const q = (document.getElementById('invoiceSearch')?.value || '').toLowerCase();
+  const sf = (document.getElementById('invoiceStatusFilter')?.value || '');
+  const list = allInvoices.filter(inv => {
+    const invoiceNumber = String(invoiceField(inv, 'invoiceNumber', 'invoice_number')).toLowerCase();
+    const customerName = String(invoiceField(inv, 'customerName', 'customer_name')).toLowerCase();
+    const matchQ = !q || invoiceNumber.includes(q) || customerName.includes(q);
+    const matchS = !sf || inv.status === sf;
+    return matchQ && matchS;
+  });
+  const rows = list.map(inv => {
+    const invoiceNumber = invoiceField(inv, 'invoiceNumber', 'invoice_number', 'id') || '—';
+    const customerName = invoiceField(inv, 'customerName', 'customer_name') || '—';
+    const driverName = invoiceField(inv, 'driverName', 'driver_name', 'driver') || '—';
+    const total = parseFloat(invoiceField(inv, 'total') || 0);
+    const createdAt = invoiceField(inv, 'createdAt', 'created_at');
+    return `<tr>
+      <td>${escHtml(String(invoiceNumber))}</td>
+      <td>${escHtml(String(customerName))}</td>
+      <td>${escHtml(String(driverName))}</td>
+      <td style="text-align:right">$${total.toFixed(2)}</td>
+      <td>${escHtml(String(invoiceField(inv, 'status') || '—'))}</td>
+      <td>${createdAt ? new Date(createdAt).toLocaleDateString() : '—'}</td>
+    </tr>`;
+  }).join('');
+  openPrintPreview('Invoices Report', `
+    <h1>Invoices Report</h1>
+    <div class="muted">${new Date().toLocaleString()}</div>
+    <table>
+      <thead><tr><th>Invoice #</th><th>Customer</th><th>Driver</th><th style="text-align:right">Total</th><th>Status</th><th>Date</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="6" style="text-align:center">No invoices found</td></tr>'}</tbody>
+    </table>
+  `);
+}
+
+function printInventorySheet() {
+  const items = getInvFiltered();
+  const rows = items.map(item => {
+    const price = parseFloat(item.cost || 0);
+    const qty = parseFloat(item.on_hand_qty || 0);
+    const avgYield = item.avg_yield != null ? `${parseFloat(item.avg_yield).toFixed(1)}%` : '—';
+    return `<tr>
+      <td>${escHtml(String(item.description || '—'))}</td>
+      <td>${escHtml(String(item.category || '—'))}</td>
+      <td>${escHtml(String(item.unit || '—'))}</td>
+      <td style="text-align:right">$${price.toFixed(2)}</td>
+      <td style="text-align:right">${qty}</td>
+      <td>${avgYield}</td>
+      <td>${escHtml(invStockStatus(item).label)}</td>
+    </tr>`;
+  }).join('');
+  openPrintPreview('Inventory Sheet', `
+    <h1>Inventory Sheet</h1>
+    <div class="muted">${new Date().toLocaleString()}</div>
+    <div class="muted" style="margin-top:6px">Filters: Search "${escHtml(document.getElementById('invSearch')?.value || '')}" · Category "${escHtml(document.getElementById('invCatFilter')?.value || 'All')}" · Stock "${escHtml(document.getElementById('invStockFilter')?.value || 'All')}"</div>
+    <table>
+      <thead><tr><th>Product</th><th>Category</th><th>Unit</th><th style="text-align:right">Price / Unit</th><th style="text-align:right">In Stock</th><th>Avg Yield</th><th>Status</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="7" style="text-align:center">No inventory items match the current filters</td></tr>'}</tbody>
+    </table>
+  `);
 }
 
 // ── NEW INVOICE MODAL ──────────────────────────────────
@@ -5412,6 +5730,7 @@ async function openNewInvoiceModal() {
 
   const m = document.getElementById('newInvoiceModal');
   m.style.display = 'flex';
+  focusElement('#ni_customer');
 }
 
 function onInvoiceCustomerSelected() {
@@ -5561,6 +5880,7 @@ function openSignModal(invoiceId) {
   modal.style.display = 'flex';
   // Setup canvas after it's visible so dimensions are correct
   requestAnimationFrame(initSigCanvas);
+  focusElement('#signSubmitBtn');
 }
 
 function closeSignModal() {
@@ -6461,6 +6781,7 @@ function openPOScanModal() {
   document.getElementById('poScanBtn').disabled = true;
   pOGoToStep(1);
   document.getElementById('poScanModal').classList.add('open');
+  focusElement('#poFileInput');
 }
 function closePOScanModal() {
   document.getElementById('poScanModal').classList.remove('open');
@@ -6643,6 +6964,19 @@ async function confirmPOScan() {
 document.getElementById('poScanModal').addEventListener('click', e => {
   if (e.target === document.getElementById('poScanModal')) closePOScanModal();
 });
+
+bindModalKeyboard('fulfillModal', submitFulfill, closeFulfillModal);
+bindModalKeyboard('newRouteModal', submitNewRoute, closeNewRouteModal);
+bindModalKeyboard('userInviteModal', submitUserInvite, closeUserInviteModal);
+bindModalKeyboard('addCustomerModal', submitAddCustomer, closeAddCustomerModal);
+bindModalKeyboard('inviteModal', submitInvite, closeInviteModal);
+bindModalKeyboard('inventoryModal', submitInventoryItem, closeInventoryModal);
+bindModalKeyboard('restockModal', submitRestock, closeRestockModal);
+bindModalKeyboard('yieldModal', submitYield, closeYieldModal);
+bindModalKeyboard('lotModal', submitLot, closeLotModal);
+bindModalKeyboard('depleteLotModal', submitDepleteLot, closeDepleteLotModal);
+bindModalKeyboard('newInvoiceModal', createInvoice, closeNewInvoiceModal);
+bindModalKeyboard('signModal', submitSignature, closeSignModal);
 </script>
 </body>
 </html>

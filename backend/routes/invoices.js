@@ -67,13 +67,16 @@ router.get('/', authenticateToken, async (req, res) => {
 
   const data = await dbQuery(supabase.from('invoices').select('*').order('created_at', { ascending: false }), res);
   if (!data) return;
+  if (req.user.role === 'driver') {
+    return res.json(data.filter(inv => canDriverAccessInvoice(req.user, inv)));
+  }
   res.json(data);
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { invoice_number, customer_name, customer_email, customer_address, items, subtotal, tax, total, driver_name, notes, entree_invoice_id } = req.body;
+  const { invoice_number, customer_name, customer_email, customer_address, items, subtotal, tax, total, driver_name, driver_id, notes, entree_invoice_id } = req.body;
   if (!customer_name) return res.status(400).json({ error: 'Customer name required' });
-  const data = await dbQuery(supabase.from('invoices').insert([{ invoice_number, customer_name, customer_email, customer_address, items: items||[], subtotal: subtotal||0, tax: tax||0, total: total||0, status: 'pending', driver_name, notes, entree_invoice_id }]).select().single(), res);
+  const data = await dbQuery(supabase.from('invoices').insert([{ invoice_number, customer_name, customer_email, customer_address, items: items||[], subtotal: subtotal||0, tax: tax||0, total: total||0, status: 'pending', driver_name, driver_id: driver_id || null, notes, entree_invoice_id }]).select().single(), res);
   if (!data) return;
   res.json(data);
 });
