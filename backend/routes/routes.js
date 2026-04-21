@@ -2,6 +2,7 @@ const express = require('express');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const {
+  executeWithOptionalScope,
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
@@ -27,13 +28,14 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
   const routeName = String(name || '').trim();
   if (!routeName) return res.status(400).json({ error: 'Route name required' });
   const assignedDriverName = driverName || driver || '';
-  const insertResult = await insertRecordWithOptionalScope(supabase, 'routes', {
+  const payload = {
     name: routeName,
     stop_ids: normalizeStopIds(stopIds),
     driver: assignedDriverName,
-    driver_id: driverId || null,
     notes: notes || '',
-  }, req.context);
+  };
+  if (driverId) payload.driver_id = driverId;
+  const insertResult = await insertRecordWithOptionalScope(supabase, 'routes', payload, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
   if (!data) return;
@@ -55,7 +57,12 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   if (req.body.notes !== undefined) payload.notes = req.body.notes || '';
   if (!Object.keys(payload).length) return res.status(400).json({ error: 'No valid route fields provided' });
   if (payload.name === '') return res.status(400).json({ error: 'Route name required' });
-  const data = await dbQuery(supabase.from('routes').update(payload).eq('id', req.params.id).select().single(), res);
+  const updateResult = await executeWithOptionalScope(
+    (candidate) => supabase.from('routes').update(candidate).eq('id', req.params.id).select().single(),
+    payload
+  );
+  if (updateResult.error) return res.status(500).json({ error: updateResult.error.message });
+  const data = updateResult.data;
   if (!data) return;
   res.json(data);
 });

@@ -20,6 +20,7 @@ const OPTIONAL_SCOPE_FIELDS = [
   'unit',
   'check_type',
   'corrective_action',
+  'driver_id',
   'initials',
   'recorded_by',
 ];
