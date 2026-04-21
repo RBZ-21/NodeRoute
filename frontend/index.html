@@ -2189,6 +2189,7 @@ function escHtml(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,
 const nrToken = localStorage.getItem('nr_token');
 const nrUser = JSON.parse(localStorage.getItem('nr_user') || 'null');
 if (!nrToken || !nrUser) { window.location.href = '/'; }
+if (nrUser && nrUser.role === 'driver') { window.location.href = '/driver'; }
 const authHeaders = { headers: { Authorization: `Bearer ${nrToken}` } };
 
 async function doLogout() {
@@ -3682,10 +3683,21 @@ function renderStops() {
 
 async function addStopToRoute(stopId) {
   const sel = document.getElementById(`routeSelect-${stopId}`);
-  if (!sel || !sel.value) return;
+  if (!allRoutes.length) {
+    alert('No routes have been created yet. Please go to the Routes tab and create a route first.');
+    showTab('routes');
+    return;
+  }
+  if (!sel || !sel.value) {
+    alert('Please choose a route before adding this stop.');
+    return;
+  }
   const routeId = sel.value;
   const route = allRoutes.find(r => r.id === routeId);
-  if (!route) return;
+  if (!route) {
+    alert('That route no longer exists. Please create or select a different route.');
+    return;
+  }
   if (route.stopIds.includes(stopId)) { alert('Stop already in this route.'); return; }
   const newIds = [...route.stopIds, stopId];
   try {
