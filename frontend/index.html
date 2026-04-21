@@ -81,6 +81,24 @@ body.light img.logo-for-light{display:inline}
 @media(max-width:900px){.order-entry-wrap{grid-template-columns:1fr}.order-queue-card{position:static}}
 .order-form-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:20px}
 .order-queue-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:20px;position:sticky;top:80px;align-self:start}
+.ops-hero{display:flex;align-items:center;justify-content:space-between;gap:18px;background:linear-gradient(135deg,rgba(61,186,127,0.14),rgba(255,107,53,0.06));border:1px solid rgba(61,186,127,0.22);border-radius:18px;padding:20px 22px;margin-bottom:16px;box-shadow:0 18px 60px rgba(0,0,0,0.18)}
+.ops-kicker{font-size:11px;color:var(--accent);text-transform:uppercase;letter-spacing:.8px;font-weight:800;margin-bottom:6px}
+.ops-hero h2{font-size:22px;line-height:1.15;margin:0 0 6px;letter-spacing:-.02em}
+.ops-hero p{font-size:13px;color:var(--muted);max-width:720px;line-height:1.55}
+.ops-hero-actions{display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end}
+.order-tools-grid{display:grid;grid-template-columns:minmax(0,1.25fr) minmax(280px,.75fr);gap:16px;margin-bottom:16px}
+.daily-report-card,.workflow-note-card{background:var(--surface);border:1px solid var(--border);border-radius:14px;padding:16px}
+.daily-report-card.featured{border-color:rgba(61,186,127,0.28);background:linear-gradient(180deg,rgba(61,186,127,0.06),rgba(0,0,0,0.04))}
+.tool-card-title{font-size:13px;font-weight:800;text-transform:uppercase;letter-spacing:.5px;color:var(--muted);margin-bottom:10px}
+.tool-card-sub{font-size:12px;color:var(--muted);line-height:1.55;margin-bottom:12px}
+.report-controls{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+.report-preview{margin-top:12px;border-top:1px dashed var(--border);padding-top:10px;font-size:12px;color:var(--muted);line-height:1.55}
+.tax-toggle-card{display:flex;align-items:center;justify-content:space-between;gap:14px;background:rgba(61,186,127,0.05);border:1px solid rgba(61,186,127,0.18);border-radius:12px;padding:12px 14px;margin-bottom:16px}
+.tax-toggle-title{font-size:13px;font-weight:700}
+.tax-toggle-hint{font-size:11px;color:var(--muted);line-height:1.45;margin-top:2px}
+.tax-pill{display:inline-flex;align-items:center;padding:2px 9px;border-radius:12px;font-size:11px;font-weight:700;border:1px solid rgba(210,219,228,0.18);background:#222831;color:#d2dbe4}
+.tax-pill.on{background:#123222;color:#9cf0c4;border-color:rgba(156,240,196,0.26)}
+@media(max-width:900px){.ops-hero,.order-tools-grid{display:block}.ops-hero-actions{margin-top:14px;justify-content:flex-start}.workflow-note-card{margin-top:12px}}
 .order-items-table{width:100%;border-collapse:collapse;margin:12px 0}
 .order-items-table th{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;padding:8px 6px;border-bottom:1px solid var(--border);text-align:left}
 .order-items-table td{padding:5px 4px;vertical-align:middle}
@@ -426,6 +444,15 @@ td{padding:12px 16px;vertical-align:middle}
 .inv-alert-bar{background:rgba(245,158,11,0.08);border:1px solid rgba(245,158,11,0.2);border-radius:10px;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;gap:12px;flex-wrap:wrap}
 .inv-alert-bar-txt{font-size:13px;color:var(--text)}
 .inv-alert-bar-sub{font-size:12px;color:var(--muted);margin-top:2px}
+.temp-log-grid{display:grid;grid-template-columns:minmax(280px,360px) 1fr;gap:16px;align-items:start}
+.temp-log-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:18px}
+.temp-log-fields{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.temp-log-fields .wide{grid-column:1/-1}
+.temp-status{display:inline-flex;align-items:center;padding:3px 10px;border-radius:14px;font-size:11px;font-weight:800;border:1px solid transparent}
+.temp-status.ok{background:#123222;color:#9cf0c4;border-color:rgba(156,240,196,0.26)}
+.temp-status.warn{background:#3a2808;color:#ffd27a;border-color:rgba(255,210,122,0.28)}
+.temp-status.bad{background:#3b1414;color:#ffb3b3;border-color:rgba(255,179,179,0.24)}
+@media(max-width:960px){.temp-log-grid{grid-template-columns:1fr}.temp-log-fields{grid-template-columns:1fr}}
 /* LOT / BATCH TRACKING */
 .lot-status-active{background:#123222;color:#9cf0c4;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;border:1px solid rgba(156,240,196,0.22)}
 .lot-status-expiring{background:#3a2808;color:#ffd27a;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:700;border:1px solid rgba(255,210,122,0.22)}
@@ -1019,10 +1046,10 @@ td{padding:12px 16px;vertical-align:middle}
       <div class="table-card">
         <table>
           <thead><tr>
-            <th>#</th><th>Company</th><th>Contact</th><th>Phone</th><th>Fax</th><th>Payment Terms</th><th></th>
+            <th>#</th><th>Company</th><th>Contact</th><th>Phone</th><th>Fax</th><th>Payment Terms</th><th>Tax</th><th></th>
           </tr></thead>
           <tbody id="customersTable">
-            <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr>
+            <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr>
           </tbody>
         </table>
       </div>
@@ -1067,10 +1094,41 @@ td{padding:12px 16px;vertical-align:middle}
 
     <!-- TAB: ORDERS -->
     <div class="tab-pane" id="tab-orders">
-      <div class="section-header" style="margin-bottom:16px">
-        <div class="section-title" style="margin:0">Orders</div>
-        <div style="display:flex;gap:8px">
-          <button class="btn btn-outline no-print" onclick="clearOrderForm()" title="New Order (Ctrl+N)">+ New Order</button>
+      <div class="ops-hero no-print">
+        <div>
+          <div class="ops-kicker">Daily production desk</div>
+          <h2>Build orders, print cut sheets, and move cleanly into invoice weights.</h2>
+          <p>Customer lookup, product lines, and reports are optimized for keyboard flow: Tab through fields, Enter advances lines, and Ctrl+Enter sends to processing.</p>
+        </div>
+        <div class="ops-hero-actions">
+          <button class="btn btn-outline" onclick="clearOrderForm()" title="New Order (Ctrl+N)">+ New Order</button>
+          <button class="btn btn-accent" onclick="printDailyItemReport()">Print Daily Item Report</button>
+        </div>
+      </div>
+      <div class="order-tools-grid no-print">
+        <div class="daily-report-card featured">
+          <div class="tool-card-title">Daily quantity report</div>
+          <div class="tool-card-sub">Filter by date and item text to separate quantities, types, brands, and notes. Example: search "oyster" to print every oyster brand ordered that day.</div>
+          <div class="report-controls">
+            <input class="search-input" id="orderReportDate" type="date" onchange="renderDailyItemReportPreview()" style="width:160px"/>
+            <input class="search-input" id="orderReportQuery" placeholder="Item, brand, description…" oninput="renderDailyItemReportPreview()" style="width:min(260px,100%)"/>
+            <select class="filter-select" id="orderReportUnit" onchange="renderDailyItemReportPreview()">
+              <option value="">All units</option>
+              <option value="lb">Pounds only</option>
+              <option value="each">Each only</option>
+            </select>
+            <button class="btn btn-outline" onclick="printDailyItemReport()">Print</button>
+          </div>
+          <div class="report-preview" id="orderReportPreview">Choose a date to preview totals.</div>
+        </div>
+        <div class="workflow-note-card">
+          <div class="tool-card-title">Processing flow</div>
+          <div class="tool-card-sub">Send to Processing now creates a pending invoice draft immediately. Final weights update that same invoice, so the office knows what is waiting without guessing.</div>
+          <div style="display:flex;gap:8px;flex-wrap:wrap">
+            <span class="status-badge status-pending">Order draft</span>
+            <span class="status-badge status-in_process">Pending weights</span>
+            <span class="status-badge status-invoiced">Invoice ready</span>
+          </div>
         </div>
       </div>
       <div class="order-entry-wrap">
@@ -1085,6 +1143,16 @@ td{padding:12px 16px;vertical-align:middle}
             </div>
             <input type="hidden" id="orderCustomerEmail"/>
             <input type="hidden" id="orderCustomerAddress"/>
+          </div>
+          <div class="tax-toggle-card no-print">
+            <div>
+              <div class="tax-toggle-title">Retail tax</div>
+              <div class="tax-toggle-hint" id="orderTaxHint">Off by default. Turn on for retail customers and it will be remembered.</div>
+            </div>
+            <label class="settings-toggle" title="Retail customers are taxable">
+              <input type="checkbox" id="orderTaxEnabled" onchange="handleOrderTaxToggle(this.checked)"/>
+              <span class="settings-toggle-slider"></span>
+            </label>
           </div>
           <div style="display:flex;gap:10px;margin-bottom:16px">
             <div style="flex:1">
@@ -1115,7 +1183,7 @@ td{padding:12px 16px;vertical-align:middle}
           <!-- Totals + Charges -->
           <div style="border-top:1px solid var(--border);padding-top:12px">
             <div class="order-summary-row"><span style="color:var(--muted)">Subtotal</span><span id="orderSubtotal">$0.00</span></div>
-            <div class="order-summary-row"><span style="color:var(--muted)">Tax (9%)</span><span id="orderTax">$0.00</span></div>
+            <div class="order-summary-row"><span style="color:var(--muted)" id="orderTaxLabel">Tax (retail 9%)</span><span id="orderTax">$0.00</span></div>
             <!-- Charges -->
             <div class="charges-section">
               <div class="charges-section-label">Additional Charges</div>
@@ -1186,6 +1254,7 @@ td{padding:12px 16px;vertical-align:middle}
       <div class="inv-sub-tabs">
         <div class="inv-sub-tab active" onclick="showInvTab('products',this)">Products</div>
         <div class="inv-sub-tab" onclick="showInvTab('lots',this)">🏷 Lots &amp; Batches</div>
+        <div class="inv-sub-tab" onclick="showInvTab('temps',this)">🌡 Temp Logs</div>
         <div class="inv-sub-tab" onclick="showInvTab('analytics',this)">📊 Analytics &amp; Predictions</div>
         <div class="inv-sub-tab" onclick="showInvTab('ai',this)">🤖 AI Health Check</div>
         <div class="inv-sub-tab" onclick="showInvTab('reorder',this)">🔔 Reorder Alert</div>
@@ -1298,6 +1367,74 @@ td{padding:12px 16px;vertical-align:middle}
               <tr><td colspan="8" style="text-align:center;padding:32px;color:var(--muted)">Loading…</td></tr>
             </tbody>
           </table>
+        </div>
+      </div>
+
+      <!-- PANE: Temperature Logs -->
+      <div class="inv-sub-pane" id="inv-pane-temps">
+        <div class="temp-log-grid">
+          <div class="temp-log-card">
+            <div class="tool-card-title">Cold-chain log</div>
+            <div class="tool-card-sub">Record cooler, freezer, dock, or truck temperatures. Out-of-range entries stay visible and should include corrective action.</div>
+            <div class="temp-log-fields">
+              <div class="wide">
+                <label class="modal-label">Logged At</label>
+                <input class="modal-input" id="tempLoggedAt" type="datetime-local">
+              </div>
+              <div>
+                <label class="modal-label">Area</label>
+                <input class="modal-input" id="tempArea" type="text" placeholder="Cooler 1">
+              </div>
+              <div>
+                <label class="modal-label">Temp °F</label>
+                <input class="modal-input" id="tempValue" type="number" step="0.1" placeholder="38.0">
+              </div>
+              <div>
+                <label class="modal-label">Check Type</label>
+                <select class="modal-input" id="tempCheckType">
+                  <option value="opening">Opening</option>
+                  <option value="midday">Midday</option>
+                  <option value="closing">Closing</option>
+                  <option value="receiving">Receiving</option>
+                  <option value="truck">Truck</option>
+                  <option value="routine">Routine</option>
+                </select>
+              </div>
+              <div>
+                <label class="modal-label">Initials</label>
+                <input class="modal-input" id="tempInitials" type="text" placeholder="RA">
+              </div>
+              <div class="wide">
+                <label class="modal-label">Corrective Action</label>
+                <input class="modal-input" id="tempAction" type="text" placeholder="Required if out of range">
+              </div>
+              <div class="wide">
+                <label class="modal-label">Notes</label>
+                <input class="modal-input" id="tempNotes" type="text" placeholder="Optional notes">
+              </div>
+            </div>
+            <div class="modal-result" id="tempLogResult"></div>
+            <button class="btn btn-accent" onclick="submitTemperatureLog()" style="width:100%">Save Temp Log</button>
+          </div>
+          <div class="table-card">
+            <div class="table-header">
+              <div>
+                <h3>Temperature Records</h3>
+                <div style="font-size:12px;color:var(--muted);margin-top:3px">Monthly printouts support audit-ready records.</div>
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <input class="search-input" id="tempLogDate" type="date" onchange="fetchTemperatureLogs()" style="width:155px"/>
+                <button class="btn btn-outline" onclick="fetchTemperatureLogs()">Refresh</button>
+                <button class="btn btn-outline" onclick="printTemperatureLogs()">Print Log</button>
+              </div>
+            </div>
+            <table>
+              <thead><tr><th>Time</th><th>Area</th><th>Temp</th><th>Type</th><th>Status</th><th>Initials</th><th>Action / Notes</th></tr></thead>
+              <tbody id="tempLogsTable">
+                <tr><td colspan="7" style="text-align:center;padding:32px;color:var(--muted)">No temperature logs loaded.</td></tr>
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
 
@@ -1712,6 +1849,16 @@ td{padding:12px 16px;vertical-align:middle}
       <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Delivery Address</label>
       <input class="search-input" id="ni_address" placeholder="123 Main St, Charleston, SC" style="width:100%"/>
     </div>
+    <div class="tax-toggle-card">
+      <div>
+        <div class="tax-toggle-title">Retail tax</div>
+        <div class="tax-toggle-hint" id="ni_tax_hint">Off by default. Selecting a taxable customer turns this on automatically.</div>
+      </div>
+      <label class="settings-toggle" title="Apply retail tax to this invoice">
+        <input type="checkbox" id="ni_tax_enabled" onchange="updateInvoiceTotals()"/>
+        <span class="settings-toggle-slider"></span>
+      </label>
+    </div>
 
     <!-- Line items -->
     <div style="margin-bottom:12px">
@@ -1856,10 +2003,22 @@ td{padding:12px 16px;vertical-align:middle}
     <input class="modal-input" id="custPhone" type="tel" placeholder="843 5772500">
     <label class="modal-label">Fax</label>
     <input class="modal-input" id="custFax" type="tel" placeholder="843 5772501">
+    <label class="modal-label">Address</label>
+    <input class="modal-input" id="custAddress" type="text" placeholder="Street, city, state">
     <label class="modal-label">Contact Name</label>
     <input class="modal-input" id="custContact" type="text" placeholder="e.g. John Smith">
     <label class="modal-label">Payment Terms</label>
     <input class="modal-input" id="custPayment" type="text" placeholder="e.g. NET 14 DAYS">
+    <div class="settings-toggle-row" style="margin-bottom:16px;border:1px solid var(--border);border-radius:10px;padding:10px 12px">
+      <div>
+        <div style="font-size:13px;font-weight:600">Retail taxable customer</div>
+        <div style="font-size:11px;color:var(--muted)">Saved for future orders and invoices.</div>
+      </div>
+      <label class="settings-toggle">
+        <input type="checkbox" id="custTaxEnabled"/>
+        <span class="settings-toggle-slider"></span>
+      </label>
+    </div>
     <div class="modal-result" id="custResult"></div>
     <div class="modal-actions">
       <button class="btn btn-outline" onclick="closeAddCustomerModal()">Cancel</button>
@@ -2271,6 +2430,7 @@ let allOrders = [];
 let orderQueueFilter = 'all';
 let orderEditingId = null;
 let selectedCustomerForOrder = null;
+let orderCustomerMatches = [];
 let custAcIndex = -1;
 
 function customerName(c) {
@@ -2285,6 +2445,11 @@ function customerAddress(c) {
   return c?.address || c?.Address || c?.customer_address || c?.company_address || '';
 }
 
+function customerTaxEnabled(c) {
+  const value = c?.tax_enabled ?? c?.taxEnabled ?? c?.Taxable ?? c?.taxable;
+  return value === true || value === 'true' || value === 1 || value === '1' || value === 'on';
+}
+
 function customerSearchText(c) {
   return [
     customerName(c),
@@ -2296,6 +2461,47 @@ function customerSearchText(c) {
   ].filter(Boolean).join(' ').toLowerCase();
 }
 
+function findCustomerByName(name) {
+  const normalized = String(name || '').trim().toLowerCase();
+  if (!normalized) return null;
+  return allCustomers.find(c => customerName(c).trim().toLowerCase() === normalized) || null;
+}
+
+function isOrderTaxEnabled() {
+  return !!document.getElementById('orderTaxEnabled')?.checked;
+}
+
+function setOrderTaxEnabled(enabled, source = '') {
+  const checkbox = document.getElementById('orderTaxEnabled');
+  if (checkbox) checkbox.checked = !!enabled;
+  const hint = document.getElementById('orderTaxHint');
+  if (hint) hint.textContent = enabled
+    ? `Retail tax is on${source ? ' for ' + source : ''}. This will be remembered for the customer.`
+    : 'Off by default. Turn on for retail customers and it will be remembered.';
+  recalcOrder();
+}
+
+function handleOrderTaxToggle(enabled) {
+  setOrderTaxEnabled(enabled, selectedCustomerForOrder ? customerName(selectedCustomerForOrder) : '');
+}
+
+async function persistCustomerTaxPreference(customer, enabled) {
+  if (!customer?.id) return null;
+  if (customerTaxEnabled(customer) === !!enabled) return customer;
+  const res = await fetch(`${API}/customers/${customer.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+    body: JSON.stringify({ tax_enabled: !!enabled }),
+  });
+  const updated = await res.json();
+  if (!res.ok) throw new Error(updated.error || 'Could not save customer tax preference');
+  const idx = allCustomers.findIndex(c => String(c.id) === String(customer.id));
+  if (idx > -1) allCustomers[idx] = updated;
+  selectedCustomerForOrder = updated;
+  renderCustomersTable();
+  return updated;
+}
+
 function clearOrderForm() {
   orderEditingId = null;
   selectedCustomerForOrder = null;
@@ -2305,6 +2511,7 @@ function clearOrderForm() {
   document.getElementById('orderNotes').value = '';
   document.getElementById('orderFormMsg').style.display = 'none';
   document.getElementById('orderItemsBody').innerHTML = '';
+  setOrderTaxEnabled(false);
   // Reset charges
   ['fuel','service','minimum'].forEach(key => {
     const inp = document.getElementById('chargeVal-' + key);
@@ -2434,7 +2641,7 @@ function recalcOrder() {
     if (cell) cell.textContent = total > 0 ? '$' + total.toFixed(2) : '—';
     subtotal += total;
   });
-  const tax = parseFloat((subtotal * 0.09).toFixed(2));
+  const tax = isOrderTaxEnabled() ? parseFloat((subtotal * 0.09).toFixed(2)) : 0;
   // Calculate each charge
   let chargesTotal = 0;
   ['fuel', 'service', 'minimum'].forEach(key => {
@@ -2450,6 +2657,8 @@ function recalcOrder() {
   const tot = parseFloat((subtotal + tax + chargesTotal).toFixed(2));
   document.getElementById('orderSubtotal').textContent = '$' + subtotal.toFixed(2);
   document.getElementById('orderTax').textContent = '$' + tax.toFixed(2);
+  const taxLabel = document.getElementById('orderTaxLabel');
+  if (taxLabel) taxLabel.textContent = isOrderTaxEnabled() ? 'Tax (retail 9%)' : 'Tax (off)';
   document.getElementById('orderTotal').textContent = '$' + tot.toFixed(2);
 }
 
@@ -2485,28 +2694,36 @@ async function sendOrderToProcessing() {
     customerAddress: document.getElementById('orderCustomerAddress').value || '',
     items,
     charges: getOrderCharges(subtotal),
+    taxEnabled: isOrderTaxEnabled(),
+    taxRate: 0.09,
     notes: document.getElementById('orderNotes').value.trim()
   };
 
   try {
+    const matchedCustomer = selectedCustomerForOrder || findCustomerByName(customer);
+    if (matchedCustomer) await persistCustomerTaxPreference(matchedCustomer, payload.taxEnabled);
     let order;
     if (orderEditingId) {
-      const r = await fetch(`${API}/orders/${orderEditingId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ customerName: payload.customerName, customerEmail: payload.customerEmail, customerAddress: payload.customerAddress, items, charges: payload.charges, notes: payload.notes }) });
+      const r = await fetch(`${API}/orders/${orderEditingId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ customerName: payload.customerName, customerEmail: payload.customerEmail, customerAddress: payload.customerAddress, items, charges: payload.charges, taxEnabled: payload.taxEnabled, taxRate: payload.taxRate, notes: payload.notes }) });
       order = await r.json();
-      order = (await (await fetch(`${API}/orders/${orderEditingId}/send`, { method: 'POST', headers: authHeaders.headers })).json());
+      if (!r.ok || order.error) throw new Error(order.error || `Error ${r.status}`);
+      const r2 = await fetch(`${API}/orders/${orderEditingId}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ taxEnabled: payload.taxEnabled, taxRate: payload.taxRate }) });
+      order = await r2.json();
+      if (!r2.ok || order.error) throw new Error(order.error || `Error ${r2.status}`);
     } else {
       const r = await fetch(`${API}/orders`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify(payload) });
       order = await r.json();
-      if (order.error) throw new Error(order.error);
-      const r2 = await fetch(`${API}/orders/${order.id}/send`, { method: 'POST', headers: authHeaders.headers });
+      if (!r.ok || order.error) throw new Error(order.error || `Error ${r.status}`);
+      const r2 = await fetch(`${API}/orders/${order.id}/send`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ taxEnabled: payload.taxEnabled, taxRate: payload.taxRate }) });
       order = await r2.json();
+      if (!r2.ok || order.error) throw new Error(order.error || `Error ${r2.status}`);
     }
-    if (order.error) throw new Error(order.error);
     // Print the order slip
     printOrderSlip(order);
-    showOrderMsg(`Order ${order.order_number} sent to processing!`, 'success');
+    showOrderMsg(`Order ${order.order_number} sent to processing and invoice draft created.`, 'success');
     clearOrderForm();
     fetchOrders();
+    loadInvoices();
   } catch(e) {
     showOrderMsg(e.message, 'error');
   }
@@ -2526,6 +2743,7 @@ async function fetchOrders() {
     allOrders = await r.json();
     renderOrderQueue();
     renderInprocessOrders();
+    renderDailyItemReportPreview();
   } catch(e) {}
 }
 
@@ -2557,15 +2775,16 @@ function renderOrderQueue() {
       return `${i.name} × ${amt}`;
     }).join(', ');
     const statusClass = 'status-' + o.status;
+    const statusText = o.status === 'in_process' ? 'Pending weights' : String(o.status || 'pending').replace('_',' ');
     const timeAgo = timeSince(o.created_at);
     return `<div class="queue-order-card">
       <div class="queue-order-header">
         <span class="queue-order-num">${o.order_number}</span>
-        <span class="status-badge ${statusClass}">${o.status.replace('_',' ')}</span>
+        <span class="status-badge ${statusClass}">${statusText}</span>
       </div>
       <div class="queue-order-customer">${o.customer_name}</div>
       <div class="queue-order-items">${itemsSummary || '—'}</div>
-      <div style="font-size:11px;color:var(--muted);margin-top:4px">${timeAgo}</div>
+      <div style="font-size:11px;color:var(--muted);margin-top:4px">${timeAgo}${o.invoice_id ? ' · Invoice draft waiting' : ''}${o.tax_enabled ? ' · Retail tax' : ''}</div>
       <div class="queue-order-actions">
         ${o.status === 'in_process' ? `<button class="btn btn-accent" style="font-size:11px;padding:5px 10px" onclick="openFulfillModal('${o.id}')">Enter Weights</button>` : ''}
         ${o.status === 'in_process' ? `<button class="btn btn-outline" style="font-size:11px;padding:5px 10px" onclick="openAddonOrder('${o.id}')">Add-on</button>` : ''}
@@ -2597,6 +2816,7 @@ function renderInprocessOrders() {
         <span style="font-weight:600;font-size:13px">${o.order_number}</span>
         <span style="color:var(--muted);font-size:13px;margin-left:8px">${o.customer_name}</span>
         <div style="font-size:12px;color:var(--muted);margin-top:2px">${itemsSummary}</div>
+        <div style="font-size:11px;color:var(--accent);margin-top:3px">${o.invoice_id ? 'Pending invoice draft created' : 'Ready to create pending invoice draft'}</div>
       </div>
       <div style="display:flex;gap:8px;flex-wrap:wrap">
         <button class="btn btn-outline" style="font-size:12px;padding:6px 14px" onclick="copyTrackingLink('${o.id}')">🔗 Tracking Link</button>
@@ -2650,6 +2870,8 @@ function editOrder(id) {
   document.getElementById('orderCustomerEmail').value = order.customer_email || '';
   document.getElementById('orderCustomerAddress').value = order.customer_address || '';
   document.getElementById('orderNotes').value = order.notes || '';
+  selectedCustomerForOrder = findCustomerByName(order.customer_name);
+  setOrderTaxEnabled(!!order.tax_enabled, selectedCustomerForOrder ? customerName(selectedCustomerForOrder) : '');
   ['fuel','service','minimum'].forEach(key => {
     const charge = (order.charges || []).find(c => c.key === key);
     const input = document.getElementById('chargeVal-' + key);
@@ -2681,6 +2903,9 @@ function openAddonOrder(id) {
   orderEditingId = id;
   document.getElementById('orderCustomerInput').value = order.customer_name;
   document.getElementById('orderCustomerEmail').value = order.customer_email || '';
+  document.getElementById('orderCustomerAddress').value = order.customer_address || '';
+  selectedCustomerForOrder = findCustomerByName(order.customer_name);
+  setOrderTaxEnabled(!!order.tax_enabled, selectedCustomerForOrder ? customerName(selectedCustomerForOrder) : '');
   document.getElementById('orderItemsBody').innerHTML = '';
   // Clear form for add-on items only
   addOrderRow();
@@ -2718,6 +2943,7 @@ function printOrderSlip(order) {
   </div>
   <div style="background:#f5f5f5;padding:12px 16px;border-radius:8px;margin-bottom:20px">
     <div style="font-size:16px;font-weight:bold">${order.customer_name}</div>
+    ${order.invoice?.invoice_number ? `<div style="font-size:13px;color:#555;margin-top:4px">Invoice draft: ${escHtml(order.invoice.invoice_number)} · awaiting final weights</div>` : ''}
     ${order.notes ? `<div style="font-size:13px;color:#555;margin-top:4px">Note: ${order.notes}</div>` : ''}
   </div>
   <table><thead><tr><th>Product</th><th style="text-align:right">Amount</th><th style="text-align:right">Price</th></tr></thead>
@@ -2733,9 +2959,97 @@ function printQueueOrder(id) {
   if (order) printOrderSlip(order);
 }
 
+function localDateKey(value = new Date()) {
+  const d = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60000);
+  return local.toISOString().slice(0, 10);
+}
+
+function orderItemAmount(item) {
+  return item.unit === 'lb'
+    ? (parseFloat(item.requested_weight || item.actual_weight || item.quantity || 0) || 0)
+    : (parseFloat(item.requested_qty || item.quantity || 0) || 0);
+}
+
+function getDailyItemReportGroups() {
+  const date = document.getElementById('orderReportDate')?.value || localDateKey();
+  const query = (document.getElementById('orderReportQuery')?.value || '').trim().toLowerCase();
+  const unitFilter = document.getElementById('orderReportUnit')?.value || '';
+  const groups = new Map();
+
+  allOrders
+    .filter(order => localDateKey(order.created_at) === date)
+    .forEach(order => {
+      (order.items || []).forEach(item => {
+        const unit = item.unit === 'lb' ? 'lb' : 'each';
+        const notes = item.notes || '';
+        const haystack = [item.name, item.description, notes, item.item_number, order.customer_name].filter(Boolean).join(' ').toLowerCase();
+        if (query && !haystack.includes(query)) return;
+        if (unitFilter && unit !== unitFilter) return;
+        const description = item.name || item.description || 'Unnamed item';
+        const key = `${description}|||${notes}|||${unit}`;
+        if (!groups.has(key)) {
+          groups.set(key, {
+            description,
+            notes,
+            unit,
+            quantity: 0,
+            customers: new Set(),
+            orders: new Set(),
+          });
+        }
+        const group = groups.get(key);
+        group.quantity += orderItemAmount(item);
+        if (order.customer_name) group.customers.add(order.customer_name);
+        if (order.order_number) group.orders.add(order.order_number);
+      });
+    });
+
+  return [...groups.values()].sort((a, b) => a.description.localeCompare(b.description));
+}
+
+function renderDailyItemReportPreview() {
+  const preview = document.getElementById('orderReportPreview');
+  if (!preview) return;
+  const groups = getDailyItemReportGroups();
+  if (!groups.length) {
+    preview.innerHTML = 'No matching ordered items for that day yet.';
+    return;
+  }
+  const totalLines = groups.length;
+  const qtySummary = groups.slice(0, 4).map(g => `${g.description}: ${g.quantity.toFixed(g.unit === 'lb' ? 2 : 0)} ${g.unit}`).join(' · ');
+  preview.innerHTML = `<strong>${totalLines}</strong> item group${totalLines === 1 ? '' : 's'} ready to print. ${escHtml(qtySummary)}${groups.length > 4 ? ' · …' : ''}`;
+}
+
+function printDailyItemReport() {
+  const date = document.getElementById('orderReportDate')?.value || localDateKey();
+  const query = document.getElementById('orderReportQuery')?.value || '';
+  const groups = getDailyItemReportGroups();
+  const rows = groups.map(g => `<tr>
+    <td>${escHtml(g.description)}${g.notes ? `<div class="muted" style="font-size:12px;font-style:italic;margin-top:2px">${escHtml(g.notes)}</div>` : ''}</td>
+    <td>${escHtml(g.unit === 'lb' ? 'Pounds' : 'Each')}</td>
+    <td style="text-align:right">${g.quantity.toFixed(g.unit === 'lb' ? 2 : 0)}</td>
+    <td>${escHtml([...g.customers].join(', ') || '—')}</td>
+    <td>${escHtml([...g.orders].join(', ') || '—')}</td>
+  </tr>`).join('');
+  openPrintPreview('Daily Ordered Item Report', `
+    <h1>Daily Ordered Item Report</h1>
+    <div class="muted">Order date: ${escHtml(date)}${query ? ` · Filter: ${escHtml(query)}` : ''}</div>
+    <table>
+      <thead><tr><th>Description / Brand</th><th>Quantity Type</th><th style="text-align:right">Total Quantity</th><th>Customers</th><th>Orders</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="5" style="text-align:center">No matching ordered items</td></tr>'}</tbody>
+    </table>
+  `);
+}
+
 // Customer autocomplete for orders
 function filterOrderCustomers() {
-  const q = document.getElementById('orderCustomerInput').value.toLowerCase();
+  const typed = document.getElementById('orderCustomerInput').value.trim();
+  if (selectedCustomerForOrder && typed.toLowerCase() !== customerName(selectedCustomerForOrder).trim().toLowerCase()) {
+    selectedCustomerForOrder = null;
+  }
+  const q = typed.toLowerCase();
   const drop = document.getElementById('orderCustDrop');
   custAcIndex = -1;
   if (!q || q.length < 1) { drop.style.display = 'none'; return; }
@@ -2749,13 +3063,16 @@ function filterOrderCustomers() {
   const matches = allCustomers.filter(c => {
     return customerSearchText(c).includes(q);
   }).slice(0, 10);
+  orderCustomerMatches = matches;
   if (!matches.length) { drop.style.display = 'none'; return; }
   drop.innerHTML = matches.map((c, i) => {
     const name = customerName(c);
     const addr = customerAddress(c);
     const meta = [c.customer_number, c.contact_name, c.phone_number].filter(Boolean).join(' · ');
-    return `<div class="cust-ac-item" data-idx="${i}" onclick="selectOrderCustomer(${JSON.stringify(name).replace(/"/g,'&quot;')}, ${JSON.stringify(customerEmail(c)).replace(/"/g,'&quot;')}, ${JSON.stringify(addr).replace(/"/g,'&quot;')})">
+    const taxBadge = customerTaxEnabled(c) ? '<span class="tax-pill on">Retail tax</span>' : '<span class="tax-pill">No tax</span>';
+    return `<div class="cust-ac-item" data-idx="${i}" onclick="selectOrderCustomerByIndex(${i})">
       <div style="font-weight:600">${escHtml(name)}</div>
+      <div style="margin-top:4px">${taxBadge}</div>
       ${meta ? `<div style="font-size:11px;color:var(--muted)">${escHtml(meta)}</div>` : ''}
       ${addr ? `<div style="font-size:11px;color:var(--muted)">${escHtml(addr)}</div>` : ''}
     </div>`;
@@ -2773,11 +3090,19 @@ function orderCustKeydown(e) {
   if (e.key === 'Tab') { if (custAcIndex >= 0) items[custAcIndex]?.click(); drop.style.display = 'none'; }
 }
 
-function selectOrderCustomer(name, email, address) {
+function selectOrderCustomerByIndex(index) {
+  const customer = orderCustomerMatches[index];
+  if (!customer) return;
+  selectOrderCustomer(customerName(customer), customerEmail(customer), customerAddress(customer), customer);
+}
+
+function selectOrderCustomer(name, email, address, customer = null) {
+  selectedCustomerForOrder = customer || findCustomerByName(name);
   document.getElementById('orderCustomerInput').value = name;
   document.getElementById('orderCustomerEmail').value = email;
   document.getElementById('orderCustomerAddress').value = address;
   document.getElementById('orderCustDrop').style.display = 'none';
+  setOrderTaxEnabled(customerTaxEnabled(selectedCustomerForOrder), selectedCustomerForOrder ? customerName(selectedCustomerForOrder) : '');
   // Focus first item row
   const firstRow = document.getElementById('orderItemsBody').querySelector('[data-field="name"]');
   if (firstRow) firstRow.focus();
@@ -2808,7 +3133,7 @@ function selectProduct(el, name, price, unit, itemNumber = '') {
   row.querySelector('[data-field="name"]').value = name;
   row.querySelector('[data-field="price"]').value = price;
   // Set unit
-  const unitActual = unit === 'lb' ? 'lb' : 'each';
+  const unitActual = String(unit || '').toLowerCase().includes('lb') ? 'lb' : 'each';
   row.querySelectorAll('.unit-btn').forEach(b => {
     b.classList.toggle('active', b.textContent.trim() === (unitActual === 'lb' ? 'lb' : 'ea'));
   });
@@ -2906,7 +3231,7 @@ async function submitFulfill() {
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || `Error ${r.status}`);
     resultEl.className = 'modal-result success';
-    resultEl.textContent = `Invoice ${data.invoice.invoice_number} created!`;
+    resultEl.textContent = `Invoice ${data.invoice.invoice_number} updated with final weights.`;
     resultEl.style.display = 'block';
     fetchOrders();
     loadInvoices();
@@ -3216,6 +3541,7 @@ async function fetchAll() {
     fetchCustomers();
     loadInvoices();
     fetchOrders();
+    if (document.getElementById('inv-pane-temps')?.classList.contains('active')) fetchTemperatureLogs();
     updateAlert(d);
     populateDriverFilter();
   } catch(e) {
@@ -4187,7 +4513,8 @@ document.getElementById('addCustomerModal').addEventListener('click', e => { if 
 let allCustomers = [];
 
 function openAddCustomerModal() {
-  ['custName','custNumber','custPhone','custFax','custContact','custPayment'].forEach(id => document.getElementById(id).value = '');
+  ['custName','custNumber','custPhone','custFax','custAddress','custContact','custPayment'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('custTaxEnabled').checked = false;
   const r = document.getElementById('custResult'); r.className = 'modal-result'; r.textContent = '';
   document.getElementById('addCustomerModal').classList.add('open');
   focusElement('#custName');
@@ -4225,8 +4552,10 @@ async function submitAddCustomer() {
       customer_number: document.getElementById('custNumber').value.trim() || null,
       phone_number: document.getElementById('custPhone').value.trim() || null,
       fax_number: document.getElementById('custFax').value.trim() || null,
+      address: document.getElementById('custAddress').value.trim() || null,
       contact_name: document.getElementById('custContact').value.trim() || null,
-      payment_terms: document.getElementById('custPayment').value.trim() || null
+      payment_terms: document.getElementById('custPayment').value.trim() || null,
+      tax_enabled: document.getElementById('custTaxEnabled').checked
     })});
     if (!res.ok) throw new Error((await res.json()).error);
     const c = await res.json();
@@ -4246,7 +4575,7 @@ async function deleteCustomer(id, name) {
 function renderCustomersTable() {
   const tbody = document.getElementById('customersTable');
   if (!allCustomers.length) {
-    tbody.innerHTML = tableEmptyState(7, '🏪', 'No customers yet', 'Add your first restaurant or retail account to start creating invoices and orders.');
+    tbody.innerHTML = tableEmptyState(8, '🏪', 'No customers yet', 'Add your first restaurant or retail account to start creating invoices and orders.');
     return;
   }
   tbody.innerHTML = allCustomers.map(c => `
@@ -4257,7 +4586,8 @@ function renderCustomersTable() {
       <td style="color:var(--muted);font-size:12px">${c.phone_number||'–'}</td>
       <td style="color:var(--muted);font-size:12px">${c.fax_number||'–'}</td>
       <td style="color:var(--muted);font-size:12px">${c.payment_terms||'–'}</td>
-      <td><button class="user-action-btn danger" onclick="deleteCustomer(${c.id},'${(c.company_name||'').replace(/'/g,"\\'")}')">Remove</button></td>
+      <td>${customerTaxEnabled(c) ? '<span class="tax-pill on">Retail</span>' : '<span class="tax-pill">Off</span>'}</td>
+      <td><button class="user-action-btn danger" onclick="deleteCustomer('${String(c.id).replace(/'/g,"\\'")}','${(c.company_name||'').replace(/'/g,"\\'")}')">Remove</button></td>
     </tr>`).join('');
 }
 
@@ -5067,7 +5397,141 @@ function showInvTab(name, el) {
   document.getElementById('inv-pane-' + name)?.classList.add('active');
   if (name === 'analytics') fetchInventoryAnalytics();
   if (name === 'lots') fetchLots();
+  if (name === 'temps') fetchTemperatureLogs();
   if (name === 'reorder') populateReorderAlertDropdown();
+}
+
+// ── TEMPERATURE LOGS ──────────────────────────────────
+let temperatureLogs = [];
+
+function tempLogStatus(log) {
+  const temp = parseFloat(log.temperature);
+  const area = String(log.storage_area || '').toLowerCase();
+  const max = area.includes('freezer') ? 0 : 41;
+  if (!Number.isFinite(temp)) return { cls: 'warn', label: 'Review' };
+  if (temp <= max) return { cls: 'ok', label: 'In range' };
+  return { cls: log.corrective_action ? 'warn' : 'bad', label: log.corrective_action ? 'Corrected' : 'Action needed' };
+}
+
+function setDefaultTempFields() {
+  const loggedAt = document.getElementById('tempLoggedAt');
+  if (loggedAt && !loggedAt.value) {
+    const now = new Date();
+    const local = new Date(now.getTime() - now.getTimezoneOffset() * 60000);
+    loggedAt.value = local.toISOString().slice(0, 16);
+  }
+  const date = document.getElementById('tempLogDate');
+  if (date && !date.value) date.value = localDateKey();
+  const initials = document.getElementById('tempInitials');
+  if (initials && !initials.value && nrUser?.name) {
+    initials.value = nrUser.name.split(/\s+/).map(part => part[0]).join('').slice(0, 3).toUpperCase();
+  }
+}
+
+async function fetchTemperatureLogs() {
+  setDefaultTempFields();
+  const date = document.getElementById('tempLogDate')?.value || localDateKey();
+  try {
+    const res = await fetch(`${API}/temperature-logs?date=${encodeURIComponent(date)}`, authHeaders);
+    if (!res.ok) throw new Error('Could not load temperature logs');
+    temperatureLogs = await res.json();
+    renderTemperatureLogs();
+  } catch(e) {
+    const tb = document.getElementById('tempLogsTable');
+    if (tb) tb.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:32px;color:var(--danger)">${escHtml(e.message)}</td></tr>`;
+  }
+}
+
+function renderTemperatureLogs() {
+  const tb = document.getElementById('tempLogsTable');
+  if (!tb) return;
+  if (!temperatureLogs.length) {
+    tb.innerHTML = tableEmptyState(7, '🌡', 'No temperature logs for this date', 'Add opening, midday, closing, receiving, or truck checks to keep the required record complete.');
+    return;
+  }
+  tb.innerHTML = temperatureLogs.map(log => {
+    const status = tempLogStatus(log);
+    const time = log.logged_at ? new Date(log.logged_at).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : '—';
+    const temp = parseFloat(log.temperature);
+    const actionNotes = [log.corrective_action, log.notes].filter(Boolean).join(' · ') || '—';
+    return `<tr>
+      <td>${time}</td>
+      <td>${escHtml(log.storage_area || '—')}</td>
+      <td style="font-weight:700">${Number.isFinite(temp) ? temp.toFixed(1) : '—'}°${escHtml(log.unit || 'F')}</td>
+      <td>${escHtml(log.check_type || 'routine')}</td>
+      <td><span class="temp-status ${status.cls}">${status.label}</span></td>
+      <td>${escHtml(log.initials || '—')}</td>
+      <td>${escHtml(actionNotes)}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function submitTemperatureLog() {
+  setDefaultTempFields();
+  const result = document.getElementById('tempLogResult');
+  const payload = {
+    logged_at: document.getElementById('tempLoggedAt').value,
+    storage_area: document.getElementById('tempArea').value.trim(),
+    temperature: document.getElementById('tempValue').value,
+    unit: 'F',
+    check_type: document.getElementById('tempCheckType').value,
+    corrective_action: document.getElementById('tempAction').value.trim(),
+    initials: document.getElementById('tempInitials').value.trim(),
+    notes: document.getElementById('tempNotes').value.trim(),
+  };
+  if (!payload.storage_area || payload.temperature === '') {
+    result.className = 'modal-result error';
+    result.textContent = 'Area and temperature are required.';
+    return;
+  }
+  try {
+    const res = await fetch(`${API}/temperature-logs`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not save temperature log');
+    result.className = 'modal-result success';
+    result.textContent = 'Temperature log saved.';
+    document.getElementById('tempValue').value = '';
+    document.getElementById('tempAction').value = '';
+    document.getElementById('tempNotes').value = '';
+    await fetchTemperatureLogs();
+    focusElement('#tempValue');
+  } catch(e) {
+    result.className = 'modal-result error';
+    result.textContent = e.message;
+  }
+}
+
+function printTemperatureLogs() {
+  const date = document.getElementById('tempLogDate')?.value || localDateKey();
+  const rows = temperatureLogs.map(log => {
+    const status = tempLogStatus(log);
+    const temp = parseFloat(log.temperature);
+    return `<tr>
+      <td>${log.logged_at ? new Date(log.logged_at).toLocaleString() : '—'}</td>
+      <td>${escHtml(log.storage_area || '—')}</td>
+      <td style="text-align:right">${Number.isFinite(temp) ? temp.toFixed(1) : '—'}°${escHtml(log.unit || 'F')}</td>
+      <td>${escHtml(log.check_type || 'routine')}</td>
+      <td>${escHtml(status.label)}</td>
+      <td>${escHtml(log.initials || '—')}</td>
+      <td>${escHtml([log.corrective_action, log.notes].filter(Boolean).join(' · ') || '—')}</td>
+    </tr>`;
+  }).join('');
+  openPrintPreview('Temperature Log', `
+    <h1>Temperature Log</h1>
+    <div class="muted">Date: ${escHtml(date)} · Printed ${new Date().toLocaleString()}</div>
+    <table>
+      <thead><tr><th>Time</th><th>Area</th><th style="text-align:right">Temp</th><th>Type</th><th>Status</th><th>Initials</th><th>Action / Notes</th></tr></thead>
+      <tbody>${rows || '<tr><td colspan="7" style="text-align:center">No logs for this date</td></tr>'}</tbody>
+    </table>
+    <div style="margin-top:24px;display:grid;grid-template-columns:1fr 1fr;gap:20px">
+      <div>Manager review: _________________________</div>
+      <div>Date: _________________________</div>
+    </div>
+  `);
 }
 
 // ── YIELD MODAL ────────────────────────────────────────
@@ -5666,7 +6130,9 @@ function renderInvoices() {
   const q = (document.getElementById('invoiceSearch')?.value || '').toLowerCase();
   const sf = (document.getElementById('invoiceStatusFilter')?.value || '');
   let list = allInvoices.filter(inv => {
-    const matchQ = !q || (inv.invoiceNumber||'').toLowerCase().includes(q) || (inv.customerName||'').toLowerCase().includes(q);
+    const invoiceNumber = String(invoiceField(inv, 'invoiceNumber', 'invoice_number')).toLowerCase();
+    const customer = String(invoiceField(inv, 'customerName', 'customer_name')).toLowerCase();
+    const matchQ = !q || invoiceNumber.includes(q) || customer.includes(q);
     const matchS = !sf || inv.status === sf;
     return matchQ && matchS;
   });
@@ -5678,7 +6144,8 @@ function renderInvoices() {
   }
   tb.innerHTML = list.map(inv => {
     const total = typeof inv.total === 'number' ? '$' + inv.total.toFixed(2) : (inv.total || '—');
-    const date = inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : '—';
+    const dateValue = invoiceField(inv, 'createdAt', 'created_at');
+    const date = dateValue ? new Date(dateValue).toLocaleDateString() : '—';
     const statusLabel = inv.status === 'pending' ? 'Pending Signature' : inv.status === 'signed' ? 'Signed' : inv.status === 'sent' ? 'Sent' : inv.status || '—';
     const canEmail = !!(inv.customerEmail || inv.customer_email);
     const actions = `
@@ -5689,9 +6156,9 @@ function renderInvoices() {
       ${canEmail ? `<button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="resendInvoiceEmail('${inv.id}')">Resend</button>` : ''}
     `;
     return `<tr>
-      <td>${inv.invoiceNumber || '—'}</td>
-      <td>${inv.customerName || '—'}</td>
-      <td>${inv.driverName || inv.driver || '—'}</td>
+      <td>${invoiceField(inv, 'invoiceNumber', 'invoice_number') || '—'}</td>
+      <td>${invoiceField(inv, 'customerName', 'customer_name') || '—'}</td>
+      <td>${invoiceField(inv, 'driverName', 'driver_name', 'driver') || '—'}</td>
       <td>${total}</td>
       <td><span class="inv-status-${inv.status}">${statusLabel}</span></td>
       <td>${date}</td>
@@ -5896,15 +6363,18 @@ function printInventoryCountSheet() {
 
 // ── NEW INVOICE MODAL ──────────────────────────────────
 let invoiceLineCount = 0;
+let selectedInvoiceCustomer = null;
 
 async function openNewInvoiceModal() {
   invoiceLineCount = 0;
+  selectedInvoiceCustomer = null;
   document.getElementById('ni_lines').innerHTML = '';
   document.getElementById('ni_number').value = '';
   document.getElementById('ni_customer').value = '';
   document.getElementById('ni_email').value = '';
   document.getElementById('ni_address').value = '';
   document.getElementById('ni_notes').value = '';
+  document.getElementById('ni_tax_enabled').checked = false;
   updateInvoiceTotals();
   addInvoiceLine();
 
@@ -5944,11 +6414,14 @@ function onInvoiceCustomerSelected() {
   const sorted = [...allCustomers].sort((a,b)=>customerName(a).localeCompare(customerName(b)));
   const c = sorted[idx];
   if (!c) return;
+  selectedInvoiceCustomer = c;
   document.getElementById('ni_customer').value = customerName(c) || '';
   document.getElementById('ni_address').value = customerAddress(c) || '';
   if (!document.getElementById('ni_email').value) {
     document.getElementById('ni_email').value = customerEmail(c) || '';
   }
+  document.getElementById('ni_tax_enabled').checked = customerTaxEnabled(c);
+  updateInvoiceTotals();
 }
 
 function closeNewInvoiceModal() {
@@ -5984,13 +6457,17 @@ function updateInvoiceTotals() {
     if (!qEl || !pEl) continue;
     subtotal += (parseFloat(qEl.value) || 0) * (parseFloat(pEl.value) || 0);
   }
-  const taxRate = 0.09; // 9% default — adjust as needed
-  const tax = subtotal * taxRate;
+  const taxRate = 0.09;
+  const taxEnabled = !!document.getElementById('ni_tax_enabled')?.checked;
+  const tax = taxEnabled ? subtotal * taxRate : 0;
   const total = subtotal + tax;
   const el = id => document.getElementById(id);
   if (el('ni_subtotal')) el('ni_subtotal').textContent = '$' + subtotal.toFixed(2);
   if (el('ni_tax_display')) el('ni_tax_display').textContent = '$' + tax.toFixed(2);
   if (el('ni_total')) el('ni_total').textContent = '$' + total.toFixed(2);
+  if (el('ni_tax_hint')) el('ni_tax_hint').textContent = taxEnabled
+    ? 'Retail tax is enabled for this invoice.'
+    : 'Tax off. Turn on only for retail customers.';
 }
 
 async function createInvoice(emailAfterCreate = false) {
@@ -6001,7 +6478,7 @@ async function createInvoice(emailAfterCreate = false) {
     const desc = dEl.value.trim();
     const qty = parseFloat(document.getElementById('ni_qty_' + i)?.value) || 0;
     const price = parseFloat(document.getElementById('ni_price_' + i)?.value) || 0;
-    if (desc) items.push({ description: desc, quantity: qty, unitPrice: price, total: qty * price });
+    if (desc) items.push({ description: desc, quantity: qty, unit_price: price, total: qty * price });
   }
   if (!items.length) { alert('Add at least one line item.'); return; }
   const customerName = document.getElementById('ni_customer').value.trim();
@@ -6009,7 +6486,8 @@ async function createInvoice(emailAfterCreate = false) {
   const customerEmail = document.getElementById('ni_email').value.trim();
   if (emailAfterCreate && !customerEmail) { alert('Enter a customer email before sending the invoice.'); return; }
   const subtotal = items.reduce((s, it) => s + it.total, 0);
-  const tax = subtotal * 0.09;
+  const taxEnabled = !!document.getElementById('ni_tax_enabled')?.checked;
+  const tax = taxEnabled ? subtotal * 0.09 : 0;
   const createBtn = document.querySelector('#newInvoiceModal .btn.btn-accent');
   const emailBtn = document.getElementById('createAndEmailInvoiceBtn');
   const originalCreateLabel = createBtn ? createBtn.textContent : '';
@@ -6024,9 +6502,13 @@ async function createInvoice(emailAfterCreate = false) {
     subtotal,
     tax,
     total: subtotal + tax,
+    taxEnabled,
+    taxRate: 0.09,
     notes: document.getElementById('ni_notes').value.trim(),
   };
   try {
+    const matchedCustomer = selectedInvoiceCustomer || findCustomerByName(customerName);
+    if (matchedCustomer) await persistCustomerTaxPreference(matchedCustomer, taxEnabled);
     if (createBtn) {
       createBtn.disabled = true;
       createBtn.textContent = emailAfterCreate ? 'Creating…' : 'Saving…';
@@ -6076,7 +6558,9 @@ function openSignModal(invoiceId) {
   const inv = allInvoices.find(i => i.id === invoiceId);
   const summary = document.getElementById('signInvoiceSummary');
   if (summary && inv) {
-    summary.textContent = `Invoice ${inv.invoiceNumber || invoiceId} — ${inv.customerName || ''} — ${typeof inv.total === 'number' ? '$' + inv.total.toFixed(2) : inv.total || ''}`;
+    const invoiceNumber = invoiceField(inv, 'invoiceNumber', 'invoice_number') || invoiceId;
+    const customerNameValue = invoiceField(inv, 'customerName', 'customer_name') || '';
+    summary.textContent = `Invoice ${invoiceNumber} — ${customerNameValue} — ${typeof inv.total === 'number' ? '$' + inv.total.toFixed(2) : inv.total || ''}`;
   }
   const modal = document.getElementById('signModal');
   modal.style.display = 'flex';
@@ -6235,8 +6719,22 @@ async function emailInvoice(id) {
 
 document.getElementById('newInvoiceModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeNewInvoiceModal(); });
 document.getElementById('signModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeSignModal(); });
+document.getElementById('inv-pane-temps')?.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey && !['BUTTON', 'SELECT'].includes(e.target.tagName)) {
+    e.preventDefault();
+    submitTemperatureLog();
+  }
+});
+
+function initOperationalDefaults() {
+  const reportDate = document.getElementById('orderReportDate');
+  if (reportDate && !reportDate.value) reportDate.value = localDateKey();
+  setDefaultTempFields();
+  renderDailyItemReportPreview();
+}
 
 // ── AUTO REFRESH ───────────────────────────────────────
+initOperationalDefaults();
 addOrderRow();
 fetchAll();
 setInterval(fetchAll, 30000);
