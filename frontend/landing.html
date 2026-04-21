@@ -145,7 +145,8 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      padding: 10px 0;
+      min-height: 36px;
+      padding: 4px 0;
     }
 
     .nav-logo {
@@ -157,9 +158,9 @@
 
     .nav-logo img {
       display: block;
-      width: min(240px, 54vw);
+      width: min(112px, 30vw);
       height: auto;
-      padding: 3px 0;
+      padding: 0;
     }
 
     .logo-icon {
@@ -186,14 +187,14 @@
     .nav-links {
       display: flex;
       align-items: center;
-      gap: 24px;
+      gap: 16px;
       list-style: none;
     }
 
     .nav-links a {
       color: var(--text-muted);
       text-decoration: none;
-      font-size: 13px;
+      font-size: 12px;
       font-weight: 500;
       transition: color 0.2s;
     }
@@ -203,22 +204,23 @@
     .nav-actions { display: flex; align-items: center; gap: 9px; }
 
     nav .btn {
-      padding: 9px 21px;
-      font-size: 14px;
+      padding: 6px 12px;
+      font-size: 12px;
+      border-radius: 7px;
     }
 
     .hamburger {
       display: none;
       flex-direction: column;
-      gap: 4px;
+      gap: 3px;
       cursor: pointer;
-      padding: 3px;
+      padding: 2px;
       background: none;
       border: none;
     }
     .hamburger span {
       display: block;
-      width: 18px;
+      width: 16px;
       height: 2px;
       background: var(--text);
       border-radius: 2px;
@@ -253,11 +255,13 @@
     @media (max-width: 768px) {
       .nav-links, .nav-actions { display: none; }
       .hamburger { display: flex; }
+      .nav-inner { min-height: 34px; padding: 3px 0; }
+      .nav-logo img { width: min(104px, 42vw); }
     }
 
     /* ─── HERO ─── */
     .hero {
-      padding: 160px 0 100px;
+      padding: 96px 0 100px;
       position: relative;
       overflow: hidden;
     }
