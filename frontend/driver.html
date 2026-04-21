@@ -268,10 +268,20 @@ async function doLogin() {
     const res  = await fetch('/auth/login', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ email, password: pw }) });
     const data = await res.json();
     if (!res.ok) { showErr(data.error || 'Login failed.'); return; }
+    if (!data.user || data.user.role !== 'driver') {
+      showErr('This login is for drivers only.');
+      driverToken = null;
+      driverUser = null;
+      sessionStorage.removeItem('drv_token');
+      sessionStorage.removeItem('drv_user');
+      return;
+    }
     driverToken = data.token;
     driverUser  = data.user;
     sessionStorage.setItem('drv_token', driverToken);
     sessionStorage.setItem('drv_user',  JSON.stringify(driverUser));
+    localStorage.setItem('nr_token', driverToken);
+    localStorage.setItem('nr_user', JSON.stringify(driverUser));
     enterApp();
   } catch { showErr('Could not reach server.'); }
   finally   { btn.disabled = false; btn.textContent = 'Sign In'; }
@@ -281,6 +291,8 @@ function doLogout() {
   stopLocationSharing();
   driverToken = null; driverUser = null; allRoutes = []; activeRoute = null; stopState = {}; dwellState = [];
   sessionStorage.removeItem('drv_token'); sessionStorage.removeItem('drv_user');
+  localStorage.removeItem('nr_token');
+  localStorage.removeItem('nr_user');
   document.getElementById('app').style.display        = 'none';
   document.getElementById('loginScreen').style.display = 'flex';
   document.getElementById('loginPw').value = '';
@@ -572,13 +584,9 @@ async function renderAnalytics() {
   const el = document.getElementById('analyticsContent');
   el.innerHTML = '<div class="spinner"></div>';
   try {
-    const [statsRes, driversRes] = await Promise.all([
-      fetch('/api/stats',   ah()),
-      fetch('/api/drivers', ah()),
-    ]);
-    const stats   = statsRes.ok   ? await statsRes.json()   : {};
-    const drivers = driversRes.ok ? await driversRes.json() : [];
-    const me      = drivers.find(d => d.name === (driverUser && driverUser.name)) || {};
+    const res = await fetch('/api/driver/summary', ah());
+    if (res.status === 401) { doLogout(); return; }
+    const me = res.ok ? await res.json() : {};
 
     const stops   = activeRoute ? (activeRoute.stops || []) : [];
     const done    = stops.filter(s => stopState[s.id] === 'departed').length;
@@ -875,14 +883,28 @@ document.getElementById('signatureModal').addEventListener('click', e => { if (e
 
 // ── AUTO-RESTORE SESSION ─────────────────────────────────────────────────────
 (function() {
-  const tok  = sessionStorage.getItem('drv_token');
-  const user = sessionStorage.getItem('drv_user');
+  const tok  = sessionStorage.getItem('drv_token') || localStorage.getItem('nr_token');
+  const user = sessionStorage.getItem('drv_user') || localStorage.getItem('nr_user');
   if (!tok || !user) return;
   try {
     driverToken = tok;
     driverUser  = JSON.parse(user);
+    if (!driverUser || driverUser.role !== 'driver') {
+      sessionStorage.removeItem('drv_token');
+      sessionStorage.removeItem('drv_user');
+      localStorage.removeItem('nr_token');
+      localStorage.removeItem('nr_user');
+      window.location.href = '/dashboard';
+      return;
+    }
+    sessionStorage.setItem('drv_token', driverToken);
+    sessionStorage.setItem('drv_user', JSON.stringify(driverUser));
     enterApp();
-  } catch { sessionStorage.clear(); }
+  } catch {
+    sessionStorage.clear();
+    localStorage.removeItem('nr_token');
+    localStorage.removeItem('nr_user');
+  }
 })();
 </script>
 </body>
