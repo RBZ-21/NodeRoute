@@ -87,7 +87,7 @@ if (hasResend && hasSmtp && String(process.env.EMAIL_PROVIDER || 'auto').toLower
   console.warn('INFO: Both Resend and SMTP are configured. EMAIL_PROVIDER=auto will try Resend first, then SMTP fallback.');
 }
 if (!process.env.OPENAI_API_KEY) {
-  console.warn('WARNING: OPENAI_API_KEY is not set — AI demand forecasting will not work.');
+  console.warn('WARNING: OPENAI_API_KEY is not set — AI walkthroughs, PO scanning, inventory analysis, reorder drafting, and demand forecasting will use fallbacks or be unavailable.');
 }
 if (process.env.NODE_ENV === 'production') {
   if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'noderoute-dev-secret-change-in-production') {
