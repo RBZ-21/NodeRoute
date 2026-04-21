@@ -13,6 +13,38 @@ const {
 
 const router = express.Router();
 
+const DEFAULT_TAX_RATE = 0.09;
+
+function parseBoolean(value) {
+  return value === true || value === 'true' || value === 1 || value === '1' || value === 'on';
+}
+
+function asMoney(value) {
+  return parseFloat((parseFloat(value || 0) || 0).toFixed(2));
+}
+
+function invoiceBodyValue(body, ...keys) {
+  for (const key of keys) {
+    if (body[key] !== undefined && body[key] !== null && body[key] !== '') return body[key];
+  }
+  return null;
+}
+
+function normalizeInvoiceItems(items = []) {
+  return (Array.isArray(items) ? items : []).map((item) => {
+    const quantity = parseFloat(item.quantity || item.qty || 0) || 0;
+    const unitPrice = parseFloat(item.unit_price ?? item.unitPrice ?? item.price ?? 0) || 0;
+    return {
+      description: item.description || item.name || '',
+      notes: item.notes || null,
+      quantity,
+      unit: item.unit || null,
+      unit_price: unitPrice,
+      total: asMoney(item.total || quantity * unitPrice),
+    };
+  });
+}
+
 async function canDriverAccessInvoice(req, invoice) {
   if (!req.user || req.user.role !== 'driver') return true;
   if (!invoice?.id) return false;
@@ -82,9 +114,36 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { invoice_number, customer_name, customer_email, customer_address, items, subtotal, tax, total, driver_name, driver_id, notes, entree_invoice_id } = req.body;
+  const customer_name = invoiceBodyValue(req.body, 'customer_name', 'customerName');
   if (!customer_name) return res.status(400).json({ error: 'Customer name required' });
-  const insertResult = await insertRecordWithOptionalScope(supabase, 'invoices', { invoice_number, customer_name, customer_email, customer_address, items: items||[], subtotal: subtotal||0, tax: tax||0, total: total||0, status: 'pending', driver_name, driver_id: driver_id || null, notes, entree_invoice_id }, req.context);
+
+  const items = normalizeInvoiceItems(req.body.items);
+  const subtotal = req.body.subtotal !== undefined
+    ? asMoney(req.body.subtotal)
+    : asMoney(items.reduce((sum, item) => sum + item.total, 0));
+  const taxEnabled = parseBoolean(req.body.tax_enabled ?? req.body.taxEnabled);
+  const taxRate = parseFloat(req.body.tax_rate ?? req.body.taxRate);
+  const normalizedTaxRate = Number.isFinite(taxRate) && taxRate >= 0 ? taxRate : DEFAULT_TAX_RATE;
+  const tax = req.body.tax !== undefined ? asMoney(req.body.tax) : (taxEnabled ? asMoney(subtotal * normalizedTaxRate) : 0);
+  const total = req.body.total !== undefined ? asMoney(req.body.total) : asMoney(subtotal + tax);
+  const insertResult = await insertRecordWithOptionalScope(supabase, 'invoices', {
+    invoice_number: invoiceBodyValue(req.body, 'invoice_number', 'invoiceNumber') || `INV-${Date.now().toString().slice(-6)}`,
+    customer_name,
+    customer_email: invoiceBodyValue(req.body, 'customer_email', 'customerEmail') || null,
+    customer_address: invoiceBodyValue(req.body, 'customer_address', 'customerAddress', 'deliveryAddress') || null,
+    items,
+    subtotal,
+    tax,
+    total,
+    tax_enabled: taxEnabled,
+    tax_rate: normalizedTaxRate,
+    order_id: invoiceBodyValue(req.body, 'order_id', 'orderId'),
+    status: 'pending',
+    driver_name: invoiceBodyValue(req.body, 'driver_name', 'driverName'),
+    driver_id: invoiceBodyValue(req.body, 'driver_id', 'driverId'),
+    notes: req.body.notes || null,
+    entree_invoice_id: req.body.entree_invoice_id || null,
+  }, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
   if (!data) return;

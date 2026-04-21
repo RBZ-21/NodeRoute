@@ -2,19 +2,26 @@ const express = require('express');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const {
+  executeWithOptionalScope,
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
 } = require('../services/operating-context');
 
 const router = express.Router();
-const CUSTOMER_FIELDS = ['customer_number', 'company_name', 'phone_number', 'fax_number', 'contact_name', 'payment_terms'];
+const CUSTOMER_FIELDS = ['customer_number', 'company_name', 'phone_number', 'fax_number', 'contact_name', 'payment_terms', 'address'];
+
+function parseBoolean(value) {
+  return value === true || value === 'true' || value === 1 || value === '1' || value === 'on';
+}
 
 function customerPayload(source) {
   const payload = {};
   CUSTOMER_FIELDS.forEach(field => {
     if (source[field] !== undefined) payload[field] = source[field] || null;
   });
+  const taxValue = source.tax_enabled ?? source.taxEnabled;
+  if (taxValue !== undefined) payload.tax_enabled = parseBoolean(taxValue);
   return payload;
 }
 
@@ -39,7 +46,12 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   const existing = await dbQuery(supabase.from('Customers').select('*').eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Customer not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
-  const data = await dbQuery(supabase.from('Customers').update(customerPayload(req.body)).eq('id', req.params.id).select().single(), res);
+  const updateResult = await executeWithOptionalScope(
+    (candidate) => supabase.from('Customers').update(candidate).eq('id', req.params.id).select().single(),
+    customerPayload(req.body)
+  );
+  if (updateResult.error) return res.status(500).json({ error: updateResult.error.message });
+  const data = updateResult.data;
   if (!data) return;
   res.json(data);
 });

@@ -30,6 +30,7 @@ const demoState = {
   inventory_stock_history: [],
   inventory_yield_log: [],
   purchase_orders: [],
+  temperature_logs: [],
 };
 
 function clone(value) {

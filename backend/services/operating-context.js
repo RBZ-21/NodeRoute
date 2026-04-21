@@ -4,7 +4,25 @@ const LOCATION_FIELD_CANDIDATES = ['location_id', 'site_id', 'warehouse_id'];
 const LOCATION_NAME_FIELD_CANDIDATES = ['location_name', 'site_name', 'warehouse_name'];
 const LOCATION_LIST_FIELD_CANDIDATES = ['location_ids', 'site_ids', 'warehouse_ids', 'accessible_location_ids'];
 const PLATFORM_ROLE_CANDIDATES = ['platform_role', 'scope_role'];
-const OPTIONAL_SCOPE_FIELDS = ['location_id', 'location_name', 'company_id', 'company_name'];
+const OPTIONAL_SCOPE_FIELDS = [
+  'location_id',
+  'location_name',
+  'company_id',
+  'company_name',
+  'address',
+  'tax_enabled',
+  'tax_rate',
+  'order_id',
+  'invoice_id',
+  'logged_at',
+  'storage_area',
+  'temperature',
+  'unit',
+  'check_type',
+  'corrective_action',
+  'initials',
+  'recorded_by',
+];
 const DEFAULT_COMPANY_ID = process.env.DEFAULT_COMPANY_ID || '00000000-0000-0000-0000-000000000001';
 const DEFAULT_COMPANY_NAME = process.env.DEFAULT_COMPANY_NAME || 'Default Company';
 const DEFAULT_LOCATION_ID = process.env.DEFAULT_LOCATION_ID || '00000000-0000-0000-0000-000000000101';
