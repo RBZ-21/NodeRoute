@@ -1,7 +1,7 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
-const { loadDriverInvoiceScope } = require('../services/driver-invoice-access');
+const { loadDriverInvoiceScope, stopMatchesInvoice } = require('../services/driver-invoice-access');
 const {
   buildScopeFields,
   executeWithOptionalScope,
@@ -121,19 +121,21 @@ router.get('/invoices', authenticateToken, requireRole('driver', 'manager', 'adm
 });
 
 router.patch('/location', authenticateToken, requireRole('driver', 'manager', 'admin'), async (req, res) => {
+  const lat = Number(req.body.lat);
+  const lng = Number(req.body.lng);
+  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
+    return res.status(400).json({ error: 'Valid lat and lng are required' });
+  }
+
   const payload = {
     ...buildScopeFields(req.context),
     driver_name: req.user.name,
-    lat: Number(req.body.lat),
-    lng: Number(req.body.lng),
+    lat,
+    lng,
     heading: Number.isFinite(Number(req.body.heading)) ? Number(req.body.heading) : 0,
     speed_mph: Number.isFinite(Number(req.body.speed_mph)) ? Number(req.body.speed_mph) : 0,
     updated_at: new Date().toISOString(),
   };
-
-  if (!Number.isFinite(payload.lat) || !Number.isFinite(payload.lng)) {
-    return res.status(400).json({ error: 'Valid lat and lng are required' });
-  }
 
   const { data: existingRows, error: existingError } = await supabase
     .from('driver_locations')

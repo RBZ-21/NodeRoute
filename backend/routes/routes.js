@@ -9,6 +9,12 @@ const {
 
 const router = express.Router();
 
+function normalizeStopIds(value) {
+  if (Array.isArray(value)) return value.map(id => String(id || '').trim()).filter(Boolean);
+  if (typeof value === 'string') return value.split(',').map(id => id.trim()).filter(Boolean);
+  return [];
+}
+
 // ── ROUTES (Supabase) ───────────────────────────────────
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const data = await dbQuery(supabase.from('routes').select('*').order('created_at', { ascending: true }), res);
@@ -18,11 +24,12 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { name, stopIds, driver, driverId, driverName, notes } = req.body;
-  if (!name) return res.status(400).json({ error: 'Route name required' });
+  const routeName = String(name || '').trim();
+  if (!routeName) return res.status(400).json({ error: 'Route name required' });
   const assignedDriverName = driverName || driver || '';
   const insertResult = await insertRecordWithOptionalScope(supabase, 'routes', {
-    name,
-    stop_ids: stopIds || [],
+    name: routeName,
+    stop_ids: normalizeStopIds(stopIds),
     driver: assignedDriverName,
     driver_id: driverId || null,
     notes: notes || '',
@@ -39,8 +46,8 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const payload = {};
   if (req.body.name !== undefined) payload.name = String(req.body.name || '').trim();
-  if (req.body.stopIds !== undefined) payload.stop_ids = Array.isArray(req.body.stopIds) ? req.body.stopIds : [];
-  if (req.body.stop_ids !== undefined) payload.stop_ids = Array.isArray(req.body.stop_ids) ? req.body.stop_ids : [];
+  if (req.body.stopIds !== undefined) payload.stop_ids = normalizeStopIds(req.body.stopIds);
+  if (req.body.stop_ids !== undefined) payload.stop_ids = normalizeStopIds(req.body.stop_ids);
   if (req.body.driverName !== undefined) payload.driver = req.body.driverName || '';
   if (req.body.driver !== undefined) payload.driver = req.body.driver || '';
   if (req.body.driverId !== undefined) payload.driver_id = req.body.driverId || null;
@@ -63,3 +70,4 @@ router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async 
 });
 
 module.exports = router;
+module.exports.normalizeStopIds = normalizeStopIds;

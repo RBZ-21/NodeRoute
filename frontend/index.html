@@ -4117,8 +4117,11 @@ function nearestNeighbor(stops, matrix) {
     const last = order[order.length - 1];
     let best = -1, bestCost = Infinity;
     for (let j = 0; j < n; j++) {
-      if (!visited[j] && matrix[last][j] < bestCost) { bestCost = matrix[last][j]; best = j; }
+      const cost = Number(matrix?.[last]?.[j]);
+      if (!visited[j] && Number.isFinite(cost) && cost < bestCost) { bestCost = cost; best = j; }
     }
+    if (best === -1) best = visited.findIndex(done => !done);
+    if (best === -1) break;
     order.push(best); visited[best] = true;
   }
   return order;
@@ -4127,7 +4130,7 @@ function nearestNeighbor(stops, matrix) {
 async function autoSort(mode) {
   const route = allRoutes.find(r => r.id === currentRouteId);
   if (!route) return;
-  const stops = route.stopIds.map(id => allStops.find(s => s.id === id)).filter(Boolean);
+  const stops = route.stopIds.map(id => allStops.find(s => s.id === id)).filter(s => s && Number.isFinite(Number(s.lat)) && Number.isFinite(Number(s.lng)));
   if (stops.length < 3) { alert('Need at least 3 stops to auto-sort.'); return; }
 
   let order;
@@ -4143,6 +4146,7 @@ async function autoSort(mode) {
       const r = await fetch(`https://router.project-osrm.org/table/v1/driving/${coords}?annotations=duration`);
       if (!r.ok) throw new Error('OSRM error');
       const data = await r.json();
+      if (!Array.isArray(data.durations)) throw new Error('OSRM returned no duration matrix');
       order = nearestNeighbor(stops, data.durations);
     } catch(err) {
       alert('Could not reach routing service. Falling back to shortest distance.');

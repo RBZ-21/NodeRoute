@@ -21,6 +21,42 @@ function stopPayload(source) {
   return payload;
 }
 
+function normalize(value) {
+  return String(value || '').trim().toLowerCase().replace(/\s+/g, ' ');
+}
+
+function isRouteAssignedToUser(route, user) {
+  return (
+    String(route?.driver_id || '') === String(user?.id || '') ||
+    normalize(route?.driver_email) === normalize(user?.email) ||
+    normalize(route?.driver) === normalize(user?.name)
+  );
+}
+
+async function authorizeDwellEvent(req, res) {
+  const routeId = String(req.body?.routeId || '').trim();
+  if (!routeId) {
+    res.status(400).json({ error: 'routeId is required' });
+    return null;
+  }
+
+  const route = await dbQuery(supabase.from('routes').select('*').eq('id', routeId).single(), res);
+  if (!route) return null;
+  if (!rowMatchesContext(route, req.context)) {
+    res.status(403).json({ error: 'Forbidden' });
+    return null;
+  }
+  if (!Array.isArray(route.stop_ids) || !route.stop_ids.includes(req.params.id)) {
+    res.status(403).json({ error: 'Stop is not part of this route' });
+    return null;
+  }
+  if (req.user.role === 'driver' && !isRouteAssignedToUser(route, req.user)) {
+    res.status(403).json({ error: 'Route is not assigned to this driver' });
+    return null;
+  }
+  return { route, routeId };
+}
+
 // ── DWELL TIME (geofence check-in/out) ──────────────────
 const dwellRecords = []; // { id, stopId, routeId, driverId, arrivedAt, departedAt, dwellMs }
 
@@ -64,8 +100,10 @@ router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async 
   res.json({ message: 'Deleted' });
 });
 
-router.post('/:id/arrive', authenticateToken, requireRole('driver', 'admin', 'manager'), (req, res) => {
-  const { routeId } = req.body;
+router.post('/:id/arrive', authenticateToken, requireRole('driver', 'admin', 'manager'), async (req, res) => {
+  const authorized = await authorizeDwellEvent(req, res);
+  if (!authorized) return;
+  const { routeId } = authorized;
   const existing = dwellRecords.find(d => d.stopId === req.params.id && d.routeId === routeId && !d.departedAt);
   if (existing) return res.json(existing);
   const record = { id: 'dwell-' + Date.now(), stopId: req.params.id, routeId: routeId||'', driverId: req.user.id, arrivedAt: new Date().toISOString(), departedAt: null, dwellMs: null };
@@ -73,8 +111,10 @@ router.post('/:id/arrive', authenticateToken, requireRole('driver', 'admin', 'ma
   res.json(record);
 });
 
-router.post('/:id/depart', authenticateToken, requireRole('driver', 'admin', 'manager'), (req, res) => {
-  const { routeId } = req.body;
+router.post('/:id/depart', authenticateToken, requireRole('driver', 'admin', 'manager'), async (req, res) => {
+  const authorized = await authorizeDwellEvent(req, res);
+  if (!authorized) return;
+  const { routeId } = authorized;
   const record = dwellRecords.find(d => d.stopId === req.params.id && d.routeId === routeId && !d.departedAt);
   if (!record) return res.status(404).json({ error: 'No active arrival found' });
   record.departedAt = new Date().toISOString();
@@ -84,3 +124,4 @@ router.post('/:id/depart', authenticateToken, requireRole('driver', 'admin', 'ma
 
 module.exports = router;
 module.exports.dwellRecords = dwellRecords;
+module.exports.isRouteAssignedToUser = isRouteAssignedToUser;
