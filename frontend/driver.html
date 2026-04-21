@@ -204,6 +204,11 @@ body > *{position:relative;z-index:1}
       <div id="notesContent"><div class="spinner"></div></div>
     </div>
 
+    <!-- Invoices panel -->
+    <div id="panelInvoices" class="panel">
+      <div id="invoicesContent"><div class="spinner"></div></div>
+    </div>
+
   </div><!-- /content -->
 
   <!-- Bottom tab bar -->
@@ -216,6 +221,9 @@ body > *{position:relative;z-index:1}
     </button>
     <button class="tab-item"        id="tabNotes"     onclick="showTab('Notes')">
       <span class="tab-icon">📝</span>Notes
+    </button>
+    <button class="tab-item"        id="tabInvoices"  onclick="showTab('Invoices')">
+      <span class="tab-icon">🧾</span>Invoices
     </button>
   </div>
 
@@ -253,6 +261,7 @@ let companyPrefs = { forceDriverSignature: false };
 let activeSignatureStopId = null;
 let sigDrawing = false;
 let sigHasData = false;
+let driverInvoices = [];
 
 // ── AUTH ─────────────────────────────────────────────────────────────────────
 function ah() { return { headers: { Authorization: 'Bearer ' + driverToken, 'Content-Type': 'application/json' } }; }
@@ -382,12 +391,13 @@ async function sendLocationUpdate(coords) {
 
 // ── TABS ─────────────────────────────────────────────────────────────────────
 function showTab(tab) {
-  ['Route','Analytics','Notes'].forEach(t => {
+  ['Route','Analytics','Notes','Invoices'].forEach(t => {
     document.getElementById('panel'+t).classList.toggle('active', t===tab);
     document.getElementById('tab'+t).classList.toggle('active', t===tab);
   });
   if (tab === 'Analytics') renderAnalytics();
   if (tab === 'Notes')     renderNotes();
+  if (tab === 'Invoices')  renderInvoices();
 }
 
 // ── ROUTES ───────────────────────────────────────────────────────────────────
@@ -408,6 +418,79 @@ async function loadRoutes() {
     else renderEmptyRoute();
   } catch {
     document.getElementById('routeContent').innerHTML = errHtml('Could not load routes');
+  }
+}
+
+async function loadInvoices() {
+  try {
+    const res = await fetch('/api/driver/invoices', ah());
+    if (res.status === 401) { doLogout(); return []; }
+    if (!res.ok) return [];
+    return await res.json();
+  } catch {
+    return [];
+  }
+}
+
+async function renderInvoices() {
+  const el = document.getElementById('invoicesContent');
+  el.innerHTML = '<div class="spinner"></div>';
+  try {
+    driverInvoices = await loadInvoices();
+    if (!driverInvoices.length) {
+      el.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">🧾</div>
+          <h3>No invoices assigned</h3>
+          <p>Invoices will appear here when they are linked to your route stops.</p>
+        </div>`;
+      return;
+    }
+
+    el.innerHTML = `
+      <div class="section-label">Invoices on Your Routes</div>
+      <div style="display:flex;flex-direction:column;gap:12px">
+        ${driverInvoices.map((inv) => `
+          <div class="notes-hero" style="margin-bottom:0">
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:flex-start;flex-wrap:wrap">
+              <div>
+                <div class="notes-stop-label">${inv.route_name || 'Assigned Route'}${inv.stop_name ? ` · ${esc(inv.stop_name)}` : ''}</div>
+                <div class="notes-stop-name">${esc(inv.invoice_number || inv.id.slice(0, 8).toUpperCase())}</div>
+                <div class="notes-stop-addr">${esc(inv.customer_name || 'Customer')} · ${esc(inv.customer_address || '—')}</div>
+              </div>
+              <div class="btn-done-label">${inv.invoice_status || 'pending'}</div>
+            </div>
+            <div style="display:flex;justify-content:space-between;gap:12px;align-items:center;flex-wrap:wrap;margin-top:12px">
+              <div style="color:var(--muted);font-size:13px">
+                Total: <strong style="color:var(--text)">$${Number(inv.total || 0).toFixed(2)}</strong>
+                ${inv.invoice_signed_at ? ` · Signed ${new Date(inv.invoice_signed_at).toLocaleString()}` : ''}
+              </div>
+              <div style="display:flex;gap:8px;flex-wrap:wrap">
+                <button class="stop-btn btn-signature" onclick="openInvoicePdf('${inv.id}')">Open PDF</button>
+              </div>
+            </div>
+          </div>
+        `).join('')}
+      </div>`;
+  } catch {
+    el.innerHTML = errHtml('Could not load invoices');
+  }
+}
+
+async function openInvoicePdf(invoiceId) {
+  try {
+    const res = await fetch(`/api/invoices/${encodeURIComponent(invoiceId)}/pdf`, ah());
+    if (res.status === 401) { doLogout(); return; }
+    if (!res.ok) throw new Error('Could not open invoice PDF');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `invoice-${invoiceId}.pdf`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (error) {
+    showToast(error.message || 'Could not open invoice PDF');
   }
 }
 
