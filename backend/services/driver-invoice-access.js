@@ -21,6 +21,14 @@ function stopMatchesInvoice(stop, invoice) {
   );
 }
 
+function isRouteAssignedToUser(route, user) {
+  return (
+    String(route?.driver_id || '') === String(user?.id || '') ||
+    normalize(route?.driver_email) === normalize(user?.email) ||
+    normalize(route?.driver) === normalize(user?.name)
+  );
+}
+
 function attachRouteContext(invoice, matchedRoute, stop) {
   return {
     ...invoice,
@@ -39,7 +47,7 @@ function attachRouteContext(invoice, matchedRoute, stop) {
 
 async function loadDriverInvoiceScope(supabase, user, context) {
   const [routesResult, stopsResult, invoicesResult] = await Promise.all([
-    supabase.from('routes').select('*').ilike('driver', user.name).order('created_at', { ascending: false }),
+    supabase.from('routes').select('*').order('created_at', { ascending: false }),
     supabase.from('stops').select('*'),
     supabase.from('invoices').select('*').order('created_at', { ascending: false }),
   ]);
@@ -48,7 +56,8 @@ async function loadDriverInvoiceScope(supabase, user, context) {
   if (stopsResult.error) throw new Error(stopsResult.error.message);
   if (invoicesResult.error) throw new Error(invoicesResult.error.message);
 
-  const routes = filterRowsByContext(routesResult.data || [], context);
+  const routes = filterRowsByContext(routesResult.data || [], context)
+    .filter((route) => isRouteAssignedToUser(route, user));
   const stops = filterRowsByContext(stopsResult.data || [], context);
   const invoices = filterRowsByContext(invoicesResult.data || [], context);
 
@@ -88,6 +97,7 @@ async function isInvoiceAssignedToDriver(supabase, user, context, invoiceId) {
 }
 
 module.exports = {
+  isRouteAssignedToUser,
   isInvoiceAssignedToDriver,
   loadDriverInvoiceScope,
   normalize,

@@ -18,34 +18,28 @@ function normalize(value) {
     .replace(/\s+/g, ' ');
 }
 
-function stopMatchesInvoice(stop, invoice) {
-  const stopName = normalize(stop?.name);
-  const stopAddress = normalize(stop?.address);
-  const invoiceName = normalize(invoice?.customer_name);
-  const invoiceAddress = normalize(invoice?.customer_address);
-
+function isRouteAssignedToUser(route, user) {
   return (
-    (!!stopName && !!invoiceName && stopName === invoiceName) ||
-    (!!stopAddress && !!invoiceAddress && stopAddress === invoiceAddress) ||
-    (!!stopName && !!invoiceName && (stopName.includes(invoiceName) || invoiceName.includes(stopName))) ||
-    (!!stopAddress && !!invoiceAddress && (stopAddress.includes(invoiceAddress) || invoiceAddress.includes(stopAddress)))
+    String(route.driver_id || '') === String(user.id || '') ||
+    normalize(route.driver_email) === normalize(user.email) ||
+    normalize(route.driver) === normalize(user.name)
   );
 }
 
 // GET /api/driver/routes — this driver's routes with hydrated stops (incl. door_code)
-router.get('/routes', authenticateToken, async (req, res) => {
+router.get('/routes', authenticateToken, requireRole('driver'), async (req, res) => {
   const { data: routes, error: rErr } = await supabase
     .from('routes')
     .select('*')
-    .ilike('driver', req.user.name)
     .order('created_at', { ascending: false });
 
   if (rErr) return res.status(500).json({ error: rErr.message });
-  const scopedRoutes = filterRowsByContext(routes || [], req.context);
-  if (!scopedRoutes.length) return res.json([]);
+  const assignedRoutes = filterRowsByContext(routes || [], req.context)
+    .filter(route => isRouteAssignedToUser(route, req.user));
+  if (!assignedRoutes.length) return res.json([]);
 
-  const allIds = [...new Set(scopedRoutes.flatMap(r => r.stop_ids || []))];
-  if (!allIds.length) return res.json(scopedRoutes.map(r => ({ ...r, stops: [] })));
+  const allIds = [...new Set(assignedRoutes.flatMap(r => r.stop_ids || []))];
+  if (!allIds.length) return res.json(assignedRoutes.map(r => ({ ...r, stops: [] })));
 
   const { data: stops, error: sErr } = await supabase
     .from('stops')
@@ -55,14 +49,13 @@ router.get('/routes', authenticateToken, async (req, res) => {
   if (sErr) return res.status(500).json({ error: sErr.message });
   const scopedStops = filterRowsByContext(stops || [], req.context);
 
-  const { data: invoices, error: iErr } = await supabase
-    .from('invoices')
-    .select('*')
-    .ilike('driver_name', req.user.name)
-    .order('created_at', { ascending: false });
-
-  if (iErr) return res.status(500).json({ error: iErr.message });
-  const scopedInvoices = filterRowsByContext(invoices || [], req.context);
+  let invoiceScope;
+  try {
+    invoiceScope = await loadDriverInvoiceScope(supabase, req.user, req.context);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+  const scopedInvoices = invoiceScope.invoices || [];
 
   // For stops without a door code, try to match via portal_contacts by name
   const namesToLookup = scopedStops
@@ -97,7 +90,7 @@ router.get('/routes', authenticateToken, async (req, res) => {
     };
   });
 
-  return res.json(scopedRoutes.map(r => ({
+  return res.json(assignedRoutes.map(r => ({
     ...r,
     stops: (r.stop_ids || [])
       .map((id, i) => stopMap[id] ? { ...stopMap[id], position: i + 1 } : null)
@@ -170,6 +163,32 @@ router.patch('/location', authenticateToken, requireRole('driver', 'manager', 'a
 
   if (result.error) return res.status(500).json({ error: result.error.message });
   res.json(result.data);
+});
+
+router.get('/summary', authenticateToken, requireRole('driver'), async (req, res) => {
+  const { data: routes, error: routesErr } = await supabase
+    .from('routes')
+    .select('*')
+    .order('created_at', { ascending: false });
+  if (routesErr) return res.status(500).json({ error: routesErr.message });
+
+  const assignedRoutes = filterRowsByContext(routes || [], req.context)
+    .filter(route => isRouteAssignedToUser(route, req.user));
+  const totalStopsAssigned = assignedRoutes.reduce((sum, route) => sum + ((route.stop_ids || []).length), 0);
+
+  return res.json({
+    driver: {
+      id: req.user.id,
+      name: req.user.name,
+      email: req.user.email,
+      role: req.user.role,
+    },
+    summary: {
+      routesAssigned: assignedRoutes.length,
+      totalStopsAssigned,
+      assignedRouteNames: assignedRoutes.map(route => route.name).filter(Boolean),
+    },
+  });
 });
 
 module.exports = router;
