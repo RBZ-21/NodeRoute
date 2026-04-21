@@ -1491,7 +1491,7 @@ td{padding:12px 16px;vertical-align:middle}
     <!-- TAB: SETTINGS -->
     <div class="tab-pane" id="tab-settings">
       <div class="section-title">Settings</div>
-      <div class="settings-grid">
+        <div class="settings-grid">
 
         <!-- Profile -->
         <div class="settings-card">
@@ -1571,8 +1571,8 @@ td{padding:12px 16px;vertical-align:middle}
         </div>
 
         <!-- Notification Preferences -->
-        <div class="settings-card">
-          <div class="settings-card-title">Notifications</div>
+          <div class="settings-card">
+            <div class="settings-card-title">Notifications</div>
           <div class="settings-toggle-row">
             <div>
               <div style="font-size:13px;font-weight:500">Failed delivery alerts</div>
@@ -1716,6 +1716,21 @@ td{padding:12px 16px;vertical-align:middle}
               <div id="invPickerList"></div>
             </div>
           </div>
+
+          <div class="settings-card">
+            <div class="settings-card-title">Operations</div>
+            <div class="settings-toggle-row">
+              <div>
+                <div style="font-size:13px;font-weight:500">Force signature</div>
+                <div style="font-size:11px;color:var(--muted)">Make signatures mandatory for drivers to move to next field</div>
+              </div>
+              <label class="settings-toggle">
+                <input type="checkbox" id="forceDriverSignature" onchange="saveCompanyPrefs()"/>
+                <span class="settings-toggle-slider"></span>
+              </label>
+            </div>
+            <div class="settings-msg" id="companyPrefsMsg"></div>
+          </div>
           <button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="addInvoiceLine()">+ Add Line</button>
         </div>
       </div>
@@ -1738,10 +1753,11 @@ td{padding:12px 16px;vertical-align:middle}
       <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Notes</label>
       <input class="search-input" id="ni_notes" placeholder="Optional delivery notes" style="width:100%"/>
     </div>
-    <div style="display:flex;gap:10px;justify-content:flex-end">
-      <button class="btn btn-outline" onclick="closeNewInvoiceModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="createInvoice()">🧾 Create Invoice</button>
-    </div>
+      <div style="display:flex;gap:10px;justify-content:flex-end">
+        <button class="btn btn-outline" onclick="closeNewInvoiceModal()">Cancel</button>
+        <button class="btn btn-outline" id="createAndEmailInvoiceBtn" onclick="createInvoice(true)">Email Invoice</button>
+        <button class="btn btn-accent" onclick="createInvoice()">🧾 Create Invoice</button>
+      </div>
   </div>
 </div>
 
@@ -5326,11 +5342,13 @@ function renderInvoices() {
     const total = typeof inv.total === 'number' ? '$' + inv.total.toFixed(2) : (inv.total || '—');
     const date = inv.createdAt ? new Date(inv.createdAt).toLocaleDateString() : '—';
     const statusLabel = inv.status === 'pending' ? 'Pending Signature' : inv.status === 'signed' ? 'Signed' : inv.status === 'sent' ? 'Sent' : inv.status || '—';
-    const actions = `
-      ${inv.status === 'pending' ? `<button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="openSignModal('${inv.id}')">Sign</button>` : ''}
-      <button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="downloadInvoicePDF('${inv.id}')">PDF</button>
-      ${inv.status !== 'pending' ? `<button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="resendInvoiceEmail('${inv.id}')">Resend</button>` : ''}
-    `;
+      const canEmail = !!(inv.customerEmail || inv.customer_email);
+      const actions = `
+        ${inv.status === 'pending' ? `<button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="openSignModal('${inv.id}')">Sign</button>` : ''}
+        <button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="downloadInvoicePDF('${inv.id}')">PDF</button>
+        ${canEmail ? `<button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="emailInvoice('${inv.id}')">Email</button>` : ''}
+        ${canEmail ? `<button class="btn btn-outline" style="padding:4px 10px;font-size:12px" onclick="resendInvoiceEmail('${inv.id}')">Resend</button>` : ''}
+      `;
     return `<tr>
       <td>${inv.invoiceNumber || '—'}</td>
       <td>${inv.customerName || '—'}</td>
@@ -5442,7 +5460,7 @@ function updateInvoiceTotals() {
   if (el('ni_total')) el('ni_total').textContent = '$' + total.toFixed(2);
 }
 
-async function createInvoice() {
+async function createInvoice(emailAfterCreate = false) {
   const items = [];
   for (let i = 0; i < invoiceLineCount; i++) {
     const dEl = document.getElementById('ni_desc_' + i);
@@ -5455,12 +5473,18 @@ async function createInvoice() {
   if (!items.length) { alert('Add at least one line item.'); return; }
   const customerName = document.getElementById('ni_customer').value.trim();
   if (!customerName) { alert('Customer name is required.'); return; }
+  const customerEmail = document.getElementById('ni_email').value.trim();
+  if (emailAfterCreate && !customerEmail) { alert('Enter a customer email before sending the invoice.'); return; }
   const subtotal = items.reduce((s, it) => s + it.total, 0);
   const tax = subtotal * 0.09;
+  const createBtn = document.querySelector('#newInvoiceModal .btn.btn-accent');
+  const emailBtn = document.getElementById('createAndEmailInvoiceBtn');
+  const originalCreateLabel = createBtn ? createBtn.textContent : '';
+  const originalEmailLabel = emailBtn ? emailBtn.textContent : '';
   const payload = {
     invoiceNumber: document.getElementById('ni_number').value.trim() || undefined,
     customerName,
-    customerEmail: document.getElementById('ni_email').value.trim(),
+    customerEmail,
     driverName: document.getElementById('ni_driver').value || '',
     deliveryAddress: document.getElementById('ni_address').value.trim(),
     items,
@@ -5470,6 +5494,14 @@ async function createInvoice() {
     notes: document.getElementById('ni_notes').value.trim(),
   };
   try {
+    if (createBtn) {
+      createBtn.disabled = true;
+      createBtn.textContent = emailAfterCreate ? 'Creating…' : 'Saving…';
+    }
+    if (emailBtn) {
+      emailBtn.disabled = true;
+      emailBtn.textContent = emailAfterCreate ? 'Sending…' : 'Email Invoice';
+    }
     const res = await fetch(API + '/invoices', {
       method: 'POST',
       headers: { ...authHeaders.headers, 'Content-Type': 'application/json' },
@@ -5478,10 +5510,30 @@ async function createInvoice() {
     if (res.status === 401) { doLogout(); return; }
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to create invoice');
+    if (emailAfterCreate) {
+      const emailRes = await fetch(API + '/invoices/' + data.id + '/email', {
+        method: 'POST',
+        headers: { ...authHeaders.headers, 'Content-Type': 'application/json' }
+      });
+      if (emailRes.status === 401) { doLogout(); return; }
+      const emailData = await emailRes.json();
+      if (!emailRes.ok) throw new Error(emailData.error || 'Invoice was created but email failed');
+    }
     closeNewInvoiceModal();
     await loadInvoices();
     showTab('invoices', null);
+    alert(emailAfterCreate ? 'Invoice created and emailed successfully!' : 'Invoice created successfully!');
   } catch(e) { alert(e.message); }
+  finally {
+    if (createBtn) {
+      createBtn.disabled = false;
+      createBtn.textContent = originalCreateLabel || 'Create Invoice';
+    }
+    if (emailBtn) {
+      emailBtn.disabled = false;
+      emailBtn.textContent = originalEmailLabel || 'Email Invoice';
+    }
+  }
 }
 
 // ── SIGNATURE MODAL ────────────────────────────────────
@@ -5615,6 +5667,22 @@ async function resendInvoiceEmail(id) {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Failed to resend');
     alert('Invoice emailed successfully!');
+    await loadInvoices();
+  } catch(e) { alert('Error: ' + e.message); }
+}
+
+async function emailInvoice(id) {
+  if (!confirm('Email this invoice to the customer now?')) return;
+  try {
+    const res = await fetch(API + '/invoices/' + id + '/email', {
+      method: 'POST',
+      headers: { ...authHeaders.headers, 'Content-Type': 'application/json' }
+    });
+    if (res.status === 401) { doLogout(); return; }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Failed to email invoice');
+    alert('Invoice emailed successfully!');
+    await loadInvoices();
   } catch(e) { alert('Error: ' + e.message); }
 }
 
@@ -5643,6 +5711,7 @@ setInterval(fetchAll, 30000);
 const AVATAR_COLORS = ['#3dba7f','#ff6b35','#3b82f6','#8b5cf6','#ec4899','#f59e0b','#14b8a6','#ef4444'];
 let settingsAvatarColor = localStorage.getItem('nr_avatar_color') || AVATAR_COLORS[0];
 let csvParsedRows = [];
+let companyPrefs = { forceDriverSignature: false };
 
 function initSettings() {
   if (!nrUser) return;
@@ -5653,6 +5722,7 @@ function initSettings() {
   renderSettingsAvatar();
   renderColorPicker();
   loadNotifPrefs();
+  loadCompanyPrefs();
   document.getElementById('settingsNewPw').addEventListener('input', function() { showPwStrength(this.value); });
 }
 
@@ -5885,6 +5955,41 @@ function saveNotifPrefs() {
     late: document.getElementById('notifLate').checked,
     inventory: document.getElementById('notifInventory').checked
   }));
+}
+
+async function loadCompanyPrefs() {
+  try {
+    const res = await fetch(`${API}/settings/company`, authHeaders);
+    if (res.status === 401) { doLogout(); return; }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not load company settings');
+    companyPrefs = { forceDriverSignature: !!data.forceDriverSignature };
+    const toggle = document.getElementById('forceDriverSignature');
+    if (toggle) toggle.checked = companyPrefs.forceDriverSignature;
+  } catch (e) {
+    showSettingsMsg('companyPrefsMsg', e.message, 'err');
+  }
+}
+
+async function saveCompanyPrefs() {
+  const toggle = document.getElementById('forceDriverSignature');
+  if (!toggle) return;
+  try {
+    const res = await fetch(`${API}/settings/company`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+      body: JSON.stringify({ forceDriverSignature: !!toggle.checked })
+    });
+    if (res.status === 401) { doLogout(); return; }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not save company settings');
+    companyPrefs = { forceDriverSignature: !!data.forceDriverSignature };
+    toggle.checked = companyPrefs.forceDriverSignature;
+    showSettingsMsg('companyPrefsMsg', 'Company setting saved!', 'ok');
+  } catch (e) {
+    toggle.checked = companyPrefs.forceDriverSignature;
+    showSettingsMsg('companyPrefsMsg', e.message, 'err');
+  }
 }
 function loadNotifPrefs() {
   try {

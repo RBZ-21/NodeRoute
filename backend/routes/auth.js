@@ -4,6 +4,7 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken } = require('../middleware/auth');
+const { getUserOperatingContext, userResponseWithContext } = require('../services/operating-context');
 
 const router = express.Router();
 
@@ -23,8 +24,16 @@ function verifyPassword(pw, stored) {
 }
 
 function signJWT(user) {
+  const context = getUserOperatingContext(user);
   return jwt.sign(
-    { userId: user.id, email: user.email, role: user.role },
+    {
+      userId: user.id,
+      email: user.email,
+      role: user.role,
+      companyId: context.companyId,
+      locationId: context.locationId,
+      platformRole: context.platformRole,
+    },
     JWT_SECRET,
     { expiresIn: JWT_EXPIRY }
   );
@@ -43,7 +52,7 @@ router.post('/login', async (req, res) => {
     await supabase.from('users').update({ password_hash: bcrypt.hashSync(password, 10) }).eq('id', u.id);
   }
   const token = signJWT(u);
-  res.json({ token, user: { id: u.id, name: u.name, email: u.email, role: u.role } });
+  res.json({ token, user: userResponseWithContext(u) });
 });
 
 router.post('/setup-password', async (req, res) => {
@@ -62,11 +71,11 @@ router.post('/setup-password', async (req, res) => {
     invite_expires: null
   }).eq('id', u.id);
   const sessionToken = signJWT(u);
-  res.json({ token: sessionToken, user: { id: u.id, name: u.name, email: u.email, role: u.role } });
+  res.json({ token: sessionToken, user: userResponseWithContext(u) });
 });
 
 router.get('/me', authenticateToken, (req, res) => {
-  res.json({ id: req.user.id, name: req.user.name, email: req.user.email, role: req.user.role });
+  res.json(userResponseWithContext(req.user));
 });
 
 router.post('/logout', authenticateToken, (req, res) => {
