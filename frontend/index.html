@@ -2189,6 +2189,7 @@ function escHtml(s) { return String(s ?? '').replace(/&/g,'&amp;').replace(/</g,
 const nrToken = localStorage.getItem('nr_token');
 const nrUser = JSON.parse(localStorage.getItem('nr_user') || 'null');
 if (!nrToken || !nrUser) { window.location.href = '/'; }
+if (nrUser && nrUser.role === 'driver') { window.location.href = '/driver'; }
 const authHeaders = { headers: { Authorization: `Bearer ${nrToken}` } };
 
 async function doLogout() {
