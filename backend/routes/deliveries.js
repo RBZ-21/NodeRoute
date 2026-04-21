@@ -1,97 +1,414 @@
 const express = require('express');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { supabase } = require('../services/supabase');
+const { filterRowsByContext, rowMatchesContext } = require('../services/operating-context');
+const { dwellRecords } = require('./stops');
 
 const router = express.Router();
 
-const deliveries = [
-  { id: 1, restaurant: "Husk Restaurant", address: "76 Queen St, Charleston, SC 29401", driver: "Marcus Johnson", status: "delivered", time: "09:15", stopDuration: 12, distance: 2.3, onTime: true, lat: 32.7751, lng: -79.9352 },
-  { id: 2, restaurant: "FIG Restaurant", address: "232 Meeting St, Charleston, SC 29401", driver: "Sarah Chen", status: "in-transit", time: "10:30", stopDuration: 8, distance: 1.8, onTime: true, lat: 32.7784, lng: -79.9378 },
-  { id: 3, restaurant: "The Ordinary", address: "544 King St, Charleston, SC 29403", driver: "Marcus Johnson", status: "pending", time: "11:45", stopDuration: 15, distance: 3.1, onTime: false, lat: 32.7833, lng: -79.9441 },
-  { id: 4, restaurant: "Hall's Chophouse", address: "434 King St, Charleston, SC 29403", driver: "Devon Williams", status: "delivered", time: "08:45", stopDuration: 10, distance: 2.7, onTime: true, lat: 32.7821, lng: -79.9432 },
-  { id: 5, restaurant: "167 Raw", address: "289 E Bay St, Charleston, SC 29401", driver: "Sarah Chen", status: "delivered", time: "09:30", stopDuration: 7, distance: 1.5, onTime: true, lat: 32.7762, lng: -79.9319 },
-  { id: 6, restaurant: "Circa 1886", address: "149 Wentworth St, Charleston, SC 29401", driver: "Jordan Martinez", status: "in-transit", time: "10:00", stopDuration: 11, distance: 2.0, onTime: true, lat: 32.7741, lng: -79.9398 },
-  { id: 7, restaurant: "Chez Nous", address: "6 Payne Ct, Charleston, SC 29403", driver: "Devon Williams", status: "delivered", time: "08:00", stopDuration: 9, distance: 3.4, onTime: true, lat: 32.7798, lng: -79.9467 },
-  { id: 8, restaurant: "Leon's Oyster Shop", address: "698 King St, Charleston, SC 29403", driver: "Marcus Johnson", status: "pending", time: "12:15", stopDuration: 14, distance: 3.8, onTime: false, lat: 32.7856, lng: -79.9468 },
-  { id: 9, restaurant: "The Macintosh", address: "479 King St, Charleston, SC 29403", driver: "Jordan Martinez", status: "delivered", time: "09:45", stopDuration: 8, distance: 2.9, onTime: true, lat: 32.7825, lng: -79.9445 },
-  { id: 10, restaurant: "Slightly North of Broad", address: "192 E Bay St, Charleston, SC 29401", driver: "Sarah Chen", status: "delivered", time: "10:15", stopDuration: 6, distance: 1.2, onTime: true, lat: 32.7748, lng: -79.9324 },
-  { id: 11, restaurant: "Edmunds Oast", address: "1081 Morrison Dr, Charleston, SC 29403", driver: "Jordan Martinez", status: "pending", time: "13:00", stopDuration: 16, distance: 4.2, onTime: false, lat: 32.7912, lng: -79.9578 },
-  { id: 12, restaurant: "The Darling Oyster Bar", address: "513 King St, Charleston, SC 29403", driver: "Devon Williams", status: "in-transit", time: "11:00", stopDuration: 10, distance: 3.3, onTime: true, lat: 32.7829, lng: -79.9447 }
-];
+function normalize(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
+}
 
-const drivers = [
-  { id: 1, name: "Marcus Johnson", vehicle: "Ford Transit", status: "active", phone: "(843) 555-0101", deliveries: 47, rating: 4.8 },
-  { id: 2, name: "Sarah Chen", vehicle: "Sprinter Van", status: "active", phone: "(843) 555-0102", deliveries: 52, rating: 4.9 },
-  { id: 3, name: "Devon Williams", vehicle: "Chevy Express", status: "active", phone: "(843) 555-0103", deliveries: 38, rating: 4.7 },
-  { id: 4, name: "Jordan Martinez", vehicle: "Ford Transit", status: "active", phone: "(843) 555-0104", deliveries: 41, rating: 4.6 }
-];
+function toNumber(value, fallback = 0) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
 
-router.get('/stats', authenticateToken, (req, res) => {
-  const completed = deliveries.filter(d => d.status === 'delivered');
-  const onTimeRate = completed.length ? Math.round((completed.filter(d => d.onTime).length / completed.length) * 100) : 0;
-  const activeDrivers = [...new Set(deliveries.filter(d => d.status === 'in-transit' || d.status === 'pending').map(d => d.driver))].length;
-  res.json({
-    totalDeliveries: deliveries.length,
-    completedToday: completed.length,
-    onTimeRate,
-    activeDrivers,
-    totalDrivers: drivers.length,
-    failed: deliveries.filter(d => d.status === 'failed').length,
-    pendingCount: deliveries.filter(d => d.status === 'pending').length,
-    inTransitCount: deliveries.filter(d => d.status === 'in-transit').length,
-    yesterday: { totalDeliveries: 10, completedToday: 8, onTimeRate: 82, activeDrivers: 3, totalDrivers: 4, failed: 1, pendingCount: 2 }
+function haversineMiles(a, b) {
+  const lat1 = toNumber(a?.lat, null);
+  const lng1 = toNumber(a?.lng, null);
+  const lat2 = toNumber(b?.lat, null);
+  const lng2 = toNumber(b?.lng, null);
+  if ([lat1, lng1, lat2, lng2].some((value) => value === null)) return 0;
+
+  const toRad = (deg) => (deg * Math.PI) / 180;
+  const earthRadiusMiles = 3958.8;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const startLat = toRad(lat1);
+  const endLat = toRad(lat2);
+  const aCalc =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(startLat) * Math.cos(endLat) * Math.sin(dLng / 2) ** 2;
+
+  return earthRadiusMiles * 2 * Math.atan2(Math.sqrt(aCalc), Math.sqrt(1 - aCalc));
+}
+
+function mapOrderStatus(order, activeDriver) {
+  if (order.status === 'invoiced' || order.status === 'delivered') return 'delivered';
+  if (order.status === 'failed') return 'failed';
+  if (activeDriver || order.status === 'in_process' || order.status === 'processed') return 'in-transit';
+  return 'pending';
+}
+
+function findMatchingStop(order, orderedStops) {
+  const orderAddress = normalize(order.customer_address);
+  const orderName = normalize(order.customer_name);
+
+  return (
+    orderedStops.find((stop) => {
+      const stopAddress = normalize(stop.address);
+      const stopName = normalize(stop.name);
+      return (
+        (!!orderAddress && stopAddress === orderAddress) ||
+        (!!orderName && stopName === orderName) ||
+        (!!orderAddress && !!stopAddress && (stopAddress.includes(orderAddress) || orderAddress.includes(stopAddress))) ||
+        (!!orderName && !!stopName && (stopName.includes(orderName) || orderName.includes(stopName)))
+      );
+    }) || null
+  );
+}
+
+function sameDay(date, target) {
+  return (
+    date.getFullYear() === target.getFullYear() &&
+    date.getMonth() === target.getMonth() &&
+    date.getDate() === target.getDate()
+  );
+}
+
+async function loadDashboardContext(context) {
+  const [
+    ordersResult,
+    routesResult,
+    stopsResult,
+    driverLocationsResult,
+    usersResult,
+    contactsResult,
+  ] = await Promise.all([
+    supabase
+      .from('orders')
+      .select('id, order_number, customer_name, customer_address, customer_email, items, status, notes, created_at, driver_name, route_id, customer_lat, customer_lng')
+      .order('created_at', { ascending: false }),
+    supabase.from('routes').select('id, name, stop_ids, driver, notes, created_at'),
+    supabase.from('stops').select('id, name, address, lat, lng, notes, door_code, created_at'),
+    supabase.from('driver_locations').select('driver_name, lat, lng, heading, speed_mph, updated_at'),
+    supabase.from('users').select('id, name, email, role, status, created_at').order('created_at', { ascending: true }),
+    supabase.from('portal_contacts').select('name, email, door_code, phone'),
+  ]);
+
+  const errors = [
+    ordersResult.error,
+    routesResult.error,
+    stopsResult.error,
+    driverLocationsResult.error,
+    usersResult.error,
+    contactsResult.error,
+  ].filter(Boolean);
+
+  if (errors.length) {
+    throw new Error(errors[0].message);
+  }
+
+  const orders = filterRowsByContext(ordersResult.data || [], context);
+  const routes = filterRowsByContext(routesResult.data || [], context);
+  const stops = filterRowsByContext(stopsResult.data || [], context);
+  const stopMap = Object.fromEntries(stops.map((stop) => [stop.id, stop]));
+  const driverLocations = filterRowsByContext(driverLocationsResult.data || [], context);
+  const locationMap = Object.fromEntries(driverLocations.map((loc) => [normalize(loc.driver_name), loc]));
+  const contacts = filterRowsByContext(contactsResult.data || [], context);
+  const contactDoorMap = {};
+  contacts.forEach((contact) => {
+    const byName = normalize(contact.name);
+    const byEmail = normalize(contact.email);
+    if (contact.door_code) {
+      if (byName) contactDoorMap[byName] = contact.door_code;
+      if (byEmail) contactDoorMap[byEmail] = contact.door_code;
+    }
   });
-});
 
-router.get('/deliveries', authenticateToken, (req, res) => {
-  if (req.user.role === 'driver') return res.json(deliveries.filter(d => d.driver === req.user.name));
-  res.json(deliveries);
-});
-
-router.get('/drivers', authenticateToken, (req, res) => {
-  const result = drivers.map(d => {
-    const dd = deliveries.filter(del => del.driver === d.name);
-    const completed = dd.filter(del => del.status === 'delivered');
-    const onTimeRate = completed.length ? Math.round(completed.filter(del => del.onTime).length / completed.length * 100) : 100;
-    const milesToday = parseFloat(dd.reduce((s, del) => s + del.distance, 0).toFixed(1));
-    const avgStopMinutes = completed.length ? Math.round(completed.reduce((s, del) => s + del.stopDuration, 0) / completed.length) : 0;
-    const avgSpeedMph = parseFloat((22 + (d.rating - 4.5) * 20).toFixed(1));
-    const active = dd.find(del => del.status === 'in-transit') || dd[dd.length - 1];
-    const isOnDuty = dd.some(del => del.status === 'in-transit' || del.status === 'pending');
-    return {
-      id: d.id, name: d.name, vehicleId: d.vehicle, phone: d.phone,
-      status: isOnDuty ? 'on-duty' : 'off-duty',
-      onTimeRate, totalStopsToday: completed.length, milesToday, avgStopMinutes, avgSpeedMph,
-      lat: active ? active.lat : 32.7765, lng: active ? active.lng : -79.9311
+  const routeMap = {};
+  routes.forEach((route) => {
+    routeMap[route.id] = {
+      ...route,
+      orderedStops: (route.stop_ids || []).map((stopId) => stopMap[stopId]).filter(Boolean),
     };
   });
-  res.json(result);
+
+  const deliveries = orders.map((order, index) => {
+    const route = order.route_id ? routeMap[order.route_id] : null;
+    const matchedStop = route ? findMatchingStop(order, route.orderedStops) : null;
+    const driverName = order.driver_name || route?.driver || 'Unassigned';
+    const driverLocation = locationMap[normalize(driverName)] || null;
+
+    const activeDwell = matchedStop
+      ? dwellRecords.find((record) => record.stopId === matchedStop.id && String(record.routeId || '') === String(order.route_id || '') && !record.departedAt)
+      : null;
+    const completedDwell = matchedStop
+      ? dwellRecords.find((record) => record.stopId === matchedStop.id && String(record.routeId || '') === String(order.route_id || '') && !!record.departedAt)
+      : null;
+
+    const destination = {
+      lat: toNumber(order.customer_lat, toNumber(matchedStop?.lat, 0)),
+      lng: toNumber(order.customer_lng, toNumber(matchedStop?.lng, 0)),
+    };
+    const driverCoords = {
+      lat: toNumber(driverLocation?.lat, destination.lat),
+      lng: toNumber(driverLocation?.lng, destination.lng),
+    };
+    const status = mapOrderStatus(order, !!driverLocation);
+    const createdAt = new Date(order.created_at);
+    const stopDurationMinutes = completedDwell?.dwellMs
+      ? Math.round(completedDwell.dwellMs / 60000)
+      : activeDwell?.arrivedAt
+        ? Math.max(1, Math.round((Date.now() - new Date(activeDwell.arrivedAt).getTime()) / 60000))
+        : null;
+    const distanceMiles = Number(haversineMiles(driverCoords, destination).toFixed(1));
+    const deliveryDoor =
+      matchedStop?.door_code ||
+      contactDoorMap[normalize(order.customer_name)] ||
+      contactDoorMap[normalize(order.customer_email)] ||
+      'No code';
+
+    const itemList = Array.isArray(order.items)
+      ? order.items.map((item) => item.name || item.description || item.item || 'Item')
+      : [];
+
+    return {
+      id: index + 1,
+      orderDbId: order.id,
+      orderId: order.order_number || String(order.id).slice(0, 8).toUpperCase(),
+      restaurantName: order.customer_name || 'Customer',
+      restaurant: order.customer_name || 'Customer',
+      driverName,
+      driver: driverName,
+      status,
+      deliveryDoor,
+      onTime: status === 'delivered' ? true : null,
+      address: order.customer_address || matchedStop?.address || '—',
+      distanceMiles,
+      expectedWindowStart: order.created_at,
+      expectedWindowEnd: new Date(createdAt.getTime() + 2 * 60 * 60 * 1000).toISOString(),
+      startTime: route?.created_at || order.created_at,
+      endTime: status === 'delivered' ? (completedDwell?.departedAt || order.created_at) : null,
+      stopDurationMinutes,
+      speedMph: Number(toNumber(driverLocation?.speed_mph, 0).toFixed(1)),
+      items: itemList,
+      lat: destination.lat || null,
+      lng: destination.lng || null,
+      driverLat: driverCoords.lat || null,
+      driverLng: driverCoords.lng || null,
+      routeId: order.route_id || null,
+      createdAt: order.created_at,
+      userFacingId: order.id,
+    };
+  });
+
+  const users = filterRowsByContext(usersResult.data || [], context);
+  const driverUsers = users.filter((user) => user.role === 'driver');
+  const driverSummaries = driverUsers.map((user) => {
+    const myDeliveries = deliveries.filter((delivery) => normalize(delivery.driverName) === normalize(user.name));
+    const completed = myDeliveries.filter((delivery) => delivery.status === 'delivered');
+    const activeLocation = locationMap[normalize(user.name)] || null;
+    const onDuty = myDeliveries.some((delivery) => delivery.status === 'pending' || delivery.status === 'in-transit') ||
+      (activeLocation?.updated_at && (Date.now() - new Date(activeLocation.updated_at).getTime()) < 30 * 60 * 1000);
+
+    return {
+      id: user.id,
+      name: user.name,
+      vehicleId: 'Assigned Vehicle',
+      phone: '—',
+      status: onDuty ? 'on-duty' : 'off-duty',
+      onTimeRate: completed.length ? Math.round((completed.filter((delivery) => delivery.onTime !== false).length / completed.length) * 100) : 100,
+      totalStopsToday: completed.length,
+      milesToday: Number(myDeliveries.reduce((sum, delivery) => sum + toNumber(delivery.distanceMiles, 0), 0).toFixed(1)),
+      avgStopMinutes: completed.length
+        ? Math.round(completed.reduce((sum, delivery) => sum + toNumber(delivery.stopDurationMinutes, 0), 0) / completed.length)
+        : 0,
+      avgSpeedMph: Number(
+        (
+          (activeLocation ? toNumber(activeLocation.speed_mph, 0) : 0) ||
+          (myDeliveries.length ? myDeliveries.reduce((sum, delivery) => sum + toNumber(delivery.speedMph, 0), 0) / myDeliveries.length : 0)
+        ).toFixed(1)
+      ),
+      lat: toNumber(activeLocation?.lat, 32.7765),
+      lng: toNumber(activeLocation?.lng, -79.9311),
+      updatedAt: activeLocation?.updated_at || null,
+    };
+  });
+
+  return { deliveries, drivers: driverSummaries };
+}
+
+function buildStats(deliveries, drivers) {
+  const today = new Date();
+  const yesterday = new Date(today);
+  yesterday.setDate(today.getDate() - 1);
+
+  const todayDeliveries = deliveries.filter((delivery) => sameDay(new Date(delivery.createdAt), today));
+  const yesterdayDeliveries = deliveries.filter((delivery) => sameDay(new Date(delivery.createdAt), yesterday));
+
+  const summarize = (list) => {
+    const completed = list.filter((delivery) => delivery.status === 'delivered');
+    return {
+      totalDeliveries: list.length,
+      completedToday: completed.length,
+      onTimeRate: completed.length
+        ? Math.round((completed.filter((delivery) => delivery.onTime !== false).length / completed.length) * 100)
+        : 0,
+      activeDrivers: new Set(list.filter((delivery) => delivery.status === 'pending' || delivery.status === 'in-transit').map((delivery) => delivery.driverName)).size,
+      totalDrivers: drivers.length,
+      failed: list.filter((delivery) => delivery.status === 'failed').length,
+      pendingCount: list.filter((delivery) => delivery.status === 'pending').length,
+      inTransitCount: list.filter((delivery) => delivery.status === 'in-transit').length,
+    };
+  };
+
+  return {
+    ...summarize(todayDeliveries),
+    yesterday: summarize(yesterdayDeliveries),
+  };
+}
+
+function buildAnalytics(deliveries, drivers) {
+  const completed = deliveries.filter((delivery) => delivery.status === 'delivered');
+  const deliveriesByHour = Array.from({ length: 24 }, (_, hour) =>
+    deliveries.filter((delivery) => new Date(delivery.createdAt).getHours() === hour).length
+  );
+
+  const weeklyTrend = Array.from({ length: 7 }, (_, index) => {
+    const day = new Date();
+    day.setDate(day.getDate() - (6 - index));
+    return deliveries.filter((delivery) => sameDay(new Date(delivery.createdAt), day)).length;
+  });
+
+  const doorBreakdown = deliveries.reduce((acc, delivery) => {
+    const key = delivery.deliveryDoor && delivery.deliveryDoor !== 'No code' ? 'Door code on file' : 'No code';
+    acc[key] = (acc[key] || 0) + 1;
+    return acc;
+  }, {});
+
+  const peakHours = deliveriesByHour
+    .map((count, hour) => ({
+      hour: hour === 0 ? '12am' : hour < 12 ? `${hour}am` : hour === 12 ? '12pm' : `${hour - 12}pm`,
+      count,
+    }))
+    .filter((entry) => entry.count > 0)
+    .sort((a, b) => b.count - a.count)
+    .slice(0, 6);
+
+  const driverRankings = drivers
+    .map((driver) => ({
+      name: driver.name,
+      stopsPerHour: Number((driver.totalStopsToday / 8).toFixed(1)),
+      avgStopMinutes: Number(toNumber(driver.avgStopMinutes, 0).toFixed(1)),
+      avgSpeedMph: Number(toNumber(driver.avgSpeedMph, 0).toFixed(1)),
+      onTimeRate: Number(toNumber(driver.onTimeRate, 100).toFixed(1)),
+      milesToday: Number(toNumber(driver.milesToday, 0).toFixed(1)),
+    }))
+    .sort((a, b) => b.onTimeRate - a.onTimeRate || b.stopsPerHour - a.stopsPerHour);
+
+  const avgStopTime = completed.length
+    ? (completed.reduce((sum, delivery) => sum + toNumber(delivery.stopDurationMinutes, 0), 0) / completed.length).toFixed(1)
+    : '0.0';
+  const onTimeRate = completed.length
+    ? ((completed.filter((delivery) => delivery.onTime !== false).length / completed.length) * 100).toFixed(1)
+    : '0.0';
+  const avgSpeed = drivers.length
+    ? (drivers.reduce((sum, driver) => sum + toNumber(driver.avgSpeedMph, 0), 0) / drivers.length).toFixed(1)
+    : '0.0';
+
+  return {
+    avgStopTime,
+    onTimeRate,
+    avgSpeed,
+    peakHours,
+    driverRankings,
+    totalDeliveries: deliveries.length,
+    completedToday: completed.length,
+    deliveriesByHour,
+    weeklyTrend,
+    doorBreakdown,
+  };
+}
+
+router.get('/stats', authenticateToken, async (req, res) => {
+  try {
+    const { deliveries, drivers } = await loadDashboardContext(req.context);
+    res.json(buildStats(deliveries, drivers));
+  } catch (error) {
+    console.error('deliveries/stats:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-router.get('/analytics', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
-  const completed = deliveries.filter(d => d.status === 'delivered');
-  const avgStopTime = completed.reduce((s, d) => s + d.stopDuration, 0) / (completed.length || 1);
-  const onTimeRate = (completed.filter(d => d.onTime).length / (completed.length || 1)) * 100;
-  const peakHours = [
-    { hour: '8am', count: 3 }, { hour: '9am', count: 4 }, { hour: '10am', count: 3 },
-    { hour: '11am', count: 2 }, { hour: '12pm', count: 1 }, { hour: '1pm', count: 1 }
-  ];
-  const driverRankings = drivers.map(d => {
-    const dd = deliveries.filter(del => del.driver === d.name);
-    const comp = dd.filter(del => del.status === 'delivered');
-    const onTime = comp.length ? parseFloat((comp.filter(del => del.onTime).length / comp.length * 100).toFixed(1)) : 100;
-    const avgStop = comp.length ? parseFloat((comp.reduce((s, del) => s + del.stopDuration, 0) / comp.length).toFixed(1)) : 0;
-    const miles = parseFloat(dd.reduce((s, del) => s + del.distance, 0).toFixed(1));
-    return { name: d.name, stopsPerHour: parseFloat((comp.length / 8).toFixed(1)), avgStopMinutes: avgStop, avgSpeedMph: parseFloat((22 + (d.rating - 4.5) * 20).toFixed(1)), onTimeRate: onTime, milesToday: miles };
-  }).sort((a, b) => b.onTimeRate - a.onTimeRate);
-  res.json({ avgStopTime: avgStopTime.toFixed(1), onTimeRate: onTimeRate.toFixed(1), avgSpeed: 28.4, peakHours, driverRankings, totalDeliveries: deliveries.length, completedToday: completed.length });
+router.get('/deliveries', authenticateToken, async (req, res) => {
+  try {
+    const { deliveries } = await loadDashboardContext(req.context);
+    if (req.user.role === 'driver') {
+      return res.json(deliveries.filter((delivery) => normalize(delivery.driverName) === normalize(req.user.name)));
+    }
+    res.json(deliveries);
+  } catch (error) {
+    console.error('deliveries/list:', error.message);
+    res.status(500).json({ error: error.message });
+  }
 });
 
-router.patch('/deliveries/:id/status', authenticateToken, (req, res) => {
-  const delivery = deliveries.find(d => d.id === parseInt(req.params.id));
-  if (!delivery) return res.status(404).json({ error: 'Not found' });
-  if (req.user.role === 'driver' && delivery.driver !== req.user.name) return res.status(403).json({ error: 'Forbidden' });
-  delivery.status = req.body.status;
-  res.json(delivery);
+router.get('/drivers', authenticateToken, async (req, res) => {
+  try {
+    const { drivers } = await loadDashboardContext(req.context);
+    res.json(drivers);
+  } catch (error) {
+    console.error('deliveries/drivers:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/analytics', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { deliveries, drivers } = await loadDashboardContext(req.context);
+    res.json(buildAnalytics(deliveries, drivers));
+  } catch (error) {
+    console.error('deliveries/analytics:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.patch('/deliveries/:id/status', authenticateToken, async (req, res) => {
+  const requestedStatus = String(req.body?.status || '').trim();
+  const allowed = {
+    pending: 'pending',
+    'in-transit': 'in_process',
+    delivered: 'invoiced',
+  };
+
+  if (!allowed[requestedStatus]) {
+    return res.status(400).json({ error: 'Invalid delivery status' });
+  }
+
+  const { data: order, error } = await supabase
+    .from('orders')
+    .select('*')
+    .eq('id', req.params.id)
+    .single();
+
+  if (error || !order) return res.status(404).json({ error: 'Not found' });
+  if (!rowMatchesContext(order, req.context)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  if (req.user.role === 'driver' && normalize(order.driver_name) !== normalize(req.user.name)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const { error: updateError } = await supabase
+    .from('orders')
+    .update({ status: allowed[requestedStatus] })
+    .eq('id', req.params.id);
+
+  if (updateError) return res.status(500).json({ error: updateError.message });
+
+  try {
+    const { deliveries } = await loadDashboardContext(req.context);
+    const updated = deliveries.find((delivery) => delivery.orderDbId === req.params.id);
+    res.json(updated || { id: req.params.id, status: requestedStatus });
+  } catch (loadError) {
+    res.json({ id: req.params.id, status: requestedStatus });
+  }
 });
 
 module.exports = router;

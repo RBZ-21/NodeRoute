@@ -6,6 +6,47 @@ const { buildInvoicePDF } = require('../services/pdf');
 
 const router = express.Router();
 
+async function sendInvoiceEmail(inv, subjectPrefix = 'Your Invoice') {
+  if (!inv?.customer_email) {
+    return { sent: false, error: 'No email on file for this customer' };
+  }
+
+  const mailer = createMailer();
+  if (!mailer) {
+    return { sent: false, error: 'Email not configured on server' };
+  }
+
+  const pdfBuffer = await buildInvoicePDF(inv);
+  const invoiceLabel = inv.invoice_number || inv.id.slice(0, 8).toUpperCase();
+
+  await mailer.sendMail({
+    from: process.env.EMAIL_FROM,
+    to: inv.customer_email,
+    subject: `${subjectPrefix} ${invoiceLabel} from NodeRoute`,
+    html: `
+      <div style="font-family:Arial,sans-serif;max-width:600px">
+        <h2 style="color:#ff6b35">NodeRoute Systems</h2>
+        <p>Hi ${inv.customer_name || 'there'},</p>
+        <p>Please find your invoice attached.</p>
+        <table style="width:100%;border-collapse:collapse;margin:16px 0">
+          <tr style="background:#f5f5f5"><th style="padding:8px;text-align:left">Item</th><th style="padding:8px;text-align:right">Qty</th><th style="padding:8px;text-align:right">Price</th><th style="padding:8px;text-align:right">Total</th></tr>
+          ${(inv.items || []).map((i) => `<tr><td style="padding:8px;border-bottom:1px solid #eee">${i.description || ''}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #eee">${i.quantity || 0}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #eee">$${parseFloat(i.unit_price ?? i.unitPrice ?? 0).toFixed(2)}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #eee">$${parseFloat(i.total || 0).toFixed(2)}</td></tr>`).join('')}
+        </table>
+        <p style="text-align:right"><strong>Total: $${parseFloat(inv.total || 0).toFixed(2)}</strong></p>
+        <p style="color:#888;font-size:12px">Generated on ${new Date().toLocaleString()}</p>
+      </div>`,
+    attachments: [{ filename: `invoice-${inv.invoice_number || inv.id.slice(0, 8)}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }],
+  });
+
+  const nextStatus = inv.status === 'pending' ? 'pending' : 'sent';
+  await supabase
+    .from('invoices')
+    .update({ status: nextStatus, sent_at: new Date().toISOString() })
+    .eq('id', inv.id);
+
+  return { sent: true, status: nextStatus };
+}
+
 router.get('/', authenticateToken, async (req, res) => {
   const data = await dbQuery(supabase.from('invoices').select('*').order('created_at', { ascending: false }), res);
   if (!data) return;
@@ -49,7 +90,7 @@ router.post('/import', authenticateToken, async (req, res) => {
 
 // Save signature → generate PDF → email customer
 router.post('/:id/sign', authenticateToken, async (req, res) => {
-  const { signature_data } = req.body; // base64 PNG from canvas
+  const signature_data = req.body?.signature_data || req.body?.signature; // base64 PNG from canvas
   if (!signature_data) return res.status(400).json({ error: 'Signature data required' });
 
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
@@ -60,33 +101,12 @@ router.post('/:id/sign', authenticateToken, async (req, res) => {
   if (!updated) return;
 
   // Generate PDF
-  const pdfBuffer = await buildInvoicePDF({ ...updated });
-
-  // Send email if customer has one
   let emailSent = false;
   if (inv.customer_email) {
     try {
-      const mailer = createMailer();
-      if (mailer) {
-        await mailer.sendMail({
-          from: process.env.EMAIL_FROM,
-          to: inv.customer_email,
-          subject: `Your Invoice ${inv.invoice_number || inv.id.slice(0,8).toUpperCase()} from NodeRoute`,
-          html: `
-            <div style="font-family:Arial,sans-serif;max-width:600px">
-              <h2 style="color:#ff6b35">NodeRoute Systems</h2>
-              <p>Hi ${inv.customer_name},</p>
-              <p>Thank you for your order. Please find your signed invoice attached.</p>
-              <table style="width:100%;border-collapse:collapse;margin:16px 0">
-                <tr style="background:#f5f5f5"><th style="padding:8px;text-align:left">Item</th><th style="padding:8px;text-align:right">Qty</th><th style="padding:8px;text-align:right">Price</th><th style="padding:8px;text-align:right">Total</th></tr>
-                ${(inv.items||[]).map(i=>`<tr><td style="padding:8px;border-bottom:1px solid #eee">${i.description}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #eee">${i.quantity}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #eee">$${parseFloat(i.unit_price).toFixed(2)}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #eee">$${parseFloat(i.total).toFixed(2)}</td></tr>`).join('')}
-              </table>
-              <p style="text-align:right"><strong>Total: $${parseFloat(inv.total).toFixed(2)}</strong></p>
-              <p style="color:#888;font-size:12px">Signed on ${new Date().toLocaleString()}</p>
-            </div>`,
-          attachments: [{ filename: `invoice-${inv.invoice_number || inv.id.slice(0,8)}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }],
-        });
-        emailSent = true;
+      const emailResult = await sendInvoiceEmail({ ...updated, customer_email: inv.customer_email }, 'Your Signed Invoice');
+      emailSent = emailResult.sent;
+      if (emailSent) {
         await supabase.from('invoices').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', req.params.id);
       }
     } catch (e) {
@@ -97,24 +117,35 @@ router.post('/:id/sign', authenticateToken, async (req, res) => {
   res.json({ ...updated, status: emailSent ? 'sent' : 'signed', emailSent });
 });
 
+router.post('/:id/email', authenticateToken, async (req, res) => {
+  const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
+  if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+
+  try {
+    const result = await sendInvoiceEmail(inv);
+    if (!result.sent) {
+      return res.status(result.error === 'Email not configured on server' ? 503 : 400).json({ error: result.error });
+    }
+    res.json({ message: 'Invoice emailed successfully', status: result.status });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to email invoice' });
+  }
+});
+
 // Resend email for an already-signed invoice
 router.post('/:id/resend', authenticateToken, async (req, res) => {
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
-  if (!inv.signature_data) return res.status(400).json({ error: 'Invoice not yet signed' });
-  if (!inv.customer_email) return res.status(400).json({ error: 'No email on file for this customer' });
-  const mailer = createMailer();
-  if (!mailer) return res.status(503).json({ error: 'Email not configured on server' });
-  const pdfBuffer = await buildInvoicePDF(inv);
-  await mailer.sendMail({
-    from: process.env.EMAIL_FROM,
-    to: inv.customer_email,
-    subject: `Invoice ${inv.invoice_number || inv.id.slice(0,8).toUpperCase()} (Resent)`,
-    html: `<p>Hi ${inv.customer_name}, please find your invoice attached.</p>`,
-    attachments: [{ filename: `invoice-${inv.invoice_number || inv.id.slice(0,8)}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }],
-  });
-  await supabase.from('invoices').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', req.params.id);
-  res.json({ message: 'Email resent' });
+
+  try {
+    const result = await sendInvoiceEmail(inv, 'Invoice');
+    if (!result.sent) {
+      return res.status(result.error === 'Email not configured on server' ? 503 : 400).json({ error: result.error });
+    }
+    res.json({ message: 'Email resent', status: result.status });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to resend invoice' });
+  }
 });
 
 // Download PDF for any invoice

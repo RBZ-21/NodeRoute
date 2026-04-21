@@ -1,20 +1,41 @@
 const express = require('express');
+const crypto = require('crypto');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const {
+  filterRowsByContext,
+  insertRecordWithOptionalScope,
+  rowMatchesContext,
+} = require('../services/operating-context');
 
 const router = express.Router();
+
+function generateTrackingToken() {
+  return crypto.randomBytes(18).toString('hex');
+}
+
+function trackingExpiry(days = 7) {
+  return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
+}
+
+function buildTrackingUrl(req, token) {
+  const fallbackBase = `${req.protocol}://${req.get('host')}`;
+  const baseUrl = (process.env.BASE_URL || fallbackBase).replace(/\/$/, '');
+  return `${baseUrl}/track?t=${encodeURIComponent(token)}`;
+}
 
 // ── ORDERS ────────────────────────────────────────────────────────────────────
 router.get('/', authenticateToken, async (req, res) => {
   const data = await dbQuery(supabase.from('orders').select('*').order('created_at', { ascending: false }), res);
   if (!data) return;
-  res.json(data || []);
+  res.json(filterRowsByContext(data || [], req.context));
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { customerName, customerEmail, customerAddress, items, notes } = req.body;
   const orderNumber = 'ORD-' + Date.now().toString().slice(-6);
-  const data = await dbQuery(supabase.from('orders').insert([{
+  const trackingToken = generateTrackingToken();
+  const insertResult = await insertRecordWithOptionalScope(supabase, 'orders', {
     order_number: orderNumber,
     customer_name: customerName,
     customer_email: customerEmail || null,
@@ -23,13 +44,23 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
     status: 'pending',
     notes: notes || null,
     driver_name: null,
-    route_id: null
-  }]).select().single(), res);
+    route_id: null,
+    tracking_token: trackingToken,
+    tracking_expires_at: trackingExpiry(),
+  }, req.context);
+  if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
+  const data = insertResult.data;
   if (!data) return;
-  res.json(data);
+  res.json({
+    ...data,
+    tracking_url: data.tracking_token ? buildTrackingUrl(req, data.tracking_token) : null,
+  });
 });
 
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
+  if (!existing) return res.status(404).json({ error: 'Order not found' });
+  if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const updates = {};
   if (req.body.customerName !== undefined) updates.customer_name = req.body.customerName;
   if (req.body.items !== undefined) updates.items = req.body.items;
@@ -43,6 +74,9 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
 });
 
 router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
+  if (!existing) return res.status(404).json({ error: 'Order not found' });
+  if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const data = await dbQuery(supabase.from('orders').delete().eq('id', req.params.id), res);
   if (data === null) return;
   res.json({ message: 'Order deleted' });
@@ -80,8 +114,71 @@ router.post('/:id/fulfill', authenticateToken, requireRole('admin', 'manager'), 
     notes: order.notes || null
   }]).select().single(), res);
   if (!invoice) return;
-  await supabase.from('orders').update({ status: 'invoiced', driver_name: driverName || null, route_id: routeId || null }).eq('id', req.params.id);
-  res.json({ invoice, message: 'Invoice created' });
+  const trackingToken = order.tracking_token || generateTrackingToken();
+  const trackingExpiresAt = order.tracking_expires_at || trackingExpiry();
+  await supabase.from('orders').update({
+    status: 'invoiced',
+    driver_name: driverName || null,
+    route_id: routeId || null,
+    tracking_token: trackingToken,
+    tracking_expires_at: trackingExpiresAt,
+  }).eq('id', req.params.id);
+  res.json({
+    invoice,
+    message: 'Invoice created',
+    tracking_token: trackingToken,
+    tracking_expires_at: trackingExpiresAt,
+    tracking_url: buildTrackingUrl(req, trackingToken),
+  });
+});
+
+router.post('/:id/tracking-link', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const order = await dbQuery(
+    supabase
+      .from('orders')
+      .select('id, order_number, tracking_token, tracking_expires_at')
+      .eq('id', req.params.id)
+      .single(),
+    res
+  );
+  if (!order) return;
+
+  const shouldRegenerate =
+    !!req.body?.regenerate ||
+    !order.tracking_token ||
+    !order.tracking_expires_at ||
+    new Date(order.tracking_expires_at).getTime() <= Date.now();
+
+  let trackingToken = order.tracking_token;
+  let trackingExpiresAt = order.tracking_expires_at;
+
+  if (shouldRegenerate) {
+    trackingToken = generateTrackingToken();
+    trackingExpiresAt = trackingExpiry();
+    const updated = await dbQuery(
+      supabase
+        .from('orders')
+        .update({
+          tracking_token: trackingToken,
+          tracking_expires_at: trackingExpiresAt,
+        })
+        .eq('id', req.params.id)
+        .select('id, order_number, tracking_token, tracking_expires_at')
+        .single(),
+      res
+    );
+    if (!updated) return;
+    trackingToken = updated.tracking_token;
+    trackingExpiresAt = updated.tracking_expires_at;
+  }
+
+  res.json({
+    orderId: order.id,
+    orderNumber: order.order_number,
+    tracking_token: trackingToken,
+    tracking_expires_at: trackingExpiresAt,
+    tracking_url: buildTrackingUrl(req, trackingToken),
+  });
 });
 
 module.exports = router;
