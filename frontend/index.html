@@ -479,7 +479,7 @@ td{padding:12px 16px;vertical-align:middle}
 
 /* FORECASTING TAB */
 .fc-sub-tabs{display:flex;gap:4px;margin-bottom:20px;border-bottom:1px solid var(--border);padding-bottom:0}
-.fc-sub-tab{padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer;color:var(--muted);border-bottom:2px solid transparent;margin-bottom:-1px;transition:var(--trans)}
+.fc-sub-tab{padding:8px 18px;font-size:13px;font-weight:600;cursor:pointer;color:var(--muted);border:0;border-bottom:2px solid transparent;margin-bottom:-1px;transition:var(--trans);background:none;font-family:'Inter',sans-serif}
 .fc-sub-tab:hover{color:var(--text)}
 .fc-sub-tab.active{color:var(--accent);border-bottom-color:var(--accent)}
 .fc-sub-pane{display:none}
@@ -1504,9 +1504,9 @@ td{padding:12px 16px;vertical-align:middle}
     <!-- TAB: FORECAST -->
     <div class="tab-pane" id="tab-forecast">
       <div class="fc-sub-tabs">
-        <div class="fc-sub-tab active" onclick="showFcTab('orders',this)">📦 Order Forecasting</div>
-        <div class="fc-sub-tab" onclick="showFcTab('ai',this)">🤖 AI Demand Forecast</div>
-        <div class="fc-sub-tab" onclick="showFcTab('seasons',this)">🌊 Fishing Seasons</div>
+        <button type="button" class="fc-sub-tab active" data-fc-tab="orders" onclick="showFcTab('orders',this)">📦 Order Forecasting</button>
+        <button type="button" class="fc-sub-tab" data-fc-tab="ai" onclick="showFcTab('ai',this)">🤖 AI Demand Forecast</button>
+        <button type="button" class="fc-sub-tab" data-fc-tab="seasons" onclick="showFcTab('seasons',this)">🌊 Fishing Seasons</button>
       </div>
 
       <!-- PANE: Order Forecasting -->
@@ -7043,7 +7043,14 @@ function showFcTab(name, el) {
   if (el) el.classList.add('active');
   document.getElementById('fc-pane-' + name)?.classList.add('active');
   if (name === 'seasons') renderFishingSeasons();
+  if (name === 'ai') focusElement('#aiForecastBtn');
 }
+
+document.getElementById('tab-forecast')?.addEventListener('click', e => {
+  const tab = e.target.closest('[data-fc-tab]');
+  if (!tab) return;
+  showFcTab(tab.dataset.fcTab, tab);
+});
 
 let fcMonthlyChartInst = null;
 
