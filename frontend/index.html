@@ -1021,7 +1021,7 @@ td{padding:12px 16px;vertical-align:middle}
       <div id="routesListView">
         <div class="section-header">
           <div class="section-title" style="margin:0">Routes</div>
-          <button class="btn btn-accent" onclick="openNewRouteModal()">+ New Route</button>
+          <button class="btn btn-accent" id="newRouteBtn" type="button">+ New Route</button>
         </div>
         <div id="routesList"></div>
       </div>
@@ -1965,8 +1965,8 @@ td{padding:12px 16px;vertical-align:middle}
     <input class="modal-input" id="routeNotes" placeholder="Optional notes">
     <div class="modal-result" id="routeResult"></div>
     <div class="modal-actions">
-      <button class="btn btn-outline" onclick="closeNewRouteModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="submitNewRoute()">Create Route</button>
+      <button class="btn btn-outline" type="button" onclick="closeNewRouteModal()">Cancel</button>
+      <button class="btn btn-accent" id="createRouteSubmitBtn" type="button" onclick="submitNewRoute()">Create Route</button>
     </div>
   </div>
 </div>
@@ -4225,39 +4225,46 @@ function normalizeRoute(route) {
 }
 
 function openNewRouteModal() {
-  const modal = document.getElementById('newRouteModal');
-  const nameInput = document.getElementById('routeName');
-  const notesInput = document.getElementById('routeNotes');
-  const driverSelect = document.getElementById('routeDriver');
-  const picker = document.getElementById('routeStopPicker');
-  const r = document.getElementById('routeResult');
+  try {
+    const modal = document.getElementById('newRouteModal');
+    const nameInput = document.getElementById('routeName');
+    const notesInput = document.getElementById('routeNotes');
+    const driverSelect = document.getElementById('routeDriver');
+    const picker = document.getElementById('routeStopPicker');
+    const r = document.getElementById('routeResult');
 
-  // If the modal wiring is missing, still let the dispatcher create a named route.
-  if (!modal || !nameInput || !notesInput || !driverSelect || !picker || !r) {
+    // If the modal wiring is missing, still let the dispatcher create a named route.
+    if (!modal || !nameInput || !notesInput || !driverSelect || !picker || !r) {
+      promptNewRouteName();
+      return;
+    }
+
+    nameInput.value = '';
+    notesInput.value = '';
+    r.className = 'modal-result'; r.textContent = '';
+    const drivers = typeof allDrivers !== 'undefined' && Array.isArray(allDrivers) ? allDrivers : [];
+    const stops = typeof allStops !== 'undefined' && Array.isArray(allStops) ? allStops : [];
+    // populate driver select
+    driverSelect.innerHTML = '<option value="">— Unassigned —</option>' + drivers
+      .map(d => `<option value="${escHtml(d.id || '')}" data-driver-name="${escHtml(d.name || '')}">${escHtml(d.name || 'Unnamed driver')}${d.vehicleId ? ' · ' + escHtml(d.vehicleId) : ''}</option>`)
+      .join('');
+    // populate stop picker (checkboxes)
+    if (!stops.length) {
+      picker.innerHTML = '<div style="padding:12px;font-size:13px;color:var(--muted)">No stops added yet — you can still name this route now and add stops later.</div>';
+    } else {
+      picker.innerHTML = stops.map(s => `
+        <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border)">
+          <input type="checkbox" value="${escHtml(s.id || '')}" style="accent-color:var(--accent)">
+          <div><div style="font-size:13px;font-weight:600">${escHtml(s.name || 'Unnamed stop')}</div><div style="font-size:11px;color:var(--muted)">${escHtml(s.address || '')}</div></div>
+        </label>
+      `).join('');
+    }
+    modal.classList.add('open');
+    focusElement(nameInput);
+  } catch (error) {
+    console.warn('Route modal failed, falling back to prompt:', error.message);
     promptNewRouteName();
-    return;
   }
-
-  nameInput.value = '';
-  notesInput.value = '';
-  r.className = 'modal-result'; r.textContent = '';
-  // populate driver select
-  driverSelect.innerHTML = '<option value="">— Unassigned —</option>' + allDrivers
-    .map(d => `<option value="${d.id}" data-driver-name="${escHtml(d.name)}">${d.name}${d.vehicleId ? ' · ' + d.vehicleId : ''}</option>`)
-    .join('');
-  // populate stop picker (checkboxes)
-  if (!allStops.length) {
-    picker.innerHTML = '<div style="padding:12px;font-size:13px;color:var(--muted)">No stops added yet — go to the Stops tab first.</div>';
-  } else {
-    picker.innerHTML = allStops.map(s => `
-      <label style="display:flex;align-items:center;gap:10px;padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--border)">
-        <input type="checkbox" value="${s.id}" style="accent-color:var(--accent)">
-        <div><div style="font-size:13px;font-weight:600">${s.name}</div><div style="font-size:11px;color:var(--muted)">${s.address}</div></div>
-      </label>
-    `).join('');
-  }
-  modal.classList.add('open');
-  setTimeout(() => nameInput.focus(), 0);
 }
 function closeNewRouteModal() {
   const modal = document.getElementById('newRouteModal');
@@ -4295,12 +4302,28 @@ async function promptNewRouteName() {
 }
 
 async function submitNewRoute() {
-  const name = document.getElementById('routeName').value.trim();
+  const nameInput = document.getElementById('routeName');
+  const driverSelect = document.getElementById('routeDriver');
+  const notesInput = document.getElementById('routeNotes');
   const r = document.getElementById('routeResult');
-  if (!name) { r.className = 'modal-result error'; r.textContent = 'Route name is required.'; return; }
+  const submitBtn = document.getElementById('createRouteSubmitBtn');
+  const name = (nameInput?.value || '').trim();
+  const showRouteError = message => {
+    if (r) { r.className = 'modal-result error'; r.textContent = message; }
+    else alert(message);
+  };
+  if (!name) {
+    showRouteError('Route name is required.');
+    focusElement(nameInput);
+    return;
+  }
   const stopIds = [...document.querySelectorAll('#routeStopPicker input:checked')].map(cb => cb.value);
-  const selectedDriverOption = document.getElementById('routeDriver').selectedOptions[0];
+  const selectedDriverOption = driverSelect?.selectedOptions?.[0];
   try {
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = 'Creating...';
+    }
     await createRouteRequest({
       name,
       stopIds,
@@ -4308,10 +4331,17 @@ async function submitNewRoute() {
         id: selectedDriverOption.value,
         name: selectedDriverOption.dataset.driverName || '',
       } : {},
-      notes: document.getElementById('routeNotes').value.trim(),
+      notes: (notesInput?.value || '').trim(),
     });
     closeNewRouteModal();
-  } catch(e) { r.className = 'modal-result error'; r.textContent = e.message; }
+  } catch(e) {
+    showRouteError(e.message || 'Could not create route.');
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Create Route';
+    }
+  }
 }
 
 async function deleteRoute(id) {
@@ -4504,6 +4534,10 @@ async function fetchRoutes() {
   } catch(e) {}
 }
 
+document.getElementById('newRouteBtn')?.addEventListener('click', e => {
+  e.preventDefault();
+  openNewRouteModal();
+});
 document.getElementById('newRouteModal')?.addEventListener('click', e => { if (e.target === e.currentTarget) closeNewRouteModal(); });
 document.getElementById('routeName')?.addEventListener('keydown', e => {
   if (e.key === 'Enter') {
