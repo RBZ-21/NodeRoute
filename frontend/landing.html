@@ -276,7 +276,7 @@
       position: absolute;
       border-radius: 50%;
       filter: blur(100px);
-      opacity: 0.035;
+      opacity: 0.006;
     }
     .hero-bg-circle:nth-child(1) {
       width: 600px; height: 600px;
@@ -342,6 +342,8 @@
 
     .hero-headline .highlight {
       color: var(--teal-light);
+      background: none;
+      -webkit-text-fill-color: currentColor;
     }
 
     .hero-sub {
@@ -456,17 +458,17 @@
       line-height: 1.7;
     }
     .pain-card:nth-child(1) {
-      grid-column: span 3;
-      padding: 40px 36px;
+      grid-column: 1 / -1;
+      padding: 42px 40px;
       background: linear-gradient(180deg, rgba(77,207,145,0.08), rgba(13,27,62,0.92));
     }
     .pain-card:nth-child(2) {
-      grid-column: span 2;
-      margin-top: 18px;
+      grid-column: 1 / span 3;
+      margin-top: 0;
     }
     .pain-card:nth-child(3) {
-      grid-column: span 1;
-      margin-top: 46px;
+      grid-column: 4 / span 3;
+      margin-top: 32px;
     }
     @media (max-width: 900px) {
       .pain-card:nth-child(1),
