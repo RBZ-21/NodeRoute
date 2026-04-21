@@ -1,6 +1,7 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { loadDriverInvoiceScope } = require('../services/driver-invoice-access');
 const {
   buildScopeFields,
   executeWithOptionalScope,
@@ -115,6 +116,15 @@ router.get('/location', authenticateToken, async (req, res) => {
   if (error) return res.status(500).json({ error: error.message });
   const scopedLocations = filterRowsByContext(data || [], req.context);
   res.json(scopedLocations[0] || null);
+});
+
+router.get('/invoices', authenticateToken, requireRole('driver', 'manager', 'admin'), async (req, res) => {
+  try {
+    const scope = await loadDriverInvoiceScope(supabase, req.user, req.context);
+    res.json(scope.invoices);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
 });
 
 router.patch('/location', authenticateToken, requireRole('driver', 'manager', 'admin'), async (req, res) => {
