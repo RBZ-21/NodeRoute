@@ -3,6 +3,11 @@ const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createMailer } = require('../services/email');
 const { analyzeInventory, generateReorderAlert } = require('../services/ai');
+const {
+  filterRowsByContext,
+  insertRecordWithOptionalScope,
+  rowMatchesContext,
+} = require('../services/operating-context');
 
 const router = express.Router();
 
@@ -22,13 +27,13 @@ const needsLot = desc => LOT_REQUIRED.test(desc || '');
 router.get('/', authenticateToken, async (req, res) => {
   const data = await dbQuery(supabase.from('seafood_inventory').select('*').order('category', { ascending: true }), res);
   if (!data) return;
-  res.json(data);
+  res.json(filterRowsByContext(data, req.context));
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { description, category, item_number, unit, cost, on_hand_qty, on_hand_weight, lot_item } = req.body;
   if (!description) return res.status(400).json({ error: 'Product description required' });
-  const data = await dbQuery(supabase.from('seafood_inventory').insert([{
+  const insertResult = await insertRecordWithOptionalScope(supabase, 'seafood_inventory', {
     description,
     category:       category       || 'Other',
     item_number:    item_number    || '',
@@ -37,7 +42,9 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
     on_hand_qty:    parseFloat(on_hand_qty)    || 0,
     on_hand_weight: parseFloat(on_hand_weight) || 0,
     lot_item:       needsLot(description) ? 'Y' : (lot_item || 'N'),
-  }]).select().single(), res);
+  }, req.context);
+  if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
+  const data = insertResult.data;
   if (!data) return;
   res.json(data);
 });
@@ -569,6 +576,9 @@ router.post('/:id/reorder-alert', authenticateToken, requireRole('admin', 'manag
 // ── EXISTING CRUD (must come after named sub-routes) ─────────────────────────
 
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const existing = await dbQuery(supabase.from('seafood_inventory').select('*').eq('item_number', req.params.id).single(), res);
+  if (!existing) return res.status(404).json({ error: 'Product not found' });
+  if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const allowed = ['description','category','item_number','unit','cost','on_hand_qty','on_hand_weight','lot_item'];
   const fields = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) fields[k] = req.body[k]; });
@@ -580,6 +590,9 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
 });
 
 router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const existing = await dbQuery(supabase.from('seafood_inventory').select('*').eq('item_number', req.params.id).single(), res);
+  if (!existing) return res.status(404).json({ error: 'Product not found' });
+  if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const data = await dbQuery(supabase.from('seafood_inventory').delete().eq('item_number', req.params.id), res);
   if (data === null) return;
   res.json({ message: 'Deleted' });

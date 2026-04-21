@@ -4,6 +4,12 @@ const crypto = require('crypto');
 const { supabase } = require('../services/supabase');
 const { buildInvoicePDF } = require('../services/pdf');
 const { createConfiguredMailers } = require('../services/email');
+const {
+  buildScopeFields,
+  executeWithOptionalScope,
+  filterRowsByContext,
+  insertRecordWithOptionalScope,
+} = require('../services/operating-context');
 
 const router = express.Router();
 const JWT_SECRET = process.env.JWT_SECRET || 'noderoute-dev-secret-change-in-production';
@@ -15,8 +21,18 @@ const PORTAL_AUTH_RATE_LIMIT = Number(process.env.PORTAL_AUTH_RATE_LIMIT || 5);
 const portalChallenges = new Map();
 const authAttempts = new Map();
 
-function signPortalJWT(email, name) {
-  return jwt.sign({ email, name, role: 'customer' }, JWT_SECRET, { expiresIn: '24h' });
+function signPortalJWT(email, name, context = {}) {
+  return jwt.sign(
+    {
+      email,
+      name,
+      role: 'customer',
+      companyId: context.companyId || null,
+      locationId: context.locationId || null,
+    },
+    JWT_SECRET,
+    { expiresIn: '24h' }
+  );
 }
 
 function normalizeEmail(email) {
@@ -68,22 +84,34 @@ async function resolvePortalCustomer(email) {
   const normalized = normalizeEmail(email);
   const { data: invoices, error: invoiceError } = await supabase
     .from('invoices')
-    .select('customer_name')
+    .select('*')
     .ilike('customer_email', normalized)
+    .order('created_at', { ascending: false })
     .limit(1);
   if (invoiceError) throw invoiceError;
   if (invoices && invoices.length > 0) {
-    return { email: normalized, name: invoices[0].customer_name || normalized };
+    return {
+      email: normalized,
+      name: invoices[0].customer_name || normalized,
+      companyId: invoices[0].company_id || null,
+      locationId: invoices[0].location_id || null,
+    };
   }
 
   const { data: orders, error: orderError } = await supabase
     .from('orders')
-    .select('customer_name')
+    .select('*')
     .ilike('customer_email', normalized)
+    .order('created_at', { ascending: false })
     .limit(1);
   if (orderError) throw orderError;
   if (orders && orders.length > 0) {
-    return { email: normalized, name: orders[0].customer_name || normalized };
+    return {
+      email: normalized,
+      name: orders[0].customer_name || normalized,
+      companyId: orders[0].company_id || null,
+      locationId: orders[0].location_id || null,
+    };
   }
 
   return null;
@@ -141,6 +169,12 @@ function authenticatePortalToken(req, res, next) {
   if (payload.role !== 'customer') return res.status(403).json({ error: 'Forbidden' });
   req.customerEmail = payload.email;
   req.customerName = payload.name;
+  req.portalContext = {
+    companyId: payload.companyId || null,
+    activeLocationId: payload.locationId || null,
+    accessibleLocationIds: payload.locationId ? [payload.locationId] : [],
+    isGlobalOperator: false,
+  };
   next();
 }
 
@@ -223,7 +257,7 @@ router.post('/verify', async (req, res) => {
 
   portalChallenges.delete(challengeId);
   return res.json({
-    token: signPortalJWT(challenge.email, challenge.name),
+    token: signPortalJWT(challenge.email, challenge.name, challenge),
     name: challenge.name,
     email: challenge.email,
   });
@@ -238,22 +272,48 @@ router.get('/me', authenticatePortalToken, (req, res) => {
 router.get('/orders', authenticatePortalToken, async (req, res) => {
   const { data, error } = await supabase
     .from('orders')
-    .select('id, order_number, customer_name, customer_address, items, status, notes, created_at, driver_name')
+    .select('*')
     .ilike('customer_email', req.customerEmail)
     .order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data || []);
+  const scopedOrders = filterRowsByContext(data || [], req.portalContext);
+  res.json(scopedOrders.map((order) => ({
+    id: order.id,
+    order_number: order.order_number,
+    customer_name: order.customer_name,
+    customer_address: order.customer_address,
+    items: order.items,
+    status: order.status,
+    notes: order.notes,
+    created_at: order.created_at,
+    driver_name: order.driver_name,
+  })));
 });
 
 // GET /api/portal/invoices
 router.get('/invoices', authenticatePortalToken, async (req, res) => {
   const { data, error } = await supabase
     .from('invoices')
-    .select('id, invoice_number, customer_name, customer_address, items, subtotal, tax, total, status, driver_name, created_at, signed_at, sent_at')
+    .select('*')
     .ilike('customer_email', req.customerEmail)
     .order('created_at', { ascending: false });
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data || []);
+  const scopedInvoices = filterRowsByContext(data || [], req.portalContext);
+  res.json(scopedInvoices.map((invoice) => ({
+    id: invoice.id,
+    invoice_number: invoice.invoice_number,
+    customer_name: invoice.customer_name,
+    customer_address: invoice.customer_address,
+    items: invoice.items,
+    subtotal: invoice.subtotal,
+    tax: invoice.tax,
+    total: invoice.total,
+    status: invoice.status,
+    driver_name: invoice.driver_name,
+    created_at: invoice.created_at,
+    signed_at: invoice.signed_at,
+    sent_at: invoice.sent_at,
+  })));
 });
 
 // GET /api/portal/invoices/:id/pdf — scoped to the authenticated customer's email
@@ -265,6 +325,9 @@ router.get('/invoices/:id/pdf', authenticatePortalToken, async (req, res) => {
     .ilike('customer_email', req.customerEmail)
     .single();
   if (error || !inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!filterRowsByContext([inv], req.portalContext).length) {
+    return res.status(404).json({ error: 'Invoice not found' });
+  }
   const pdfBuffer = await buildInvoicePDF(inv);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="invoice-${inv.invoice_number || inv.id.slice(0, 8)}.pdf"`);
@@ -273,26 +336,44 @@ router.get('/invoices/:id/pdf', authenticatePortalToken, async (req, res) => {
 
 // GET /api/portal/contact — return contact info from portal_contacts or most recent invoice
 router.get('/contact', authenticatePortalToken, async (req, res) => {
-  const { data: saved } = await supabase
+  const { data: saved, error: savedError } = await supabase
     .from('portal_contacts')
-    .select('email, name, phone, address, company, door_code, updated_at')
+    .select('*')
     .eq('email', req.customerEmail)
-    .single();
+    .order('updated_at', { ascending: false })
+    .limit(10);
 
-  if (saved) return res.json(saved);
+  if (savedError) return res.status(500).json({ error: savedError.message });
+
+  const savedContact = filterRowsByContext(saved || [], req.portalContext)[0];
+
+  if (savedContact) {
+    return res.json({
+      email: savedContact.email,
+      name: savedContact.name,
+      phone: savedContact.phone,
+      address: savedContact.address,
+      company: savedContact.company,
+      door_code: savedContact.door_code,
+      updated_at: savedContact.updated_at,
+    });
+  }
 
   // Fall back to most recent invoice data
   const { data: inv } = await supabase
     .from('invoices')
-    .select('customer_name, customer_address')
+    .select('*')
     .ilike('customer_email', req.customerEmail)
     .order('created_at', { ascending: false })
-    .limit(1);
+    .limit(10);
+
+  const scopedInvoices = filterRowsByContext(inv || [], req.portalContext);
+  const latestInvoice = scopedInvoices[0] || null;
 
   res.json({
     email: req.customerEmail,
-    name: (inv && inv[0]) ? inv[0].customer_name : req.customerName,
-    address: (inv && inv[0]) ? inv[0].customer_address : null,
+    name: latestInvoice ? latestInvoice.customer_name : req.customerName,
+    address: latestInvoice ? latestInvoice.customer_address : null,
     phone: null,
     company: null,
   });
@@ -301,17 +382,33 @@ router.get('/contact', authenticatePortalToken, async (req, res) => {
 // PATCH /api/portal/contact — upsert contact info into portal_contacts
 router.patch('/contact', authenticatePortalToken, async (req, res) => {
   const { name, phone, address, company } = req.body;
-  const { error } = await supabase
+  const { data: existingRows, error: existingError } = await supabase
     .from('portal_contacts')
-    .upsert([{
-      email: req.customerEmail,
-      name: name || req.customerName,
-      phone: phone || null,
-      address: address || null,
-      company: company || null,
-      updated_at: new Date().toISOString(),
-    }], { onConflict: 'email' });
-  if (error) return res.status(500).json({ error: error.message });
+    .select('*')
+    .eq('email', req.customerEmail)
+    .order('updated_at', { ascending: false })
+    .limit(10);
+  if (existingError) return res.status(500).json({ error: existingError.message });
+
+  const payload = {
+    ...buildScopeFields(req.portalContext),
+    email: req.customerEmail,
+    name: name || req.customerName,
+    phone: phone || null,
+    address: address || null,
+    company: company || null,
+    updated_at: new Date().toISOString(),
+  };
+  const scopedExisting = filterRowsByContext(existingRows || [], req.portalContext);
+
+  const result = scopedExisting[0]?.id
+    ? await executeWithOptionalScope(
+        (candidate) => supabase.from('portal_contacts').update(candidate).eq('id', scopedExisting[0].id).select('*').single(),
+        payload
+      )
+    : await insertRecordWithOptionalScope(supabase, 'portal_contacts', payload, req.portalContext);
+
+  if (result.error) return res.status(500).json({ error: result.error.message });
   res.json({ message: 'Contact information saved' });
 });
 
@@ -321,30 +418,55 @@ router.patch('/doorcode', authenticatePortalToken, async (req, res) => {
   const code = (door_code || '').trim() || null;
 
   // Update portal_contacts — preserve existing fields
-  const { data: existing } = await supabase
+  const { data: existingRows, error: existingError } = await supabase
     .from('portal_contacts')
     .select('*')
     .eq('email', req.customerEmail)
-    .single();
+    .order('updated_at', { ascending: false })
+    .limit(10);
+  if (existingError) return res.status(500).json({ error: existingError.message });
 
+  const existing = filterRowsByContext(existingRows || [], req.portalContext)[0] || null;
+
+  let contactWrite;
   if (existing) {
-    await supabase
-      .from('portal_contacts')
-      .update({ door_code: code, updated_at: new Date().toISOString() })
-      .eq('email', req.customerEmail);
+    contactWrite = await executeWithOptionalScope(
+      (candidate) => supabase.from('portal_contacts').update(candidate).eq('id', existing.id).select('*').single(),
+      {
+        ...buildScopeFields(req.portalContext),
+        door_code: code,
+        updated_at: new Date().toISOString(),
+      }
+    );
   } else {
-    await supabase
-      .from('portal_contacts')
-      .insert([{ email: req.customerEmail, name: req.customerName, door_code: code, updated_at: new Date().toISOString() }]);
+    contactWrite = await insertRecordWithOptionalScope(
+      supabase,
+      'portal_contacts',
+      {
+        email: req.customerEmail,
+        name: req.customerName,
+        door_code: code,
+        updated_at: new Date().toISOString(),
+      },
+      req.portalContext
+    );
   }
+  if (contactWrite.error) return res.status(500).json({ error: contactWrite.error.message });
 
   // Best-effort: sync to matching stop row by name
   const lookupName = (existing && existing.name) || req.customerName;
   if (lookupName) {
-    await supabase
+    const { data: candidateStops } = await supabase
+      .from('stops')
+      .select('*')
+      .ilike('name', lookupName);
+    const scopedStops = filterRowsByContext(candidateStops || [], req.portalContext);
+    for (const stop of scopedStops) {
+      await supabase
       .from('stops')
       .update({ door_code: code })
-      .ilike('name', lookupName);
+      .eq('id', stop.id);
+    }
   }
 
   res.json({ message: 'Door code saved' });

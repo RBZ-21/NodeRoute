@@ -130,6 +130,11 @@ body > *{position:relative;z-index:1}
 .copy-btn{margin-top:14px;background:rgba(245,158,11,.12);border:1px solid rgba(245,158,11,.3);color:var(--warn);padding:8px 20px;border-radius:8px;font-size:13px;font-weight:600;font-family:'Inter',sans-serif;cursor:pointer}
 .copy-btn:active{background:rgba(245,158,11,.22)}
 
+.signature-guard{margin-top:10px;padding:10px 12px;border-radius:10px;background:rgba(239,68,68,.08);border:1px solid rgba(239,68,68,.2);color:#fca5a5;font-size:12px;line-height:1.5}
+.signature-ok{margin-top:10px;padding:10px 12px;border-radius:10px;background:rgba(61,186,127,.08);border:1px solid rgba(61,186,127,.18);color:var(--accent);font-size:12px;line-height:1.5}
+.btn-signature{background:rgba(59,130,246,.15);color:#93c5fd;border:1px solid rgba(59,130,246,.3)}
+.btn-signature:active{background:rgba(59,130,246,.24)}
+
 .notes-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:20px;backdrop-filter:blur(10px)}
 .notes-card-title{font-size:12px;text-transform:uppercase;letter-spacing:.6px;color:var(--muted);margin-bottom:10px;font-weight:600}
 .notes-text{font-size:15px;line-height:1.7;color:var(--text)}
@@ -216,6 +221,22 @@ body > *{position:relative;z-index:1}
 
 </div><!-- /app -->
 
+<div id="signatureModal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:1000;align-items:center;justify-content:center;padding:18px">
+  <div style="background:var(--surface);border-radius:16px;padding:24px;width:min(96vw,560px);border:1px solid var(--border)">
+    <h3 style="margin-bottom:4px;font-size:18px">Capture Customer Signature</h3>
+    <p id="signatureModalSub" style="font-size:12px;color:var(--muted);margin-bottom:14px">Sign to complete this delivery stop.</p>
+    <div style="border:2px dashed var(--border);border-radius:10px;background:var(--bg);margin-bottom:12px;position:relative">
+      <canvas id="sigCanvas" style="width:100%;height:200px;display:block;touch-action:none;border-radius:8px;cursor:crosshair"></canvas>
+      <div id="sigHint" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:13px;pointer-events:none">Customer signs here</div>
+    </div>
+    <div style="display:flex;gap:10px;justify-content:flex-end">
+      <button class="logout-btn" style="padding:9px 16px" onclick="clearSignature()">Clear</button>
+      <button class="logout-btn" style="padding:9px 16px" onclick="closeSignatureModal()">Cancel</button>
+      <button class="stop-btn btn-signature" id="signatureSubmitBtn" onclick="submitStopSignature()">Save Signature</button>
+    </div>
+  </div>
+</div>
+
 <div id="toast" class="toast"></div>
 
 <script>
@@ -228,6 +249,10 @@ let dwellState  = [];
 let locationWatchId = null;
 let lastLocationSignature = '';
 let locationStatus = { text: 'Location sync idle', tone: '' };
+let companyPrefs = { forceDriverSignature: false };
+let activeSignatureStopId = null;
+let sigDrawing = false;
+let sigHasData = false;
 
 // ── AUTH ─────────────────────────────────────────────────────────────────────
 function ah() { return { headers: { Authorization: 'Bearer ' + driverToken, 'Content-Type': 'application/json' } }; }
@@ -273,7 +298,20 @@ function enterApp() {
   document.getElementById('driverNameDisplay').textContent = driverUser.name || driverUser.email;
   setLocationStatus('Starting location sync…', 'warn');
   startLocationSharing();
+  loadCompanyPrefs();
   loadRoutes();
+}
+
+async function loadCompanyPrefs() {
+  try {
+    const res = await fetch('/api/settings/company', ah());
+    if (res.status === 401) { doLogout(); return; }
+    const data = await res.json();
+    if (!res.ok) return;
+    companyPrefs = { forceDriverSignature: !!data.forceDriverSignature };
+    renderRoute();
+    renderNotes();
+  } catch {}
 }
 
 function startLocationSharing() {
@@ -426,6 +464,7 @@ function renderRoute() {
         actionsHtml = `<div class="stop-actions"><span class="btn-done-label">✓ Completed</span></div>`;
       } else if (isActive) {
         actionsHtml = `<div class="stop-actions">
+          ${stop.invoice_id ? `<button class="stop-btn btn-signature" onclick="openSignatureModal('${stop.id}')">${stop.invoice_has_signature ? 'View Signed Delivery' : 'Capture Signature'}</button>` : ''}
           <button class="stop-btn btn-depart" onclick="markDepart('${stop.id}','${activeRoute.id}')">Depart ✓</button>
         </div>`;
       } else {
@@ -433,6 +472,12 @@ function renderRoute() {
           <button class="stop-btn btn-arrive" onclick="markArrive('${stop.id}','${activeRoute.id}')">Arrive</button>
         </div>`;
       }
+
+      const signatureStatus = companyPrefs.forceDriverSignature
+        ? stop.invoice_has_signature
+          ? `<div class="signature-ok">Signature captured. Driver can complete this stop.</div>`
+          : `<div class="signature-guard">Signature required before the driver can move to the next field.</div>`
+        : '';
 
       html += `
         <div class="stop-card ${cls}" id="sc-${stop.id}">
@@ -448,6 +493,7 @@ function renderRoute() {
             <span class="stop-door-code">${esc(stop.door_code)}</span>
           </div>` : ''}
           ${stop.notes ? `<div class="stop-notes-text">${esc(stop.notes)}</div>` : ''}
+          ${signatureStatus}
           ${actionsHtml}
         </div>`;
     });
@@ -480,6 +526,18 @@ async function markArrive(stopId, routeId) {
 }
 
 async function markDepart(stopId, routeId) {
+  const stop = findStopById(stopId);
+  if (companyPrefs.forceDriverSignature) {
+    if (!stop?.invoice_id) {
+      showToast('Signature is required, but no invoice is attached to this stop yet');
+      return;
+    }
+    if (!stop.invoice_has_signature) {
+      openSignatureModal(stopId);
+      showToast('Capture a customer signature before departing');
+      return;
+    }
+  }
   const previous = stopState[stopId];
   stopState[stopId] = 'departed';
   renderRoute();
@@ -596,11 +654,19 @@ function renderNotes() {
       <div class="notes-stop-label">${label} · Stop ${current.position}</div>
       <div class="notes-stop-name">${esc(current.name || 'Stop ' + current.position)}</div>
       <div class="notes-stop-addr">${esc(current.address || '')}</div>
+      ${current.invoice_id ? `<button class="stop-btn btn-signature" style="font-size:14px;padding:10px 20px;margin-right:10px" onclick="openSignatureModal('${current.id}')">${current.invoice_has_signature ? 'Signed Delivery' : 'Capture Signature'}</button>` : ''}
       ${isActive
         ? `<button class="stop-btn btn-depart" style="font-size:14px;padding:10px 20px" onclick="markDepart('${current.id}','${activeRoute ? activeRoute.id : ''}')">Mark Departed ✓</button>`
         : `<button class="stop-btn btn-arrive" style="font-size:14px;padding:10px 20px" onclick="markArrive('${current.id}','${activeRoute ? activeRoute.id : ''}')">Mark Arrived</button>`
       }
     </div>
+
+    ${companyPrefs.forceDriverSignature
+      ? current.invoice_has_signature
+        ? `<div class="signature-ok" style="margin-bottom:16px">Signature captured for this stop.</div>`
+        : `<div class="signature-guard" style="margin-bottom:16px">Signature required before the driver can move to the next field.</div>`
+      : ''
+    }
 
     <div class="door-code-display">
       <div class="door-code-title">🔑 Door / Access Code</div>
@@ -636,6 +702,148 @@ function esc(s) {
 function errHtml(m) {
   return `<div class="empty-state"><div class="empty-state-icon">⚠️</div><h3>${m}</h3></div>`;
 }
+
+function findStopById(stopId) {
+  if (!activeRoute) return null;
+  return (activeRoute.stops || []).find((stop) => stop.id === stopId) || null;
+}
+
+function openSignatureModal(stopId) {
+  const stop = findStopById(stopId);
+  if (!stop?.invoice_id) {
+    showToast('No invoice is attached to this stop yet');
+    return;
+  }
+  activeSignatureStopId = stopId;
+  sigHasData = false;
+  const sub = document.getElementById('signatureModalSub');
+  if (sub) {
+    sub.textContent = `Sign for ${stop.name || 'this stop'}${stop.invoice_number ? ` · Invoice ${stop.invoice_number}` : ''}.`;
+  }
+  document.getElementById('signatureModal').style.display = 'flex';
+  requestAnimationFrame(initSigCanvas);
+}
+
+function closeSignatureModal() {
+  document.getElementById('signatureModal').style.display = 'none';
+  activeSignatureStopId = null;
+  sigHasData = false;
+}
+
+function initSigCanvas() {
+  const canvas = document.getElementById('sigCanvas');
+  if (!canvas) return;
+  const rect = canvas.getBoundingClientRect();
+  canvas.width = rect.width * window.devicePixelRatio;
+  canvas.height = rect.height * window.devicePixelRatio;
+  const ctx = canvas.getContext('2d');
+  ctx.scale(window.devicePixelRatio, window.devicePixelRatio);
+  ctx.clearRect(0, 0, rect.width, rect.height);
+  ctx.lineWidth = 2.5;
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.strokeStyle = '#ffffff';
+  const hint = document.getElementById('sigHint');
+  if (hint) hint.style.display = 'flex';
+}
+
+function sigPoint(event) {
+  const canvas = document.getElementById('sigCanvas');
+  const rect = canvas.getBoundingClientRect();
+  const point = event.touches && event.touches[0] ? event.touches[0] : event;
+  return { x: point.clientX - rect.left, y: point.clientY - rect.top };
+}
+
+function sigStart(event) {
+  const canvas = document.getElementById('sigCanvas');
+  if (!canvas) return;
+  event.preventDefault();
+  sigDrawing = true;
+  const ctx = canvas.getContext('2d');
+  const point = sigPoint(event);
+  ctx.beginPath();
+  ctx.moveTo(point.x, point.y);
+  sigHasData = true;
+  const hint = document.getElementById('sigHint');
+  if (hint) hint.style.display = 'none';
+}
+
+function sigMove(event) {
+  if (!sigDrawing) return;
+  event.preventDefault();
+  const canvas = document.getElementById('sigCanvas');
+  const ctx = canvas.getContext('2d');
+  const point = sigPoint(event);
+  ctx.lineTo(point.x, point.y);
+  ctx.stroke();
+}
+
+function sigEnd(event) {
+  if (event) event.preventDefault();
+  sigDrawing = false;
+}
+
+function clearSignature() {
+  initSigCanvas();
+  sigHasData = false;
+}
+
+function updateStopSignature(stopId, invoicePatch = {}) {
+  for (const route of allRoutes) {
+    route.stops = (route.stops || []).map((stop) => {
+      if (stop.id !== stopId) return stop;
+      return {
+        ...stop,
+        ...invoicePatch,
+      };
+    });
+  }
+  if (activeRoute) {
+    activeRoute = allRoutes.find((route) => route.id === activeRoute.id) || activeRoute;
+  }
+}
+
+async function submitStopSignature() {
+  if (!sigHasData) {
+    showToast('Please capture a signature first');
+    return;
+  }
+  const stop = findStopById(activeSignatureStopId);
+  if (!stop?.invoice_id) {
+    showToast('No invoice is attached to this stop');
+    return;
+  }
+
+  const btn = document.getElementById('signatureSubmitBtn');
+  const canvas = document.getElementById('sigCanvas');
+  const signature = canvas.toDataURL('image/png');
+  btn.disabled = true;
+  btn.textContent = 'Saving…';
+  try {
+    const res = await fetch(`/api/invoices/${stop.invoice_id}/sign`, {
+      method: 'POST',
+      ...ah(),
+      body: JSON.stringify({ signature }),
+    });
+    if (res.status === 401) { doLogout(); return; }
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not save signature');
+    updateStopSignature(stop.id, {
+      invoice_has_signature: true,
+      invoice_signed_at: data.signed_at || new Date().toISOString(),
+      invoice_status: data.status || 'signed',
+    });
+    closeSignatureModal();
+    renderRoute();
+    renderNotes();
+    showToast(data.emailSent ? 'Signature saved and invoice emailed' : 'Signature saved');
+  } catch (error) {
+    showToast(error.message || 'Could not save signature');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Save Signature';
+  }
+}
 function setLocationStatus(text, tone) {
   locationStatus = { text, tone };
   const el = document.getElementById('locationStatus');
@@ -650,6 +858,20 @@ function showToast(msg) {
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 2200);
 }
+
+(function() {
+  const canvas = document.getElementById('sigCanvas');
+  if (!canvas) return;
+  canvas.addEventListener('mousedown', sigStart);
+  canvas.addEventListener('mousemove', sigMove);
+  canvas.addEventListener('mouseup', sigEnd);
+  canvas.addEventListener('mouseleave', sigEnd);
+  canvas.addEventListener('touchstart', sigStart, { passive: false });
+  canvas.addEventListener('touchmove', sigMove, { passive: false });
+  canvas.addEventListener('touchend', sigEnd, { passive: false });
+})();
+
+document.getElementById('signatureModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeSignatureModal(); });
 
 // ── AUTO-RESTORE SESSION ─────────────────────────────────────────────────────
 (function() {

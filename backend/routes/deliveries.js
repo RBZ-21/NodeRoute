@@ -1,6 +1,7 @@
 const express = require('express');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { supabase } = require('../services/supabase');
+const { filterRowsByContext, rowMatchesContext } = require('../services/operating-context');
 const { dwellRecords } = require('./stops');
 
 const router = express.Router();
@@ -70,7 +71,7 @@ function sameDay(date, target) {
   );
 }
 
-async function loadDashboardContext() {
+async function loadDashboardContext(context) {
   const [
     ordersResult,
     routesResult,
@@ -103,12 +104,13 @@ async function loadDashboardContext() {
     throw new Error(errors[0].message);
   }
 
-  const routes = routesResult.data || [];
-  const stops = stopsResult.data || [];
+  const orders = filterRowsByContext(ordersResult.data || [], context);
+  const routes = filterRowsByContext(routesResult.data || [], context);
+  const stops = filterRowsByContext(stopsResult.data || [], context);
   const stopMap = Object.fromEntries(stops.map((stop) => [stop.id, stop]));
-  const driverLocations = driverLocationsResult.data || [];
+  const driverLocations = filterRowsByContext(driverLocationsResult.data || [], context);
   const locationMap = Object.fromEntries(driverLocations.map((loc) => [normalize(loc.driver_name), loc]));
-  const contacts = contactsResult.data || [];
+  const contacts = filterRowsByContext(contactsResult.data || [], context);
   const contactDoorMap = {};
   contacts.forEach((contact) => {
     const byName = normalize(contact.name);
@@ -127,7 +129,7 @@ async function loadDashboardContext() {
     };
   });
 
-  const deliveries = (ordersResult.data || []).map((order, index) => {
+  const deliveries = orders.map((order, index) => {
     const route = order.route_id ? routeMap[order.route_id] : null;
     const matchedStop = route ? findMatchingStop(order, route.orderedStops) : null;
     const driverName = order.driver_name || route?.driver || 'Unassigned';
@@ -196,7 +198,7 @@ async function loadDashboardContext() {
     };
   });
 
-  const users = usersResult.data || [];
+  const users = filterRowsByContext(usersResult.data || [], context);
   const driverUsers = users.filter((user) => user.role === 'driver');
   const driverSummaries = driverUsers.map((user) => {
     const myDeliveries = deliveries.filter((delivery) => normalize(delivery.driverName) === normalize(user.name));
@@ -326,7 +328,7 @@ function buildAnalytics(deliveries, drivers) {
 
 router.get('/stats', authenticateToken, async (req, res) => {
   try {
-    const { deliveries, drivers } = await loadDashboardContext();
+    const { deliveries, drivers } = await loadDashboardContext(req.context);
     res.json(buildStats(deliveries, drivers));
   } catch (error) {
     console.error('deliveries/stats:', error.message);
@@ -336,7 +338,7 @@ router.get('/stats', authenticateToken, async (req, res) => {
 
 router.get('/deliveries', authenticateToken, async (req, res) => {
   try {
-    const { deliveries } = await loadDashboardContext();
+    const { deliveries } = await loadDashboardContext(req.context);
     if (req.user.role === 'driver') {
       return res.json(deliveries.filter((delivery) => normalize(delivery.driverName) === normalize(req.user.name)));
     }
@@ -349,7 +351,7 @@ router.get('/deliveries', authenticateToken, async (req, res) => {
 
 router.get('/drivers', authenticateToken, async (req, res) => {
   try {
-    const { drivers } = await loadDashboardContext();
+    const { drivers } = await loadDashboardContext(req.context);
     res.json(drivers);
   } catch (error) {
     console.error('deliveries/drivers:', error.message);
@@ -359,7 +361,7 @@ router.get('/drivers', authenticateToken, async (req, res) => {
 
 router.get('/analytics', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const { deliveries, drivers } = await loadDashboardContext();
+    const { deliveries, drivers } = await loadDashboardContext(req.context);
     res.json(buildAnalytics(deliveries, drivers));
   } catch (error) {
     console.error('deliveries/analytics:', error.message);
@@ -381,11 +383,14 @@ router.patch('/deliveries/:id/status', authenticateToken, async (req, res) => {
 
   const { data: order, error } = await supabase
     .from('orders')
-    .select('id, driver_name')
+    .select('*')
     .eq('id', req.params.id)
     .single();
 
   if (error || !order) return res.status(404).json({ error: 'Not found' });
+  if (!rowMatchesContext(order, req.context)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   if (req.user.role === 'driver' && normalize(order.driver_name) !== normalize(req.user.name)) {
     return res.status(403).json({ error: 'Forbidden' });
   }
@@ -398,7 +403,7 @@ router.patch('/deliveries/:id/status', authenticateToken, async (req, res) => {
   if (updateError) return res.status(500).json({ error: updateError.message });
 
   try {
-    const { deliveries } = await loadDashboardContext();
+    const { deliveries } = await loadDashboardContext(req.context);
     const updated = deliveries.find((delivery) => delivery.orderDbId === req.params.id);
     res.json(updated || { id: req.params.id, status: requestedStatus });
   } catch (loadError) {

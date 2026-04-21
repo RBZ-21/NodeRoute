@@ -2,6 +2,11 @@ const express = require('express');
 const crypto = require('crypto');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const {
+  filterRowsByContext,
+  insertRecordWithOptionalScope,
+  rowMatchesContext,
+} = require('../services/operating-context');
 
 const router = express.Router();
 
@@ -23,14 +28,14 @@ function buildTrackingUrl(req, token) {
 router.get('/', authenticateToken, async (req, res) => {
   const data = await dbQuery(supabase.from('orders').select('*').order('created_at', { ascending: false }), res);
   if (!data) return;
-  res.json(data || []);
+  res.json(filterRowsByContext(data || [], req.context));
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { customerName, customerEmail, customerAddress, items, notes } = req.body;
   const orderNumber = 'ORD-' + Date.now().toString().slice(-6);
   const trackingToken = generateTrackingToken();
-  const data = await dbQuery(supabase.from('orders').insert([{
+  const insertResult = await insertRecordWithOptionalScope(supabase, 'orders', {
     order_number: orderNumber,
     customer_name: customerName,
     customer_email: customerEmail || null,
@@ -42,7 +47,9 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
     route_id: null,
     tracking_token: trackingToken,
     tracking_expires_at: trackingExpiry(),
-  }]).select().single(), res);
+  }, req.context);
+  if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
+  const data = insertResult.data;
   if (!data) return;
   res.json({
     ...data,
@@ -51,6 +58,9 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
 });
 
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
+  if (!existing) return res.status(404).json({ error: 'Order not found' });
+  if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const updates = {};
   if (req.body.customerName !== undefined) updates.customer_name = req.body.customerName;
   if (req.body.items !== undefined) updates.items = req.body.items;
@@ -64,6 +74,9 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
 });
 
 router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
+  if (!existing) return res.status(404).json({ error: 'Order not found' });
+  if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const data = await dbQuery(supabase.from('orders').delete().eq('id', req.params.id), res);
   if (data === null) return;
   res.json({ message: 'Order deleted' });

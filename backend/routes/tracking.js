@@ -1,5 +1,6 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
+const { filterRowsByContext, rowMatchesContext } = require('../services/operating-context');
 const { dwellRecords } = require('./stops');
 
 const router = express.Router();
@@ -95,18 +96,7 @@ router.get('/:token', async (req, res) => {
 
   const { data: order, error: orderError } = await supabase
     .from('orders')
-    .select(`
-      id,
-      order_number,
-      customer_name,
-      customer_address,
-      status,
-      driver_name,
-      route_id,
-      tracking_expires_at,
-      customer_lat,
-      customer_lng
-    `)
+    .select('*')
     .eq('tracking_token', token)
     .single();
 
@@ -118,23 +108,37 @@ router.get('/:token', async (req, res) => {
     return res.status(410).json({ error: 'This tracking link has expired. Please request a new one.' });
   }
 
+  const trackingContext = {
+    companyId: order.company_id || null,
+    activeLocationId: order.location_id || null,
+    accessibleLocationIds: order.location_id ? [order.location_id] : [],
+    isGlobalOperator: false,
+  };
+
   let route = null;
   let orderedStops = [];
   if (order.route_id) {
-    const { data: routeData } = await supabase
+    const { data: routeData, error: routeError } = await supabase
       .from('routes')
-      .select('id, name, driver, stop_ids')
+      .select('*')
       .eq('id', order.route_id)
       .single();
-    route = routeData || null;
+    if (routeError && routeError.code !== 'PGRST116') {
+      return res.status(500).json({ error: routeError.message });
+    }
+    route = routeData && rowMatchesContext(routeData, trackingContext) ? routeData : null;
 
     if (route?.stop_ids?.length) {
-      const { data: routeStops } = await supabase
+      const { data: routeStops, error: stopsError } = await supabase
         .from('stops')
-        .select('id, name, address, lat, lng')
+        .select('*')
         .in('id', route.stop_ids);
+      if (stopsError) {
+        return res.status(500).json({ error: stopsError.message });
+      }
 
-      const stopMap = Object.fromEntries((routeStops || []).map((stop) => [stop.id, stop]));
+      const scopedStops = filterRowsByContext(routeStops || [], trackingContext);
+      const stopMap = Object.fromEntries(scopedStops.map((stop) => [stop.id, stop]));
       orderedStops = (route.stop_ids || []).map((stopId) => stopMap[stopId]).filter(Boolean);
     }
   }
@@ -143,13 +147,18 @@ router.get('/:token', async (req, res) => {
   const destination = buildDestination(order, orderedStops, matchedStopIndex);
   const driverName = order.driver_name || route?.driver || 'NodeRoute Driver';
 
-  const { data: driverLocations } = await supabase
+  const { data: driverLocations, error: driverLocationError } = await supabase
     .from('driver_locations')
-    .select('driver_name, lat, lng, heading, speed_mph, updated_at')
+    .select('*')
     .ilike('driver_name', driverName)
-    .limit(1);
+    .order('updated_at', { ascending: false })
+    .limit(10);
+  if (driverLocationError) {
+    return res.status(500).json({ error: driverLocationError.message });
+  }
 
-  const driverLocation = driverLocations && driverLocations.length ? driverLocations[0] : null;
+  const scopedDriverLocations = filterRowsByContext(driverLocations || [], trackingContext);
+  const driverLocation = scopedDriverLocations.length ? scopedDriverLocations[0] : null;
   const driver = {
     name: driverName,
     lat: toNumber(driverLocation?.lat, destination.lat ?? 32.7765),

@@ -3,6 +3,12 @@ const crypto = require('crypto');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createConfiguredMailers } = require('../services/email');
+const {
+  filterRowsByContext,
+  insertRecordWithOptionalScope,
+  rowMatchesContext,
+  userResponseWithContext,
+} = require('../services/operating-context');
 
 const router = express.Router();
 
@@ -87,13 +93,14 @@ async function sendInviteEmail({ name, email, role, inviteUrl }) {
 }
 
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const data = await dbQuery(supabase.from('users').select('id, name, email, role, status, created_at').order('created_at', { ascending: true }), res);
+  const data = await dbQuery(supabase.from('users').select('*').order('created_at', { ascending: true }), res);
   if (!data) return;
-  res.json(data.map(u => ({ id: u.id, name: u.name, email: u.email, role: u.role, status: u.status, createdAt: u.created_at })));
+  const scopedUsers = filterRowsByContext(data, req.context);
+  res.json(scopedUsers.map(u => ({ ...userResponseWithContext(u), status: u.status, createdAt: u.created_at })));
 });
 
 router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { name, email, role = 'driver' } = req.body;
+  const { name, email, role = 'driver', companyId, companyName, locationId, locationName } = req.body;
   if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
   if (!['admin', 'manager', 'driver'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
   if (role === 'admin' && req.user.role !== 'admin') return res.status(403).json({ error: 'Only admins can invite admins' });
@@ -117,8 +124,19 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
     invite_expires: new Date(Date.now() + 48 * 60 * 60 * 1000).toISOString(),
     created_at: new Date().toISOString()
   };
-  const insertResult = await dbQuery(supabase.from('users').insert([newUser]), res);
-  if (insertResult === null) return;
+  const insertResult = await insertRecordWithOptionalScope(
+    supabase,
+    'users',
+    {
+      ...newUser,
+      ...(companyId ? { company_id: companyId } : {}),
+      ...(companyName ? { company_name: companyName } : {}),
+      ...(locationId ? { location_id: locationId } : {}),
+      ...(locationName ? { location_name: locationName } : {}),
+    },
+    req.context
+  );
+  if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
 
   const inviteUrl = `${BASE_URL}/setup-password.html?token=${inviteToken}`;
   console.log(`\nINVITE for ${name} (${email}) as ${role}:\n${inviteUrl}\n`);
@@ -167,10 +185,11 @@ router.patch('/:id', authenticateToken, async (req, res) => {
 });
 
 router.delete('/:id', authenticateToken, requireRole('admin'), async (req, res) => {
-  const users = await dbQuery(supabase.from('users').select('id, role').eq('id', req.params.id).limit(1), res);
+  const users = await dbQuery(supabase.from('users').select('*').eq('id', req.params.id).limit(1), res);
   if (!users) return;
   const u = users && users[0];
   if (!u) return res.status(404).json({ error: 'User not found' });
+  if (!rowMatchesContext(u, req.context)) return res.status(403).json({ error: 'Forbidden' });
   if (u.role === 'admin') return res.status(403).json({ error: 'Cannot delete admin' });
   const delResult = await dbQuery(supabase.from('users').delete().eq('id', req.params.id), res);
   if (delResult === null) return;
@@ -180,6 +199,9 @@ router.delete('/:id', authenticateToken, requireRole('admin'), async (req, res) 
 router.patch('/:id/role', authenticateToken, requireRole('admin'), async (req, res) => {
   const { role } = req.body;
   if (!['admin', 'manager', 'driver'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  const currentUser = await dbQuery(supabase.from('users').select('*').eq('id', req.params.id).single(), res);
+  if (!currentUser) return res.status(404).json({ error: 'User not found' });
+  if (!rowMatchesContext(currentUser, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const data = await dbQuery(supabase.from('users').update({ role }).eq('id', req.params.id).select('id').single(), res);
   if (!data) return res.status(404).json({ error: 'User not found' });
   res.json({ message: 'Role updated' });

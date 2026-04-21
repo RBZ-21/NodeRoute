@@ -1,5 +1,6 @@
 const jwt = require('jsonwebtoken');
 const { supabase } = require('../services/supabase');
+const { buildRequestContext } = require('../services/operating-context');
 
 const JWT_SECRET = process.env.JWT_SECRET || 'noderoute-dev-secret-change-in-production';
 
@@ -16,6 +17,7 @@ async function authenticateToken(req, res, next) {
   const { data: user, error } = await supabase.from('users').select('*').eq('id', payload.userId).single();
   if (error || !user) return res.status(401).json({ error: 'User not found' });
   req.user = user;
+  req.context = buildRequestContext(req, user);
   next();
 }
 
