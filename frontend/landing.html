@@ -32,12 +32,16 @@
 
     body {
       font-family: 'Inter', system-ui, sans-serif;
-      background: var(--navy);
+      background:
+        radial-gradient(circle at 12% 10%, rgba(77,207,145,0.11), transparent 28%),
+        radial-gradient(circle at 82% 0%, rgba(255,107,53,0.08), transparent 26%),
+        linear-gradient(180deg, #040917 0%, var(--navy) 46%, #071029 100%);
       color: var(--text);
       line-height: 1.6;
       -webkit-font-smoothing: antialiased;
     }
-    body::before{content:'';position:fixed;inset:0;background:url('Best_Background.svg') center/cover no-repeat;opacity:0.22;z-index:0;pointer-events:none}
+    body::before{content:'';position:fixed;inset:0;background:url('Best_Background.svg') center/cover no-repeat;opacity:0.11;z-index:0;pointer-events:none}
+    body::after{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);background-size:44px 44px;mask-image:linear-gradient(to bottom, black, transparent 78%);z-index:0;pointer-events:none}
 
 
     /* ─── SCROLLBAR ─── */
@@ -47,7 +51,7 @@
 
     /* ─── UTILITIES ─── */
     .container {
-      max-width: 1120px;
+      max-width: 1180px;
       margin: 0 auto;
       padding: 0 24px;
     }
@@ -136,17 +140,22 @@
     }
 
     nav.scrolled {
-      background: rgba(5,13,42,0.96);
+      background: transparent;
       backdrop-filter: blur(16px);
-      box-shadow: 0 1px 0 var(--border);
     }
 
     .nav-inner {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      min-height: 36px;
-      padding: 4px 0;
+      min-height: 40px;
+      padding: 5px 8px 5px 12px;
+      margin-top: 10px;
+      background: rgba(5,13,42,0.72);
+      border: 1px solid rgba(136,153,187,0.18);
+      border-radius: 999px;
+      box-shadow: 0 14px 48px rgba(0,0,0,0.28);
+      backdrop-filter: blur(18px);
     }
 
     .nav-logo {
@@ -158,7 +167,7 @@
 
     .nav-logo img {
       display: block;
-      width: min(112px, 30vw);
+      width: min(124px, 30vw);
       height: auto;
       padding: 0;
     }
@@ -187,7 +196,7 @@
     .nav-links {
       display: flex;
       align-items: center;
-      gap: 16px;
+      gap: 6px;
       list-style: none;
     }
 
@@ -195,11 +204,13 @@
       color: var(--text-muted);
       text-decoration: none;
       font-size: 12px;
-      font-weight: 500;
-      transition: color 0.2s;
+      font-weight: 600;
+      transition: color 0.2s, background 0.2s;
+      padding: 6px 10px;
+      border-radius: 999px;
     }
 
-    .nav-links a:hover { color: var(--text); }
+    .nav-links a:hover { color: var(--text); background: rgba(255,255,255,0.06); }
 
     .nav-actions { display: flex; align-items: center; gap: 9px; }
 
@@ -255,13 +266,13 @@
     @media (max-width: 768px) {
       .nav-links, .nav-actions { display: none; }
       .hamburger { display: flex; }
-      .nav-inner { min-height: 34px; padding: 3px 0; }
+      .nav-inner { min-height: 38px; padding: 5px 10px; margin-top: 8px; }
       .nav-logo img { width: min(104px, 42vw); }
     }
 
     /* ─── HERO ─── */
     .hero {
-      padding: 96px 0 100px;
+      padding: 120px 0 88px;
       position: relative;
       overflow: hidden;
     }
@@ -299,11 +310,19 @@
       mask-image: radial-gradient(ellipse 80% 80% at 50% 50%, black, transparent);
     }
 
+    .hero-layout {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(0, 1.02fr) minmax(360px, 0.98fr);
+      gap: 52px;
+      align-items: center;
+    }
+
     .hero-content {
       position: relative;
-      text-align: center;
-      max-width: 800px;
-      margin: 0 auto;
+      text-align: left;
+      max-width: 680px;
+      margin: 0;
     }
 
     .hero-badge {
@@ -317,7 +336,7 @@
       font-size: 13px;
       font-weight: 500;
       color: var(--teal-light);
-      margin-bottom: 32px;
+      margin-bottom: 26px;
     }
 
     .hero-badge-dot {
@@ -350,32 +369,35 @@
       font-size: 19px;
       color: var(--text-muted);
       line-height: 1.65;
-      margin-bottom: 40px;
-      max-width: 600px;
-      margin-left: auto;
-      margin-right: auto;
+      margin-bottom: 34px;
+      max-width: 620px;
     }
 
     .hero-ctas {
       display: flex;
       align-items: center;
-      justify-content: center;
+      justify-content: flex-start;
       gap: 16px;
       flex-wrap: wrap;
     }
 
     .hero-stats {
-      display: flex;
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
       align-items: center;
-      justify-content: center;
-      gap: 48px;
-      margin-top: 72px;
-      padding-top: 48px;
-      border-top: 1px solid var(--border);
-      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 38px;
+      padding-top: 0;
+      border-top: none;
     }
 
-    .stat-item { text-align: center; }
+    .stat-item {
+      text-align: left;
+      background: rgba(13,27,62,0.62);
+      border: 1px solid rgba(136,153,187,0.14);
+      border-radius: 14px;
+      padding: 14px 16px;
+    }
     .stat-number {
       font-size: 32px;
       font-weight: 800;
@@ -386,6 +408,155 @@
       font-size: 13px;
       color: var(--text-muted);
       margin-top: 4px;
+    }
+
+    .hero-visual {
+      position: relative;
+      min-height: 540px;
+    }
+
+    .ops-window {
+      position: relative;
+      background: rgba(7,16,41,0.88);
+      border: 1px solid rgba(136,153,187,0.22);
+      border-radius: 28px;
+      padding: 16px;
+      box-shadow: 0 40px 120px rgba(0,0,0,0.46), inset 0 1px 0 rgba(255,255,255,0.05);
+      backdrop-filter: blur(20px);
+      overflow: hidden;
+    }
+
+    .ops-window::before {
+      content: '';
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 70% 20%, rgba(77,207,145,0.15), transparent 28%);
+      pointer-events: none;
+    }
+
+    .ops-topbar {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 6px 8px 16px;
+      color: var(--text-muted);
+      font-size: 12px;
+      font-weight: 700;
+      letter-spacing: .04em;
+      text-transform: uppercase;
+    }
+
+    .ops-lights { display: flex; gap: 6px; }
+    .ops-lights span { width: 8px; height: 8px; border-radius: 50%; background: var(--border); }
+    .ops-lights span:nth-child(1) { background: #ff6b35; }
+    .ops-lights span:nth-child(2) { background: #f4c152; }
+    .ops-lights span:nth-child(3) { background: var(--teal-light); }
+
+    .ops-map {
+      position: relative;
+      height: 270px;
+      border-radius: 20px;
+      border: 1px solid rgba(136,153,187,0.16);
+      background:
+        linear-gradient(115deg, rgba(77,207,145,0.14), transparent 34%),
+        linear-gradient(180deg, rgba(13,27,62,0.92), rgba(5,13,42,0.96));
+      overflow: hidden;
+    }
+
+    .ops-map::before {
+      content: '';
+      position: absolute;
+      inset: -20%;
+      background-image: linear-gradient(rgba(255,255,255,0.045) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,0.045) 1px, transparent 1px);
+      background-size: 36px 36px;
+      transform: rotate(-8deg);
+    }
+
+    .route-line {
+      position: absolute;
+      left: 52px;
+      right: 56px;
+      top: 64px;
+      bottom: 58px;
+      border: 2px solid rgba(77,207,145,0.65);
+      border-left: none;
+      border-bottom-style: dashed;
+      border-radius: 0 80px 80px 0;
+    }
+
+    .route-dot {
+      position: absolute;
+      width: 16px;
+      height: 16px;
+      border-radius: 50%;
+      background: var(--teal-light);
+      box-shadow: 0 0 0 8px rgba(77,207,145,0.12);
+    }
+    .route-dot.one { left: 42px; top: 58px; }
+    .route-dot.two { right: 52px; top: 112px; background: #fff; }
+    .route-dot.three { right: 110px; bottom: 52px; background: #ffb86b; box-shadow: 0 0 0 8px rgba(255,184,107,0.13); }
+
+    .truck-card {
+      position: absolute;
+      left: 24px;
+      bottom: 20px;
+      width: 205px;
+      background: rgba(5,13,42,0.88);
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 16px;
+      padding: 12px;
+      box-shadow: 0 20px 40px rgba(0,0,0,0.32);
+    }
+
+    .truck-card strong { display: block; font-size: 13px; margin-bottom: 2px; }
+    .truck-card span { display: block; font-size: 12px; color: var(--text-muted); }
+
+    .ops-grid {
+      position: relative;
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+      margin-top: 12px;
+    }
+
+    .ops-card {
+      background: rgba(13,27,62,0.7);
+      border: 1px solid rgba(136,153,187,0.16);
+      border-radius: 18px;
+      padding: 16px;
+    }
+    .ops-card.wide { grid-column: 1 / -1; }
+    .ops-card-label { color: var(--text-muted); font-size: 11px; text-transform: uppercase; letter-spacing: .08em; font-weight: 800; margin-bottom: 8px; }
+    .ops-card-value { font-size: 28px; font-weight: 900; letter-spacing: -.04em; font-family: 'Satoshi', 'Inter', system-ui, sans-serif; }
+    .ops-card-copy { color: var(--text-muted); font-size: 12px; line-height: 1.5; margin-top: 4px; }
+
+    .floating-alert {
+      position: absolute;
+      right: -12px;
+      top: 78px;
+      max-width: 225px;
+      background: #fbf2df;
+      color: #172033;
+      border-radius: 16px;
+      padding: 14px 16px;
+      box-shadow: 0 22px 70px rgba(0,0,0,0.34);
+      transform: rotate(2deg);
+    }
+    .floating-alert strong { display:block; font-size:13px; margin-bottom:4px; }
+    .floating-alert span { display:block; font-size:12px; color:#526078; line-height:1.45; }
+
+    @media (max-width: 980px) {
+      .hero-layout { grid-template-columns: 1fr; gap: 36px; }
+      .hero-visual { min-height: auto; }
+      .floating-alert { right: 12px; top: 62px; }
+    }
+
+    @media (max-width: 640px) {
+      .hero { padding-top: 100px; }
+      .hero-stats { grid-template-columns: 1fr; }
+      .ops-grid { grid-template-columns: 1fr; }
+      .floating-alert { position: relative; right: auto; top: auto; margin: 12px 0 0 auto; transform: none; }
     }
 
     /* ─── PAIN POINTS ─── */
@@ -807,7 +978,7 @@
   <div class="container">
     <div class="nav-inner">
       <a href="#" class="nav-logo">
-        <img src="For_Light_Theme_Transparent.svg" alt="NodeRoute Systems" />
+        <img src="For_Dark_Theme_Transparent.svg" alt="NodeRoute Systems" />
       </a>
 
       <ul class="nav-links">
@@ -843,43 +1014,84 @@
   </div>
 
   <div class="container">
-    <div class="hero-content">
-      <div class="hero-badge">
-        <span class="hero-badge-dot"></span>
-        Real-time tracking — built for logistical operations
+    <div class="hero-layout">
+      <div class="hero-content">
+        <div class="hero-badge">
+          <span class="hero-badge-dot"></span>
+          Live routes, inventory, invoices, and driver visibility
+        </div>
+
+        <h1 class="hero-headline">
+          The seafood distribution desk,
+          <span class="highlight">without the guesswork.</span>
+        </h1>
+
+        <p class="hero-sub">
+          NodeRoute gives operators one command center for routes, cut-to-order inventory,
+          customer ETAs, invoices, and driver handoffs. Built for the messy middle of
+          wholesale delivery where every pound and every stop matters.
+        </p>
+
+        <div class="hero-ctas">
+          <a href="#pricing" class="btn btn-primary">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
+            Start Free Trial
+          </a>
+          <a href="/login" class="btn btn-outline">Open Dashboard</a>
+        </div>
+
+        <div class="hero-stats">
+          <div class="stat-item">
+            <div class="stat-number">94%</div>
+            <div class="stat-label">On-time delivery accuracy</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-number">3 min</div>
+            <div class="stat-label">Average ETA precision</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-number">5 min</div>
+            <div class="stat-label">Setup time to go live</div>
+          </div>
+        </div>
       </div>
 
-      <h1 class="hero-headline">
-        Your drivers. Your routes. Your inventory.<br/>
-        <span class="highlight">Total visibility.</span>
-      </h1>
-
-      <p class="hero-sub">
-        NodeRoute gives delivery companies live GPS tracking, accurate ETAs, and automatic
-        customer notifications — so your dispatch stays in control and your customers
-        always know what's coming.
-      </p>
-
-      <div class="hero-ctas">
-        <a href="#pricing" class="btn btn-primary">
-          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M8 2v12M2 8h12" stroke="#fff" stroke-width="2" stroke-linecap="round"/></svg>
-          Start Free Trial
-        </a>
-        <a href="#about" class="btn btn-outline">Learn Our Story</a>
-      </div>
-
-      <div class="hero-stats">
-        <div class="stat-item">
-          <div class="stat-number">94%</div>
-          <div class="stat-label">On-time delivery accuracy</div>
+      <div class="hero-visual fade-in">
+        <div class="ops-window">
+          <div class="ops-topbar">
+            <div class="ops-lights"><span></span><span></span><span></span></div>
+            Dispatch live board
+          </div>
+          <div class="ops-map">
+            <div class="route-line"></div>
+            <div class="route-dot one"></div>
+            <div class="route-dot two"></div>
+            <div class="route-dot three"></div>
+            <div class="truck-card">
+              <strong>Route 4 · Downtown</strong>
+              <span>7 stops · next ETA 11:42 AM</span>
+            </div>
+          </div>
+          <div class="ops-grid">
+            <div class="ops-card">
+              <div class="ops-card-label">Ready to cut</div>
+              <div class="ops-card-value">128 lb</div>
+              <div class="ops-card-copy">Oysters, tuna, snapper</div>
+            </div>
+            <div class="ops-card">
+              <div class="ops-card-label">Invoices waiting</div>
+              <div class="ops-card-value">14</div>
+              <div class="ops-card-copy">Final weights needed</div>
+            </div>
+            <div class="ops-card wide">
+              <div class="ops-card-label">Customer update</div>
+              <div class="ops-card-copy">Fleet ETA shared automatically before dispatch gets the call.</div>
+            </div>
+          </div>
         </div>
-        <div class="stat-item">
-          <div class="stat-number">3 min</div>
-          <div class="stat-label">Average ETA precision</div>
-        </div>
-        <div class="stat-item">
-          <div class="stat-number">5 min</div>
-          <div class="stat-label">Setup time to go live</div>
+        <div class="floating-alert">
+          <strong>Temp log due</strong>
+          <span>Cooler 2 needs the closing check before the route board clears.</span>
         </div>
       </div>
     </div>
