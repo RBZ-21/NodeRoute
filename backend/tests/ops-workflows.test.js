@@ -24,6 +24,9 @@ test('ops routes expose the expected API surface', () => {
     "router.post('/edi-jobs'",
     "router.get('/projections'",
     "router.get('/purchasing-suggestions'",
+    "router.get('/purchase-order-drafts'",
+    "router.post('/purchase-order-drafts/from-suggestions'",
+    "router.patch('/purchase-order-drafts/:id/status'",
     "router.get('/capabilities'",
   ]) {
     assert.ok(opsRouteSource.includes(endpoint), `missing endpoint ${endpoint}`);
@@ -39,6 +42,8 @@ test('ops write routes require auth and manager/admin role checks', () => {
     "router.post('/returns', authenticateToken, requireRole('admin', 'manager')",
     "router.post('/barcode-events', authenticateToken, requireRole('admin', 'manager')",
     "router.post('/edi-jobs', authenticateToken, requireRole('admin', 'manager')",
+    "router.post('/purchase-order-drafts/from-suggestions', authenticateToken, requireRole('admin', 'manager')",
+    "router.patch('/purchase-order-drafts/:id/status', authenticateToken, requireRole('admin', 'manager')",
   ]) {
     assert.ok(opsRouteSource.includes(guardedWrite), `missing guard for ${guardedWrite}`);
   }
@@ -77,6 +82,9 @@ test('ops tab handlers call expected backend APIs', () => {
     'fetch(`${API}/ops/uom-rules`, authHeaders)',
     'fetch(`${API}/ops/projections?days=30&lookbackDays=30`, authHeaders)',
     'fetch(`${API}/ops/purchasing-suggestions?coverageDays=${coverageDays}&leadTimeDays=${leadTimeDays}&lookbackDays=30`, authHeaders)',
+    'fetch(`${API}/ops/purchase-order-drafts`, authHeaders)',
+    'fetch(`${API}/ops/purchase-order-drafts/from-suggestions`, {',
+    'fetch(`${API}/ops/purchase-order-drafts/${id}/status`, {',
     'fetch(`${API}/ops/edi-jobs`, authHeaders)',
     'fetch(`${API}/ops/capabilities`, authHeaders)',
   ]) {
@@ -90,6 +98,7 @@ test('ops forms keep keyboard-friendly submit handlers', () => {
     'onsubmit="event.preventDefault();logBarcodeEvent()"',
     'onsubmit="event.preventDefault();createReturnRecord()"',
     'onsubmit="event.preventDefault();createUomRule()"',
+    'onsubmit="event.preventDefault();createPurchaseOrderDraftFromSuggestions()"',
     'onsubmit="event.preventDefault();createEdiJob()"',
   ]) {
     assert.ok(frontendSource.includes(submitHook), `missing form submit hook ${submitHook}`);
