@@ -24,6 +24,7 @@ const purchaseOrdersRouter = require('./routes/purchase-orders');
 const trackingRouter = require('./routes/tracking');
 const settingsRouter = require('./routes/settings');
 const temperatureLogsRouter = require('./routes/temperature-logs');
+const opsRouter = require('./routes/ops');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -116,6 +117,7 @@ app.use('/api/purchase-orders', purchaseOrdersRouter);
 app.use('/api/track', trackingRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/temperature-logs', temperatureLogsRouter);
+app.use('/api/ops', opsRouter);
 
 // Config endpoint — maps key exposed publicly (restricted via Google domain policy)
 const { authenticateToken, requireRole } = require('./middleware/auth');
