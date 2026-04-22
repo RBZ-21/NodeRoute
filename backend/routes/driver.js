@@ -11,6 +11,13 @@ const {
 
 const router = express.Router();
 
+function routeStopIdsForToday(route) {
+  const templateIds = Array.isArray(route?.stop_ids) ? route.stop_ids : [];
+  if (!Array.isArray(route?.active_stop_ids)) return templateIds;
+  const activeSet = new Set(route.active_stop_ids.map(id => String(id)));
+  return templateIds.filter(id => activeSet.has(String(id)));
+}
+
 function normalize(value) {
   return String(value || '')
     .trim()
@@ -38,7 +45,7 @@ router.get('/routes', authenticateToken, requireRole('driver'), async (req, res)
     .filter(route => isRouteAssignedToUser(route, req.user));
   if (!assignedRoutes.length) return res.json([]);
 
-  const allIds = [...new Set(assignedRoutes.flatMap(r => r.stop_ids || []))];
+  const allIds = [...new Set(assignedRoutes.flatMap(routeStopIdsForToday))];
   if (!allIds.length) return res.json(assignedRoutes.map(r => ({ ...r, stops: [] })));
 
   const { data: stops, error: sErr } = await supabase
@@ -92,7 +99,7 @@ router.get('/routes', authenticateToken, requireRole('driver'), async (req, res)
 
   return res.json(assignedRoutes.map(r => ({
     ...r,
-    stops: (r.stop_ids || [])
+    stops: routeStopIdsForToday(r)
       .map((id, i) => stopMap[id] ? { ...stopMap[id], position: i + 1 } : null)
       .filter(Boolean),
   })));
@@ -176,7 +183,7 @@ router.get('/summary', authenticateToken, requireRole('driver'), async (req, res
 
   const assignedRoutes = filterRowsByContext(routes || [], req.context)
     .filter(route => isRouteAssignedToUser(route, req.user));
-  const totalStopsAssigned = assignedRoutes.reduce((sum, route) => sum + ((route.stop_ids || []).length), 0);
+  const totalStopsAssigned = assignedRoutes.reduce((sum, route) => sum + routeStopIdsForToday(route).length, 0);
 
   return res.json({
     driver: {
@@ -194,3 +201,4 @@ router.get('/summary', authenticateToken, requireRole('driver'), async (req, res
 });
 
 module.exports = router;
+module.exports.routeStopIdsForToday = routeStopIdsForToday;

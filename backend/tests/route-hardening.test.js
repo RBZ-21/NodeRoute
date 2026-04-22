@@ -45,6 +45,8 @@ test('frontend workflow helpers required by dispatch operations are present', ()
     'function submitInventoryCount',
     'function printInventoryCountSheet',
     'function requestWalkthrough',
+    'function routeActiveStopIds',
+    'function openEditCustomerModal',
   ]) {
     assert.ok(html.includes(helper), `missing ${helper}`);
   }
@@ -63,11 +65,14 @@ test('routes backend normalizes stop id payloads for create and update', () => {
 
 test('driver routes import invoice stop matching helper', () => {
   const source = routeSource('driver');
+  const { routeStopIdsForToday } = require('../routes/driver');
 
   assert.ok(source.includes('stopMatchesInvoice'), 'driver route hydration needs stopMatchesInvoice');
   assert.ok(source.includes("require('../services/driver-invoice-access')"));
   assert.ok(source.includes('lat < -90 || lat > 90'), 'driver location should validate latitude bounds');
   assert.ok(source.includes('lng < -180 || lng > 180'), 'driver location should validate longitude bounds');
+  assert.deepEqual(routeStopIdsForToday({ stop_ids: ['a', 'b'], active_stop_ids: ['b'] }), ['b']);
+  assert.deepEqual(routeStopIdsForToday({ stop_ids: ['a', 'b'] }), ['a', 'b']);
 });
 
 test('dwell tracking requires assigned routes and route stop membership', () => {
@@ -76,6 +81,7 @@ test('dwell tracking requires assigned routes and route stop membership', () => 
   const user = { id: 'driver-1', email: 'driver@example.com', name: 'Jamie Driver' };
 
   assert.ok(source.includes('authorizeDwellEvent'), 'arrive/depart should authorize dwell events');
+  assert.ok(source.includes('active_stop_ids'), 'dwell events should honor today\'s selected stops');
   assert.ok(source.includes('Stop is not part of this route'), 'dwell events should verify stop membership');
   assert.ok(source.includes('Route is not assigned to this driver'), 'driver dwell events should verify route assignment');
   assert.equal(isRouteAssignedToUser({ driver_id: 'driver-1' }, user), true);

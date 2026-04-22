@@ -24,13 +24,15 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { name, stopIds, driver, driverId, driverName, notes } = req.body;
+  const { name, stopIds, activeStopIds, driver, driverId, driverName, notes } = req.body;
+  const templateStopIds = normalizeStopIds(stopIds);
   const routeName = String(name || '').trim();
   if (!routeName) return res.status(400).json({ error: 'Route name required' });
   const assignedDriverName = driverName || driver || '';
   const payload = {
     name: routeName,
-    stop_ids: normalizeStopIds(stopIds),
+    stop_ids: templateStopIds,
+    active_stop_ids: activeStopIds === undefined ? templateStopIds : normalizeStopIds(activeStopIds),
     driver: assignedDriverName,
     notes: notes || '',
   };
@@ -48,8 +50,20 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const payload = {};
   if (req.body.name !== undefined) payload.name = String(req.body.name || '').trim();
-  if (req.body.stopIds !== undefined) payload.stop_ids = normalizeStopIds(req.body.stopIds);
-  if (req.body.stop_ids !== undefined) payload.stop_ids = normalizeStopIds(req.body.stop_ids);
+  if (req.body.stopIds !== undefined) {
+    payload.stop_ids = normalizeStopIds(req.body.stopIds);
+    if (req.body.activeStopIds === undefined && req.body.active_stop_ids === undefined) {
+      payload.active_stop_ids = payload.stop_ids;
+    }
+  }
+  if (req.body.stop_ids !== undefined) {
+    payload.stop_ids = normalizeStopIds(req.body.stop_ids);
+    if (req.body.activeStopIds === undefined && req.body.active_stop_ids === undefined) {
+      payload.active_stop_ids = payload.stop_ids;
+    }
+  }
+  if (req.body.activeStopIds !== undefined) payload.active_stop_ids = normalizeStopIds(req.body.activeStopIds);
+  if (req.body.active_stop_ids !== undefined) payload.active_stop_ids = normalizeStopIds(req.body.active_stop_ids);
   if (req.body.driverName !== undefined) payload.driver = req.body.driverName || '';
   if (req.body.driver !== undefined) payload.driver = req.body.driver || '';
   if (req.body.driverId !== undefined) payload.driver_id = req.body.driverId || null;

@@ -1047,6 +1047,9 @@ td{padding:12px 16px;vertical-align:middle}
         <div class="section-title" style="margin:0">Restaurants</div>
         <button class="btn btn-accent" onclick="openAddCustomerModal()">+ Add Restaurant</button>
       </div>
+      <div style="display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap">
+        <input class="search-input" id="customerSearch" placeholder="Search restaurant, contact, phone, terms…" oninput="renderCustomersTable()" style="width:min(360px,100%)"/>
+      </div>
       <div class="table-card">
         <table>
           <thead><tr>
@@ -1997,8 +2000,8 @@ td{padding:12px 16px;vertical-align:middle}
 <!-- ADD CUSTOMER MODAL -->
 <div class="modal-overlay" id="addCustomerModal">
   <div class="modal-box">
-    <h3>Add Customer</h3>
-    <p class="modal-sub">Manually add a customer to the list.</p>
+    <h3 id="customerModalTitle">Add Customer</h3>
+    <p class="modal-sub" id="customerModalSub">Manually add a customer to the list.</p>
     <label class="modal-label">Company Name *</label>
     <input class="modal-input" id="custName" type="text" placeholder="e.g. Husk Restaurant">
     <label class="modal-label">Customer #</label>
@@ -2025,8 +2028,8 @@ td{padding:12px 16px;vertical-align:middle}
     </div>
     <div class="modal-result" id="custResult"></div>
     <div class="modal-actions">
-      <button class="btn btn-outline" onclick="closeAddCustomerModal()">Cancel</button>
-      <button class="btn btn-accent" onclick="submitAddCustomer()">Add Customer</button>
+      <button class="btn btn-outline" type="button" onclick="closeAddCustomerModal()">Cancel</button>
+      <button class="btn btn-accent" id="customerSubmitBtn" type="button" onclick="submitAddCustomer()">Add Customer</button>
     </div>
   </div>
 </div>
@@ -4192,10 +4195,12 @@ async function addStopToRoute(stopId) {
   }
   if (route.stopIds.includes(stopId)) { alert('Stop already in this route.'); return; }
   const newIds = [...route.stopIds, stopId];
+  const activeStopIds = [...routeActiveStopIds(route), stopId];
   try {
-    const res = await fetch(`/api/routes/${routeId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ stopIds: newIds }) });
+    const res = await fetch(`/api/routes/${routeId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ stopIds: newIds, activeStopIds }) });
     if (!res.ok) throw new Error((await res.json()).error);
     route.stopIds = newIds;
+    route.activeStopIds = activeStopIds;
     renderStops();
     renderRoutes();
   } catch(e) { alert('Failed to add stop: ' + e.message); }
@@ -4216,12 +4221,35 @@ function normalizeRoute(route) {
     : Array.isArray(route?.stop_ids)
       ? route.stop_ids
       : [];
+  const rawActiveStopIds = Array.isArray(route?.activeStopIds)
+    ? route.activeStopIds
+    : Array.isArray(route?.active_stop_ids)
+      ? route.active_stop_ids
+      : null;
+  const activeStopIds = rawActiveStopIds
+    ? rawActiveStopIds.filter(id => stopIds.includes(id))
+    : [...stopIds];
   return {
     ...route,
     stopIds,
+    activeStopIds,
     driver: route?.driver || route?.driverName || route?.driver_name || '',
     driverId: route?.driverId || route?.driver_id || '',
   };
+}
+
+function routeTemplateStops(route) {
+  return (route?.stopIds || []).map(id => allStops.find(s => s.id === id)).filter(Boolean);
+}
+
+function routeActiveStopIds(route) {
+  const templateIds = route?.stopIds || [];
+  const activeIds = Array.isArray(route?.activeStopIds) ? route.activeStopIds : templateIds;
+  return templateIds.filter(id => activeIds.includes(id));
+}
+
+function routeActiveStops(route) {
+  return routeActiveStopIds(route).map(id => allStops.find(s => s.id === id)).filter(Boolean);
 }
 
 function openNewRouteModal() {
@@ -4274,10 +4302,11 @@ function closeNewRouteModal() {
 async function createRouteRequest({ name, stopIds = [], driver = {}, notes = '' }) {
   const assignedDriverId = driver.id || '';
   const assignedDriverName = driver.name || '';
+  const activeStopIds = [...stopIds];
   const res = await fetch('/api/routes', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
-    body: JSON.stringify({ name, stopIds, driverId: assignedDriverId, driverName: assignedDriverName, notes }),
+    body: JSON.stringify({ name, stopIds, activeStopIds, driverId: assignedDriverId, driverName: assignedDriverName, notes }),
   });
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data.error || 'Failed to create route');
@@ -4359,14 +4388,15 @@ function renderRoutes() {
   }
   allRoutes = allRoutes.map(normalizeRoute);
   el.innerHTML = allRoutes.map(route => {
-    const routeStops = route.stopIds.map(id => allStops.find(s => s.id === id)).filter(Boolean);
+    const routeStops = routeTemplateStops(route);
+    const activeStops = routeActiveStops(route);
     const assignedDriverLabel = route.driver ? `Assigned to ${route.driver} · ` : '';
     return `
     <div class="route-card" style="margin-bottom:12px" onclick="openRouteDetail('${route.id}')">
       <div class="route-header">
         <div>
           <div class="route-name">${route.name} <span style="font-size:12px;color:var(--muted);font-weight:400">— click to open</span></div>
-          <div class="route-meta">${assignedDriverLabel}${routeStops.length} stop${routeStops.length!==1?'s':''}</div>
+          <div class="route-meta">${assignedDriverLabel}${activeStops.length} active today · ${routeStops.length} saved stop${routeStops.length!==1?'s':''}</div>
         </div>
         <button class="user-action-btn danger" onclick="event.stopPropagation();deleteRoute('${route.id}')">Delete</button>
       </div>
@@ -4401,35 +4431,95 @@ function closeRouteDetail() {
 function renderRouteDetail() {
   const route = allRoutes.find(r => r.id === currentRouteId);
   if (!route) { closeRouteDetail(); return; }
-  const stops = route.stopIds.map(id => allStops.find(s => s.id === id)).filter(Boolean);
+  const stops = routeTemplateStops(route);
+  const activeIds = routeActiveStopIds(route);
   document.getElementById('routeDetailName').textContent = route.name;
   document.getElementById('routeDetailMeta').textContent =
-    `${stops.length} stop${stops.length!==1?'s':''}${route.driver ? ' · Assigned to ' + route.driver : ''}`;
+    `${activeIds.length} active today · ${stops.length} saved stop${stops.length!==1?'s':''}${route.driver ? ' · Assigned to ' + route.driver : ''}`;
   const container = document.getElementById('routeDetailStops');
   if (!stops.length) {
     container.innerHTML = `<div class="empty-state"><div class="empty-state-icon">📍</div><h3>No stops in this route</h3><p>Add stops from the Stops tab.</p></div>`;
     return;
   }
-  container.innerHTML = stops.map((s, i) => `
+  container.innerHTML = `
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:14px 16px;margin-bottom:8px">
+      <div style="font-size:13px;font-weight:700;margin-bottom:4px">Today's stop selection</div>
+      <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:12px">This route stays saved as the template. Check only the stops that ordered today; drivers see this active list.</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <button class="user-action-btn" type="button" onclick="setAllRouteStopsActive(true)">Select all today</button>
+        <button class="user-action-btn" type="button" onclick="setAllRouteStopsActive(false)">Clear today</button>
+      </div>
+    </div>
+    ${stops.map((s, i) => {
+      const checked = activeIds.includes(s.id) ? 'checked' : '';
+      const muted = checked ? '' : 'opacity:.58;';
+      return `
     <div class="detail-stop" draggable="true" data-idx="${i}" data-id="${s.id}"
       ondragstart="onDragStart(event,${i})" ondragover="onDragOver(event,${i})"
-      ondragleave="onDragLeave(event)" ondrop="onDrop(event,${i})" ondragend="onDragEnd(event)">
+      ondragleave="onDragLeave(event)" ondrop="onDrop(event,${i})" ondragend="onDragEnd(event)" style="${muted}">
       <span class="drag-handle">⠿</span>
       <div class="route-stop-num">${i+1}</div>
       <div style="flex:1;min-width:0">
         <div style="font-weight:600;font-size:14px">${s.name}</div>
         <div style="font-size:12px;color:var(--muted)">${s.address}</div>
       </div>
+      <label style="display:flex;align-items:center;gap:7px;font-size:12px;color:var(--muted);white-space:nowrap">
+        <input type="checkbox" ${checked} onchange="toggleRouteStopActive('${s.id}', this.checked)" style="accent-color:var(--accent)">
+        Today
+      </label>
       <button class="user-action-btn danger" style="flex-shrink:0" onclick="removeStopFromRoute('${s.id}')">Remove</button>
-    </div>`).join('');
+    </div>`;
+    }).join('')}`;
 }
 
 async function removeStopFromRoute(stopId) {
   const route = allRoutes.find(r => r.id === currentRouteId);
   if (!route) return;
   const newIds = route.stopIds.filter(id => id !== stopId);
-  const res = await fetch(`/api/routes/${currentRouteId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ stopIds: newIds }) });
-  if (res.ok) { route.stopIds = newIds; renderRouteDetail(); renderRoutes(); }
+  const activeStopIds = routeActiveStopIds(route).filter(id => id !== stopId);
+  const res = await fetch(`/api/routes/${currentRouteId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ stopIds: newIds, activeStopIds }) });
+  if (res.ok) { route.stopIds = newIds; route.activeStopIds = activeStopIds; renderRouteDetail(); renderRoutes(); }
+}
+
+async function saveRouteActiveStops(route, activeStopIds) {
+  const orderedActiveIds = route.stopIds.filter(id => activeStopIds.includes(id));
+  const res = await fetch(`/api/routes/${route.id}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+    body: JSON.stringify({ activeStopIds: orderedActiveIds }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.error || 'Could not save today\'s stops.');
+  route.activeStopIds = orderedActiveIds;
+  return orderedActiveIds;
+}
+
+async function toggleRouteStopActive(stopId, isActive) {
+  const route = allRoutes.find(r => r.id === currentRouteId);
+  if (!route) return;
+  const next = new Set(routeActiveStopIds(route));
+  if (isActive) next.add(stopId);
+  else next.delete(stopId);
+  try {
+    await saveRouteActiveStops(route, [...next]);
+    renderRouteDetail();
+    renderRoutes();
+  } catch(e) {
+    alert(e.message);
+    renderRouteDetail();
+  }
+}
+
+async function setAllRouteStopsActive(shouldActivate) {
+  const route = allRoutes.find(r => r.id === currentRouteId);
+  if (!route) return;
+  try {
+    await saveRouteActiveStops(route, shouldActivate ? [...route.stopIds] : []);
+    renderRouteDetail();
+    renderRoutes();
+  } catch(e) {
+    alert(e.message);
+  }
 }
 
 // ── DRAG AND DROP ──────────────────────────────────────
@@ -4457,10 +4547,11 @@ async function onDrop(e, targetIdx) {
   const ids = [...route.stopIds];
   const [moved] = ids.splice(dragSrcIdx, 1);
   ids.splice(targetIdx, 0, moved);
+  const activeStopIds = ids.filter(id => routeActiveStopIds(route).includes(id));
   dragSrcIdx = null;
   try {
-    const res = await fetch(`/api/routes/${currentRouteId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ stopIds: ids }) });
-    if (res.ok) { route.stopIds = ids; renderRouteDetail(); renderRoutes(); }
+    const res = await fetch(`/api/routes/${currentRouteId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ stopIds: ids, activeStopIds }) });
+    if (res.ok) { route.stopIds = ids; route.activeStopIds = activeStopIds; renderRouteDetail(); renderRoutes(); }
   } catch(e2) {}
 }
 
@@ -4491,7 +4582,7 @@ function nearestNeighbor(stops, matrix) {
 async function autoSort(mode) {
   const route = allRoutes.find(r => r.id === currentRouteId);
   if (!route) return;
-  const stops = route.stopIds.map(id => allStops.find(s => s.id === id)).filter(s => s && Number.isFinite(Number(s.lat)) && Number.isFinite(Number(s.lng)));
+  const stops = routeTemplateStops(route).filter(s => Number.isFinite(Number(s.lat)) && Number.isFinite(Number(s.lng)));
   if (stops.length < 3) { alert('Need at least 3 stops to auto-sort.'); return; }
 
   let order;
@@ -4518,10 +4609,13 @@ async function autoSort(mode) {
     }
   }
 
-  const newIds = order.map(i => stops[i].id);
+  const sortedGeoIds = order.map(i => stops[i].id);
+  const nonGeoIds = route.stopIds.filter(id => !sortedGeoIds.includes(id));
+  const newIds = [...sortedGeoIds, ...nonGeoIds];
+  const activeStopIds = newIds.filter(id => routeActiveStopIds(route).includes(id));
   try {
-    const res = await fetch(`/api/routes/${currentRouteId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ stopIds: newIds }) });
-    if (res.ok) { route.stopIds = newIds; renderRouteDetail(); renderRoutes(); }
+    const res = await fetch(`/api/routes/${currentRouteId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ stopIds: newIds, activeStopIds }) });
+    if (res.ok) { route.stopIds = newIds; route.activeStopIds = activeStopIds; renderRouteDetail(); renderRoutes(); }
   } catch(e2) { alert('Failed to save sorted order.'); }
 }
 
@@ -4549,10 +4643,15 @@ document.getElementById('addCustomerModal').addEventListener('click', e => { if 
 
 // ── CUSTOMERS TAB ──────────────────────────────────────
 let allCustomers = [];
+let editingCustomerId = null;
 
 function openAddCustomerModal() {
+  editingCustomerId = null;
   ['custName','custNumber','custPhone','custFax','custAddress','custContact','custPayment'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('custTaxEnabled').checked = false;
+  document.getElementById('customerModalTitle').textContent = 'Add Customer';
+  document.getElementById('customerModalSub').textContent = 'Manually add a customer to the list.';
+  document.getElementById('customerSubmitBtn').textContent = 'Add Customer';
   const r = document.getElementById('custResult'); r.className = 'modal-result'; r.textContent = '';
   document.getElementById('addCustomerModal').classList.add('open');
   focusElement('#custName');
@@ -4578,29 +4677,77 @@ function openAddCustomerModal() {
     });
   }
 }
-function closeAddCustomerModal() { document.getElementById('addCustomerModal').classList.remove('open'); }
+function closeAddCustomerModal() {
+  document.getElementById('addCustomerModal').classList.remove('open');
+  editingCustomerId = null;
+}
+
+function openEditCustomerModal(customerId) {
+  const c = allCustomers.find(customer => String(customer.id) === String(customerId));
+  if (!c) return;
+  editingCustomerId = c.id;
+  document.getElementById('custName').value = c.company_name || '';
+  document.getElementById('custNumber').value = c.customer_number || '';
+  document.getElementById('custPhone').value = c.phone_number || '';
+  document.getElementById('custFax').value = c.fax_number || '';
+  document.getElementById('custAddress').value = c.address || '';
+  document.getElementById('custContact').value = c.contact_name || '';
+  document.getElementById('custPayment').value = c.payment_terms || '';
+  document.getElementById('custTaxEnabled').checked = customerTaxEnabled(c);
+  document.getElementById('customerModalTitle').textContent = 'Edit Customer';
+  document.getElementById('customerModalSub').textContent = 'Update contact information, payment terms, address, and tax settings.';
+  document.getElementById('customerSubmitBtn').textContent = 'Save Changes';
+  const r = document.getElementById('custResult'); r.className = 'modal-result'; r.textContent = '';
+  document.getElementById('addCustomerModal').classList.add('open');
+  focusElement('#custName');
+}
+
+function customerFormPayload() {
+  return {
+    company_name: document.getElementById('custName').value.trim(),
+    customer_number: document.getElementById('custNumber').value.trim() || null,
+    phone_number: document.getElementById('custPhone').value.trim() || null,
+    fax_number: document.getElementById('custFax').value.trim() || null,
+    address: document.getElementById('custAddress').value.trim() || null,
+    contact_name: document.getElementById('custContact').value.trim() || null,
+    payment_terms: document.getElementById('custPayment').value.trim() || null,
+    tax_enabled: document.getElementById('custTaxEnabled').checked
+  };
+}
 
 async function submitAddCustomer() {
-  const company_name = document.getElementById('custName').value.trim();
+  const payload = customerFormPayload();
+  const company_name = payload.company_name;
   const r = document.getElementById('custResult');
+  const submitBtn = document.getElementById('customerSubmitBtn');
   if (!company_name) { r.className = 'modal-result error'; r.textContent = 'Company name is required.'; return; }
   try {
-    const res = await fetch('/api/customers', { method: 'POST', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({
-      company_name,
-      customer_number: document.getElementById('custNumber').value.trim() || null,
-      phone_number: document.getElementById('custPhone').value.trim() || null,
-      fax_number: document.getElementById('custFax').value.trim() || null,
-      address: document.getElementById('custAddress').value.trim() || null,
-      contact_name: document.getElementById('custContact').value.trim() || null,
-      payment_terms: document.getElementById('custPayment').value.trim() || null,
-      tax_enabled: document.getElementById('custTaxEnabled').checked
-    })});
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.textContent = editingCustomerId ? 'Saving...' : 'Adding...';
+    }
+    const res = await fetch(editingCustomerId ? `/api/customers/${editingCustomerId}` : '/api/customers', {
+      method: editingCustomerId ? 'PATCH' : 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+      body: JSON.stringify(payload)
+    });
     if (!res.ok) throw new Error((await res.json()).error);
     const c = await res.json();
-    allCustomers.push(c);
+    if (editingCustomerId) {
+      allCustomers = allCustomers.map(customer => String(customer.id) === String(c.id) ? c : customer);
+    } else {
+      allCustomers.push(c);
+    }
     renderCustomersTable();
     closeAddCustomerModal();
-  } catch(e2) { r.className = 'modal-result error'; r.textContent = e2.message; }
+  } catch(e2) {
+    r.className = 'modal-result error'; r.textContent = e2.message;
+  } finally {
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.textContent = editingCustomerId ? 'Save Changes' : 'Add Customer';
+    }
+  }
 }
 
 async function deleteCustomer(id, name) {
@@ -4612,11 +4759,27 @@ async function deleteCustomer(id, name) {
 
 function renderCustomersTable() {
   const tbody = document.getElementById('customersTable');
+  const query = (document.getElementById('customerSearch')?.value || '').trim().toLowerCase();
+  const visibleCustomers = query
+    ? allCustomers.filter(c => [
+        c.customer_number,
+        c.company_name,
+        c.contact_name,
+        c.phone_number,
+        c.fax_number,
+        c.payment_terms,
+        c.address,
+      ].some(value => String(value || '').toLowerCase().includes(query)))
+    : allCustomers;
   if (!allCustomers.length) {
     tbody.innerHTML = tableEmptyState(8, '🏪', 'No customers yet', 'Add your first restaurant or retail account to start creating invoices and orders.');
     return;
   }
-  tbody.innerHTML = allCustomers.map(c => `
+  if (!visibleCustomers.length) {
+    tbody.innerHTML = tableEmptyState(8, '🔎', 'No matching restaurants', 'Try another company, contact, phone number, or payment term.');
+    return;
+  }
+  tbody.innerHTML = visibleCustomers.map(c => `
     <tr>
       <td style="color:var(--muted);font-size:12px;font-weight:600">${c.customer_number ?? '–'}</td>
       <td><strong>${c.company_name||'–'}</strong></td>
@@ -4625,7 +4788,10 @@ function renderCustomersTable() {
       <td style="color:var(--muted);font-size:12px">${c.fax_number||'–'}</td>
       <td style="color:var(--muted);font-size:12px">${c.payment_terms||'–'}</td>
       <td>${customerTaxEnabled(c) ? '<span class="tax-pill on">Retail</span>' : '<span class="tax-pill">Off</span>'}</td>
-      <td><button class="user-action-btn danger" onclick="deleteCustomer('${String(c.id).replace(/'/g,"\\'")}','${(c.company_name||'').replace(/'/g,"\\'")}')">Remove</button></td>
+      <td style="white-space:nowrap">
+        <button class="user-action-btn" onclick="openEditCustomerModal('${String(c.id).replace(/'/g,"\\'")}')">Edit</button>
+        <button class="user-action-btn danger" onclick="deleteCustomer('${String(c.id).replace(/'/g,"\\'")}','${(c.company_name||'').replace(/'/g,"\\'")}')">Remove</button>
+      </td>
     </tr>`).join('');
 }
 
@@ -4682,7 +4848,7 @@ async function onGeoUpdate(lat, lng) {
   if (!activeRouteId) return;
   const route = allRoutes.find(r => r.id === activeRouteId);
   if (!route) return;
-  const stops = route.stopIds.map(id => allStops.find(s => s.id === id)).filter(Boolean);
+  const stops = routeActiveStops(route);
   for (const stop of stops) {
     if (!stop.lat || !stop.lng) continue;
     const dist = geoDistance(lat, lng, stop.lat, stop.lng);
