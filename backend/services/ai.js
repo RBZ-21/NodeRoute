@@ -40,6 +40,17 @@ Rules:
 3. Mention role restrictions or gotchas in warnings.
 4. Use simple language that fits inside the UI.`;
 
+const ORDER_INTAKE_SYSTEM_PROMPT = `You are an order-intake assistant for a seafood and perishable delivery operation.
+Convert unstructured customer messages into clean line items for order entry.
+
+Rules:
+1. Extract only what is present in the message. Do not invent products.
+2. Prefer quantity + unit + item name.
+3. Use unit "lb" for weight-based items and "each" for piece/count items.
+4. If quantity is missing but item is clearly requested, set amount to 1.
+5. Keep notes short and operational.
+6. Return structured JSON only.`;
+
 const PO_SCAN_PROMPT = `You are a purchase order scanner for a seafood distribution warehouse.
 Extract every visible line item from this purchase order or vendor invoice image.
 
@@ -174,6 +185,36 @@ const PO_SCAN_SCHEMA = {
             unit: { type: ['string', 'null'] },
             unit_price: { type: ['number', 'null'] },
             total: { type: ['number', 'null'] },
+          },
+        },
+      },
+    },
+  },
+};
+
+const ORDER_INTAKE_SCHEMA = {
+  name: 'order_intake_draft',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['customer_name_hint', 'order_notes', 'items', 'warnings'],
+    properties: {
+      customer_name_hint: { type: ['string', 'null'] },
+      order_notes: { type: ['string', 'null'] },
+      warnings: { type: 'array', items: { type: 'string' } },
+      items: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['name', 'unit', 'amount', 'unit_price', 'notes', 'item_number'],
+          properties: {
+            name: { type: 'string' },
+            unit: { type: 'string', enum: ['lb', 'each'] },
+            amount: { type: 'number' },
+            unit_price: { type: 'number' },
+            notes: { type: ['string', 'null'] },
+            item_number: { type: ['string', 'null'] },
           },
         },
       },
@@ -629,6 +670,113 @@ function normalizeWalkthrough(result, feature, question) {
   };
 }
 
+function normalizeUnitToken(raw) {
+  const unit = String(raw || '').trim().toLowerCase();
+  if (['lb', 'lbs', 'pound', 'pounds'].includes(unit)) return 'lb';
+  if (['ea', 'each', 'ct', 'count', 'pc', 'pcs', 'piece', 'pieces', 'unit', 'units'].includes(unit)) return 'each';
+  return '';
+}
+
+function splitIntakeLines(message) {
+  return String(message || '')
+    .split(/\r?\n/)
+    .flatMap((line) => line.split(/[;]+/))
+    .map((line) => line.replace(/^[\s\-*•]+/, '').replace(/^\d+[.)]\s+/, '').trim())
+    .filter(Boolean);
+}
+
+function parseIntakeLine(line) {
+  const qtyFirst = line.match(/^(\d+(?:\.\d+)?)\s*(lb|lbs|pound|pounds|ea|each|ct|count|pc|pcs|piece|pieces)?\s+(.+?)(?:\s*(?:@|at)\s*\$?(\d+(?:\.\d+)?))?$/i);
+  if (qtyFirst) {
+    const amount = numberOr(qtyFirst[1], 1);
+    const unit = normalizeUnitToken(qtyFirst[2]) || 'each';
+    const name = stringOr(qtyFirst[3]).replace(/\s{2,}/g, ' ');
+    const unitPrice = qtyFirst[4] ? numberOr(qtyFirst[4], 0) : 0;
+    if (name) return { name, unit, amount, unit_price: unitPrice, notes: '', item_number: '' };
+  }
+
+  const qtyLast = line.match(/^(.+?)\s*(?:-|:|,)?\s*(\d+(?:\.\d+)?)\s*(lb|lbs|pound|pounds|ea|each|ct|count|pc|pcs|piece|pieces)(?:\s*(?:@|at)\s*\$?(\d+(?:\.\d+)?))?$/i);
+  if (qtyLast) {
+    const name = stringOr(qtyLast[1]).replace(/\s{2,}/g, ' ');
+    const amount = numberOr(qtyLast[2], 1);
+    const unit = normalizeUnitToken(qtyLast[3]) || 'each';
+    const unitPrice = qtyLast[4] ? numberOr(qtyLast[4], 0) : 0;
+    if (name) return { name, unit, amount, unit_price: unitPrice, notes: '', item_number: '' };
+  }
+
+  return null;
+}
+
+function heuristicOrderIntakeDraft(message) {
+  const lines = splitIntakeLines(message);
+  const items = [];
+  const warnings = [];
+
+  const customerLine = lines.find((line) => /^(customer|client|for)\s*[:\-]/i.test(line));
+  let customerNameHint = null;
+  if (customerLine) {
+    const m = customerLine.match(/^(?:customer|client|for)\s*[:\-]\s*(.+)$/i);
+    customerNameHint = m ? stringOr(m[1]) : null;
+  }
+
+  for (const line of lines) {
+    if (/^(customer|client|for|ship to|deliver to|address|phone|email)\b/i.test(line)) continue;
+    if (/^(note|notes|instruction|instructions)\s*[:\-]/i.test(line)) continue;
+    const parsed = parseIntakeLine(line);
+    if (parsed) {
+      items.push(parsed);
+      continue;
+    }
+    if (line.split(' ').length >= 2 && !/^\d+([.,]\d+)?$/.test(line)) {
+      items.push({ name: line, unit: 'each', amount: 1, unit_price: 0, notes: '', item_number: '' });
+    }
+  }
+
+  if (!items.length) {
+    warnings.push('Could not confidently extract line items. Review the source message and add items manually.');
+  }
+
+  const orderNoteLine = lines.find((line) => /(?:deliver|leave|call|substitute|asap|rush|before|after)/i.test(line));
+  const orderNotes = orderNoteLine || '';
+
+  return {
+    customer_name_hint: customerNameHint || null,
+    order_notes: orderNotes || null,
+    items,
+    warnings,
+  };
+}
+
+function normalizeOrderIntakeDraft(result, message) {
+  const fallback = heuristicOrderIntakeDraft(message);
+  const rawItems = Array.isArray(result && result.items) ? result.items : fallback.items;
+  const normalizedItems = rawItems
+    .map((item) => ({
+      name: stringOr(item && item.name),
+      unit: normalizeUnitToken(item && item.unit) || 'each',
+      amount: Math.max(0, numberOr(item && item.amount, 1)),
+      unit_price: Math.max(0, numberOr(item && item.unit_price, 0)),
+      notes: item && item.notes != null ? stringOr(item.notes) : '',
+      item_number: item && item.item_number != null ? stringOr(item.item_number) : '',
+    }))
+    .filter((item) => item.name);
+
+  const warnings = Array.isArray(result && result.warnings)
+    ? result.warnings.map((warning) => stringOr(warning)).filter(Boolean)
+    : fallback.warnings;
+
+  return {
+    customer_name_hint: result && result.customer_name_hint != null
+      ? stringOr(result.customer_name_hint) || null
+      : fallback.customer_name_hint,
+    order_notes: result && result.order_notes != null
+      ? stringOr(result.order_notes) || null
+      : fallback.order_notes,
+    items: normalizedItems.length ? normalizedItems : fallback.items,
+    warnings: warnings.length ? warnings : fallback.warnings,
+  };
+}
+
 async function generateWalkthrough(feature, question = '') {
   const userMessage = `Create a walkthrough for the following NodeRoute feature.
 
@@ -650,6 +798,34 @@ Explain how to use it inside the app, including the usual sequence of actions an
       console.warn('AI walkthrough fallback:', error.message);
     }
     return normalizeWalkthrough(null, feature, question);
+  }
+}
+
+async function generateOrderIntakeDraft(message) {
+  const sourceMessage = stringOr(message);
+  const heuristic = normalizeOrderIntakeDraft(null, sourceMessage);
+  if (!sourceMessage) return heuristic;
+
+  const userMessage = `Parse this order intake message into structured order-entry fields.
+
+Message:
+${sourceMessage}
+
+Return all extracted order line items and any warnings if details are unclear.`;
+
+  try {
+    const aiResult = await callAI({
+      systemPrompt: ORDER_INTAKE_SYSTEM_PROMPT,
+      userMessage,
+      schema: ORDER_INTAKE_SCHEMA,
+      maxTokens: 900,
+    });
+    return normalizeOrderIntakeDraft(aiResult, sourceMessage);
+  } catch (error) {
+    if (!String(error.message || '').includes('OPENAI_API_KEY')) {
+      console.warn('AI order intake fallback:', error.message);
+    }
+    return heuristic;
   }
 }
 
@@ -719,6 +895,7 @@ module.exports = {
   analyzeInventory,
   generateReorderAlert,
   generateWalkthrough,
+  generateOrderIntakeDraft,
   parsePurchaseOrderImage,
   buildWeeklyBuckets,
 };
