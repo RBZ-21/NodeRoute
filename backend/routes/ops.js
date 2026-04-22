@@ -45,6 +45,20 @@ function toNumber(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
+function normalizeUnit(value) {
+  const unit = String(value || '').trim().toLowerCase();
+  if (['lb', 'lbs', 'pound', 'pounds'].includes(unit)) return 'lb';
+  if (['ea', 'each', 'ct', 'count', 'pc', 'pcs', 'piece', 'pieces', 'unit', 'units'].includes(unit)) return 'each';
+  return 'each';
+}
+
+function normalizeIntakeQuantity(item, unit) {
+  if (unit === 'lb') {
+    return toNumber(item.requested_weight ?? item.quantity ?? item.amount, 0);
+  }
+  return toNumber(item.requested_qty ?? item.quantity ?? item.amount, 0);
+}
+
 async function loadInventoryAndUsage(lookbackDays) {
   const lookbackStart = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
   const [{ data: inventory, error: invErr }, { data: orders, error: ordErr }] = await Promise.all([
@@ -109,6 +123,29 @@ function buildPurchasingSuggestions(inventory, usageByName, { coverageDays, lead
       urgency: reorderQty <= 0 ? 'none' : (stock <= avgDaily * leadTimeDays ? 'high' : 'normal')
     };
   }).filter(s => s.suggested_order_qty > 0);
+}
+
+function resolveInventoryMatch(item, inventory) {
+  const itemNumber = String(item.item_number || item.product_id || '').trim();
+  const intakeName = String(item.name || item.product_name || '').trim().toLowerCase();
+  if (!itemNumber && !intakeName) return null;
+
+  if (itemNumber) {
+    const byNumber = (inventory || []).find(inv => String(inv.item_number || '').trim() === itemNumber);
+    if (byNumber) return byNumber;
+  }
+
+  const exact = (inventory || []).find((inv) => {
+    const invName = String(inv.name || inv.description || '').trim().toLowerCase();
+    return invName && invName === intakeName;
+  });
+  if (exact) return exact;
+
+  const partial = (inventory || []).find((inv) => {
+    const invName = String(inv.name || inv.description || '').trim().toLowerCase();
+    return invName && intakeName && (invName.includes(intakeName) || intakeName.includes(invName));
+  });
+  return partial || null;
 }
 
 router.get('/uom-rules', authenticateToken, (req, res) => {
@@ -364,6 +401,138 @@ router.post('/purchase-order-drafts/from-suggestions', authenticateToken, requir
       vendor,
       notes,
       source: { coverageDays, leadTimeDays, lookbackDays, minOrderQty, maxLines },
+      lines,
+      line_count: lines.length,
+      total_suggested_qty: parseFloat(lines.reduce((sum, l) => sum + toNumber(l.quantity, 0), 0).toFixed(3)),
+      total_estimated_cost: parseFloat(lines.reduce((sum, l) => sum + toNumber(l.estimated_line_total, 0), 0).toFixed(2)),
+      created_by: req.user?.name || req.user?.email || 'system',
+      created_at: nowIso,
+      updated_at: nowIso
+    };
+
+    const ops = readOpsData();
+    ops.poDrafts = ops.poDrafts || [];
+    ops.poDrafts.unshift(draft);
+    writeOpsData(ops);
+    res.json(draft);
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+router.post('/purchase-order-drafts/from-order-intake', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const intakeItems = Array.isArray(req.body.intakeItems) ? req.body.intakeItems : [];
+  if (!intakeItems.length) return res.status(400).json({ error: 'intakeItems is required' });
+
+  const leadTimeDays = Math.max(0, Math.min(60, parseInt(req.body.leadTimeDays || '5', 10)));
+  const lookbackDays = Math.max(7, Math.min(90, parseInt(req.body.lookbackDays || '30', 10)));
+  const minOrderQty = Math.max(0, toNumber(req.body.minOrderQty, 0));
+  const maxLines = Math.max(1, Math.min(200, parseInt(req.body.maxLines || '50', 10)));
+  const vendor = String(req.body.vendor || '').trim() || 'Unassigned Vendor';
+  const notes = String(req.body.notes || '').trim();
+
+  try {
+    const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays);
+    const normalizedIntake = intakeItems.map((raw) => {
+      const unit = normalizeUnit(raw.unit);
+      const requested = normalizeIntakeQuantity(raw, unit);
+      return {
+        name: String(raw.name || raw.product_name || '').trim(),
+        item_number: String(raw.item_number || raw.product_id || '').trim(),
+        unit,
+        requested_qty: Math.max(0, requested),
+      };
+    }).filter((item) => item.name && item.requested_qty > 0);
+
+    if (!normalizedIntake.length) {
+      return res.status(400).json({ error: 'No valid intake items were provided' });
+    }
+
+    const grouped = new Map();
+    for (const item of normalizedIntake) {
+      const key = item.item_number || `${item.name.toLowerCase()}|${item.unit}`;
+      const current = grouped.get(key) || { ...item, requested_qty: 0 };
+      current.requested_qty += item.requested_qty;
+      grouped.set(key, current);
+    }
+
+    const evaluated = [...grouped.values()].map((item) => {
+      const matched = resolveInventoryMatch(item, inventory);
+      const matchedName = String(matched?.name || matched?.description || '').trim();
+      const usageKey = matchedName.toLowerCase();
+      const stock = Math.max(0, toNumber(matched?.stock_qty ?? matched?.on_hand_qty, 0));
+      const avgDaily = matched ? (usageByName.get(usageKey) || 0) / lookbackDays : 0;
+      const intakeGap = Math.max(0, item.requested_qty - stock);
+      const leadBuffer = Math.max(0, avgDaily * leadTimeDays);
+      const suggestedOrderQty = matched
+        ? Math.max(0, intakeGap + leadBuffer)
+        : Math.max(0, item.requested_qty);
+
+      return {
+        product_id: matched?.id || null,
+        item_number: matched?.item_number || item.item_number || null,
+        product_name: matchedName || item.name,
+        unit: normalizeUnit(matched?.unit || item.unit),
+        requested_intake_qty: parseFloat(item.requested_qty.toFixed(3)),
+        stock_qty: parseFloat(stock.toFixed(3)),
+        stock_gap_qty: parseFloat(intakeGap.toFixed(3)),
+        avg_daily_usage: parseFloat(avgDaily.toFixed(3)),
+        suggested_order_qty: parseFloat(suggestedOrderQty.toFixed(3)),
+        estimated_unit_cost: parseFloat(toNumber(matched?.cost, 0).toFixed(4)),
+        urgency: !matched || intakeGap > 0 ? 'high' : (leadBuffer > 0 ? 'normal' : 'none'),
+        match_status: matched ? 'matched' : 'unmatched'
+      };
+    });
+
+    const selected = evaluated
+      .filter((line) => line.suggested_order_qty > minOrderQty)
+      .sort((a, b) => {
+        if (a.urgency !== b.urgency) return a.urgency === 'high' ? -1 : 1;
+        return b.suggested_order_qty - a.suggested_order_qty;
+      })
+      .slice(0, maxLines);
+
+    if (!selected.length) {
+      return res.status(400).json({ error: 'No stock gaps found for this intake payload' });
+    }
+
+    const nowIso = new Date().toISOString();
+    const lines = selected.map((s, idx) => {
+      const qty = toNumber(s.suggested_order_qty, 0);
+      const unitCost = toNumber(s.estimated_unit_cost, 0);
+      return {
+        line_no: idx + 1,
+        product_id: s.product_id,
+        item_number: s.item_number,
+        product_name: s.product_name,
+        unit: s.unit,
+        quantity: parseFloat(qty.toFixed(3)),
+        estimated_unit_cost: parseFloat(unitCost.toFixed(4)),
+        estimated_line_total: parseFloat((qty * unitCost).toFixed(2)),
+        urgency: s.urgency,
+        match_status: s.match_status,
+        requested_intake_qty: s.requested_intake_qty,
+        stock_qty: s.stock_qty,
+        stock_gap_qty: s.stock_gap_qty,
+        avg_daily_usage: s.avg_daily_usage
+      };
+    });
+
+    const draft = {
+      id: genId('pod'),
+      draft_number: `DRAFT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+      status: 'draft',
+      vendor,
+      notes,
+      source: {
+        mode: 'order_intake',
+        leadTimeDays,
+        lookbackDays,
+        minOrderQty,
+        maxLines,
+        intake_item_count: normalizedIntake.length,
+        intake_message_excerpt: String(req.body.intakeMessage || '').trim().slice(0, 200) || null
+      },
       lines,
       line_count: lines.length,
       total_suggested_qty: parseFloat(lines.reduce((sum, l) => sum + toNumber(l.quantity, 0), 0).toFixed(3)),

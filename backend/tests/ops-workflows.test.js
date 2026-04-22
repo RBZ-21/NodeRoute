@@ -26,6 +26,7 @@ test('ops routes expose the expected API surface', () => {
     "router.get('/purchasing-suggestions'",
     "router.get('/purchase-order-drafts'",
     "router.post('/purchase-order-drafts/from-suggestions'",
+    "router.post('/purchase-order-drafts/from-order-intake'",
     "router.patch('/purchase-order-drafts/:id/status'",
     "router.get('/capabilities'",
   ]) {
@@ -43,6 +44,7 @@ test('ops write routes require auth and manager/admin role checks', () => {
     "router.post('/barcode-events', authenticateToken, requireRole('admin', 'manager')",
     "router.post('/edi-jobs', authenticateToken, requireRole('admin', 'manager')",
     "router.post('/purchase-order-drafts/from-suggestions', authenticateToken, requireRole('admin', 'manager')",
+    "router.post('/purchase-order-drafts/from-order-intake', authenticateToken, requireRole('admin', 'manager')",
     "router.patch('/purchase-order-drafts/:id/status', authenticateToken, requireRole('admin', 'manager')",
   ]) {
     assert.ok(opsRouteSource.includes(guardedWrite), `missing guard for ${guardedWrite}`);
@@ -84,6 +86,7 @@ test('ops tab handlers call expected backend APIs', () => {
     'fetch(`${API}/ops/purchasing-suggestions?coverageDays=${coverageDays}&leadTimeDays=${leadTimeDays}&lookbackDays=30`, authHeaders)',
     'fetch(`${API}/ops/purchase-order-drafts`, authHeaders)',
     'fetch(`${API}/ops/purchase-order-drafts/from-suggestions`, {',
+    'fetch(`${API}/ops/purchase-order-drafts/from-order-intake`, {',
     'fetch(`${API}/ops/purchase-order-drafts/${id}/status`, {',
     'fetch(`${API}/ops/edi-jobs`, authHeaders)',
     'fetch(`${API}/ops/capabilities`, authHeaders)',

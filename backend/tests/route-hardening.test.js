@@ -46,6 +46,7 @@ test('frontend workflow helpers required by dispatch operations are present', ()
     'function printInventoryCountSheet',
     'function requestWalkthrough',
     'function autoFillOrderFromIntake',
+    'function createPurchaseOrderDraftFromOrderIntake',
     'function routeActiveStopIds',
     'function openEditCustomerModal',
   ]) {
@@ -56,7 +57,9 @@ test('frontend workflow helpers required by dispatch operations are present', ()
   assert.ok(html.includes('OSRM returned no duration matrix'), 'route optimization should handle bad OSRM payloads');
   assert.ok(html.includes('id="orderIntakeMessage"'), 'orders form should expose intake message input');
   assert.ok(html.includes('id="orderIntakeBtn"'), 'orders form should expose intake auto-fill button');
+  assert.ok(html.includes('id="orderIntakePoBtn"'), 'orders form should expose intake-to-po button');
   assert.ok(html.includes("fetch(`${API}/ai/order-intake`"), 'orders form should call AI order intake API');
+  assert.ok(html.includes("fetch(`${API}/ops/purchase-order-drafts/from-order-intake`"), 'orders form should call intake gap PO API');
 });
 
 test('routes backend normalizes stop id payloads for create and update', () => {

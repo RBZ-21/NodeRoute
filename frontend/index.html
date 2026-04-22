@@ -1204,8 +1204,15 @@ td{padding:12px 16px;vertical-align:middle}
               <textarea class="order-item-input" id="orderIntakeMessage" rows="3" placeholder="Paste customer text, email, or call notes (example: 10 lb salmon, 4 ea halibut, deliver before 9am)..." style="width:100%;resize:vertical"></textarea>
               <div style="font-size:11px;color:var(--muted);margin-top:4px">Tip: include quantity + unit + product for best auto-fill results.</div>
             </div>
+            <div style="min-width:180px">
+              <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">PO Vendor (optional)</label>
+              <input class="order-item-input" id="orderIntakeVendor" placeholder="Vendor name" style="width:100%"/>
+            </div>
             <div style="display:flex;align-items:flex-end">
-              <button class="btn btn-outline" id="orderIntakeBtn" onclick="autoFillOrderFromIntake()" style="white-space:nowrap">Auto-fill Items</button>
+              <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+                <button class="btn btn-outline" id="orderIntakeBtn" onclick="autoFillOrderFromIntake()" style="white-space:nowrap">Auto-fill Items</button>
+                <button class="btn btn-outline" id="orderIntakePoBtn" onclick="createPurchaseOrderDraftFromOrderIntake()" style="white-space:nowrap">Draft PO Gaps</button>
+              </div>
             </div>
           </div>
           <div style="display:flex;gap:10px;margin-bottom:16px">
@@ -2733,6 +2740,7 @@ function clearOrderForm() {
   document.getElementById('orderCustomerEmail').value = '';
   document.getElementById('orderCustomerAddress').value = '';
   document.getElementById('orderIntakeMessage').value = '';
+  document.getElementById('orderIntakeVendor').value = '';
   document.getElementById('orderNotes').value = '';
   document.getElementById('orderFormMsg').style.display = 'none';
   document.getElementById('orderItemsBody').innerHTML = '';
@@ -2977,6 +2985,74 @@ async function autoFillOrderFromIntake() {
     showOrderMsg(`Auto-filled ${items.length} item${items.length === 1 ? '' : 's'} from intake message.${warningText}`, 'success');
   } catch (err) {
     showOrderMsg(err.message || 'Could not parse intake message', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  }
+}
+
+async function createPurchaseOrderDraftFromOrderIntake() {
+  const btn = document.getElementById('orderIntakePoBtn');
+  const vendor = document.getElementById('orderIntakeVendor')?.value?.trim() || '';
+  const intakeMessage = document.getElementById('orderIntakeMessage')?.value?.trim() || '';
+  const customer = document.getElementById('orderCustomerInput')?.value?.trim() || '';
+  const orderNotes = document.getElementById('orderNotes')?.value?.trim() || '';
+  const items = getOrderItems();
+
+  if (!items.length) {
+    showOrderMsg('Add or auto-fill at least one item before drafting PO gaps', 'error');
+    return;
+  }
+
+  const intakeItems = items.map((item) => ({
+    name: item.name,
+    item_number: item.item_number || '',
+    unit: item.unit || 'each',
+    quantity: item.unit === 'lb'
+      ? (parseFloat(item.requested_weight) || 0)
+      : (parseFloat(item.requested_qty) || 0),
+  })).filter((item) => item.name && item.quantity > 0);
+
+  if (!intakeItems.length) {
+    showOrderMsg('Could not calculate intake quantities from the current rows', 'error');
+    return;
+  }
+
+  const originalLabel = btn?.textContent || 'Draft PO Gaps';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Drafting…';
+  }
+
+  try {
+    const res = await fetch(`${API}/ops/purchase-order-drafts/from-order-intake`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+      body: JSON.stringify({
+        intakeItems,
+        intakeMessage,
+        leadTimeDays: 5,
+        lookbackDays: 30,
+        vendor,
+        maxLines: 60,
+        notes: [customer ? `Order intake: ${customer}` : '', orderNotes].filter(Boolean).join(' · '),
+      }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(payload.error || `Error ${res.status}`);
+
+    const lines = Number(payload.line_count || 0);
+    const label = payload.draft_number || 'PO draft';
+    const unmatched = Array.isArray(payload.lines)
+      ? payload.lines.filter((line) => String(line.match_status || '').toLowerCase() === 'unmatched').length
+      : 0;
+    const unmatchedText = unmatched ? ` ${unmatched} line${unmatched === 1 ? '' : 's'} need inventory mapping.` : '';
+    showOrderMsg(`${label} created from intake gaps (${lines} lines).${unmatchedText}`, 'success');
+    refreshPlanningData();
+  } catch (err) {
+    showOrderMsg(err.message || 'Could not create PO draft from intake', 'error');
   } finally {
     if (btn) {
       btn.disabled = false;
