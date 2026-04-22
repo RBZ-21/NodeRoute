@@ -4142,11 +4142,44 @@ async function addStop() {
   } catch(e) { alert(e.message); }
 }
 
-async function deleteStop(id) {
+const deletingStopIds = new Set();
+
+async function deleteStop(id, event = null) {
+  event?.preventDefault();
+  event?.stopPropagation();
+  if (deletingStopIds.has(id)) return;
   if (!confirm('Remove this stop?')) return;
-  await fetch(`/api/stops/${id}`, { method: 'DELETE', ...authHeaders });
+  deletingStopIds.add(id);
+  const button = event?.currentTarget || document.querySelector(`[data-delete-stop-id="${id}"]`);
+  if (button) {
+    button.disabled = true;
+    button.textContent = 'Removing...';
+  }
+  const previousStops = [...allStops];
+  const previousRoutes = allRoutes.map(route => ({ ...route, stopIds: [...route.stopIds], activeStopIds: [...routeActiveStopIds(route)] }));
   allStops = allStops.filter(s => s.id !== id);
+  allRoutes = allRoutes.map(route => ({
+    ...route,
+    stopIds: route.stopIds.filter(stopId => stopId !== id),
+    activeStopIds: routeActiveStopIds(route).filter(stopId => stopId !== id),
+  }));
   renderStops();
+  renderRoutes();
+  try {
+    const res = await fetch(`/api/stops/${id}`, { method: 'DELETE', ...authHeaders });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      throw new Error(data.error || 'Failed to remove stop.');
+    }
+  } catch (error) {
+    allStops = previousStops;
+    allRoutes = previousRoutes;
+    renderStops();
+    renderRoutes();
+    alert(error.message);
+  } finally {
+    deletingStopIds.delete(id);
+  }
 }
 
 function renderStops() {
@@ -4175,7 +4208,7 @@ function renderStops() {
           <button class="stop-route-btn ${alreadyAdded ? 'added' : ''}" id="routeAddBtn-${s.id}" ${alreadyAdded ? 'disabled' : ''} onclick="addStopToRoute('${s.id}')">${alreadyAdded ? 'Added' : '+ Add to Route'}</button>
         </div>
       </div>
-      <button class="user-action-btn danger" onclick="deleteStop('${s.id}')" style="flex-shrink:0;align-self:flex-start">Remove</button>
+      <button class="user-action-btn danger" data-delete-stop-id="${s.id}" onclick="deleteStop('${s.id}', event)" style="flex-shrink:0;align-self:flex-start">Remove</button>
     </div>`;
   }).join('');
 }
