@@ -3203,6 +3203,93 @@ document.addEventListener('click', e => {
 });
 
 let fulfillOrderId = null;
+let fulfillExtraItemCounter = 0;
+
+function fulfillLineItemTemplate(item, i) {
+  const unit = item.unit === 'lb' ? 'lb' : 'each';
+  const name = item.name || item.description || '';
+  const unitPrice = parseFloat(item.unit_price ?? item.unitPrice ?? 0) || 0;
+  const requestedAmount = item.unit === 'lb'
+    ? (parseFloat(item.requested_weight ?? item.actual_weight ?? 0) || 0)
+    : (parseFloat(item.requested_qty ?? item.quantity ?? 0) || 0);
+  const requestedText = item.unit === 'lb'
+    ? `Requested: ${requestedAmount || 0} lb`
+    : `Quantity: ${requestedAmount || 0} ea`;
+  const actualInput = item.unit === 'lb'
+    ? `<label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Actual lb</label>
+       <input type="number" step="0.01" min="0" class="order-item-input" style="width:100%" placeholder="Actual lb"
+         id="fw-${i}" value="${escHtml(item.actual_weight || item.requested_weight || '')}"/>`
+    : `<div style="font-size:12px;color:var(--accent);padding-top:19px">Fixed qty</div>`;
+
+  return `<div style="display:grid;grid-template-columns:minmax(180px,1fr) 110px 100px;gap:10px;align-items:end;padding:12px;background:var(--bg);border-radius:10px;margin-bottom:8px">
+    <div>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Invoice item</label>
+      <input class="order-item-input" id="fi-name-${i}" value="${escHtml(name)}" placeholder="Item name"/>
+      <div style="font-size:12px;color:var(--muted);margin-top:5px">${requestedText}</div>
+      ${item.notes ? `<div style="font-size:12px;color:var(--muted);font-style:italic;margin-top:2px">${escHtml(item.notes)}</div>` : ''}
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Price / ${unit}</label>
+      <input type="number" step="0.01" min="0" class="order-item-input" id="fi-price-${i}" value="${unitPrice}"/>
+    </div>
+    <div>${actualInput}</div>
+  </div>`;
+}
+
+function addFulfillInvoiceItem(item = {}) {
+  const list = document.getElementById('fulfillExtraItemsList');
+  if (!list) return;
+  const rowId = `extra-${fulfillExtraItemCounter++}`;
+  const name = item.description || item.name || '';
+  const price = parseFloat(item.price ?? item.cost ?? item.unit_price ?? 0) || 0;
+  const qty = parseFloat(item.quantity ?? item.requested_qty ?? 1) || 1;
+  list.insertAdjacentHTML('beforeend', `<div class="fulfill-extra-item" data-extra-id="${rowId}" style="display:grid;grid-template-columns:minmax(170px,1fr) 78px 78px 32px;gap:8px;align-items:end;padding:10px;background:rgba(255,255,255,0.55);border:1px solid var(--border);border-radius:10px;margin-bottom:8px">
+    <div>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Shelf / invoice item</label>
+      <input class="order-item-input extra-name" list="fulfillProductOptions" value="${escHtml(name)}" placeholder="Caviar, retail item, add-on" onchange="syncFulfillExtraItem(this)" onblur="syncFulfillExtraItem(this)"/>
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Qty</label>
+      <input type="number" step="0.01" min="0" class="order-item-input extra-qty" value="${qty}"/>
+    </div>
+    <div>
+      <label style="font-size:11px;color:var(--muted);display:block;margin-bottom:4px">Price</label>
+      <input type="number" step="0.01" min="0" class="order-item-input extra-price" value="${price}"/>
+    </div>
+    <button type="button" class="btn btn-outline" onclick="this.closest('.fulfill-extra-item').remove()" title="Remove item" style="padding:8px">x</button>
+  </div>`);
+  focusElement(`[data-extra-id="${rowId}"] .extra-name`);
+}
+
+function syncFulfillExtraItem(input) {
+  const row = input.closest('.fulfill-extra-item');
+  if (!row) return;
+  const name = input.value.trim().toLowerCase();
+  const match = (allInventory || []).find(item => (item.description || '').trim().toLowerCase() === name);
+  if (!match) return;
+  const priceInput = row.querySelector('.extra-price');
+  if (priceInput && !parseFloat(priceInput.value)) {
+    priceInput.value = parseFloat(match.price ?? match.cost ?? 0) || 0;
+  }
+}
+
+function collectFulfillExtraItems() {
+  return Array.from(document.querySelectorAll('#fulfillExtraItemsList .fulfill-extra-item')).map(row => {
+    const name = row.querySelector('.extra-name')?.value?.trim() || '';
+    const quantity = parseFloat(row.querySelector('.extra-qty')?.value) || 0;
+    const unitPrice = parseFloat(row.querySelector('.extra-price')?.value) || 0;
+    if (!name || quantity <= 0) return null;
+    return {
+      name,
+      description: name,
+      unit: 'each',
+      requested_qty: quantity,
+      quantity,
+      unit_price: unitPrice,
+      invoice_only: true,
+    };
+  }).filter(Boolean);
+}
 
 function openFulfillModal(id) {
   const order = allOrders.find(o => o.id === id);
@@ -3211,31 +3298,22 @@ function openFulfillModal(id) {
   document.getElementById('fulfillOrderInfo').textContent = `${order.order_number} — ${order.customer_name}`;
   // Populate items
   const list = document.getElementById('fulfillItemsList');
-  list.innerHTML = (order.items || []).map((item, i) => {
-    if (item.unit === 'lb') {
-      return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--bg);border-radius:8px;margin-bottom:8px">
-        <div style="flex:1">
-          <div style="font-weight:600;font-size:13px">${item.name}</div>
-          <div style="font-size:12px;color:var(--muted)">Requested: ${item.requested_weight} lb · $${item.unit_price}/lb</div>
-          ${item.notes ? `<div style="font-size:12px;color:var(--muted);font-style:italic;margin-top:2px">${escHtml(item.notes)}</div>` : ''}
+  const productOptions = (allInventory || []).map(item => `<option value="${escHtml(item.description || '')}"></option>`).join('');
+  list.innerHTML = `
+    <div style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:10px">Review cut items, enter final weights, and adjust invoice item names or prices if the kitchen needs a correction.</div>
+    ${(order.items || []).map((item, i) => fulfillLineItemTemplate(item, i)).join('')}
+    <datalist id="fulfillProductOptions">${productOptions}</datalist>
+    <div style="margin-top:14px;padding:12px;border:1px dashed var(--border);border-radius:12px;background:rgba(255,255,255,0.35)">
+      <div style="display:flex;justify-content:space-between;gap:10px;align-items:center;margin-bottom:8px">
+        <div>
+          <div style="font-weight:650;font-size:13px">Invoice-only shelf items</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">Use this for items that do not need processing, like caviar or packaged add-ons.</div>
         </div>
-        <div style="display:flex;align-items:center;gap:6px">
-          <input type="number" step="0.01" min="0" class="order-item-input" style="width:90px" placeholder="Actual lb"
-            id="fw-${i}" value="${item.actual_weight||item.requested_weight||''}"/>
-          <span style="font-size:12px;color:var(--muted)">lb</span>
-        </div>
-      </div>`;
-    } else {
-      return `<div style="display:flex;align-items:center;gap:12px;padding:10px 12px;background:var(--bg);border-radius:8px;margin-bottom:8px;opacity:0.8">
-        <div style="flex:1">
-          <div style="font-weight:600;font-size:13px">${item.name}</div>
-          <div style="font-size:12px;color:var(--muted)">${item.requested_qty} × ea · $${item.unit_price}/ea</div>
-          ${item.notes ? `<div style="font-size:12px;color:var(--muted);font-style:italic;margin-top:2px">${escHtml(item.notes)}</div>` : ''}
-        </div>
-        <div style="font-size:12px;color:var(--accent)">Fixed qty</div>
-      </div>`;
-    }
-  }).join('');
+        <button type="button" class="btn btn-outline" onclick="addFulfillInvoiceItem()">+ Add Item</button>
+      </div>
+      <div id="fulfillExtraItemsList"></div>
+    </div>`;
+  fulfillExtraItemCounter = 0;
   // Populate driver dropdown
   const driverSel = document.getElementById('fulfillDriver');
   driverSel.innerHTML = '<option value="">— No Driver —</option>' +
@@ -3246,7 +3324,7 @@ function openFulfillModal(id) {
     allRoutes.map(r => `<option value="${r.id}">${r.name}${r.driver ? ' ('+r.driver+')' : ''}</option>`).join('');
   document.getElementById('fulfillResult').style.display = 'none';
   document.getElementById('fulfillModal').classList.add('open');
-  focusElement('[id^="fw-"], #fulfillDriver');
+  focusElement('[id^="fw-"], #fi-name-0, #fulfillDriver');
 }
 
 function closeFulfillModal() {
@@ -3259,14 +3337,23 @@ async function submitFulfill() {
   if (!order) return;
   const driverName = document.getElementById('fulfillDriver').value;
   const routeId = document.getElementById('fulfillRoute').value;
-  // Collect actual weights
+  // Collect final invoice item edits and actual weights.
   const items = (order.items || []).map((item, i) => {
+    const editedName = document.getElementById('fi-name-' + i)?.value?.trim();
+    const editedPrice = parseFloat(document.getElementById('fi-price-' + i)?.value);
+    const resolvedName = editedName || item.name || item.description || '';
+    const nextItem = {
+      ...item,
+      name: resolvedName,
+      description: resolvedName,
+      unit_price: Number.isFinite(editedPrice) ? editedPrice : (parseFloat(item.unit_price ?? item.unitPrice ?? 0) || 0),
+    };
     if (item.unit === 'lb') {
       const actual = parseFloat(document.getElementById('fw-' + i)?.value) || item.requested_weight || 0;
-      return { ...item, actual_weight: actual };
+      return { ...nextItem, actual_weight: actual };
     }
-    return item;
-  });
+    return nextItem;
+  }).concat(collectFulfillExtraItems());
   const resultEl = document.getElementById('fulfillResult');
   try {
     const r = await fetch(`${API}/orders/${fulfillOrderId}/fulfill`, {

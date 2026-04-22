@@ -278,7 +278,7 @@ router.post('/:id/fulfill', authenticateToken, requireRole('admin', 'manager'), 
   if (!invoice) return;
   const trackingToken = order.tracking_token || generateTrackingToken();
   const trackingExpiresAt = order.tracking_expires_at || trackingExpiry();
-  await executeWithOptionalScope((candidate) => supabase.from('orders').update(candidate).eq('id', req.params.id), {
+  const orderUpdate = await executeWithOptionalScope((candidate) => supabase.from('orders').update(candidate).eq('id', req.params.id), {
     status: 'invoiced',
     items: fulfilledItems,
     driver_name: driverName || null,
@@ -287,6 +287,7 @@ router.post('/:id/fulfill', authenticateToken, requireRole('admin', 'manager'), 
     tracking_token: trackingToken,
     tracking_expires_at: trackingExpiresAt,
   });
+  if (orderUpdate.error) return res.status(500).json({ error: orderUpdate.error.message });
   res.json({
     invoice,
     message: 'Invoice created',

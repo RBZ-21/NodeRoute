@@ -63,6 +63,16 @@ test('routes backend normalizes stop id payloads for create and update', () => {
   assert.deepEqual(normalizeStopIds(undefined), []);
 });
 
+test('processing workflow optional schema fields can be stripped on older databases', () => {
+  const { isMissingColumnError } = require('../services/operating-context');
+  const source = fs.readFileSync(path.join(repoRoot, 'backend', 'services', 'operating-context.js'), 'utf8');
+
+  assert.equal(isMissingColumnError({ message: "Could not find the 'tracking_token' column of 'orders' in the schema cache" }), true);
+  for (const field of ['tracking_token', 'tracking_expires_at', 'invoice_id', 'driver_name', 'route_id', 'charges']) {
+    assert.ok(source.includes(`'${field}'`), `missing optional schema field ${field}`);
+  }
+});
+
 test('driver routes import invoice stop matching helper', () => {
   const source = routeSource('driver');
   const { routeStopIdsForToday } = require('../routes/driver');
