@@ -406,6 +406,17 @@ td{padding:12px 16px;vertical-align:middle}
 .inv-cat-shellfish{background:rgba(124,58,237,0.12);color:#a78bfa;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
 .inv-cat-crustacean{background:rgba(245,158,11,0.12);color:var(--warn);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
 .inv-cat-smoked{background:rgba(239,68,68,0.12);color:#fca5a5;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
+.ops-grid{display:grid;grid-template-columns:1.2fr 1fr;gap:16px;margin-bottom:16px}
+.ops-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:16px}
+.ops-title{font-size:14px;font-weight:600;margin-bottom:10px}
+.ops-sub{font-size:12px;color:var(--muted);margin-bottom:12px}
+.ops-form{display:flex;gap:8px;flex-wrap:wrap}
+.ops-form input,.ops-form select{flex:1;min-width:110px}
+.ops-mini-list{display:flex;flex-direction:column;gap:8px;max-height:260px;overflow-y:auto}
+.ops-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:12px}
+.ops-kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
+.ops-kpi .kpi-card{padding:14px}
+@media(max-width:900px){.ops-grid{grid-template-columns:1fr}.ops-kpi{grid-template-columns:1fr}}
 .inv-cat-other{background:rgba(136,153,187,0.12);color:var(--muted);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
 .stock-in{color:var(--accent);font-weight:600;font-size:12px}
 .stock-low{color:var(--warn);font-weight:600;font-size:12px}
@@ -683,6 +694,15 @@ td{padding:12px 16px;vertical-align:middle}
 
     <div class="nav-item" data-tab="settings" onclick="showTab('settings',this)">
       <span class="nav-icon">⚙️</span>Settings
+    </div>
+    <div class="nav-item" data-tab="warehouse" onclick="showTab('warehouse',this)">
+      <span class="nav-icon">🏬</span>Warehouse
+    </div>
+    <div class="nav-item" data-tab="planning" onclick="showTab('planning',this)">
+      <span class="nav-icon">📐</span>Planning
+    </div>
+    <div class="nav-item" data-tab="integrations" onclick="showTab('integrations',this)">
+      <span class="nav-icon">🔌</span>Integrations
     </div>
   </div>
   <div class="sidebar-footer">NodeRoute DS v2.0<br>Charleston, SC</div>
@@ -1776,6 +1796,113 @@ td{padding:12px 16px;vertical-align:middle}
       </div>
     </div>
 
+    <!-- TAB: WAREHOUSE -->
+    <div class="tab-pane" id="tab-warehouse">
+      <div class="ops-grid">
+        <div class="ops-card">
+          <div class="ops-title">Warehouses & Cycle Count</div>
+          <div class="ops-sub">Create warehouse locations and run monthly count sheets. Enter key fields and press Enter to submit.</div>
+          <form class="ops-form" onsubmit="event.preventDefault();createWarehouse()">
+            <input class="search-input" id="whName" placeholder="Warehouse name" autocomplete="off"/>
+            <input class="search-input" id="whCode" placeholder="Code (optional)" autocomplete="off"/>
+            <button type="submit" class="btn btn-accent">Add Warehouse</button>
+          </form>
+          <div id="warehouseList" class="ops-mini-list" style="margin-top:12px"></div>
+        </div>
+        <div class="ops-card">
+          <div class="ops-title">Barcode Events (Android-ready API)</div>
+          <div class="ops-sub">Scan logs from field reps and receiving teams.</div>
+          <form class="ops-form" onsubmit="event.preventDefault();logBarcodeEvent()">
+            <input class="search-input" id="scanCode" placeholder="Barcode / SKU" autocomplete="off"/>
+            <select class="filter-select" id="scanAction">
+              <option value="scan">Scan</option>
+              <option value="receive">Receive</option>
+              <option value="pick">Pick</option>
+              <option value="adjust">Adjust</option>
+            </select>
+            <input class="search-input" id="scanQty" type="number" step="0.01" placeholder="Qty"/>
+            <button type="submit" class="btn btn-outline">Log Event</button>
+          </form>
+          <div id="barcodeList" class="ops-mini-list" style="margin-top:12px"></div>
+        </div>
+      </div>
+      <div class="ops-card">
+        <div class="ops-title">Returns Tracking</div>
+        <form class="ops-form" onsubmit="event.preventDefault();createReturnRecord()">
+          <input class="search-input" id="retCustomer" placeholder="Customer"/>
+          <input class="search-input" id="retProduct" placeholder="Product"/>
+          <input class="search-input" id="retQty" type="number" step="0.01" placeholder="Qty"/>
+          <input class="search-input" id="retReason" placeholder="Reason"/>
+          <button type="submit" class="btn btn-outline">Add Return</button>
+        </form>
+        <div id="returnsList" class="ops-mini-list" style="margin-top:12px"></div>
+      </div>
+    </div>
+
+    <!-- TAB: PLANNING -->
+    <div class="tab-pane" id="tab-planning">
+      <div class="ops-kpi" id="planningKpis">
+        <div class="kpi-card"><div class="kpi-label">Projected Stockouts (30d)</div><div class="kpi-value" id="projRiskCount">0</div></div>
+        <div class="kpi-card"><div class="kpi-label">Suggested Reorders</div><div class="kpi-value" id="projReorderCount">0</div></div>
+        <div class="kpi-card"><div class="kpi-label">UOM Rules</div><div class="kpi-value" id="uomRuleCount">0</div></div>
+      </div>
+      <div class="ops-grid">
+        <div class="ops-card">
+          <div class="ops-title">Case Break / UOM Rules</div>
+          <form class="ops-form" onsubmit="event.preventDefault();createUomRule()">
+            <input class="search-input" id="uomProduct" placeholder="Product"/>
+            <input class="search-input" id="uomFrom" placeholder="From (case)"/>
+            <input class="search-input" id="uomTo" placeholder="To (ea/lb)"/>
+            <input class="search-input" id="uomFactor" type="number" step="0.0001" placeholder="Factor"/>
+            <button type="submit" class="btn btn-accent">Save Rule</button>
+          </form>
+          <div id="uomRuleList" class="ops-mini-list" style="margin-top:12px"></div>
+        </div>
+        <div class="ops-card">
+          <div class="ops-title">Auto Purchasing</div>
+          <div class="ops-form">
+            <input class="search-input" id="leadTimeDays" type="number" min="0" value="5" placeholder="Lead time days"/>
+            <input class="search-input" id="coverageDays" type="number" min="1" value="30" placeholder="Coverage days"/>
+            <button class="btn btn-outline" onclick="refreshPlanningData()">Recalculate</button>
+          </div>
+          <div id="purchasingList" class="ops-mini-list" style="margin-top:12px"></div>
+        </div>
+      </div>
+      <div class="ops-card">
+        <div class="ops-title">30-Day Inventory Projection</div>
+        <div id="projectionList" class="ops-mini-list"></div>
+      </div>
+    </div>
+
+    <!-- TAB: INTEGRATIONS -->
+    <div class="tab-pane" id="tab-integrations">
+      <div class="ops-grid">
+        <div class="ops-card">
+          <div class="ops-title">EDI Queue</div>
+          <div class="ops-sub">Online order entry already exists in Orders. This section tracks outbound/inbound EDI handoff jobs.</div>
+          <form class="ops-form" onsubmit="event.preventDefault();createEdiJob()">
+            <select class="filter-select" id="ediDirection">
+              <option value="outbound">Outbound</option>
+              <option value="inbound">Inbound</option>
+            </select>
+            <input class="search-input" id="ediPartner" placeholder="Trading partner"/>
+            <select class="filter-select" id="ediDocType">
+              <option value="850">850 Purchase Order</option>
+              <option value="810">810 Invoice</option>
+              <option value="855">855 PO Acknowledgment</option>
+              <option value="856">856 ASN</option>
+            </select>
+            <button type="submit" class="btn btn-accent">Queue Job</button>
+          </form>
+          <div id="ediList" class="ops-mini-list" style="margin-top:12px"></div>
+        </div>
+        <div class="ops-card">
+          <div class="ops-title">Capability Snapshot</div>
+          <div id="opsCapabilityList" class="ops-mini-list"></div>
+        </div>
+      </div>
+    </div>
+
   </div><!-- /content -->
 </div><!-- /main -->
 
@@ -2436,6 +2563,17 @@ let delivPage = 1;
 const PAGE_SIZE = 10;
 let chartHour, chartWeek, chartDonut, chartPeak, chartDoor;
 let alertDismissed = false;
+let opsWarehouses = [];
+let opsReturns = [];
+let opsUomRules = [];
+let opsProjection = [];
+let opsPurchasing = [];
+let opsBarcodeEvents = [];
+let opsEdiJobs = [];
+
+function h(v) {
+  return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
 
 // ── THEME ──────────────────────────────────────────────
 function toggleTheme() {
@@ -2959,7 +3097,7 @@ function openAddonOrder(id) {
   showOrderMsg('Add-on mode: add extra items, then send to processing again', 'success');
   showTab('orders', null);
   document.querySelectorAll('.nav-item').forEach((n,i) => {
-    if (i === ['dashboard','deliveries','drivers','analytics','map','users','stops','routes','customers','orders','invoices','inventory'].indexOf('orders')) n.classList.add('active');
+    if (i === ['dashboard','deliveries','drivers','analytics','map','users','stops','routes','customers','orders','invoices','inventory','warehouse','planning','integrations'].indexOf('orders')) n.classList.add('active');
     else n.classList.remove('active');
   });
 }
@@ -3381,6 +3519,7 @@ const NAV_GROUP_MAP = {
   deliveries:'logistics', map:'logistics', drivers:'logistics', routes:'logistics', stops:'logistics',
   customers:'people', vendors:'people', users:'people',
   financials:'financials', invoices:'financials', analytics:'financials', inventory:'financials', forecast:'financials',
+  warehouse:'financials', planning:'financials', integrations:'financials',
   aihelp:'ai'
 };
 
@@ -3407,6 +3546,9 @@ function showTab(name, el) {
   if (mobileIdx >= 0) document.querySelectorAll('.mobile-tab')[mobileIdx]?.classList.add('active');
   if (name === 'orders') { fetchOrders(); }
   if (name === 'invoices') { renderInprocessOrders(); }
+  if (name === 'warehouse') { loadWarehouseTab(); }
+  if (name === 'planning') { loadPlanningTab(); }
+  if (name === 'integrations') { loadIntegrationsTab(); }
   if (name === 'map') { setTimeout(() => renderMap(), 50); }
   if (name === 'inventory') { renderInventory(); renderInventoryKPIs(); }
   if (name === 'customers') { fetchCustomers(); }
@@ -7160,6 +7302,184 @@ function initOperationalDefaults() {
   if (reportDate && !reportDate.value) reportDate.value = localDateKey();
   setDefaultTempFields();
   renderDailyItemReportPreview();
+}
+
+// ── OPS TABS ───────────────────────────────────────────
+async function loadWarehouseTab() {
+  try {
+    const [whRes, retRes, scanRes] = await Promise.all([
+      fetch(`${API}/ops/warehouses`, authHeaders),
+      fetch(`${API}/ops/returns`, authHeaders),
+      fetch(`${API}/ops/barcode-events`, authHeaders)
+    ]);
+    opsWarehouses = await whRes.json();
+    opsReturns = await retRes.json();
+    opsBarcodeEvents = await scanRes.json();
+    renderWarehouseTab();
+  } catch (e) {}
+}
+
+function renderWarehouseTab() {
+  const whList = document.getElementById('warehouseList');
+  if (whList) {
+    whList.innerHTML = (opsWarehouses || []).length
+      ? opsWarehouses.map(w => `<div class="ops-row"><span><strong>${h(w.name)}</strong> <span style="color:var(--muted)">(${h(w.code)})</span></span><span style="color:var(--muted)">${new Date(w.created_at).toLocaleDateString()}</span></div>`).join('')
+      : `<div class="ops-row"><span style="color:var(--muted)">No warehouses yet</span></div>`;
+  }
+  const retList = document.getElementById('returnsList');
+  if (retList) {
+    retList.innerHTML = (opsReturns || []).slice(0, 30).map(r => `<div class="ops-row"><span><strong>${h(r.customer_name)}</strong> · ${h(r.product_name)} (${h(r.quantity)})</span><span style="color:var(--muted)">${h(r.status || 'open')}</span></div>`).join('') || `<div class="ops-row"><span style="color:var(--muted)">No returns logged</span></div>`;
+  }
+  const scanList = document.getElementById('barcodeList');
+  if (scanList) {
+    scanList.innerHTML = (opsBarcodeEvents || []).slice(0, 40).map(s => `<div class="ops-row"><span><strong>${h(s.code)}</strong> · ${h(s.action)} ${s.quantity ? `(${h(s.quantity)})` : ''}</span><span style="color:var(--muted)">${new Date(s.created_at).toLocaleString()}</span></div>`).join('') || `<div class="ops-row"><span style="color:var(--muted)">No barcode events yet</span></div>`;
+  }
+}
+
+async function createWarehouse() {
+  const name = document.getElementById('whName')?.value.trim();
+  const code = document.getElementById('whCode')?.value.trim();
+  if (!name) return;
+  await fetch(`${API}/ops/warehouses`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+    body: JSON.stringify({ name, code })
+  });
+  document.getElementById('whName').value = '';
+  document.getElementById('whCode').value = '';
+  loadWarehouseTab();
+}
+
+async function logBarcodeEvent() {
+  const code = document.getElementById('scanCode')?.value.trim();
+  const action = document.getElementById('scanAction')?.value || 'scan';
+  const quantity = parseFloat(document.getElementById('scanQty')?.value || '0') || 0;
+  if (!code) return;
+  await fetch(`${API}/ops/barcode-events`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+    body: JSON.stringify({ code, action, quantity })
+  });
+  document.getElementById('scanCode').value = '';
+  document.getElementById('scanQty').value = '';
+  loadWarehouseTab();
+}
+
+async function createReturnRecord() {
+  const customerName = document.getElementById('retCustomer')?.value.trim();
+  const productName = document.getElementById('retProduct')?.value.trim();
+  const quantity = parseFloat(document.getElementById('retQty')?.value || '0') || 0;
+  const reason = document.getElementById('retReason')?.value.trim();
+  if (!customerName || !productName) return;
+  await fetch(`${API}/ops/returns`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+    body: JSON.stringify({ customerName, productName, quantity, reason, status: 'open' })
+  });
+  document.getElementById('retCustomer').value = '';
+  document.getElementById('retProduct').value = '';
+  document.getElementById('retQty').value = '';
+  document.getElementById('retReason').value = '';
+  loadWarehouseTab();
+}
+
+async function loadPlanningTab() {
+  await refreshPlanningData();
+}
+
+async function refreshPlanningData() {
+  try {
+    const leadTimeDays = parseInt(document.getElementById('leadTimeDays')?.value || '5', 10);
+    const coverageDays = parseInt(document.getElementById('coverageDays')?.value || '30', 10);
+    const [rulesRes, projRes, suggRes] = await Promise.all([
+      fetch(`${API}/ops/uom-rules`, authHeaders),
+      fetch(`${API}/ops/projections?days=30&lookbackDays=30`, authHeaders),
+      fetch(`${API}/ops/purchasing-suggestions?coverageDays=${coverageDays}&leadTimeDays=${leadTimeDays}&lookbackDays=30`, authHeaders)
+    ]);
+    opsUomRules = await rulesRes.json();
+    opsProjection = (await projRes.json()).projections || [];
+    opsPurchasing = (await suggRes.json()).suggestions || [];
+    renderPlanningTab();
+  } catch (e) {}
+}
+
+function renderPlanningTab() {
+  document.getElementById('uomRuleCount').textContent = (opsUomRules || []).length;
+  document.getElementById('projReorderCount').textContent = (opsPurchasing || []).length;
+  document.getElementById('projRiskCount').textContent = (opsProjection || []).filter(p => p.projected_remaining_qty < 0).length;
+
+  const uomList = document.getElementById('uomRuleList');
+  if (uomList) {
+    uomList.innerHTML = (opsUomRules || []).map(r => `<div class="ops-row"><span><strong>${h(r.product_name)}</strong> · 1 ${h(r.from_unit)} = ${h(r.factor)} ${h(r.to_unit)}</span><button class="btn btn-outline" style="padding:3px 8px;font-size:11px" onclick="deleteUomRule('${h(r.id)}')">Delete</button></div>`).join('') || `<div class="ops-row"><span style="color:var(--muted)">No UOM rules yet</span></div>`;
+  }
+  const projList = document.getElementById('projectionList');
+  if (projList) {
+    projList.innerHTML = (opsProjection || []).slice(0, 80).map(p => `<div class="ops-row"><span><strong>${h(p.product_name)}</strong> · On hand ${h(p.stock_qty)} ${h(p.unit)} · Avg/day ${h(p.avg_daily_usage)}</span><span style="color:${p.projected_remaining_qty < 0 ? 'var(--danger)' : 'var(--muted)'}">${h(p.projected_remaining_qty)} in 30d</span></div>`).join('') || `<div class="ops-row"><span style="color:var(--muted)">No projections available</span></div>`;
+  }
+  const pList = document.getElementById('purchasingList');
+  if (pList) {
+    pList.innerHTML = (opsPurchasing || []).slice(0, 60).map(s => `<div class="ops-row"><span><strong>${h(s.product_name)}</strong> · order ${h(s.suggested_order_qty)} ${h(s.unit)}</span><span style="color:${s.urgency === 'high' ? 'var(--danger)' : 'var(--muted)'}">${h(s.urgency)}</span></div>`).join('') || `<div class="ops-row"><span style="color:var(--muted)">No reorder suggestions right now</span></div>`;
+  }
+}
+
+async function createUomRule() {
+  const productName = document.getElementById('uomProduct')?.value.trim();
+  const fromUnit = document.getElementById('uomFrom')?.value.trim();
+  const toUnit = document.getElementById('uomTo')?.value.trim();
+  const factor = parseFloat(document.getElementById('uomFactor')?.value || '0');
+  if (!productName || !fromUnit || !toUnit || !(factor > 0)) return;
+  await fetch(`${API}/ops/uom-rules`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+    body: JSON.stringify({ productName, fromUnit, toUnit, factor })
+  });
+  document.getElementById('uomProduct').value = '';
+  document.getElementById('uomFrom').value = '';
+  document.getElementById('uomTo').value = '';
+  document.getElementById('uomFactor').value = '';
+  refreshPlanningData();
+}
+
+async function deleteUomRule(id) {
+  await fetch(`${API}/ops/uom-rules/${id}`, { method: 'DELETE', ...authHeaders });
+  refreshPlanningData();
+}
+
+async function loadIntegrationsTab() {
+  try {
+    const [jobsRes, capRes] = await Promise.all([
+      fetch(`${API}/ops/edi-jobs`, authHeaders),
+      fetch(`${API}/ops/capabilities`, authHeaders)
+    ]);
+    opsEdiJobs = await jobsRes.json();
+    const caps = await capRes.json();
+    renderIntegrationsTab(caps);
+  } catch (e) {}
+}
+
+function renderIntegrationsTab(caps) {
+  const ediList = document.getElementById('ediList');
+  if (ediList) {
+    ediList.innerHTML = (opsEdiJobs || []).slice(0, 50).map(j => `<div class="ops-row"><span><strong>${h(j.doc_type)}</strong> ${h(j.direction)} · ${h(j.partner)}</span><span style="color:var(--muted)">${h(j.status)}</span></div>`).join('') || `<div class="ops-row"><span style="color:var(--muted)">No EDI jobs queued</span></div>`;
+  }
+  const capList = document.getElementById('opsCapabilityList');
+  if (capList) {
+    capList.innerHTML = Object.entries(caps || {}).map(([k, v]) => `<div class="ops-row"><span>${h(k.replace(/_/g, ' '))}</span><span style="color:${v ? 'var(--accent)' : 'var(--danger)'}">${v ? 'Enabled' : 'Missing'}</span></div>`).join('');
+  }
+}
+
+async function createEdiJob() {
+  const direction = document.getElementById('ediDirection')?.value;
+  const partner = document.getElementById('ediPartner')?.value.trim();
+  const docType = document.getElementById('ediDocType')?.value;
+  if (!partner) return;
+  await fetch(`${API}/ops/edi-jobs`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+    body: JSON.stringify({ direction, partner, docType })
+  });
+  document.getElementById('ediPartner').value = '';
+  loadIntegrationsTab();
 }
 
 // ── AUTO REFRESH ───────────────────────────────────────
