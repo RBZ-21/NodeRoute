@@ -58,7 +58,8 @@ async function canAccessInvoice(req, invoice) {
 }
 
 async function sendInvoiceEmail(inv, subjectPrefix = 'Your Invoice') {
-  if (!inv?.customer_email) {
+  const recipient = inv?.billing_email || inv?.customer_email;
+  if (!recipient) {
     return { sent: false, error: 'No email on file for this customer' };
   }
 
@@ -72,7 +73,7 @@ async function sendInvoiceEmail(inv, subjectPrefix = 'Your Invoice') {
 
   await mailer.sendMail({
     from: process.env.EMAIL_FROM,
-    to: inv.customer_email,
+    to: recipient,
     subject: `${subjectPrefix} ${invoiceLabel} from NodeRoute`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px">
@@ -131,6 +132,11 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
     customer_name,
     customer_email: invoiceBodyValue(req.body, 'customer_email', 'customerEmail') || null,
     customer_address: invoiceBodyValue(req.body, 'customer_address', 'customerAddress', 'deliveryAddress') || null,
+    billing_name: invoiceBodyValue(req.body, 'billing_name', 'billingName') || null,
+    billing_contact: invoiceBodyValue(req.body, 'billing_contact', 'billingContact') || null,
+    billing_email: invoiceBodyValue(req.body, 'billing_email', 'billingEmail') || null,
+    billing_phone: invoiceBodyValue(req.body, 'billing_phone', 'billingPhone') || null,
+    billing_address: invoiceBodyValue(req.body, 'billing_address', 'billingAddress') || null,
     items,
     subtotal,
     tax,
@@ -195,9 +201,9 @@ router.post('/:id/sign', authenticateToken, async (req, res) => {
 
   // Generate PDF
   let emailSent = false;
-  if (inv.customer_email) {
+  if (inv.billing_email || inv.customer_email) {
     try {
-      const emailResult = await sendInvoiceEmail({ ...updated, customer_email: inv.customer_email }, 'Your Signed Invoice');
+      const emailResult = await sendInvoiceEmail({ ...updated, billing_email: inv.billing_email, customer_email: inv.customer_email }, 'Your Signed Invoice');
       emailSent = emailResult.sent;
       if (emailSent) {
         await supabase.from('invoices').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', req.params.id);

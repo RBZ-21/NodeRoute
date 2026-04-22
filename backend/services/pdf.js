@@ -26,12 +26,24 @@ function buildInvoicePDF(inv) {
     let y = 110;
 
     // Bill To
+    const billToName = inv.billing_name || inv.customer_name;
+    const billToAddress = inv.billing_address || inv.customer_address;
+    const billToEmail = inv.billing_email || inv.customer_email;
+    const billToContact = inv.billing_contact || null;
+    const billToPhone = inv.billing_phone || null;
+
     doc.fillColor('#111').font('Helvetica-Bold').fontSize(11).text('BILL TO', 50, y);
     y += 16;
-    doc.fillColor('#333').font('Helvetica').fontSize(11).text(inv.customer_name, 50, y);
+    doc.fillColor('#333').font('Helvetica').fontSize(11).text(billToName, 50, y);
     y += 14;
-    if (inv.customer_address) { doc.text(inv.customer_address, 50, y); y += 14; }
-    if (inv.customer_email)   { doc.fillColor(ACCENT).text(inv.customer_email, 50, y); y += 14; }
+    if (billToContact) { doc.text(`Attn: ${billToContact}`, 50, y); y += 14; }
+    if (billToAddress) { doc.text(billToAddress, 50, y); y += 14; }
+    if (billToPhone) { doc.fillColor(MUTED).fontSize(10).text(billToPhone, 50, y); y += 14; }
+    if (billToEmail)   { doc.fillColor(ACCENT).fontSize(11).text(billToEmail, 50, y); y += 14; }
+    if (inv.billing_name && inv.customer_name && inv.billing_name !== inv.customer_name) {
+      doc.fillColor(MUTED).fontSize(10).text(`Delivery location: ${inv.customer_name}`, 50, y);
+      y += 14;
+    }
     if (inv.driver_name) {
       doc.fillColor(MUTED).fontSize(10).text(`Driver: ${inv.driver_name}`, 50, y); y += 14;
     }

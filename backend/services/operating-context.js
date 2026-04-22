@@ -22,6 +22,11 @@ const OPTIONAL_SCOPE_FIELDS = [
   'corrective_action',
   'driver_id',
   'active_stop_ids',
+  'billing_name',
+  'billing_contact',
+  'billing_email',
+  'billing_phone',
+  'billing_address',
   'initials',
   'recorded_by',
 ];

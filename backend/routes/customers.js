@@ -9,7 +9,20 @@ const {
 } = require('../services/operating-context');
 
 const router = express.Router();
-const CUSTOMER_FIELDS = ['customer_number', 'company_name', 'phone_number', 'fax_number', 'contact_name', 'payment_terms', 'address'];
+const CUSTOMER_FIELDS = [
+  'customer_number',
+  'company_name',
+  'phone_number',
+  'fax_number',
+  'contact_name',
+  'payment_terms',
+  'address',
+  'billing_name',
+  'billing_contact',
+  'billing_email',
+  'billing_phone',
+  'billing_address',
+];
 
 function parseBoolean(value) {
   return value === true || value === 'true' || value === 1 || value === '1' || value === 'on';
