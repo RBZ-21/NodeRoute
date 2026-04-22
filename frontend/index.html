@@ -416,6 +416,10 @@ td{padding:12px 16px;vertical-align:middle}
 .ops-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;font-size:12px}
 .ops-kpi{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px}
 .ops-kpi .kpi-card{padding:14px}
+.ops-pill{display:inline-flex;align-items:center;padding:2px 8px;border-radius:999px;font-size:10px;font-weight:700;letter-spacing:.2px}
+.ops-pill.good{background:rgba(61,186,127,0.16);color:var(--accent)}
+.ops-pill.warn{background:rgba(245,158,11,0.16);color:var(--warn)}
+.ops-pill.bad{background:rgba(239,68,68,0.16);color:var(--danger)}
 @media(max-width:900px){.ops-grid{grid-template-columns:1fr}.ops-kpi{grid-template-columns:1fr}}
 .inv-cat-other{background:rgba(136,153,187,0.12);color:var(--muted);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
 .stock-in{color:var(--accent);font-weight:600;font-size:12px}
@@ -678,6 +682,26 @@ td{padding:12px 16px;vertical-align:middle}
       </div>
     </div>
 
+    <!-- GROUP: Operations -->
+    <div class="nav-group" id="navgroup-operations">
+      <div class="nav-group-header" onclick="toggleNavGroup('operations')">
+        <span class="nav-icon">🏗️</span>
+        Operations
+        <span class="nav-group-chevron">›</span>
+      </div>
+      <div class="nav-group-items" id="group-operations">
+        <div class="nav-item nav-child" data-tab="warehouse" onclick="showTab('warehouse',this)">
+          <span class="nav-icon">🏬</span>Warehouse
+        </div>
+        <div class="nav-item nav-child" data-tab="planning" onclick="showTab('planning',this)">
+          <span class="nav-icon">📐</span>Planning
+        </div>
+        <div class="nav-item nav-child" data-tab="integrations" onclick="showTab('integrations',this)">
+          <span class="nav-icon">🔌</span>Integrations
+        </div>
+      </div>
+    </div>
+
     <!-- GROUP: AI -->
     <div class="nav-group" id="navgroup-ai">
       <div class="nav-group-header" onclick="toggleNavGroup('ai')">
@@ -694,15 +718,6 @@ td{padding:12px 16px;vertical-align:middle}
 
     <div class="nav-item" data-tab="settings" onclick="showTab('settings',this)">
       <span class="nav-icon">⚙️</span>Settings
-    </div>
-    <div class="nav-item" data-tab="warehouse" onclick="showTab('warehouse',this)">
-      <span class="nav-icon">🏬</span>Warehouse
-    </div>
-    <div class="nav-item" data-tab="planning" onclick="showTab('planning',this)">
-      <span class="nav-icon">📐</span>Planning
-    </div>
-    <div class="nav-item" data-tab="integrations" onclick="showTab('integrations',this)">
-      <span class="nav-icon">🔌</span>Integrations
     </div>
   </div>
   <div class="sidebar-footer">NodeRoute DS v2.0<br>Charleston, SC</div>
@@ -1798,6 +1813,11 @@ td{padding:12px 16px;vertical-align:middle}
 
     <!-- TAB: WAREHOUSE -->
     <div class="tab-pane" id="tab-warehouse">
+      <div class="ops-kpi" style="margin-bottom:16px">
+        <div class="kpi-card"><div class="kpi-label">Warehouses</div><div class="kpi-value" id="whCount">0</div></div>
+        <div class="kpi-card"><div class="kpi-label">Open Returns</div><div class="kpi-value" id="retOpenCount">0</div></div>
+        <div class="kpi-card"><div class="kpi-label">Scans (Today)</div><div class="kpi-value" id="scanTodayCount">0</div></div>
+      </div>
       <div class="ops-grid">
         <div class="ops-card">
           <div class="ops-title">Warehouses & Cycle Count</div>
@@ -3519,7 +3539,7 @@ const NAV_GROUP_MAP = {
   deliveries:'logistics', map:'logistics', drivers:'logistics', routes:'logistics', stops:'logistics',
   customers:'people', vendors:'people', users:'people',
   financials:'financials', invoices:'financials', analytics:'financials', inventory:'financials', forecast:'financials',
-  warehouse:'financials', planning:'financials', integrations:'financials',
+  warehouse:'operations', planning:'operations', integrations:'operations',
   aihelp:'ai'
 };
 
@@ -7320,6 +7340,13 @@ async function loadWarehouseTab() {
 }
 
 function renderWarehouseTab() {
+  const todayKey = new Date().toISOString().slice(0, 10);
+  const scansToday = (opsBarcodeEvents || []).filter(s => (s.created_at || '').slice(0, 10) === todayKey).length;
+  const openReturns = (opsReturns || []).filter(r => (r.status || 'open').toLowerCase() !== 'closed').length;
+  if (document.getElementById('whCount')) document.getElementById('whCount').textContent = (opsWarehouses || []).length;
+  if (document.getElementById('retOpenCount')) document.getElementById('retOpenCount').textContent = openReturns;
+  if (document.getElementById('scanTodayCount')) document.getElementById('scanTodayCount').textContent = scansToday;
+
   const whList = document.getElementById('warehouseList');
   if (whList) {
     whList.innerHTML = (opsWarehouses || []).length
@@ -7328,11 +7355,15 @@ function renderWarehouseTab() {
   }
   const retList = document.getElementById('returnsList');
   if (retList) {
-    retList.innerHTML = (opsReturns || []).slice(0, 30).map(r => `<div class="ops-row"><span><strong>${h(r.customer_name)}</strong> · ${h(r.product_name)} (${h(r.quantity)})</span><span style="color:var(--muted)">${h(r.status || 'open')}</span></div>`).join('') || `<div class="ops-row"><span style="color:var(--muted)">No returns logged</span></div>`;
+    retList.innerHTML = (opsReturns || []).slice(0, 30).map(r => {
+      const status = (r.status || 'open').toLowerCase();
+      const cls = status === 'closed' ? 'good' : status === 'pending' ? 'warn' : 'bad';
+      return `<div class="ops-row"><span><strong>${h(r.customer_name)}</strong> · ${h(r.product_name)} (${h(r.quantity)})</span><span class="ops-pill ${cls}">${h(status)}</span></div>`;
+    }).join('') || `<div class="ops-row"><span style="color:var(--muted)">No returns logged</span></div>`;
   }
   const scanList = document.getElementById('barcodeList');
   if (scanList) {
-    scanList.innerHTML = (opsBarcodeEvents || []).slice(0, 40).map(s => `<div class="ops-row"><span><strong>${h(s.code)}</strong> · ${h(s.action)} ${s.quantity ? `(${h(s.quantity)})` : ''}</span><span style="color:var(--muted)">${new Date(s.created_at).toLocaleString()}</span></div>`).join('') || `<div class="ops-row"><span style="color:var(--muted)">No barcode events yet</span></div>`;
+    scanList.innerHTML = (opsBarcodeEvents || []).slice(0, 40).map(s => `<div class="ops-row"><span><strong>${h(s.code)}</strong> · ${h(s.action)} ${s.quantity ? `(${h(s.quantity)})` : ''}</span><span class="ops-pill good">${new Date(s.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</span></div>`).join('') || `<div class="ops-row"><span style="color:var(--muted)">No barcode events yet</span></div>`;
   }
 }
 
@@ -7414,11 +7445,15 @@ function renderPlanningTab() {
   }
   const projList = document.getElementById('projectionList');
   if (projList) {
-    projList.innerHTML = (opsProjection || []).slice(0, 80).map(p => `<div class="ops-row"><span><strong>${h(p.product_name)}</strong> · On hand ${h(p.stock_qty)} ${h(p.unit)} · Avg/day ${h(p.avg_daily_usage)}</span><span style="color:${p.projected_remaining_qty < 0 ? 'var(--danger)' : 'var(--muted)'}">${h(p.projected_remaining_qty)} in 30d</span></div>`).join('') || `<div class="ops-row"><span style="color:var(--muted)">No projections available</span></div>`;
+    const projectionRows = [...(opsProjection || [])].sort((a, b) => (a.projected_remaining_qty ?? 0) - (b.projected_remaining_qty ?? 0));
+    projList.innerHTML = projectionRows.slice(0, 80).map(p => {
+      const risky = p.projected_remaining_qty < 0;
+      return `<div class="ops-row"><span><strong>${h(p.product_name)}</strong> · On hand ${h(p.stock_qty)} ${h(p.unit)} · Avg/day ${h(p.avg_daily_usage)}</span><span class="ops-pill ${risky ? 'bad' : 'good'}">${h(p.projected_remaining_qty)} in 30d</span></div>`;
+    }).join('') || `<div class="ops-row"><span style="color:var(--muted)">No projections available</span></div>`;
   }
   const pList = document.getElementById('purchasingList');
   if (pList) {
-    pList.innerHTML = (opsPurchasing || []).slice(0, 60).map(s => `<div class="ops-row"><span><strong>${h(s.product_name)}</strong> · order ${h(s.suggested_order_qty)} ${h(s.unit)}</span><span style="color:${s.urgency === 'high' ? 'var(--danger)' : 'var(--muted)'}">${h(s.urgency)}</span></div>`).join('') || `<div class="ops-row"><span style="color:var(--muted)">No reorder suggestions right now</span></div>`;
+    pList.innerHTML = (opsPurchasing || []).slice(0, 60).map(s => `<div class="ops-row"><span><strong>${h(s.product_name)}</strong> · order ${h(s.suggested_order_qty)} ${h(s.unit)}</span><span class="ops-pill ${s.urgency === 'high' ? 'bad' : 'warn'}">${h(s.urgency)}</span></div>`).join('') || `<div class="ops-row"><span style="color:var(--muted)">No reorder suggestions right now</span></div>`;
   }
 }
 
@@ -7460,11 +7495,11 @@ async function loadIntegrationsTab() {
 function renderIntegrationsTab(caps) {
   const ediList = document.getElementById('ediList');
   if (ediList) {
-    ediList.innerHTML = (opsEdiJobs || []).slice(0, 50).map(j => `<div class="ops-row"><span><strong>${h(j.doc_type)}</strong> ${h(j.direction)} · ${h(j.partner)}</span><span style="color:var(--muted)">${h(j.status)}</span></div>`).join('') || `<div class="ops-row"><span style="color:var(--muted)">No EDI jobs queued</span></div>`;
+    ediList.innerHTML = (opsEdiJobs || []).slice(0, 50).map(j => `<div class="ops-row"><span><strong>${h(j.doc_type)}</strong> ${h(j.direction)} · ${h(j.partner)}</span><span class="ops-pill warn">${h(j.status)}</span></div>`).join('') || `<div class="ops-row"><span style="color:var(--muted)">No EDI jobs queued</span></div>`;
   }
   const capList = document.getElementById('opsCapabilityList');
   if (capList) {
-    capList.innerHTML = Object.entries(caps || {}).map(([k, v]) => `<div class="ops-row"><span>${h(k.replace(/_/g, ' '))}</span><span style="color:${v ? 'var(--accent)' : 'var(--danger)'}">${v ? 'Enabled' : 'Missing'}</span></div>`).join('');
+    capList.innerHTML = Object.entries(caps || {}).map(([k, v]) => `<div class="ops-row"><span>${h(k.replace(/_/g, ' '))}</span><span class="ops-pill ${v ? 'good' : 'bad'}">${v ? 'Enabled' : 'Missing'}</span></div>`).join('');
   }
 }
 
