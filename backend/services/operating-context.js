@@ -21,6 +21,7 @@ const OPTIONAL_SCOPE_FIELDS = [
   'check_type',
   'corrective_action',
   'driver_id',
+  'active_stop_ids',
   'initials',
   'recorded_by',
 ];

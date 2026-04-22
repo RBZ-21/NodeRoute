@@ -46,7 +46,8 @@ async function authorizeDwellEvent(req, res) {
     res.status(403).json({ error: 'Forbidden' });
     return null;
   }
-  if (!Array.isArray(route.stop_ids) || !route.stop_ids.includes(req.params.id)) {
+  const routeStopIds = Array.isArray(route.active_stop_ids) ? route.active_stop_ids : route.stop_ids;
+  if (!Array.isArray(routeStopIds) || !routeStopIds.includes(req.params.id)) {
     res.status(403).json({ error: 'Stop is not part of this route' });
     return null;
   }
