@@ -1864,7 +1864,7 @@ td{padding:12px 16px;vertical-align:middle}
       <div class="ops-kpi" id="planningKpis">
         <div class="kpi-card"><div class="kpi-label">Projected Stockouts (30d)</div><div class="kpi-value" id="projRiskCount">0</div></div>
         <div class="kpi-card"><div class="kpi-label">Suggested Reorders</div><div class="kpi-value" id="projReorderCount">0</div></div>
-        <div class="kpi-card"><div class="kpi-label">UOM Rules</div><div class="kpi-value" id="uomRuleCount">0</div></div>
+        <div class="kpi-card"><div class="kpi-label">Draft POs</div><div class="kpi-value" id="poDraftCount">0</div></div>
       </div>
       <div class="ops-grid">
         <div class="ops-card">
@@ -1885,12 +1885,21 @@ td{padding:12px 16px;vertical-align:middle}
             <input class="search-input" id="coverageDays" type="number" min="1" value="30" placeholder="Coverage days"/>
             <button class="btn btn-outline" onclick="refreshPlanningData()">Recalculate</button>
           </div>
+          <form class="ops-form" style="margin-top:8px" onsubmit="event.preventDefault();createPurchaseOrderDraftFromSuggestions()">
+            <input class="search-input" id="poDraftVendor" placeholder="Vendor for this draft (optional)"/>
+            <button type="submit" class="btn btn-accent">Create Draft PO</button>
+          </form>
           <div id="purchasingList" class="ops-mini-list" style="margin-top:12px"></div>
         </div>
       </div>
       <div class="ops-card">
         <div class="ops-title">30-Day Inventory Projection</div>
         <div id="projectionList" class="ops-mini-list"></div>
+      </div>
+      <div class="ops-card" style="margin-top:12px">
+        <div class="ops-title">Draft Purchase Orders</div>
+        <div class="ops-sub">Generated from reorder suggestions and ready to move through your buying workflow.</div>
+        <div id="poDraftList" class="ops-mini-list"></div>
       </div>
     </div>
 
@@ -2590,6 +2599,7 @@ let opsProjection = [];
 let opsPurchasing = [];
 let opsBarcodeEvents = [];
 let opsEdiJobs = [];
+let opsPoDrafts = [];
 
 function h(v) {
   return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -7422,20 +7432,22 @@ async function refreshPlanningData() {
   try {
     const leadTimeDays = parseInt(document.getElementById('leadTimeDays')?.value || '5', 10);
     const coverageDays = parseInt(document.getElementById('coverageDays')?.value || '30', 10);
-    const [rulesRes, projRes, suggRes] = await Promise.all([
+    const [rulesRes, projRes, suggRes, draftRes] = await Promise.all([
       fetch(`${API}/ops/uom-rules`, authHeaders),
       fetch(`${API}/ops/projections?days=30&lookbackDays=30`, authHeaders),
-      fetch(`${API}/ops/purchasing-suggestions?coverageDays=${coverageDays}&leadTimeDays=${leadTimeDays}&lookbackDays=30`, authHeaders)
+      fetch(`${API}/ops/purchasing-suggestions?coverageDays=${coverageDays}&leadTimeDays=${leadTimeDays}&lookbackDays=30`, authHeaders),
+      fetch(`${API}/ops/purchase-order-drafts`, authHeaders)
     ]);
     opsUomRules = await rulesRes.json();
     opsProjection = (await projRes.json()).projections || [];
     opsPurchasing = (await suggRes.json()).suggestions || [];
+    opsPoDrafts = await draftRes.json();
     renderPlanningTab();
   } catch (e) {}
 }
 
 function renderPlanningTab() {
-  document.getElementById('uomRuleCount').textContent = (opsUomRules || []).length;
+  document.getElementById('poDraftCount').textContent = (opsPoDrafts || []).length;
   document.getElementById('projReorderCount').textContent = (opsPurchasing || []).length;
   document.getElementById('projRiskCount').textContent = (opsProjection || []).filter(p => p.projected_remaining_qty < 0).length;
 
@@ -7454,6 +7466,29 @@ function renderPlanningTab() {
   const pList = document.getElementById('purchasingList');
   if (pList) {
     pList.innerHTML = (opsPurchasing || []).slice(0, 60).map(s => `<div class="ops-row"><span><strong>${h(s.product_name)}</strong> · order ${h(s.suggested_order_qty)} ${h(s.unit)}</span><span class="ops-pill ${s.urgency === 'high' ? 'bad' : 'warn'}">${h(s.urgency)}</span></div>`).join('') || `<div class="ops-row"><span style="color:var(--muted)">No reorder suggestions right now</span></div>`;
+  }
+  const dList = document.getElementById('poDraftList');
+  if (dList) {
+    dList.innerHTML = (opsPoDrafts || []).slice(0, 40).map(d => {
+      const status = String(d.status || 'draft').toLowerCase();
+      const pill = status === 'ordered' ? 'good' : (status === 'archived' ? 'warn' : (status === 'ready' ? 'warn' : 'bad'));
+      const readyBtn = status === 'draft'
+        ? `<button class="btn btn-outline" style="padding:3px 8px;font-size:11px" onclick="updatePurchaseOrderDraftStatus('${h(d.id)}','ready')">Mark Ready</button>`
+        : '';
+      const orderedBtn = status === 'ready'
+        ? `<button class="btn btn-outline" style="padding:3px 8px;font-size:11px" onclick="updatePurchaseOrderDraftStatus('${h(d.id)}','ordered')">Mark Ordered</button>`
+        : '';
+      const archiveBtn = status !== 'archived'
+        ? `<button class="btn btn-outline" style="padding:3px 8px;font-size:11px" onclick="updatePurchaseOrderDraftStatus('${h(d.id)}','archived')">Archive</button>`
+        : '';
+      return `<div class="ops-row">
+        <span><strong>${h(d.draft_number || 'Draft PO')}</strong> · ${h(d.vendor || 'Unassigned Vendor')} · ${h(d.line_count || 0)} lines · est $${h((d.total_estimated_cost || 0).toFixed ? d.total_estimated_cost.toFixed(2) : d.total_estimated_cost)}</span>
+        <span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span class="ops-pill ${pill}">${h(status)}</span>
+          ${readyBtn}${orderedBtn}${archiveBtn}
+        </span>
+      </div>`;
+    }).join('') || `<div class="ops-row"><span style="color:var(--muted)">No draft purchase orders yet</span></div>`;
   }
 }
 
@@ -7477,6 +7512,38 @@ async function createUomRule() {
 
 async function deleteUomRule(id) {
   await fetch(`${API}/ops/uom-rules/${id}`, { method: 'DELETE', ...authHeaders });
+  refreshPlanningData();
+}
+
+async function createPurchaseOrderDraftFromSuggestions() {
+  const leadTimeDays = parseInt(document.getElementById('leadTimeDays')?.value || '5', 10);
+  const coverageDays = parseInt(document.getElementById('coverageDays')?.value || '30', 10);
+  const vendor = document.getElementById('poDraftVendor')?.value.trim() || '';
+  const res = await fetch(`${API}/ops/purchase-order-drafts/from-suggestions`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+    body: JSON.stringify({ leadTimeDays, coverageDays, lookbackDays: 30, vendor, maxLines: 60 })
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    alert(payload.error || 'Could not create purchase-order draft');
+    return;
+  }
+  document.getElementById('poDraftVendor').value = '';
+  refreshPlanningData();
+}
+
+async function updatePurchaseOrderDraftStatus(id, status) {
+  const res = await fetch(`${API}/ops/purchase-order-drafts/${id}/status`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+    body: JSON.stringify({ status })
+  });
+  if (!res.ok) {
+    const payload = await res.json().catch(() => ({}));
+    alert(payload.error || 'Could not update draft status');
+    return;
+  }
   refreshPlanningData();
 }
 
