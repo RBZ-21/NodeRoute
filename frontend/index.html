@@ -1198,11 +1198,11 @@ td{padding:12px 16px;vertical-align:middle}
               <span class="settings-toggle-slider"></span>
             </label>
           </div>
-          <div style="display:flex;gap:10px;margin-bottom:16px;align-items:flex-end">
-            <div style="flex:2">
-              <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Order Intake Message</label>
-              <textarea class="order-item-input" id="orderIntakeMessage" rows="3" placeholder="Paste customer text, email, or call notes (example: 10 lb salmon, 4 ea halibut, deliver before 9am)..." style="width:100%;resize:vertical"></textarea>
-              <div style="font-size:11px;color:var(--muted);margin-top:4px">Tip: include quantity + unit + product for best auto-fill results.</div>
+          <div style="display:flex;gap:10px;margin-bottom:16px;align-items:flex-end;flex-wrap:wrap">
+            <div style="flex:1;min-width:260px">
+              <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Notes / Special Instructions</label>
+              <textarea class="order-item-input" id="orderNotes" rows="3" placeholder="Use this textbox for intake + notes (example: 10 lb salmon, 4 ea halibut, deliver before 9am)" style="width:100%;resize:vertical"></textarea>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px">Tip: include quantity + unit + product, then click Auto-fill Items.</div>
             </div>
             <div style="min-width:180px">
               <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">PO Vendor (optional)</label>
@@ -1213,12 +1213,6 @@ td{padding:12px 16px;vertical-align:middle}
                 <button class="btn btn-outline" id="orderIntakeBtn" onclick="autoFillOrderFromIntake()" style="white-space:nowrap">Auto-fill Items</button>
                 <button class="btn btn-outline" id="orderIntakePoBtn" onclick="createPurchaseOrderDraftFromOrderIntake()" style="white-space:nowrap">Draft PO Gaps</button>
               </div>
-            </div>
-          </div>
-          <div style="display:flex;gap:10px;margin-bottom:16px">
-            <div style="flex:1">
-              <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Notes / Special Instructions</label>
-              <input class="order-item-input" id="orderNotes" placeholder="Optional…" style="width:100%"/>
             </div>
           </div>
           <!-- Items Table -->
@@ -2739,7 +2733,6 @@ function clearOrderForm() {
   document.getElementById('orderCustomerInput').value = '';
   document.getElementById('orderCustomerEmail').value = '';
   document.getElementById('orderCustomerAddress').value = '';
-  document.getElementById('orderIntakeMessage').value = '';
   document.getElementById('orderIntakeVendor').value = '';
   document.getElementById('orderNotes').value = '';
   document.getElementById('orderFormMsg').style.display = 'none';
@@ -2915,16 +2908,15 @@ function getOrderItems() {
 }
 
 async function autoFillOrderFromIntake() {
-  const messageEl = document.getElementById('orderIntakeMessage');
   const notesEl = document.getElementById('orderNotes');
   const customerInputEl = document.getElementById('orderCustomerInput');
   const btn = document.getElementById('orderIntakeBtn');
   const body = document.getElementById('orderItemsBody');
-  const message = (messageEl?.value || '').trim();
+  const message = (notesEl?.value || '').trim();
 
   if (!message) {
-    showOrderMsg('Paste an intake message first', 'error');
-    messageEl?.focus();
+    showOrderMsg('Enter intake text in Notes / Special Instructions first', 'error');
+    notesEl?.focus();
     return;
   }
 
@@ -2996,7 +2988,7 @@ async function autoFillOrderFromIntake() {
 async function createPurchaseOrderDraftFromOrderIntake() {
   const btn = document.getElementById('orderIntakePoBtn');
   const vendor = document.getElementById('orderIntakeVendor')?.value?.trim() || '';
-  const intakeMessage = document.getElementById('orderIntakeMessage')?.value?.trim() || '';
+  const intakeMessage = document.getElementById('orderNotes')?.value?.trim() || '';
   const customer = document.getElementById('orderCustomerInput')?.value?.trim() || '';
   const orderNotes = document.getElementById('orderNotes')?.value?.trim() || '';
   const items = getOrderItems();
