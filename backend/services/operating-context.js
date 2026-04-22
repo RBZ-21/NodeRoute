@@ -201,6 +201,7 @@ async function executeWithOptionalScope(execute, record) {
     result = await execute(candidate);
   }
 
+  result.appliedRecord = { ...candidate };
   return result;
 }
 

@@ -18,6 +18,7 @@ CREATE TABLE IF NOT EXISTS routes (
   id         UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   name       TEXT NOT NULL,
   stop_ids   UUID[] DEFAULT '{}',
+  active_stop_ids UUID[] DEFAULT '{}',
   driver     TEXT DEFAULT '',
   notes      TEXT DEFAULT '',
   created_at TIMESTAMPTZ DEFAULT NOW()

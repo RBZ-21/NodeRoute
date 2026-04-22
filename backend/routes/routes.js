@@ -71,13 +71,23 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   if (req.body.notes !== undefined) payload.notes = req.body.notes || '';
   if (!Object.keys(payload).length) return res.status(400).json({ error: 'No valid route fields provided' });
   if (payload.name === '') return res.status(400).json({ error: 'Route name required' });
+  const requestedActiveStopsUpdate = payload.active_stop_ids !== undefined;
   const updateResult = await executeWithOptionalScope(
-    (candidate) => supabase.from('routes').update(candidate).eq('id', req.params.id).select().single(),
+    (candidate) => {
+      if (!Object.keys(candidate).length) return Promise.resolve({ data: [], error: null });
+      return supabase.from('routes').update(candidate).eq('id', req.params.id).select();
+    },
     payload
   );
   if (updateResult.error) return res.status(500).json({ error: updateResult.error.message });
-  const data = updateResult.data;
-  if (!data) return;
+  if (requestedActiveStopsUpdate && updateResult.appliedRecord?.active_stop_ids === undefined) {
+    return res.status(500).json({
+      error: 'Routes table is missing active_stop_ids. Run supabase-routes-active-stops-migration.sql so today\'s active stop selections can be saved.',
+    });
+  }
+  const rows = Array.isArray(updateResult.data) ? updateResult.data : (updateResult.data ? [updateResult.data] : []);
+  const data = rows[0];
+  if (!data) return res.status(404).json({ error: 'Route not found or no route fields were updated' });
   res.json(data);
 });
 
