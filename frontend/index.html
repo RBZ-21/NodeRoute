@@ -1198,6 +1198,16 @@ td{padding:12px 16px;vertical-align:middle}
               <span class="settings-toggle-slider"></span>
             </label>
           </div>
+          <div style="display:flex;gap:10px;margin-bottom:16px;align-items:flex-end">
+            <div style="flex:2">
+              <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Order Intake Message</label>
+              <textarea class="order-item-input" id="orderIntakeMessage" rows="3" placeholder="Paste customer text, email, or call notes (example: 10 lb salmon, 4 ea halibut, deliver before 9am)..." style="width:100%;resize:vertical"></textarea>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px">Tip: include quantity + unit + product for best auto-fill results.</div>
+            </div>
+            <div style="display:flex;align-items:flex-end">
+              <button class="btn btn-outline" id="orderIntakeBtn" onclick="autoFillOrderFromIntake()" style="white-space:nowrap">Auto-fill Items</button>
+            </div>
+          </div>
           <div style="display:flex;gap:10px;margin-bottom:16px">
             <div style="flex:1">
               <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Notes / Special Instructions</label>
@@ -2722,6 +2732,7 @@ function clearOrderForm() {
   document.getElementById('orderCustomerInput').value = '';
   document.getElementById('orderCustomerEmail').value = '';
   document.getElementById('orderCustomerAddress').value = '';
+  document.getElementById('orderIntakeMessage').value = '';
   document.getElementById('orderNotes').value = '';
   document.getElementById('orderFormMsg').style.display = 'none';
   document.getElementById('orderItemsBody').innerHTML = '';
@@ -2893,6 +2904,85 @@ function getOrderItems() {
       actual_weight: null
     };
   }).filter(i => i.name);
+}
+
+async function autoFillOrderFromIntake() {
+  const messageEl = document.getElementById('orderIntakeMessage');
+  const notesEl = document.getElementById('orderNotes');
+  const customerInputEl = document.getElementById('orderCustomerInput');
+  const btn = document.getElementById('orderIntakeBtn');
+  const body = document.getElementById('orderItemsBody');
+  const message = (messageEl?.value || '').trim();
+
+  if (!message) {
+    showOrderMsg('Paste an intake message first', 'error');
+    messageEl?.focus();
+    return;
+  }
+
+  const originalLabel = btn?.textContent || 'Auto-fill Items';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Parsing…';
+  }
+
+  try {
+    const res = await fetch(`${API}/ai/order-intake`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+      body: JSON.stringify({ message }),
+    });
+    const draft = await res.json().catch(() => ({}));
+    if (!res.ok || draft.error) throw new Error(draft.error || `Error ${res.status}`);
+
+    const items = Array.isArray(draft.items) ? draft.items.filter(i => i && String(i.name || '').trim()) : [];
+    if (!items.length) {
+      showOrderMsg('No clear items found. Add items manually or include quantity + unit + product.', 'error');
+      return;
+    }
+
+    body.innerHTML = '';
+    items.forEach((item) => {
+      const amount = Number(item.amount);
+      const unitPrice = Number(item.unit_price);
+      addOrderRow(
+        item.name || '',
+        item.unit === 'lb' ? 'lb' : 'each',
+        Number.isFinite(amount) && amount > 0 ? amount : 1,
+        Number.isFinite(unitPrice) && unitPrice > 0 ? unitPrice : '',
+        item.notes || '',
+        item.item_number || ''
+      );
+    });
+
+    const customerHint = String(draft.customer_name_hint || '').trim();
+    if (customerHint && !customerInputEl.value.trim()) {
+      const matched = findCustomerByName(customerHint);
+      if (matched) {
+        selectOrderCustomer(customerName(matched), customerEmail(matched), customerAddress(matched), matched);
+      } else {
+        customerInputEl.value = customerHint;
+      }
+    }
+
+    if (!notesEl.value.trim() && draft.order_notes) {
+      notesEl.value = String(draft.order_notes).trim();
+    }
+
+    recalcOrder();
+
+    const warningText = Array.isArray(draft.warnings) && draft.warnings.length
+      ? ` Review: ${draft.warnings[0]}`
+      : '';
+    showOrderMsg(`Auto-filled ${items.length} item${items.length === 1 ? '' : 's'} from intake message.${warningText}`, 'success');
+  } catch (err) {
+    showOrderMsg(err.message || 'Could not parse intake message', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  }
 }
 
 async function sendOrderToProcessing() {
