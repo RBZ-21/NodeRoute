@@ -58,8 +58,10 @@ body.light img.logo-for-light{display:inline}
 /* Add to route inline */
 .stop-route-row{display:flex;align-items:center;gap:6px;margin-top:8px;flex-wrap:wrap}
 .stop-route-select{background:var(--surface);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px;padding:4px 8px;flex:1;min-width:100px}
-.stop-route-btn{background:rgba(61,186,127,0.12);border:1px solid var(--accent);color:var(--accent);border-radius:6px;font-size:12px;font-weight:600;padding:4px 10px;cursor:pointer;white-space:nowrap}
+.stop-route-btn{background:rgba(61,186,127,0.12);border:1px solid var(--accent);color:var(--accent);border-radius:6px;font-size:12px;font-weight:600;padding:4px 10px;cursor:pointer;white-space:nowrap;transition:var(--trans)}
 .stop-route-btn:hover{background:rgba(61,186,127,0.22)}
+.stop-route-btn.added{background:rgba(61,186,127,0.22);color:#9cf0c4;border-color:rgba(156,240,196,0.5);cursor:default}
+.stop-route-btn.added:hover{background:rgba(61,186,127,0.22)}
 .empty-state{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;text-align:center;padding:56px 24px;color:var(--muted)}
 .empty-state-icon{width:72px;height:72px;border-radius:22px;display:flex;align-items:center;justify-content:center;font-size:34px;margin-bottom:4px;background:linear-gradient(180deg,rgba(61,186,127,0.14),rgba(61,186,127,0.05));border:1px solid rgba(61,186,127,0.18);box-shadow:inset 0 1px 0 rgba(255,255,255,0.05)}
 .empty-state h3{font-size:17px;color:var(--text);margin:0}
@@ -4154,6 +4156,8 @@ function renderStops() {
     return;
   }
   el.innerHTML = allStops.map((s, i) => {
+    const initialRouteId = allRoutes[0]?.id || '';
+    const alreadyAdded = initialRouteId ? allRoutes.find(r => r.id === initialRouteId)?.stopIds?.includes(s.id) : false;
     const routeOptions = allRoutes.length
       ? allRoutes.map(r => `<option value="${r.id}">${r.name}</option>`).join('')
       : '<option value="" disabled>No routes yet</option>';
@@ -4167,13 +4171,28 @@ function renderStops() {
         <div class="stop-address">${s.address}</div>
         ${s.notes ? `<div class="stop-notes">${s.notes}</div>` : ''}
         <div class="stop-route-row">
-          <select class="stop-route-select" id="routeSelect-${s.id}">${routeOptions}</select>
-          <button class="stop-route-btn" onclick="addStopToRoute('${s.id}')">+ Add to Route</button>
+          <select class="stop-route-select" id="routeSelect-${s.id}" onchange="updateStopRouteButton('${s.id}')">${routeOptions}</select>
+          <button class="stop-route-btn ${alreadyAdded ? 'added' : ''}" id="routeAddBtn-${s.id}" ${alreadyAdded ? 'disabled' : ''} onclick="addStopToRoute('${s.id}')">${alreadyAdded ? 'Added' : '+ Add to Route'}</button>
         </div>
       </div>
       <button class="user-action-btn danger" onclick="deleteStop('${s.id}')" style="flex-shrink:0;align-self:flex-start">Remove</button>
     </div>`;
   }).join('');
+}
+
+function isStopOnSelectedRoute(stopId) {
+  const sel = document.getElementById(`routeSelect-${stopId}`);
+  const route = allRoutes.find(r => r.id === sel?.value);
+  return !!route?.stopIds?.includes(stopId);
+}
+
+function updateStopRouteButton(stopId, statusText = null) {
+  const btn = document.getElementById(`routeAddBtn-${stopId}`);
+  if (!btn) return;
+  const added = statusText === 'Added' || isStopOnSelectedRoute(stopId);
+  btn.classList.toggle('added', added);
+  btn.disabled = added || statusText === 'Adding...';
+  btn.textContent = statusText || (added ? 'Added' : '+ Add to Route');
 }
 
 async function addStopToRoute(stopId) {
@@ -4193,17 +4212,24 @@ async function addStopToRoute(stopId) {
     alert('That route no longer exists. Please create or select a different route.');
     return;
   }
-  if (route.stopIds.includes(stopId)) { alert('Stop already in this route.'); return; }
+  if (route.stopIds.includes(stopId)) {
+    updateStopRouteButton(stopId, 'Added');
+    return;
+  }
   const newIds = [...route.stopIds, stopId];
   const activeStopIds = [...routeActiveStopIds(route), stopId];
   try {
+    updateStopRouteButton(stopId, 'Adding...');
     const res = await fetch(`/api/routes/${routeId}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json', ...authHeaders.headers }, body: JSON.stringify({ stopIds: newIds, activeStopIds }) });
     if (!res.ok) throw new Error((await res.json()).error);
     route.stopIds = newIds;
     route.activeStopIds = activeStopIds;
-    renderStops();
+    updateStopRouteButton(stopId, 'Added');
     renderRoutes();
-  } catch(e) { alert('Failed to add stop: ' + e.message); }
+  } catch(e) {
+    updateStopRouteButton(stopId);
+    alert('Failed to add stop: ' + e.message);
+  }
 }
 
 async function fetchStops() {
