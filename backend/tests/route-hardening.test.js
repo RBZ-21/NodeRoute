@@ -55,7 +55,7 @@ test('frontend workflow helpers required by dispatch operations are present', ()
   assert.ok(html.includes("headers: { 'Content-Type': 'application/json', ...authHeaders.headers }"));
   assert.ok(html.includes('Number.isFinite(cost)'), 'route optimization should ignore invalid matrix costs');
   assert.ok(html.includes('OSRM returned no duration matrix'), 'route optimization should handle bad OSRM payloads');
-  assert.ok(html.includes('id="orderIntakeMessage"'), 'orders form should expose intake message input');
+  assert.ok(html.includes('id="orderNotes"'), 'orders form should expose notes textbox for intake');
   assert.ok(html.includes('id="orderIntakeBtn"'), 'orders form should expose intake auto-fill button');
   assert.ok(html.includes('id="orderIntakePoBtn"'), 'orders form should expose intake-to-po button');
   assert.ok(html.includes("fetch(`${API}/ai/order-intake`"), 'orders form should call AI order intake API');
