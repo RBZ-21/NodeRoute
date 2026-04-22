@@ -165,10 +165,11 @@
       text-decoration: none;
     }
 
-    .nav-logo img {
+    nav .nav-logo img {
       display: block;
-      width: min(124px, 30vw);
-      height: auto;
+      width: auto;
+      height: 34px;
+      max-width: 30vw;
       padding: 0;
     }
 
@@ -203,10 +204,11 @@
     .nav-links a {
       color: var(--text-muted);
       text-decoration: none;
-      font-size: 12px;
+      font-size: 11px;
       font-weight: 600;
+      line-height: 1;
       transition: color 0.2s, background 0.2s;
-      padding: 6px 10px;
+      padding: 5px 8px;
       border-radius: 999px;
     }
 
@@ -215,8 +217,9 @@
     .nav-actions { display: flex; align-items: center; gap: 9px; }
 
     nav .btn {
-      padding: 6px 12px;
-      font-size: 12px;
+      padding: 6px 11px;
+      font-size: 11px;
+      line-height: 1;
       border-radius: 7px;
     }
 
@@ -267,12 +270,12 @@
       .nav-links, .nav-actions { display: none; }
       .hamburger { display: flex; }
       .nav-inner { min-height: 38px; padding: 5px 10px; margin-top: 8px; }
-      .nav-logo img { width: min(104px, 42vw); }
+      nav .nav-logo img { width: auto; height: 30px; max-width: 42vw; }
     }
 
     /* ─── HERO ─── */
     .hero {
-      padding: 120px 0 88px;
+      padding: 96px 0 88px;
       position: relative;
       overflow: hidden;
     }
