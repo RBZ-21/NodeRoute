@@ -17,7 +17,8 @@ function defaultOpsData() {
     returns: [],
     barcodeEvents: [],
     ediJobs: [],
-    poDrafts: []
+    poDrafts: [],
+    vendorPurchaseOrders: []
   };
 }
 
@@ -57,6 +58,83 @@ function normalizeIntakeQuantity(item, unit) {
     return toNumber(item.requested_weight ?? item.quantity ?? item.amount, 0);
   }
   return toNumber(item.requested_qty ?? item.quantity ?? item.amount, 0);
+}
+
+function normalizeReceiptRules(input) {
+  const overReceipt = String(input?.over_receipt_policy || 'cap').trim().toLowerCase();
+  const backorder = String(input?.backorder_policy || 'open').trim().toLowerCase();
+  return {
+    over_receipt_policy: ['reject', 'cap', 'allow'].includes(overReceipt) ? overReceipt : 'cap',
+    backorder_policy: ['open', 'waive'].includes(backorder) ? backorder : 'open',
+  };
+}
+
+function genPoNumber() {
+  const stamp = new Date().toISOString().slice(0, 10).replace(/-/g, '');
+  const rand = Math.random().toString(36).slice(2, 6).toUpperCase();
+  return `PO-${stamp}-${rand}`;
+}
+
+function normalizePoLine(line, index) {
+  const orderedQty = Math.max(0, toNumber(line.ordered_qty ?? line.quantity, 0));
+  const receivedQty = Math.max(0, toNumber(line.received_qty, 0));
+  const unitCost = Math.max(0, toNumber(line.unit_cost ?? line.estimated_unit_cost, 0));
+  const unit = normalizeUnit(line.unit);
+  const overReceivedQty = Math.max(0, toNumber(line.over_received_qty, 0));
+  const backorderedQty = Math.max(0, toNumber(line.backordered_qty, Math.max(0, orderedQty - Math.min(receivedQty, orderedQty))));
+  const waivedBackorderQty = Math.max(0, toNumber(line.waived_backorder_qty, 0));
+  return {
+    line_no: index + 1,
+    product_id: line.product_id || null,
+    item_number: String(line.item_number || '').trim() || null,
+    product_name: String(line.product_name || line.name || '').trim(),
+    unit,
+    ordered_qty: parseFloat(orderedQty.toFixed(3)),
+    received_qty: parseFloat(receivedQty.toFixed(3)),
+    over_received_qty: parseFloat(overReceivedQty.toFixed(3)),
+    backordered_qty: parseFloat(backorderedQty.toFixed(3)),
+    waived_backorder_qty: parseFloat(waivedBackorderQty.toFixed(3)),
+    unit_cost: parseFloat(unitCost.toFixed(4)),
+    line_total: parseFloat((orderedQty * unitCost).toFixed(2)),
+    received_total: parseFloat((receivedQty * unitCost).toFixed(2)),
+    urgency: line.urgency || 'normal',
+    match_status: line.match_status || 'matched'
+  };
+}
+
+function summarizeVendorPo(po) {
+  const lines = Array.isArray(po.lines) ? po.lines : [];
+  const totalOrderedQty = lines.reduce((sum, l) => sum + toNumber(l.ordered_qty, 0), 0);
+  const totalReceivedQty = lines.reduce((sum, l) => sum + toNumber(l.received_qty, 0), 0);
+  const totalOverReceivedQty = lines.reduce((sum, l) => sum + toNumber(l.over_received_qty, 0), 0);
+  const totalBackorderedQty = lines.reduce((sum, l) => sum + toNumber(l.backordered_qty, 0), 0);
+  const totalWaivedBackorderQty = lines.reduce((sum, l) => sum + toNumber(l.waived_backorder_qty, 0), 0);
+  const totalOrderedCost = lines.reduce((sum, l) => sum + toNumber(l.line_total, 0), 0);
+  const totalReceivedCost = lines.reduce((sum, l) => sum + toNumber(l.received_total, 0), 0);
+  const allClosed = lines.length > 0 && lines.every((line) => {
+    const ordered = toNumber(line.ordered_qty, 0);
+    const received = toNumber(line.received_qty, 0);
+    const waived = toNumber(line.waived_backorder_qty, 0);
+    const backordered = toNumber(line.backordered_qty, 0);
+    return received >= ordered || backordered <= 0 || (received + waived) >= ordered;
+  });
+  const hasBackorders = totalBackorderedQty > 0;
+  const hasReceipts = totalReceivedQty > 0;
+  return {
+    ...po,
+    receipt_rules: normalizeReceiptRules(po.receipt_rules),
+    line_count: lines.length,
+    total_ordered_qty: parseFloat(totalOrderedQty.toFixed(3)),
+    total_received_qty: parseFloat(totalReceivedQty.toFixed(3)),
+    total_over_received_qty: parseFloat(totalOverReceivedQty.toFixed(3)),
+    total_backordered_qty: parseFloat(totalBackorderedQty.toFixed(3)),
+    total_waived_backorder_qty: parseFloat(totalWaivedBackorderQty.toFixed(3)),
+    total_ordered_cost: parseFloat(totalOrderedCost.toFixed(2)),
+    total_received_cost: parseFloat(totalReceivedCost.toFixed(2)),
+    status: allClosed
+      ? 'received'
+      : (hasReceipts ? (hasBackorders ? 'backordered' : 'partial_received') : (po.status || 'open'))
+  };
 }
 
 async function loadInventoryAndUsage(lookbackDays) {
@@ -574,6 +652,357 @@ router.patch('/purchase-order-drafts/:id/status', authenticateToken, requireRole
   res.json(updated);
 });
 
+router.get('/vendor-purchase-orders', authenticateToken, (req, res) => {
+  const ops = readOpsData();
+  const orders = (ops.vendorPurchaseOrders || [])
+    .map(po => summarizeVendorPo(po))
+    .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
+  res.json(orders.slice(0, 200));
+});
+
+router.post('/vendor-purchase-orders/from-draft/:id', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
+  const ops = readOpsData();
+  ops.poDrafts = ops.poDrafts || [];
+  ops.vendorPurchaseOrders = ops.vendorPurchaseOrders || [];
+  const draftIdx = ops.poDrafts.findIndex(d => d.id === req.params.id);
+  if (draftIdx === -1) return res.status(404).json({ error: 'Draft not found' });
+
+  const draft = ops.poDrafts[draftIdx];
+  const sourceLines = Array.isArray(draft.lines) ? draft.lines : [];
+  if (!sourceLines.length) return res.status(400).json({ error: 'Draft has no lines' });
+
+  const vendor = String(req.body.vendor || draft.vendor || '').trim() || 'Unassigned Vendor';
+  const receiptRules = normalizeReceiptRules(req.body.receiptRules || draft.receipt_rules);
+  const po = summarizeVendorPo({
+    id: genId('po'),
+    po_number: String(req.body.poNumber || '').trim() || genPoNumber(),
+    vendor,
+    status: 'open',
+    expected_date: req.body.expectedDate || null,
+    notes: String(req.body.notes || draft.notes || '').trim() || null,
+    source_draft_id: draft.id,
+    receipt_rules: receiptRules,
+    lines: sourceLines.map((line, idx) => normalizePoLine(line, idx)),
+    receipts: [],
+    created_by: req.user?.name || req.user?.email || 'system',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  });
+
+  ops.vendorPurchaseOrders.unshift(po);
+  ops.poDrafts[draftIdx] = {
+    ...draft,
+    status: 'ordered',
+    linked_vendor_po_id: po.id,
+    updated_at: new Date().toISOString(),
+    updated_by: req.user?.name || req.user?.email || 'system'
+  };
+  writeOpsData(ops);
+  res.json(po);
+});
+
+router.post('/vendor-purchase-orders', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
+  const linesInput = Array.isArray(req.body.lines) ? req.body.lines : [];
+  if (!linesInput.length) return res.status(400).json({ error: 'lines are required' });
+
+  const normalizedLines = linesInput
+    .map((line, idx) => normalizePoLine(line, idx))
+    .filter(line => line.product_name && line.ordered_qty > 0);
+  if (!normalizedLines.length) return res.status(400).json({ error: 'No valid PO lines were provided' });
+
+  const vendor = String(req.body.vendor || '').trim();
+  if (!vendor) return res.status(400).json({ error: 'vendor is required' });
+  const receiptRules = normalizeReceiptRules(req.body.receiptRules);
+
+  const po = summarizeVendorPo({
+    id: genId('po'),
+    po_number: String(req.body.poNumber || '').trim() || genPoNumber(),
+    vendor,
+    status: 'open',
+    expected_date: req.body.expectedDate || null,
+    notes: String(req.body.notes || '').trim() || null,
+    source_draft_id: req.body.sourceDraftId || null,
+    receipt_rules: receiptRules,
+    lines: normalizedLines,
+    receipts: [],
+    created_by: req.user?.name || req.user?.email || 'system',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString()
+  });
+
+  const ops = readOpsData();
+  ops.vendorPurchaseOrders = ops.vendorPurchaseOrders || [];
+  ops.vendorPurchaseOrders.unshift(po);
+  writeOpsData(ops);
+  res.json(po);
+});
+
+router.patch('/vendor-purchase-orders/:id/status', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
+  const allowed = new Set(['open', 'partial_received', 'backordered', 'received', 'cancelled']);
+  const nextStatus = String(req.body.status || '').trim().toLowerCase();
+  if (!allowed.has(nextStatus)) return res.status(400).json({ error: 'Invalid status' });
+
+  const ops = readOpsData();
+  ops.vendorPurchaseOrders = ops.vendorPurchaseOrders || [];
+  const idx = ops.vendorPurchaseOrders.findIndex(po => po.id === req.params.id);
+  if (idx === -1) return res.status(404).json({ error: 'Vendor PO not found' });
+  const current = summarizeVendorPo(ops.vendorPurchaseOrders[idx]);
+
+  if ((current.status === 'received' || current.status === 'cancelled') && nextStatus === 'open') {
+    return res.status(400).json({ error: `Cannot reopen PO from ${current.status}` });
+  }
+
+  const updated = {
+    ...current,
+    status: nextStatus,
+    updated_at: new Date().toISOString(),
+    updated_by: req.user?.name || req.user?.email || 'system'
+  };
+  ops.vendorPurchaseOrders[idx] = updated;
+  writeOpsData(ops);
+  res.json(updated);
+});
+
+router.post('/vendor-purchase-orders/:id/receive', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const receiveLines = Array.isArray(req.body.lines) ? req.body.lines : [];
+  if (!receiveLines.length) return res.status(400).json({ error: 'lines are required' });
+
+  const ops = readOpsData();
+  ops.vendorPurchaseOrders = ops.vendorPurchaseOrders || [];
+  const poIdx = ops.vendorPurchaseOrders.findIndex(po => po.id === req.params.id);
+  if (poIdx === -1) return res.status(404).json({ error: 'Vendor PO not found' });
+
+  const po = summarizeVendorPo(ops.vendorPurchaseOrders[poIdx]);
+  if (po.status === 'received' || po.status === 'cancelled') {
+    return res.status(400).json({ error: `Cannot receive against PO with status ${po.status}` });
+  }
+  const receiptRules = normalizeReceiptRules({ ...(po.receipt_rules || {}), ...(req.body.receiptRules || {}) });
+  const overReceiptPolicy = receiptRules.over_receipt_policy;
+  const backorderPolicy = receiptRules.backorder_policy;
+
+  // Validate reject-policy over-receipts before mutating inventory/PO state.
+  if (overReceiptPolicy === 'reject') {
+    const rejectedLines = [];
+    for (const rawLine of receiveLines) {
+      const targetLineNo = parseInt(rawLine.line_no, 10);
+      const poLine = po.lines.find(l => l.line_no === targetLineNo)
+        || po.lines.find(l => l.item_number && String(rawLine.item_number || '').trim() === l.item_number)
+        || po.lines.find(l => String(l.product_name || '').toLowerCase() === String(rawLine.product_name || '').trim().toLowerCase());
+      if (!poLine) continue;
+      const requestedQty = Math.max(0, toNumber(rawLine.qty_received ?? rawLine.quantity, 0));
+      if (requestedQty <= 0) continue;
+      const ordered = Math.max(0, toNumber(poLine.ordered_qty, 0));
+      const alreadyReceived = Math.max(0, toNumber(poLine.received_qty, 0));
+      const remainingBefore = Math.max(0, ordered - Math.min(alreadyReceived, ordered));
+      if (requestedQty > remainingBefore) {
+        rejectedLines.push({
+          line_no: poLine.line_no,
+          product_name: poLine.product_name,
+          requested_receive_qty: parseFloat(requestedQty.toFixed(3)),
+          remaining_qty: parseFloat(remainingBefore.toFixed(3)),
+          over_receipt_qty: parseFloat((requestedQty - remainingBefore).toFixed(3))
+        });
+      }
+    }
+    if (rejectedLines.length) {
+      return res.status(409).json({
+        error: 'Over-receipt rejected by receipt policy',
+        code: 'OVER_RECEIPT_REJECTED',
+        over_receipt_policy: overReceiptPolicy,
+        rejected_lines: rejectedLines
+      });
+    }
+  }
+
+  const { data: inventory, error: invErr } = await supabase.from('seafood_inventory').select('*');
+  if (invErr) return res.status(500).json({ error: invErr.message });
+  const inventoryRows = inventory || [];
+
+  const receiptLines = [];
+  const stockHistoryRows = [];
+  let totalRequestedQty = 0;
+  let totalAcceptedQty = 0;
+  let totalRejectedQty = 0;
+  let totalOverReceiptQty = 0;
+
+  for (const rawLine of receiveLines) {
+    const targetLineNo = parseInt(rawLine.line_no, 10);
+    const poLine = po.lines.find(l => l.line_no === targetLineNo)
+      || po.lines.find(l => l.item_number && String(rawLine.item_number || '').trim() === l.item_number)
+      || po.lines.find(l => String(l.product_name || '').toLowerCase() === String(rawLine.product_name || '').trim().toLowerCase());
+    if (!poLine) continue;
+
+    const requestedQty = Math.max(0, toNumber(rawLine.qty_received ?? rawLine.quantity, 0));
+    if (requestedQty <= 0) continue;
+    totalRequestedQty += requestedQty;
+
+    const orderedQty = Math.max(0, toNumber(poLine.ordered_qty, 0));
+    const previousReceivedQty = Math.max(0, toNumber(poLine.received_qty, 0));
+    const previouslyReceivedTowardOrdered = Math.min(previousReceivedQty, orderedQty);
+    const remainingBefore = Math.max(0, orderedQty - previouslyReceivedTowardOrdered);
+    const overRequestedQty = Math.max(0, requestedQty - remainingBefore);
+    const acceptedQty = overReceiptPolicy === 'allow'
+      ? requestedQty
+      : Math.min(remainingBefore, requestedQty);
+    const rejectedQty = overReceiptPolicy === 'cap' ? Math.max(0, requestedQty - acceptedQty) : 0;
+    if (acceptedQty <= 0) continue;
+    totalAcceptedQty += acceptedQty;
+    totalRejectedQty += rejectedQty;
+    totalOverReceiptQty += overRequestedQty;
+
+    const unitCost = Math.max(0, toNumber(rawLine.unit_cost, toNumber(poLine.unit_cost, 0)));
+    poLine.received_qty = parseFloat((previousReceivedQty + acceptedQty).toFixed(3));
+    poLine.over_received_qty = parseFloat((Math.max(0, toNumber(poLine.over_received_qty, 0)) + (overReceiptPolicy === 'allow' ? overRequestedQty : 0)).toFixed(3));
+    poLine.unit_cost = parseFloat(unitCost.toFixed(4));
+    poLine.line_total = parseFloat((orderedQty * unitCost).toFixed(2));
+    poLine.received_total = parseFloat((toNumber(poLine.received_qty, 0) * unitCost).toFixed(2));
+    const receivedTowardOrdered = Math.min(toNumber(poLine.received_qty, 0), orderedQty);
+    const backorderedAfterRaw = Math.max(0, orderedQty - receivedTowardOrdered);
+    let waivedBackorderQtyApplied = 0;
+    if (backorderPolicy === 'waive' && backorderedAfterRaw > 0) {
+      waivedBackorderQtyApplied = backorderedAfterRaw;
+      poLine.waived_backorder_qty = parseFloat((Math.max(0, toNumber(poLine.waived_backorder_qty, 0)) + waivedBackorderQtyApplied).toFixed(3));
+      poLine.backordered_qty = 0;
+    } else {
+      poLine.backordered_qty = parseFloat(backorderedAfterRaw.toFixed(3));
+    }
+    const remainingAfter = Math.max(0, orderedQty - Math.min(toNumber(poLine.received_qty, 0), orderedQty));
+    const varianceQty = parseFloat((acceptedQty - remainingBefore).toFixed(3));
+    const varianceType = varianceQty > 0 ? 'over_receipt' : (varianceQty < 0 ? 'short_receipt' : 'exact_receipt');
+
+    const matchedInventory = resolveInventoryMatch(poLine, inventoryRows);
+    const nowIso = new Date().toISOString();
+    let itemNumber = poLine.item_number;
+    let newQty = acceptedQty;
+    let newCost = unitCost;
+    let prevInventoryQty = 0;
+    let prevInventoryCost = 0;
+
+    if (matchedInventory) {
+      itemNumber = matchedInventory.item_number;
+      const prevQty = Math.max(0, toNumber(matchedInventory.on_hand_qty, 0));
+      const prevCost = Math.max(0, toNumber(matchedInventory.cost, 0));
+      prevInventoryQty = prevQty;
+      prevInventoryCost = prevCost;
+      newQty = parseFloat((prevQty + acceptedQty).toFixed(4));
+      if (unitCost > 0 && newQty > 0) {
+        const weighted = ((prevQty * prevCost) + (acceptedQty * unitCost)) / newQty;
+        newCost = parseFloat(weighted.toFixed(4));
+      } else {
+        newCost = prevCost;
+      }
+      const updateFields = {
+        on_hand_qty: newQty,
+        on_hand_weight: newQty,
+        updated_at: nowIso
+      };
+      if (unitCost > 0) updateFields.cost = newCost;
+      const { error: updErr } = await supabase
+        .from('seafood_inventory')
+        .update(updateFields)
+        .eq('item_number', itemNumber);
+      if (updErr) return res.status(500).json({ error: updErr.message });
+      matchedInventory.on_hand_qty = newQty;
+      matchedInventory.cost = newCost;
+    } else {
+      itemNumber = poLine.item_number || `PO-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
+      const insertPayload = {
+        item_number: itemNumber,
+        description: poLine.product_name,
+        category: 'Other',
+        unit: poLine.unit || 'each',
+        cost: unitCost,
+        on_hand_qty: acceptedQty,
+        on_hand_weight: acceptedQty,
+        lot_item: 'N',
+        updated_at: nowIso
+      };
+      const { data: inserted, error: insErr } = await supabase
+        .from('seafood_inventory')
+        .insert([insertPayload])
+        .select()
+        .single();
+      if (insErr) return res.status(500).json({ error: insErr.message });
+      inventoryRows.push(inserted);
+      newQty = acceptedQty;
+      newCost = unitCost;
+      prevInventoryQty = 0;
+      prevInventoryCost = 0;
+    }
+
+    stockHistoryRows.push({
+      item_number: itemNumber,
+      change_qty: acceptedQty,
+      new_qty: newQty,
+      change_type: 'restock',
+      notes: `PO ${po.po_number} receipt (${po.vendor})`,
+      created_by: req.user?.name || req.user?.email || 'system'
+    });
+
+    receiptLines.push({
+      line_no: poLine.line_no,
+      item_number: itemNumber,
+      product_name: poLine.product_name,
+      qty_received: parseFloat(acceptedQty.toFixed(3)),
+      requested_receive_qty: parseFloat(requestedQty.toFixed(3)),
+      accepted_receive_qty: parseFloat(acceptedQty.toFixed(3)),
+      rejected_receive_qty: parseFloat(rejectedQty.toFixed(3)),
+      over_receipt_qty: parseFloat(overRequestedQty.toFixed(3)),
+      remaining_before_qty: parseFloat(remainingBefore.toFixed(3)),
+      remaining_after_qty: parseFloat(remainingAfter.toFixed(3)),
+      quantity_variance_qty: varianceQty,
+      variance_type: varianceType,
+      backordered_qty_after_receipt: parseFloat(toNumber(poLine.backordered_qty, 0).toFixed(3)),
+      waived_backorder_qty_applied: parseFloat(waivedBackorderQtyApplied.toFixed(3)),
+      unit: poLine.unit,
+      unit_cost: parseFloat(unitCost.toFixed(4)),
+      inventory_qty_before_receipt: parseFloat(prevInventoryQty.toFixed(4)),
+      inventory_cost_before_receipt: parseFloat(prevInventoryCost.toFixed(4)),
+      inventory_cost_after_receipt: parseFloat(toNumber(newCost, unitCost).toFixed(4)),
+      inventory_qty_after_receipt: parseFloat(toNumber(newQty, acceptedQty).toFixed(4)),
+      over_receipt_policy: overReceiptPolicy,
+      backorder_policy: backorderPolicy
+    });
+  }
+
+  if (!receiptLines.length) return res.status(400).json({ error: 'No valid receive quantities were applied' });
+  if (stockHistoryRows.length) {
+    const { error: historyErr } = await supabase.from('inventory_stock_history').insert(stockHistoryRows);
+    if (historyErr) return res.status(500).json({ error: historyErr.message });
+  }
+
+  po.receipts = po.receipts || [];
+  const totalBackorderedAfterReceipt = po.lines.reduce((sum, line) => sum + Math.max(0, toNumber(line.backordered_qty, 0)), 0);
+  po.receipts.unshift({
+    id: genId('rcv'),
+    received_at: new Date().toISOString(),
+    received_by: req.user?.name || req.user?.email || 'system',
+    notes: String(req.body.notes || '').trim() || null,
+    receipt_rules_applied: {
+      over_receipt_policy: overReceiptPolicy,
+      backorder_policy: backorderPolicy,
+    },
+    variance_audit: {
+      total_requested_qty: parseFloat(totalRequestedQty.toFixed(3)),
+      total_accepted_qty: parseFloat(totalAcceptedQty.toFixed(3)),
+      total_rejected_qty: parseFloat(totalRejectedQty.toFixed(3)),
+      total_over_receipt_qty: parseFloat(totalOverReceiptQty.toFixed(3)),
+      total_backordered_qty_after_receipt: parseFloat(totalBackorderedAfterReceipt.toFixed(3)),
+      line_count_requested: receiveLines.length,
+      line_count_applied: receiptLines.length,
+    },
+    lines: receiptLines
+  });
+  po.receipt_rules = receiptRules;
+  po.updated_at = new Date().toISOString();
+  po.updated_by = req.user?.name || req.user?.email || 'system';
+
+  const summarized = summarizeVendorPo(po);
+  ops.vendorPurchaseOrders[poIdx] = summarized;
+  writeOpsData(ops);
+  res.json(summarized);
+});
+
 router.get('/capabilities', authenticateToken, (req, res) => {
   res.json({
     catch_weight_management: true,
@@ -581,6 +1010,9 @@ router.get('/capabilities', authenticateToken, (req, res) => {
     case_breaks_uom: true,
     inventory_projection_30_day: true,
     automated_purchasing: true,
+    vendor_purchase_orders: true,
+    purchasing_receiving_workflow: true,
+    weighted_inventory_cost_updates: true,
     warehouse_barcode_android: true,
     realtime_inventory_mobile: true,
     multi_warehouse_cycle_count_returns: true,

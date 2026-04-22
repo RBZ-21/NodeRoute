@@ -421,6 +421,12 @@ td{padding:12px 16px;vertical-align:middle}
 .ops-pill.warn{background:rgba(245,158,11,0.16);color:var(--warn)}
 .ops-pill.bad{background:rgba(239,68,68,0.16);color:var(--danger)}
 @media(max-width:900px){.ops-grid{grid-template-columns:1fr}.ops-kpi{grid-template-columns:1fr}}
+.receive-po-table{width:100%;border-collapse:collapse;margin:8px 0 12px}
+.receive-po-table th{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);padding:8px 6px;border-bottom:1px solid var(--border);text-align:left}
+.receive-po-table td{padding:8px 6px;border-bottom:1px solid var(--border);vertical-align:middle}
+.receive-po-input{width:100%;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px}
+.receive-po-input:focus{outline:none;border-color:var(--accent)}
+.receive-po-note{font-size:11px;color:var(--muted)}
 .inv-cat-other{background:rgba(136,153,187,0.12);color:var(--muted);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
 .stock-in{color:var(--accent);font-weight:600;font-size:12px}
 .stock-low{color:var(--warn);font-weight:600;font-size:12px}
@@ -690,11 +696,14 @@ td{padding:12px 16px;vertical-align:middle}
         <span class="nav-group-chevron">›</span>
       </div>
       <div class="nav-group-items" id="group-operations">
+        <div class="nav-item nav-child" data-tab="purchasing" onclick="showTab('purchasing',this)">
+          <span class="nav-icon">🧾</span>Purchasing
+        </div>
         <div class="nav-item nav-child" data-tab="warehouse" onclick="showTab('warehouse',this)">
           <span class="nav-icon">🏬</span>Warehouse
         </div>
         <div class="nav-item nav-child" data-tab="planning" onclick="showTab('planning',this)">
-          <span class="nav-icon">📐</span>Planning
+          <span class="nav-icon">📐</span>Planning & Rules
         </div>
         <div class="nav-item nav-child" data-tab="integrations" onclick="showTab('integrations',this)">
           <span class="nav-icon">🔌</span>Integrations
@@ -797,6 +806,17 @@ td{padding:12px 16px;vertical-align:middle}
           </thead>
           <tbody id="dashDelivTable"></tbody>
         </table>
+      </div>
+      <div class="ops-card" style="margin-top:12px">
+        <div class="ops-title">Purchasing Command Center</div>
+        <div class="ops-sub">Jump directly into vendor PO creation, receiving, backorders, and exports.</div>
+        <div class="ops-form">
+          <button class="btn btn-accent" onclick="openPurchasingWorkspace('all')">Open Purchasing Workspace</button>
+          <button class="btn btn-outline" onclick="openPurchasingWorkspace('open')">Receive Open POs</button>
+          <button class="btn btn-outline" onclick="openPurchasingWorkspace('backordered')">Review Backorders</button>
+          <button class="btn btn-outline" onclick="openPurchasingWorkspace('received', true)">Export Received</button>
+        </div>
+        <div class="receive-po-note" id="dashboardPurchasingSnapshot" style="margin-top:8px">Loading purchasing summary…</div>
       </div>
     </div>
 
@@ -1908,9 +1928,41 @@ td{padding:12px 16px;vertical-align:middle}
         <div id="projectionList" class="ops-mini-list"></div>
       </div>
       <div class="ops-card" style="margin-top:12px">
+        <div class="ops-title">PO Execution Workspace</div>
+        <div class="ops-sub">Planning owns rules, projections, and draft generation. Purchasing owns vendor POs, receiving, filters, and export.</div>
+        <button class="btn btn-accent" onclick="showTab('purchasing', null)">Go To Purchasing</button>
+      </div>
+    </div>
+
+    <!-- TAB: PURCHASING -->
+    <div class="tab-pane" id="tab-purchasing">
+      <div class="ops-kpi">
+        <div class="kpi-card"><div class="kpi-label">Open Vendor POs</div><div class="kpi-value" id="purchasingOpenCount">0</div></div>
+        <div class="kpi-card"><div class="kpi-label">Backordered POs</div><div class="kpi-value" id="purchasingBackorderCount">0</div></div>
+        <div class="kpi-card"><div class="kpi-label">Vendor POs Total</div><div class="kpi-value" id="purchasingTotalCount">0</div></div>
+      </div>
+      <div class="ops-card">
         <div class="ops-title">Draft Purchase Orders</div>
-        <div class="ops-sub">Generated from reorder suggestions and ready to move through your buying workflow.</div>
+        <div class="ops-sub">Generate and advance drafts, then convert to vendor PO with one click.</div>
         <div id="poDraftList" class="ops-mini-list"></div>
+      </div>
+      <div class="ops-card" style="margin-top:12px">
+        <div class="ops-title">Vendor Purchase Orders & Receiving</div>
+        <div class="ops-sub">Search and filter vendor POs, receive lines, and export filtered operational data.</div>
+        <div class="ops-form" style="margin-top:8px">
+          <input class="search-input" id="vendorPoSearch" placeholder="Search PO #, vendor, item…" oninput="renderPlanningTab()"/>
+          <select class="filter-select" id="vendorPoStatusFilter" onchange="renderPlanningTab()">
+            <option value="all">All statuses</option>
+            <option value="open">Open</option>
+            <option value="partial_received">Partial Received</option>
+            <option value="backordered">Backordered</option>
+            <option value="received">Received</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <button class="btn btn-outline" onclick="exportVendorPurchaseOrdersCsv()">Export CSV</button>
+        </div>
+        <div class="receive-po-note" id="vendorPoFilterSummary" style="margin-top:8px"></div>
+        <div id="vendorPoList" class="ops-mini-list"></div>
       </div>
     </div>
 
@@ -2559,6 +2611,37 @@ td{padding:12px 16px;vertical-align:middle}
   </div>
 </div>
 
+<!-- VENDOR PO RECEIVE MODAL -->
+<div class="modal-overlay" id="vendorPoReceiveModal">
+  <div class="modal-box" style="width:min(900px,96vw);max-height:90vh;overflow-y:auto">
+    <h3>Receive Vendor Purchase Order</h3>
+    <p class="modal-sub" id="vendorPoReceiveSub">Review line receipts, enter actual quantities and unit costs, then submit once.</p>
+    <input type="hidden" id="vendorPoReceiveId"/>
+    <div style="overflow-x:auto">
+      <table class="receive-po-table">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Ordered</th>
+            <th>Received</th>
+            <th>Remaining</th>
+            <th>Receive Now</th>
+            <th>Unit Cost</th>
+          </tr>
+        </thead>
+        <tbody id="vendorPoReceiveBody"></tbody>
+      </table>
+    </div>
+    <label class="modal-label">Receipt Notes (optional)</label>
+    <input class="modal-input" id="vendorPoReceiveNotes" placeholder="Packing slip / condition notes"/>
+    <div class="modal-result" id="vendorPoReceiveResult"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeVendorPoReceiveModal()">Cancel</button>
+      <button class="btn btn-accent" id="vendorPoReceiveSubmitBtn" onclick="submitVendorPoReceiveModal()">Receive Selected Lines</button>
+    </div>
+  </div>
+</div>
+
 <!-- INVITE DRIVER MODAL -->
 <div class="modal-overlay" id="inviteModal">
   <div class="modal-box">
@@ -2611,6 +2694,8 @@ let opsPurchasing = [];
 let opsBarcodeEvents = [];
 let opsEdiJobs = [];
 let opsPoDrafts = [];
+let opsVendorPurchaseOrders = [];
+let activeVendorPoReceive = null;
 
 function h(v) {
   return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -3707,7 +3792,7 @@ const NAV_GROUP_MAP = {
   deliveries:'logistics', map:'logistics', drivers:'logistics', routes:'logistics', stops:'logistics',
   customers:'people', vendors:'people', users:'people',
   financials:'financials', invoices:'financials', analytics:'financials', inventory:'financials', forecast:'financials',
-  warehouse:'operations', planning:'operations', integrations:'operations',
+  purchasing:'operations', warehouse:'operations', planning:'operations', integrations:'operations',
   aihelp:'ai'
 };
 
@@ -3734,6 +3819,7 @@ function showTab(name, el) {
   if (mobileIdx >= 0) document.querySelectorAll('.mobile-tab')[mobileIdx]?.classList.add('active');
   if (name === 'orders') { fetchOrders(); }
   if (name === 'invoices') { renderInprocessOrders(); }
+  if (name === 'purchasing') { loadPurchasingTab(); }
   if (name === 'warehouse') { loadWarehouseTab(); }
   if (name === 'planning') { loadPlanningTab(); }
   if (name === 'integrations') { loadIntegrationsTab(); }
@@ -6120,6 +6206,8 @@ document.getElementById('restockModal').addEventListener('click', e => { if (e.t
 document.getElementById('yieldModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeYieldModal(); });
 document.getElementById('lotModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeLotModal(); });
 document.getElementById('depleteLotModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDepleteLotModal(); });
+document.getElementById('vendorPoReceiveModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeVendorPoReceiveModal(); });
+document.getElementById('vendorPoReceiveModal').addEventListener('keydown', e => { if (e.key === 'Escape') closeVendorPoReceiveModal(); });
 
 // ── INVENTORY SUB-TABS ─────────────────────────────────
 function showInvTab(name, el) {
@@ -7586,28 +7674,71 @@ async function loadPlanningTab() {
   await refreshPlanningData();
 }
 
+async function loadPurchasingTab() {
+  await refreshPlanningData();
+}
+
+function openPurchasingWorkspace(status = 'all', autoExport = false) {
+  showTab('purchasing', null);
+  const statusEl = document.getElementById('vendorPoStatusFilter');
+  if (statusEl) statusEl.value = status || 'all';
+  renderPlanningTab();
+  if (autoExport) exportVendorPurchaseOrdersCsv();
+}
+
 async function refreshPlanningData() {
   try {
     const leadTimeDays = parseInt(document.getElementById('leadTimeDays')?.value || '5', 10);
     const coverageDays = parseInt(document.getElementById('coverageDays')?.value || '30', 10);
-    const [rulesRes, projRes, suggRes, draftRes] = await Promise.all([
+    const [rulesRes, projRes, suggRes, draftRes, vendorPoRes] = await Promise.all([
       fetch(`${API}/ops/uom-rules`, authHeaders),
       fetch(`${API}/ops/projections?days=30&lookbackDays=30`, authHeaders),
       fetch(`${API}/ops/purchasing-suggestions?coverageDays=${coverageDays}&leadTimeDays=${leadTimeDays}&lookbackDays=30`, authHeaders),
-      fetch(`${API}/ops/purchase-order-drafts`, authHeaders)
+      fetch(`${API}/ops/purchase-order-drafts`, authHeaders),
+      fetch(`${API}/ops/vendor-purchase-orders`, authHeaders)
     ]);
     opsUomRules = await rulesRes.json();
     opsProjection = (await projRes.json()).projections || [];
     opsPurchasing = (await suggRes.json()).suggestions || [];
     opsPoDrafts = await draftRes.json();
+    opsVendorPurchaseOrders = await vendorPoRes.json();
     renderPlanningTab();
   } catch (e) {}
+}
+
+function filteredVendorPurchaseOrders() {
+  const searchTerm = String(document.getElementById('vendorPoSearch')?.value || '').trim().toLowerCase();
+  const statusFilter = String(document.getElementById('vendorPoStatusFilter')?.value || 'all').trim().toLowerCase();
+  return (opsVendorPurchaseOrders || []).filter((po) => {
+    const status = String(po.status || 'open').toLowerCase();
+    if (statusFilter !== 'all' && status !== statusFilter) return false;
+    if (!searchTerm) return true;
+    const lineText = Array.isArray(po.lines)
+      ? po.lines.map((line) => `${line.product_name || ''} ${line.item_number || ''}`).join(' ')
+      : '';
+    const haystack = `${po.po_number || ''} ${po.vendor || ''} ${status} ${lineText}`.toLowerCase();
+    return haystack.includes(searchTerm);
+  });
 }
 
 function renderPlanningTab() {
   document.getElementById('poDraftCount').textContent = (opsPoDrafts || []).length;
   document.getElementById('projReorderCount').textContent = (opsPurchasing || []).length;
   document.getElementById('projRiskCount').textContent = (opsProjection || []).filter(p => p.projected_remaining_qty < 0).length;
+  const vendorPos = opsVendorPurchaseOrders || [];
+  const openPos = vendorPos.filter(po => String(po.status || '').toLowerCase() === 'open').length;
+  const backorderedPos = vendorPos.filter(po => String(po.status || '').toLowerCase() === 'backordered').length;
+  const receiveQueue = vendorPos.filter(po => ['open', 'partial_received', 'backordered'].includes(String(po.status || '').toLowerCase())).length;
+  const purchasingOpen = document.getElementById('purchasingOpenCount');
+  if (purchasingOpen) purchasingOpen.textContent = openPos;
+  const purchasingBackordered = document.getElementById('purchasingBackorderCount');
+  if (purchasingBackordered) purchasingBackordered.textContent = backorderedPos;
+  const purchasingTotal = document.getElementById('purchasingTotalCount');
+  if (purchasingTotal) purchasingTotal.textContent = vendorPos.length;
+  const dashboardSnapshot = document.getElementById('dashboardPurchasingSnapshot');
+  if (dashboardSnapshot) {
+    dashboardSnapshot.textContent = `${receiveQueue} POs need receiving action · ${backorderedPos} currently backordered · ${vendorPos.length} total vendor POs`;
+  }
 
   const uomList = document.getElementById('uomRuleList');
   if (uomList) {
@@ -7636,6 +7767,9 @@ function renderPlanningTab() {
       const orderedBtn = status === 'ready'
         ? `<button class="btn btn-outline" style="padding:3px 8px;font-size:11px" onclick="updatePurchaseOrderDraftStatus('${h(d.id)}','ordered')">Mark Ordered</button>`
         : '';
+      const createVendorPoBtn = (status === 'ready' || status === 'ordered') && !d.linked_vendor_po_id
+        ? `<button class="btn btn-outline" style="padding:3px 8px;font-size:11px" onclick="createVendorPurchaseOrderFromDraft('${h(d.id)}')">Create Vendor PO</button>`
+        : '';
       const archiveBtn = status !== 'archived'
         ? `<button class="btn btn-outline" style="padding:3px 8px;font-size:11px" onclick="updatePurchaseOrderDraftStatus('${h(d.id)}','archived')">Archive</button>`
         : '';
@@ -7643,11 +7777,95 @@ function renderPlanningTab() {
         <span><strong>${h(d.draft_number || 'Draft PO')}</strong> · ${h(d.vendor || 'Unassigned Vendor')} · ${h(d.line_count || 0)} lines · est $${h((d.total_estimated_cost || 0).toFixed ? d.total_estimated_cost.toFixed(2) : d.total_estimated_cost)}</span>
         <span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           <span class="ops-pill ${pill}">${h(status)}</span>
-          ${readyBtn}${orderedBtn}${archiveBtn}
+          ${readyBtn}${orderedBtn}${createVendorPoBtn}${archiveBtn}
         </span>
       </div>`;
     }).join('') || `<div class="ops-row"><span style="color:var(--muted)">No draft purchase orders yet</span></div>`;
   }
+
+  const vendorPoList = document.getElementById('vendorPoList');
+  if (vendorPoList) {
+    const filtered = filteredVendorPurchaseOrders();
+    const summary = document.getElementById('vendorPoFilterSummary');
+    if (summary) {
+      const total = (opsVendorPurchaseOrders || []).length;
+      summary.textContent = `${filtered.length} of ${total} vendor POs shown`;
+    }
+    vendorPoList.innerHTML = filtered.slice(0, 80).map(po => {
+      const status = String(po.status || 'open').toLowerCase();
+      const pill = status === 'received' ? 'good' : (status === 'cancelled' ? 'bad' : (status === 'backordered' ? 'bad' : 'warn'));
+      const receiveBtn = (status === 'open' || status === 'partial_received' || status === 'backordered')
+        ? `<button class="btn btn-outline" style="padding:3px 8px;font-size:11px" onclick="receiveVendorPurchaseOrder('${h(po.id)}')">Receive</button>`
+        : '';
+      return `<div class="ops-row">
+        <span><strong>${h(po.po_number || 'Vendor PO')}</strong> · ${h(po.vendor || 'Unassigned Vendor')} · ${h(po.line_count || 0)} lines · recv ${h(po.total_received_qty || 0)}/${h(po.total_ordered_qty || 0)} · bo ${h(po.total_backordered_qty || 0)} · $${h((po.total_received_cost || 0).toFixed ? po.total_received_cost.toFixed(2) : po.total_received_cost)}</span>
+        <span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span class="ops-pill ${pill}">${h(status)}</span>
+          ${receiveBtn}
+        </span>
+      </div>`;
+    }).join('') || `<div class="ops-row"><span style="color:var(--muted)">No vendor purchase orders yet</span></div>`;
+  }
+}
+
+function exportVendorPurchaseOrdersCsv() {
+  const rows = filteredVendorPurchaseOrders();
+  if (!rows.length) {
+    alert('No vendor purchase orders match the current filters.');
+    return;
+  }
+  const header = [
+    'PO Number',
+    'Vendor',
+    'Status',
+    'Expected Date',
+    'Line #',
+    'Item #',
+    'Product',
+    'Unit',
+    'Ordered Qty',
+    'Received Qty',
+    'Backordered Qty',
+    'Over Received Qty',
+    'Unit Cost',
+    'Line Total',
+    'Received Total',
+    'Updated At',
+  ];
+  const csvRows = [];
+  for (const po of rows) {
+    const lines = Array.isArray(po.lines) && po.lines.length ? po.lines : [null];
+    for (const line of lines) {
+      csvRows.push([
+        po.po_number || '',
+        po.vendor || '',
+        po.status || '',
+        po.expected_date || '',
+        line?.line_no ?? '',
+        line?.item_number ?? '',
+        line?.product_name ?? '',
+        line?.unit ?? '',
+        line?.ordered_qty ?? '',
+        line?.received_qty ?? '',
+        line?.backordered_qty ?? '',
+        line?.over_received_qty ?? '',
+        line?.unit_cost ?? '',
+        line?.line_total ?? '',
+        line?.received_total ?? '',
+        po.updated_at || po.created_at || '',
+      ]);
+    }
+  }
+  const csv = [header, ...csvRows]
+    .map((row) => row.map((value) => `"${String(value ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const fileDate = new Date().toISOString().split('T')[0];
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
+    download: `vendor-purchase-orders-${fileDate}.csv`,
+  });
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 async function createUomRule() {
@@ -7703,6 +7921,125 @@ async function updatePurchaseOrderDraftStatus(id, status) {
     return;
   }
   refreshPlanningData();
+}
+
+async function createVendorPurchaseOrderFromDraft(draftId) {
+  const vendor = window.prompt('Vendor name for this PO (leave blank to use draft vendor):', '');
+  const body = {};
+  if (vendor && vendor.trim()) body.vendor = vendor.trim();
+  const res = await fetch(`${API}/ops/vendor-purchase-orders/from-draft/${draftId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+    body: JSON.stringify(body)
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    alert(payload.error || 'Could not create vendor purchase order');
+    return;
+  }
+  refreshPlanningData();
+}
+
+async function receiveVendorPurchaseOrder(poId) {
+  const po = (opsVendorPurchaseOrders || []).find(p => p.id === poId);
+  if (!po || !Array.isArray(po.lines) || !po.lines.length) return;
+  const pendingLines = po.lines.filter(l => (Number(l.ordered_qty) || 0) > (Number(l.received_qty) || 0));
+  if (!pendingLines.length) {
+    alert('All PO lines are already fully received');
+    return;
+  }
+  activeVendorPoReceive = po;
+  document.getElementById('vendorPoReceiveId').value = po.id;
+  document.getElementById('vendorPoReceiveSub').textContent = `${po.po_number || 'Vendor PO'} · ${po.vendor || 'Unassigned Vendor'} · ${pendingLines.length} pending line${pendingLines.length === 1 ? '' : 's'}`;
+  document.getElementById('vendorPoReceiveNotes').value = '';
+  const result = document.getElementById('vendorPoReceiveResult');
+  if (result) {
+    result.className = 'modal-result';
+    result.textContent = '';
+  }
+  const body = document.getElementById('vendorPoReceiveBody');
+  body.innerHTML = pendingLines.map((line, idx) => {
+    const ordered = Number(line.ordered_qty) || 0;
+    const received = Number(line.received_qty) || 0;
+    const remaining = Math.max(0, ordered - received);
+    const lineNo = line.line_no ?? (idx + 1);
+    return `<tr>
+      <td>
+        <div><strong>${h(line.product_name || 'Unknown product')}</strong></div>
+        <div class="receive-po-note">Line ${h(lineNo)}${line.item_number ? ` · #${h(line.item_number)}` : ''}</div>
+      </td>
+      <td>${h(ordered.toFixed(3))} ${h(line.unit || 'each')}</td>
+      <td>${h(received.toFixed(3))} ${h(line.unit || 'each')}</td>
+      <td>${h(remaining.toFixed(3))} ${h(line.unit || 'each')}</td>
+      <td><input class="receive-po-input" type="number" min="0" max="${h(remaining.toFixed(3))}" step="0.001" value="${h(remaining.toFixed(3))}" data-recv-line="${h(lineNo)}" data-recv-field="qty"/></td>
+      <td><input class="receive-po-input" type="number" min="0" step="0.0001" value="${h((Number(line.unit_cost) || 0).toFixed(4))}" data-recv-line="${h(lineNo)}" data-recv-field="cost"/></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('vendorPoReceiveModal').classList.add('open');
+}
+
+function closeVendorPoReceiveModal() {
+  document.getElementById('vendorPoReceiveModal').classList.remove('open');
+  activeVendorPoReceive = null;
+}
+
+async function submitVendorPoReceiveModal() {
+  const poId = document.getElementById('vendorPoReceiveId').value;
+  if (!poId || !activeVendorPoReceive) return;
+  const body = document.getElementById('vendorPoReceiveBody');
+  const result = document.getElementById('vendorPoReceiveResult');
+  const submitBtn = document.getElementById('vendorPoReceiveSubmitBtn');
+  const payloadLines = [];
+
+  const qtyInputs = body.querySelectorAll('input[data-recv-field="qty"]');
+  for (const qtyInput of qtyInputs) {
+    const lineNo = parseInt(qtyInput.dataset.recvLine, 10);
+    if (!Number.isFinite(lineNo)) continue;
+    const qty = parseFloat(qtyInput.value || '0');
+    if (!(qty > 0)) continue;
+    const costInput = body.querySelector(`input[data-recv-line="${lineNo}"][data-recv-field="cost"]`);
+    const linePayload = { line_no: lineNo, qty_received: qty };
+    if (costInput && String(costInput.value || '').trim() !== '') {
+      const unitCost = parseFloat(costInput.value);
+      if (Number.isFinite(unitCost) && unitCost >= 0) linePayload.unit_cost = unitCost;
+    }
+    payloadLines.push(linePayload);
+  }
+
+  if (!payloadLines.length) {
+    result.className = 'modal-result error';
+    result.textContent = 'Enter a receive quantity greater than 0 for at least one line.';
+    return;
+  }
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Receiving…';
+  result.className = 'modal-result';
+  result.textContent = '';
+
+  const notes = document.getElementById('vendorPoReceiveNotes')?.value.trim();
+  const res = await fetch(`${API}/ops/vendor-purchase-orders/${poId}/receive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+    body: JSON.stringify({ lines: payloadLines, notes })
+  });
+  const payload = await res.json().catch(() => ({}));
+  submitBtn.disabled = false;
+  submitBtn.textContent = 'Receive Selected Lines';
+  if (!res.ok) {
+    result.className = 'modal-result error';
+    result.textContent = payload.error || 'Could not receive this purchase order';
+    return;
+  }
+  result.className = 'modal-result success';
+  result.textContent = 'Receipt posted. Inventory quantities and costs were updated.';
+  refreshPlanningData();
+  if (typeof fetchInventory === 'function') {
+    await fetchInventory();
+    if (typeof renderInventory === 'function') renderInventory();
+    if (typeof renderInventoryKPIs === 'function') renderInventoryKPIs();
+  }
+  setTimeout(() => closeVendorPoReceiveModal(), 700);
 }
 
 async function loadIntegrationsTab() {
