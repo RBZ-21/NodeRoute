@@ -639,6 +639,101 @@ Days Until Stockout: ${daysUntilStockout !== null ? daysUntilStockout : 'Unknown
 function heuristicWalkthrough(feature, question = '') {
   const title = `${feature} Walkthrough`;
   const q = stringOr(question);
+  const key = String(feature || '').trim().toLowerCase();
+  if (key.includes('planning')) {
+    return {
+      title,
+      summary: 'Use Planning to generate draft purchase orders from demand suggestions and inventory projections.',
+      steps: [
+        'Open Operations > Planning.',
+        'Set lead-time and coverage-day values, then click Recalculate.',
+        'Enter an optional vendor and click Create Draft PO.',
+        'Open Operations > Purchasing and use Create Vendor PO on the draft when ready.',
+      ],
+      tips: [
+        'Use shorter lead time and lower coverage when cash or cooler space is tight.',
+        'If no draft lines appear, verify item usage history and on-hand inventory data.',
+      ],
+      warnings: [
+        'Creating a draft does not place a supplier order until you create a Vendor PO.',
+      ],
+    };
+  }
+  if (key.includes('purchasing')) {
+    return {
+      title,
+      summary: 'Use Purchasing to execute supplier orders: convert drafts to vendor POs, track statuses, and receive lines.',
+      steps: [
+        'Open Operations > Purchasing.',
+        'In Draft Purchase Orders, click Create Vendor PO for a ready draft.',
+        'Use Vendor Purchase Orders & Receiving to filter open/backordered POs.',
+        'Click Receive on a vendor PO, post quantities, and confirm receipts.',
+      ],
+      tips: [
+        'Use status filters to isolate open and backordered supplier orders.',
+        'Export CSV for receiving/audit handoff when needed.',
+      ],
+      warnings: [
+        'Receiving updates inventory quantities and costs, so verify line quantities before submit.',
+      ],
+    };
+  }
+  if (key.includes('warehouse')) {
+    return {
+      title,
+      summary: 'Warehouse tracks your internal storage locations, scan events, and returns operations.',
+      steps: [
+        'Open Operations > Warehouse.',
+        'Add your internal locations (cooler, freezer, depot) in Warehouses & Cycle Count.',
+        'Log barcode scan/receive/pick/adjust events as operations occur.',
+        'Track customer returns in Returns Tracking.',
+      ],
+      tips: [
+        'Use short warehouse codes for faster reporting and scan workflows.',
+        'Keep scan action types consistent so downstream reporting stays clean.',
+      ],
+      warnings: [
+        'Warehouses are your own locations, not suppliers. Supplier ordering happens in Planning/Purchasing.',
+      ],
+    };
+  }
+  if (key.includes('reporting') || key.includes('analytics') || key.includes('rollup')) {
+    return {
+      title,
+      summary: 'Analytics includes Unified Performance Rollups for customer, route, driver, and SKU performance.',
+      steps: [
+        'Open Financials > Analytics.',
+        'Set start date, end date, and row limit in Unified Performance Rollups.',
+        'Run the report and review grouped sections by customer, route, driver, and SKU.',
+      ],
+      tips: [
+        'Use shorter date windows first for faster scans and cleaner outlier detection.',
+        'Compare route and driver sections together when investigating margin changes.',
+      ],
+      warnings: [
+        'Very large date ranges can flatten trends; start narrow and expand.',
+      ],
+    };
+  }
+  if (key.includes('portal') || key.includes('payment')) {
+    return {
+      title,
+      summary: 'Customer portal payments are Stripe-powered for setup intents, checkout, and off-session/autopay charging.',
+      steps: [
+        'Open customer portal payment settings and create a setup intent.',
+        'Use Payment Element to save a payment method securely.',
+        'Pay invoices directly or run charge-now/autopay flow for eligible accounts.',
+        'Validate webhook events in backend logs for success/failure outcomes.',
+      ],
+      tips: [
+        'Use Checkout for one-off customer-directed payment sessions.',
+        'Keep Stripe webhook secret and endpoint configuration aligned with environment.',
+      ],
+      warnings: [
+        'Webhook signature verification must pass or payment status updates will be ignored.',
+      ],
+    };
+  }
   return {
     title,
     summary: q
@@ -782,6 +877,13 @@ async function generateWalkthrough(feature, question = '') {
 
 Feature: ${stringOr(feature, 'Dashboard')}
 User question: ${question || 'No extra question provided.'}
+
+Current product areas to account for:
+- Planning: draft PO generation from projections/suggestions.
+- Purchasing: vendor PO execution + receiving.
+- Warehouse: internal warehouse locations, scans, and returns.
+- Analytics: unified rollups by customer/route/driver/SKU.
+- Portal payments: Stripe setup intents, checkout, charge-now, and webhook outcomes.
 
 Explain how to use it inside the app, including the usual sequence of actions and any gotchas.`;
 

@@ -39,25 +39,11 @@ test('ops routes expose the expected API surface', () => {
   }
 });
 
-test('ops write routes require auth and manager/admin role checks', () => {
-  for (const guardedWrite of [
-    "router.post('/uom-rules', authenticateToken, requireRole('admin', 'manager')",
-    "router.delete('/uom-rules/:id', authenticateToken, requireRole('admin', 'manager')",
-    "router.post('/warehouses', authenticateToken, requireRole('admin', 'manager')",
-    "router.post('/cycle-counts', authenticateToken, requireRole('admin', 'manager')",
-    "router.post('/returns', authenticateToken, requireRole('admin', 'manager')",
-    "router.post('/barcode-events', authenticateToken, requireRole('admin', 'manager')",
-    "router.post('/edi-jobs', authenticateToken, requireRole('admin', 'manager')",
-    "router.post('/purchase-order-drafts/from-suggestions', authenticateToken, requireRole('admin', 'manager')",
-    "router.post('/purchase-order-drafts/from-order-intake', authenticateToken, requireRole('admin', 'manager')",
-    "router.patch('/purchase-order-drafts/:id/status', authenticateToken, requireRole('admin', 'manager')",
-    "router.post('/vendor-purchase-orders/from-draft/:id', authenticateToken, requireRole('admin', 'manager')",
-    "router.post('/vendor-purchase-orders', authenticateToken, requireRole('admin', 'manager')",
-    "router.patch('/vendor-purchase-orders/:id/status', authenticateToken, requireRole('admin', 'manager')",
-    "router.post('/vendor-purchase-orders/:id/receive', authenticateToken, requireRole('admin', 'manager')",
-  ]) {
-    assert.ok(opsRouteSource.includes(guardedWrite), `missing guard for ${guardedWrite}`);
-  }
+test('ops routes are globally gated to admin-only server access', () => {
+  assert.ok(
+    opsRouteSource.includes("router.use(authenticateToken, requireRole('admin'));"),
+    'ops router should enforce global authenticateToken + admin role gate'
+  );
 });
 
 test('vendor PO receiving updates inventory quantity and weighted unit cost', () => {
