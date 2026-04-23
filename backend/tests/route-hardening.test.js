@@ -45,6 +45,8 @@ test('frontend workflow helpers required by dispatch operations are present', ()
     'function submitInventoryCount',
     'function printInventoryCountSheet',
     'function requestWalkthrough',
+    'function autoFillOrderFromIntake',
+    'function createPurchaseOrderDraftFromOrderIntake',
     'function routeActiveStopIds',
     'function openEditCustomerModal',
   ]) {
@@ -53,6 +55,11 @@ test('frontend workflow helpers required by dispatch operations are present', ()
   assert.ok(html.includes("headers: { 'Content-Type': 'application/json', ...authHeaders.headers }"));
   assert.ok(html.includes('Number.isFinite(cost)'), 'route optimization should ignore invalid matrix costs');
   assert.ok(html.includes('OSRM returned no duration matrix'), 'route optimization should handle bad OSRM payloads');
+  assert.ok(html.includes('id="orderNotes"'), 'orders form should expose notes textbox for intake');
+  assert.ok(html.includes('id="orderIntakeBtn"'), 'orders form should expose intake auto-fill button');
+  assert.ok(html.includes('id="orderIntakePoBtn"'), 'orders form should expose intake-to-po button');
+  assert.ok(html.includes("fetch(`${API}/ai/order-intake`"), 'orders form should call AI order intake API');
+  assert.ok(html.includes("fetch(`${API}/ops/purchase-order-drafts/from-order-intake`"), 'orders form should call intake gap PO API');
 });
 
 test('routes backend normalizes stop id payloads for create and update', () => {
@@ -83,6 +90,13 @@ test('driver routes import invoice stop matching helper', () => {
   assert.ok(source.includes('lng < -180 || lng > 180'), 'driver location should validate longitude bounds');
   assert.deepEqual(routeStopIdsForToday({ stop_ids: ['a', 'b'], active_stop_ids: ['b'] }), ['b']);
   assert.deepEqual(routeStopIdsForToday({ stop_ids: ['a', 'b'] }), ['a', 'b']);
+});
+
+test('ai routes protect order-intake automation behind auth and manager/admin checks', () => {
+  const source = routeSource('ai');
+  assert.ok(source.includes("router.post('/order-intake', authenticateToken, requireRole('admin', 'manager')"), 'order-intake route should require manager/admin auth');
+  assert.ok(source.includes("const message = String(req.body.message || '').trim();"), 'order-intake route should normalize intake payload');
+  assert.ok(source.includes('Order intake message is required'), 'order-intake route should validate empty payload');
 });
 
 test('dwell tracking requires assigned routes and route stop membership', () => {

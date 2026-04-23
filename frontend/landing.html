@@ -15,6 +15,11 @@
       --surface: #091738;
       --surface-2: #102149;
       --border: #1a2f63;
+      --bright-surface: #f8fbff;
+      --bright-surface-2: #ffffff;
+      --bright-border: #dbe5f2;
+      --ink: #0d1b3e;
+      --ink-muted: #45597f;
       --text: #f4f7ff;
       --muted: #9eb0d5;
       --teal: #3dba7f;
@@ -46,6 +51,21 @@
     }
     .brand { font-size: 22px; font-weight: 900; letter-spacing: -0.03em; }
     .brand span { color: var(--teal-light); }
+    .brand-lockup {
+      display: inline-flex; flex-direction: column; align-items: flex-start; line-height: 1.05;
+      background: rgba(255,255,255,0.95); color: var(--ink);
+      border: 1px solid rgba(255,255,255,0.95); border-radius: 10px;
+      padding: 8px 10px 7px;
+    }
+    .brand-sub {
+      margin-top: 2px;
+      font-size: 10px;
+      letter-spacing: 0.18em;
+      text-transform: uppercase;
+      color: #4f6287;
+      font-weight: 700;
+      padding-left: 2px;
+    }
     .nav-links { display: flex; gap: 18px; list-style: none; color: var(--muted); font-size: 14px; }
     .nav-links a:hover { color: var(--text); }
 
@@ -82,6 +102,17 @@
       background: linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
       border: 1px solid var(--border); border-radius: var(--radius); padding: 18px;
     }
+    .panel-bright {
+      background: linear-gradient(180deg, var(--bright-surface-2), var(--bright-surface));
+      border-color: var(--bright-border);
+      box-shadow: 0 16px 30px rgba(0, 0, 0, 0.18);
+    }
+    .panel-bright h3,
+    .panel-bright .section-title,
+    .panel-bright .section-text,
+    .panel-bright p { color: var(--ink); }
+    .panel-bright .section-text,
+    .panel-bright p { color: var(--ink-muted); }
     .trust-line { margin-top: 12px; color: #c7d3ec; font-size: 14px; }
     .list { list-style: none; display: grid; gap: 10px; margin-top: 12px; }
     .list li {
@@ -92,12 +123,22 @@
     .cards-3 {
       display: grid; grid-template-columns: 1.4fr 1fr 1fr; gap: 14px; margin-top: 24px;
     }
+    .cards-single {
+      display: grid; grid-template-columns: minmax(0, 1fr); gap: 14px; margin-top: 12px;
+    }
     .card {
       background: var(--surface); border: 1px solid var(--border);
       border-radius: var(--radius); padding: 18px;
     }
     .card h3 { font-size: 20px; margin-bottom: 8px; }
     .card p { color: var(--muted); font-size: 15px; }
+    .card-bright {
+      background: var(--bright-surface-2);
+      border-color: var(--bright-border);
+      box-shadow: 0 10px 24px rgba(0, 0, 0, 0.16);
+    }
+    .card-bright h3 { color: var(--ink); }
+    .card-bright p { color: var(--ink-muted); }
 
     .features {
       display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-top: 20px;
@@ -107,6 +148,13 @@
     }
     .feature h3 { font-size: 17px; margin-bottom: 4px; }
     .feature p { font-size: 14px; color: var(--muted); }
+    .feature-bright {
+      background: rgba(255,255,255,0.92);
+      border-color: rgba(255,255,255,0.88);
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.14);
+    }
+    .feature-bright h3 { color: var(--ink); }
+    .feature-bright p { color: var(--ink-muted); }
 
     .steps { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-top: 20px; }
     .step {
@@ -126,6 +174,13 @@
     .faq-item { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius-sm); padding: 14px; }
     .faq-item h3 { font-size: 17px; margin-bottom: 5px; }
     .faq-item p { color: var(--muted); font-size: 14px; }
+    .faq-item-bright {
+      background: rgba(255,255,255,0.93);
+      border-color: rgba(255,255,255,0.9);
+      box-shadow: 0 8px 18px rgba(0, 0, 0, 0.14);
+    }
+    .faq-item-bright h3 { color: var(--ink); }
+    .faq-item-bright p { color: var(--ink-muted); }
 
     footer {
       border-top: 1px solid rgba(255,255,255,0.1);
@@ -138,19 +193,28 @@
       .hero-grid, .cards-3, .features, .steps { grid-template-columns: 1fr; }
       .nav-links { display: none; }
     }
+    @media (max-width: 768px) {
+      .container { width: min(100% - 28px, 1120px); }
+      h1 { font-size: clamp(30px, 8vw, 42px); }
+    }
+    @media (max-width: 420px) {
+      .container { width: min(100% - 20px, 1120px); }
+      .btn { padding: 9px 14px; font-size: 13px; }
+      .card h3 { font-size: 18px; }
+    }
   </style>
 </head>
 <body>
   <nav>
     <div class="container nav-row">
-      <a class="brand" href="#hero">Node<span>Route</span></a>
+      <a class="brand brand-lockup" href="#hero">Node<span>Route</span><small class="brand-sub">Systems</small></a>
       <ul class="nav-links">
         <li><a href="#product">Product</a></li>
         <li><a href="#how">How It Works</a></li>
         <li><a href="#about">About</a></li>
         <li><a href="#early">Early Access</a></li>
       </ul>
-      <a class="btn btn-outline" href="mailto:founder@noderoute.com?subject=NodeRoute%20-%20Talk%20to%20the%20Founder">Talk to the Founder</a>
+      <a class="btn btn-outline" href="mailto:ryan@noderoutesystems.com?subject=NodeRoute%20-%20Talk%20to%20the%20Founder">Talk to the Founder</a>
     </div>
   </nav>
 
@@ -161,14 +225,14 @@
       <h1 class="title">Delivery operations software without the usual chaos</h1>
       <p class="subtitle">NodeRoute helps you manage routes, ETAs, drivers, inventory, and invoices in one place — so you’re not running the whole day through calls, texts, and spreadsheets.</p>
       <div class="btn-row" style="margin-top:18px">
-        <a class="btn btn-primary" href="mailto:founder@noderoute.com?subject=NodeRoute%20-%20Request%20Early%20Access">Request Early Access</a>
-        <a class="btn btn-outline" href="mailto:founder@noderoute.com?subject=NodeRoute%20-%20Talk%20to%20the%20Founder">Talk to the Founder</a>
+        <a class="btn btn-primary" href="mailto:ryan@noderoutesystems.com?subject=NodeRoute%20-%20Request%20Early%20Access">Request Early Access</a>
+        <a class="btn btn-outline" href="mailto:ryan@noderoutesystems.com?subject=NodeRoute%20-%20Talk%20to%20the%20Founder">Talk to the Founder</a>
       </div>
       <p class="trust-line">Early-stage and built with real operators in mind.</p>
 
       <!-- Product Preview -->
       <div class="hero-grid" style="margin-top:24px">
-        <div class="panel">
+        <div class="panel panel-bright">
           <h3 style="font-size:20px; margin-bottom:6px">Delivery operations software for small wholesale and local distribution teams</h3>
           <p class="section-text" style="font-size:15px">NodeRoute helps you keep track of routes, ETAs, drivers, inventory, and invoices in one place — without juggling calls, texts, and spreadsheets all day.</p>
         </div>
@@ -194,21 +258,21 @@
 
       <!-- Problem Cards -->
       <div class="cards-3">
-        <article class="card">
+        <article class="card card-bright">
           <h3>If you run deliveries all day, the problems stack up fast</h3>
           <p>You know the pattern. A driver goes quiet. A customer wants an ETA. Inventory changes mid-route. Someone needs an invoice. Now you’re bouncing between calls, texts, notes, and whatever spreadsheet is still open.</p>
         </article>
-        <article class="card">
+        <article class="card card-bright">
           <h3>Drivers go quiet</h3>
           <p>Know where routes stand without constantly calling to check in.</p>
         </article>
-        <article class="card">
+        <article class="card card-bright">
           <h3>Customers want answers now</h3>
           <p>Keep ETAs and delivery status easier to track and communicate.</p>
         </article>
       </div>
-      <div class="cards-3" style="grid-template-columns:1fr 1fr 1fr; margin-top:12px">
-        <article class="card">
+      <div class="cards-single">
+        <article class="card card-bright">
           <h3>Too many moving parts</h3>
           <p>Route details, inventory, and invoicing shouldn’t live in five different places.</p>
         </article>
@@ -223,11 +287,11 @@
       <p class="section-text">NodeRoute is designed for teams that need better visibility without adding more complexity. It gives you one place to track what’s happening, what changed, and what still needs attention.</p>
       <h3 style="font-size:24px; margin-top:20px">What NodeRoute helps you manage</h3>
       <div class="features">
-        <article class="feature"><h3>Route visibility</h3><p>Keep up with active routes and see where deliveries stand without constant check-ins.</p></article>
-        <article class="feature"><h3>ETA tracking</h3><p>Make it easier to track timing and respond when customers ask where an order is.</p></article>
-        <article class="feature"><h3>Driver coordination</h3><p>Reduce confusion around handoffs, updates, and day-of delivery changes.</p></article>
-        <article class="feature"><h3>Inventory awareness</h3><p>Keep order and product details tied to the work being delivered.</p></article>
-        <article class="feature"><h3>Invoices and records</h3><p>Close the loop with cleaner delivery records and less end-of-day scrambling.</p></article>
+        <article class="feature feature-bright"><h3>Route visibility</h3><p>Keep up with active routes and see where deliveries stand without constant check-ins.</p></article>
+        <article class="feature feature-bright"><h3>ETA tracking</h3><p>Make it easier to track timing and respond when customers ask where an order is.</p></article>
+        <article class="feature feature-bright"><h3>Driver coordination</h3><p>Reduce confusion around handoffs, updates, and day-of delivery changes.</p></article>
+        <article class="feature feature-bright"><h3>Inventory awareness</h3><p>Keep order and product details tied to the work being delivered.</p></article>
+        <article class="feature feature-bright"><h3>Invoices and records</h3><p>Close the loop with cleaner delivery records and less end-of-day scrambling.</p></article>
       </div>
     </div>
   </section>
@@ -289,8 +353,8 @@
       <p class="section-text">NodeRoute is still early. I’m focused on working with a small number of teams who deal with real delivery coordination problems and want to help shape the product.</p>
       <p class="section-text" style="margin-top:10px">If you’re looking for something simpler, more practical, and built around real operational pain, I’d love to talk.</p>
       <div class="btn-row" style="margin-top:16px">
-        <a class="btn btn-primary" href="mailto:founder@noderoute.com?subject=NodeRoute%20-%20Request%20Early%20Access">Request Early Access</a>
-        <a class="btn btn-outline" href="mailto:founder@noderoute.com?subject=NodeRoute%20-%20Talk%20to%20the%20Founder">Talk to the Founder</a>
+        <a class="btn btn-primary" href="mailto:ryan@noderoutesystems.com?subject=NodeRoute%20-%20Request%20Early%20Access">Request Early Access</a>
+        <a class="btn btn-outline" href="mailto:ryan@noderoutesystems.com?subject=NodeRoute%20-%20Talk%20to%20the%20Founder">Talk to the Founder</a>
       </div>
     </div>
   </section>
@@ -300,15 +364,15 @@
     <div class="container">
       <h2 class="section-title">Questions you might have</h2>
       <div class="faq">
-        <article class="faq-item">
+        <article class="faq-item faq-item-bright">
           <h3>Is NodeRoute live yet?</h3>
           <p>NodeRoute is in an early stage and currently focused on conversations with potential pilot users and early partners.</p>
         </article>
-        <article class="faq-item">
+        <article class="faq-item faq-item-bright">
           <h3>Who is it for?</h3>
           <p>It’s being built for small wholesale and local delivery teams that need better visibility into routes, ETAs, inventory, and delivery follow-through.</p>
         </article>
-        <article class="faq-item">
+        <article class="faq-item faq-item-bright">
           <h3>Can I see it if I’m interested?</h3>
           <p>Yes. If the problem sounds familiar, you can request early access or talk directly with the founder.</p>
         </article>
@@ -318,12 +382,12 @@
 
   <!-- Final CTA -->
   <section>
-    <div class="container panel">
+    <div class="container panel panel-bright">
       <h2 class="section-title">Still running deliveries through calls, texts, and spreadsheets?</h2>
       <p class="section-text">If that sounds familiar, NodeRoute may be a fit. I’m looking to work with a small number of early teams who want a better way to manage daily delivery operations.</p>
       <div class="btn-row" style="margin-top:16px">
-        <a class="btn btn-outline" href="mailto:founder@noderoute.com?subject=NodeRoute%20-%20Talk%20to%20the%20Founder">Talk to the Founder</a>
-        <a class="btn btn-primary" href="mailto:founder@noderoute.com?subject=NodeRoute%20-%20Request%20Early%20Access">Request Early Access</a>
+        <a class="btn btn-outline" href="mailto:ryan@noderoutesystems.com?subject=NodeRoute%20-%20Talk%20to%20the%20Founder">Talk to the Founder</a>
+        <a class="btn btn-primary" href="mailto:ryan@noderoutesystems.com?subject=NodeRoute%20-%20Request%20Early%20Access">Request Early Access</a>
       </div>
     </div>
   </section>
@@ -335,7 +399,7 @@
         <div class="brand" style="font-size:20px">Node<span>Route</span></div>
         <div style="margin-top:4px">Delivery operations software for small wholesale and local distribution teams.</div>
       </div>
-      <div>Questions? <a href="mailto:founder@noderoute.com?subject=NodeRoute%20-%20Talk%20to%20the%20Founder" style="color:var(--teal-light)">Talk directly with the founder.</a></div>
+      <div>Questions? <a href="mailto:ryan@noderoutesystems.com?subject=NodeRoute%20-%20Talk%20to%20the%20Founder" style="color:var(--teal-light)">Talk directly with the founder.</a></div>
     </div>
   </footer>
 </body>

@@ -26,6 +26,35 @@ test('buildRequestContext honors allowed requested locations', () => {
   assert.equal(context.activeLocationId, 'loc-b');
 });
 
+test('buildRequestContext honors allowed requested company', () => {
+  const user = {
+    id: 'u1',
+    role: 'admin',
+    company_id: 'company-a',
+    accessible_company_ids: ['company-a', 'company-b'],
+  };
+  const req = { headers: { 'x-company-id': 'company-b' }, query: {}, body: {} };
+
+  const context = buildRequestContext(req, user);
+
+  assert.equal(context.companyId, 'company-a');
+  assert.equal(context.activeCompanyId, 'company-b');
+});
+
+test('buildRequestContext rejects inaccessible requested company', () => {
+  const user = {
+    id: 'u1',
+    role: 'manager',
+    company_id: 'company-a',
+    accessible_company_ids: ['company-a'],
+  };
+  const req = { headers: { 'x-company-id': 'company-z' }, query: {}, body: {} };
+
+  const context = buildRequestContext(req, user);
+
+  assert.equal(context.activeCompanyId, 'company-a');
+});
+
 test('buildRequestContext rejects inaccessible requested locations', () => {
   const user = {
     id: 'u1',
@@ -44,6 +73,8 @@ test('buildRequestContext rejects inaccessible requested locations', () => {
 test('rowMatchesContext enforces company and active location boundaries', () => {
   const context = {
     companyId: 'company-a',
+    activeCompanyId: 'company-a',
+    accessibleCompanyIds: ['company-a'],
     activeLocationId: 'loc-a',
     accessibleLocationIds: ['loc-a'],
     isGlobalOperator: false,
@@ -57,6 +88,8 @@ test('rowMatchesContext enforces company and active location boundaries', () => 
 test('filterRowsByContext keeps legacy unscoped rows visible', () => {
   const context = {
     companyId: 'company-a',
+    activeCompanyId: 'company-a',
+    accessibleCompanyIds: ['company-a'],
     activeLocationId: 'loc-a',
     accessibleLocationIds: ['loc-a'],
     isGlobalOperator: false,
@@ -73,11 +106,12 @@ test('filterRowsByContext keeps legacy unscoped rows visible', () => {
 test('buildScopeFields uses active location for new records', () => {
   const scoped = buildScopeFields({
     companyId: 'company-a',
+    activeCompanyId: 'company-b',
     locationId: 'loc-a',
     activeLocationId: 'loc-b',
   });
 
-  assert.deepEqual(scoped, { company_id: 'company-a', location_id: 'loc-b' });
+  assert.deepEqual(scoped, { company_id: 'company-b', location_id: 'loc-b' });
 });
 
 test('userResponseWithContext never includes password hashes', () => {
@@ -92,4 +126,5 @@ test('userResponseWithContext never includes password hashes', () => {
 
   assert.equal(response.password_hash, undefined);
   assert.equal(response.companyId, 'company-a');
+  assert.equal(response.activeCompanyId, 'company-a');
 });

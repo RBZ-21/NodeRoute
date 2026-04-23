@@ -3,6 +3,7 @@ const multer   = require('multer');
 const { supabase }                  = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { parsePurchaseOrderImage }   = require('../services/ai');
+const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 
 const router = express.Router();
 const upload = multer({
@@ -70,7 +71,6 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), asyn
     invMap[row.description.toLowerCase().trim()] = row;
   });
 
-  const historyEntries = [];
   let itemsCreated = 0;
   let itemsUpdated = 0;
   const errors = [];
@@ -88,66 +88,55 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), asyn
     const poRef    = `PO scan${po_number ? ' · ' + po_number : ''}${vendor ? ' from ' + vendor : ''}`;
 
     if (existing) {
-      const newQty = parseFloat(parseFloat(existing.on_hand_qty || 0) + qty).toFixed(4);
-      const updates = {
-        on_hand_qty:    parseFloat(newQty),
-        on_hand_weight: parseFloat(newQty),
-        updated_at:     new Date().toISOString(),
-      };
-      if (unitPrice > 0) updates.cost = unitPrice;
-
-      const { error: updErr } = await supabase
-        .from('seafood_inventory')
-        .update(updates)
-        .eq('item_number', existing.item_number);
-
-      if (updErr) {
-        errors.push(`${desc}: ${updErr.message}`);
+      try {
+        await applyInventoryLedgerEntry({
+          itemNumber: existing.item_number,
+          deltaQty: qty,
+          changeType: 'restock',
+          notes: poRef,
+          createdBy: req.user.name || req.user.email,
+          unitCost: unitPrice,
+        });
+      } catch (ledgerErr) {
+        errors.push(`${desc}: ${ledgerErr.message}`);
         continue;
       }
-      historyEntries.push({
-        item_number:  existing.item_number,
-        change_qty:   qty,
-        new_qty:      parseFloat(newQty),
-        change_type:  'restock',
-        notes:        poRef,
-        created_by:   req.user.name || req.user.email,
-      });
       itemsUpdated++;
     } else {
       // Generate a unique item_number
       const itemNumber = 'PO-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
 
-      const { error: insErr } = await supabase.from('seafood_inventory').insert([{
+      const { data: inserted, error: insErr } = await supabase.from('seafood_inventory').insert([{
         item_number:    itemNumber,
         description:    desc,
         category:       item.category || 'Other',
         unit:           item.unit || 'lb',
-        cost:           unitPrice,
-        on_hand_qty:    qty,
-        on_hand_weight: qty,
+        cost:           unitPrice > 0 ? unitPrice : 0,
+        on_hand_qty:    0,
+        on_hand_weight: 0,
         lot_item:       LOT_REQUIRED.test(desc) ? 'Y' : 'N',
-      }]);
+      }]).select().single();
 
       if (insErr) {
         errors.push(`${desc}: ${insErr.message}`);
         continue;
       }
-      historyEntries.push({
-        item_number:  itemNumber,
-        change_qty:   qty,
-        new_qty:      qty,
-        change_type:  'restock',
-        notes:        `New item · ${poRef}`,
-        created_by:   req.user.name || req.user.email,
-      });
+      invMap[key] = inserted || { item_number: itemNumber, description: desc };
+      try {
+        await applyInventoryLedgerEntry({
+          itemNumber,
+          deltaQty: qty,
+          changeType: 'restock',
+          notes: `New item · ${poRef}`,
+          createdBy: req.user.name || req.user.email,
+          unitCost: unitPrice,
+        });
+      } catch (ledgerErr) {
+        errors.push(`${desc}: ${ledgerErr.message}`);
+        continue;
+      }
       itemsCreated++;
     }
-  }
-
-  // Batch-insert stock history
-  if (historyEntries.length) {
-    await supabase.from('inventory_stock_history').insert(historyEntries);
   }
 
   // Persist the purchase order record
