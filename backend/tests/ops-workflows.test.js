@@ -26,7 +26,13 @@ test('ops routes expose the expected API surface', () => {
     "router.get('/purchasing-suggestions'",
     "router.get('/purchase-order-drafts'",
     "router.post('/purchase-order-drafts/from-suggestions'",
+    "router.post('/purchase-order-drafts/from-order-intake'",
     "router.patch('/purchase-order-drafts/:id/status'",
+    "router.get('/vendor-purchase-orders'",
+    "router.post('/vendor-purchase-orders/from-draft/:id'",
+    "router.post('/vendor-purchase-orders'",
+    "router.patch('/vendor-purchase-orders/:id/status'",
+    "router.post('/vendor-purchase-orders/:id/receive'",
     "router.get('/capabilities'",
   ]) {
     assert.ok(opsRouteSource.includes(endpoint), `missing endpoint ${endpoint}`);
@@ -43,9 +49,24 @@ test('ops write routes require auth and manager/admin role checks', () => {
     "router.post('/barcode-events', authenticateToken, requireRole('admin', 'manager')",
     "router.post('/edi-jobs', authenticateToken, requireRole('admin', 'manager')",
     "router.post('/purchase-order-drafts/from-suggestions', authenticateToken, requireRole('admin', 'manager')",
+    "router.post('/purchase-order-drafts/from-order-intake', authenticateToken, requireRole('admin', 'manager')",
     "router.patch('/purchase-order-drafts/:id/status', authenticateToken, requireRole('admin', 'manager')",
+    "router.post('/vendor-purchase-orders/from-draft/:id', authenticateToken, requireRole('admin', 'manager')",
+    "router.post('/vendor-purchase-orders', authenticateToken, requireRole('admin', 'manager')",
+    "router.patch('/vendor-purchase-orders/:id/status', authenticateToken, requireRole('admin', 'manager')",
+    "router.post('/vendor-purchase-orders/:id/receive', authenticateToken, requireRole('admin', 'manager')",
   ]) {
     assert.ok(opsRouteSource.includes(guardedWrite), `missing guard for ${guardedWrite}`);
+  }
+});
+
+test('vendor PO receiving updates inventory quantity and weighted unit cost', () => {
+  for (const marker of [
+    "const weighted = ((prevQty * prevCost) + (acceptedQty * unitCost)) / newQty;",
+    "notes: `PO ${po.po_number} receipt (${po.vendor})`",
+    "weighted_inventory_cost_updates: true",
+  ]) {
+    assert.ok(opsRouteSource.includes(marker), `missing receiving marker ${marker}`);
   }
 });
 
@@ -63,12 +84,15 @@ test('ops planning endpoints enforce bounded query controls', () => {
 
 test('operations nav flows are wired to tabs and lazy loaders', () => {
   for (const marker of [
+    'data-tab="purchasing"',
     'data-tab="warehouse"',
     'data-tab="planning"',
     'data-tab="integrations"',
+    "if (name === 'purchasing') { loadPurchasingTab(); }",
     "if (name === 'warehouse') { loadWarehouseTab(); }",
     "if (name === 'planning') { loadPlanningTab(); }",
     "if (name === 'integrations') { loadIntegrationsTab(); }",
+    "function openPurchasingWorkspace(status = 'all', autoExport = false)",
   ]) {
     assert.ok(frontendSource.includes(marker), `missing nav wiring ${marker}`);
   }
@@ -84,7 +108,11 @@ test('ops tab handlers call expected backend APIs', () => {
     'fetch(`${API}/ops/purchasing-suggestions?coverageDays=${coverageDays}&leadTimeDays=${leadTimeDays}&lookbackDays=30`, authHeaders)',
     'fetch(`${API}/ops/purchase-order-drafts`, authHeaders)',
     'fetch(`${API}/ops/purchase-order-drafts/from-suggestions`, {',
+    'fetch(`${API}/ops/purchase-order-drafts/from-order-intake`, {',
     'fetch(`${API}/ops/purchase-order-drafts/${id}/status`, {',
+    'fetch(`${API}/ops/vendor-purchase-orders`, authHeaders)',
+    'fetch(`${API}/ops/vendor-purchase-orders/from-draft/${draftId}`, {',
+    'fetch(`${API}/ops/vendor-purchase-orders/${poId}/receive`, {',
     'fetch(`${API}/ops/edi-jobs`, authHeaders)',
     'fetch(`${API}/ops/capabilities`, authHeaders)',
   ]) {
@@ -102,5 +130,17 @@ test('ops forms keep keyboard-friendly submit handlers', () => {
     'onsubmit="event.preventDefault();createEdiJob()"',
   ]) {
     assert.ok(frontendSource.includes(submitHook), `missing form submit hook ${submitHook}`);
+  }
+});
+
+test('planning tab exposes vendor PO search and export controls', () => {
+  for (const marker of [
+    'id="vendorPoSearch"',
+    'id="vendorPoStatusFilter"',
+    'onclick="exportVendorPurchaseOrdersCsv()"',
+    'function filteredVendorPurchaseOrders()',
+    'function exportVendorPurchaseOrdersCsv()',
+  ]) {
+    assert.ok(frontendSource.includes(marker), `missing vendor-po planning marker ${marker}`);
   }
 });

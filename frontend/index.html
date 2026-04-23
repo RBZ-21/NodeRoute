@@ -260,6 +260,11 @@ table,th,td,.kpi-value,.stat-big,.stat-value,.queue-order-num,.order-summary-row
 .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:20px}
 .card-title{font-size:14px;font-weight:600;margin-bottom:16px;color:var(--text)}
 .chart-wrap{position:relative;height:220px}
+.layout-two-col{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.layout-three-col-mixed{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,2fr);gap:12px;align-items:flex-end}
+.form-two-col{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.form-two-col.tight{gap:0 14px}
+.form-two-col.wide{gap:0 16px}
 
 /* ANALYTICS ROW */
 .analytics-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:24px}
@@ -272,7 +277,7 @@ table,th,td,.kpi-value,.stat-big,.stat-value,.queue-order-num,.order-summary-row
 .stat-sub b{color:var(--text)}
 
 /* TABLE */
-.table-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);overflow:hidden;margin-bottom:24px}
+.table-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);overflow:auto;margin-bottom:24px}
 .table-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px}
 .table-header h3{font-size:14px;font-weight:600}
 table{width:100%;border-collapse:collapse;font-size:13px}
@@ -366,6 +371,19 @@ td{padding:12px 16px;vertical-align:middle}
 .analytics-section{margin-bottom:24px}
 .ranking-table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);overflow:hidden;margin-bottom:24px}
 .analytics-charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+.report-rollup-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px}
+.report-rollup-controls .ctrl{display:flex;flex-direction:column;gap:6px;min-width:150px}
+.report-rollup-controls label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px}
+.report-rollup-controls input{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:8px;font-size:12px}
+.report-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.report-rollup-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:12px}
+.report-rollup-title{font-size:12px;font-weight:700;margin-bottom:8px}
+.report-rollup-meta{font-size:11px;color:var(--muted);margin-bottom:10px}
+.report-rollup-table-wrap{overflow:auto;border:1px solid var(--border);border-radius:10px}
+.report-rollup-table{width:100%;border-collapse:collapse;font-size:12px}
+.report-rollup-table th,.report-rollup-table td{padding:8px 9px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
+.report-rollup-table th{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px}
+.report-rollup-table tbody tr:last-child td{border-bottom:none}
 
 /* SKELETON */
 .skeleton{background:linear-gradient(90deg,var(--border) 25%,rgba(26,47,94,0.5) 50%,var(--border) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:6px}
@@ -381,11 +399,26 @@ td{padding:12px 16px;vertical-align:middle}
 /* SECTION TITLE */
 .section-title{font-size:14px;font-weight:600;margin-bottom:16px;color:var(--text)}
 
+@media(max-width:1200px){
+  .search-input{width:190px}
+}
+@media(max-width:1024px){
+  .content{padding:20px}
+}
 @media(max-width:900px){
   .sidebar{display:none}
   .main{margin-left:0;padding-bottom:70px}
+  .content{padding:16px}
+  .section-header{flex-direction:column;align-items:flex-start;gap:10px}
   .kpi-row{grid-template-columns:1fr 1fr}
-  .charts-row,.analytics-row,.analytics-charts{grid-template-columns:1fr}
+  .charts-row,.analytics-row,.analytics-charts,.report-grid{grid-template-columns:1fr}
+  .layout-two-col,.layout-three-col-mixed,.form-two-col{grid-template-columns:1fr}
+  .chart-card,.stat-card,.kpi-card{padding:16px}
+  table{font-size:12px}
+  thead th,td{padding:10px 12px}
+  .report-rollup-controls{align-items:stretch}
+  .report-rollup-controls .ctrl{min-width:100%}
+  .report-rollup-controls input{width:100%}
   .ai-help-shell{grid-template-columns:1fr}
   .mobile-tabs{display:block}
   .expand-content{grid-template-columns:1fr 1fr}
@@ -394,6 +427,10 @@ td{padding:12px 16px;vertical-align:middle}
   .kpi-row{grid-template-columns:1fr}
   .expand-content{grid-template-columns:1fr}
   .ai-help-shell{padding:16px}
+}
+@media(max-width:420px){
+  .content{padding:12px}
+  .btn{padding:7px 10px;font-size:12px}
 }
 /* INVOICES */
 .inv-status-pending{background:#3a2808;color:#ffd27a;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
@@ -421,6 +458,12 @@ td{padding:12px 16px;vertical-align:middle}
 .ops-pill.warn{background:rgba(245,158,11,0.16);color:var(--warn)}
 .ops-pill.bad{background:rgba(239,68,68,0.16);color:var(--danger)}
 @media(max-width:900px){.ops-grid{grid-template-columns:1fr}.ops-kpi{grid-template-columns:1fr}}
+.receive-po-table{width:100%;border-collapse:collapse;margin:8px 0 12px}
+.receive-po-table th{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.4px;color:var(--muted);padding:8px 6px;border-bottom:1px solid var(--border);text-align:left}
+.receive-po-table td{padding:8px 6px;border-bottom:1px solid var(--border);vertical-align:middle}
+.receive-po-input{width:100%;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:12px}
+.receive-po-input:focus{outline:none;border-color:var(--accent)}
+.receive-po-note{font-size:11px;color:var(--muted)}
 .inv-cat-other{background:rgba(136,153,187,0.12);color:var(--muted);padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
 .stock-in{color:var(--accent);font-weight:600;font-size:12px}
 .stock-low{color:var(--warn);font-weight:600;font-size:12px}
@@ -690,11 +733,14 @@ td{padding:12px 16px;vertical-align:middle}
         <span class="nav-group-chevron">›</span>
       </div>
       <div class="nav-group-items" id="group-operations">
+        <div class="nav-item nav-child" data-tab="purchasing" onclick="showTab('purchasing',this)">
+          <span class="nav-icon">🧾</span>Purchasing
+        </div>
         <div class="nav-item nav-child" data-tab="warehouse" onclick="showTab('warehouse',this)">
           <span class="nav-icon">🏬</span>Warehouse
         </div>
         <div class="nav-item nav-child" data-tab="planning" onclick="showTab('planning',this)">
-          <span class="nav-icon">📐</span>Planning
+          <span class="nav-icon">📐</span>Planning & Rules
         </div>
         <div class="nav-item nav-child" data-tab="integrations" onclick="showTab('integrations',this)">
           <span class="nav-icon">🔌</span>Integrations
@@ -797,6 +843,17 @@ td{padding:12px 16px;vertical-align:middle}
           </thead>
           <tbody id="dashDelivTable"></tbody>
         </table>
+      </div>
+      <div class="ops-card" style="margin-top:12px">
+        <div class="ops-title">Purchasing Command Center</div>
+        <div class="ops-sub">Jump directly into vendor PO creation, receiving, backorders, and exports.</div>
+        <div class="ops-form">
+          <button class="btn btn-accent" onclick="openPurchasingWorkspace('all')">Open Purchasing Workspace</button>
+          <button class="btn btn-outline" onclick="openPurchasingWorkspace('open')">Receive Open POs</button>
+          <button class="btn btn-outline" onclick="openPurchasingWorkspace('backordered')">Review Backorders</button>
+          <button class="btn btn-outline" onclick="openPurchasingWorkspace('received', true)">Export Received</button>
+        </div>
+        <div class="receive-po-note" id="dashboardPurchasingSnapshot" style="margin-top:8px">Loading purchasing summary…</div>
       </div>
     </div>
 
@@ -957,7 +1014,7 @@ td{padding:12px 16px;vertical-align:middle}
       </div>
 
       <!-- Status breakdown + Revenue chart -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+      <div class="layout-two-col" style="margin-bottom:24px">
         <div class="chart-card">
           <div class="card-title" style="margin-bottom:14px">Invoice Status</div>
           <div id="finStatusBreakdown" style="display:flex;flex-direction:column;gap:10px"></div>
@@ -969,7 +1026,7 @@ td{padding:12px 16px;vertical-align:middle}
       </div>
 
       <!-- Recent Invoices + Purchase Orders side by side -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+      <div class="layout-two-col" style="margin-bottom:24px">
         <div class="chart-card">
           <div class="card-title" style="margin-bottom:14px">Recent Invoices (Revenue)</div>
           <div class="table-card" style="margin:0">
@@ -999,6 +1056,34 @@ td{padding:12px 16px;vertical-align:middle}
     </div>
 
     <div class="tab-pane" id="tab-analytics">
+      <div class="chart-card" style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+          <div>
+            <div class="card-title">Unified Performance Rollups</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px">Customer, route, driver, and SKU margin reporting from one source of truth.</div>
+          </div>
+          <button class="btn btn-outline" onclick="fetchReportingRollups()">↻ Refresh Rollups</button>
+        </div>
+        <div class="report-rollup-controls">
+          <div class="ctrl">
+            <label for="reportStartDate">Start Date</label>
+            <input id="reportStartDate" type="date">
+          </div>
+          <div class="ctrl">
+            <label for="reportEndDate">End Date</label>
+            <input id="reportEndDate" type="date">
+          </div>
+          <div class="ctrl">
+            <label for="reportRowLimit">Top Rows</label>
+            <input id="reportRowLimit" type="number" min="1" max="500" value="12" style="width:100px">
+          </div>
+          <button class="btn btn-accent" style="height:36px" onclick="fetchReportingRollups()">Apply Filters</button>
+        </div>
+        <div id="reportingOverview" class="report-rollup-meta">Loading rollups…</div>
+        <div id="reportingRollupGrid" class="report-grid">
+          <div class="report-rollup-card">Loading…</div>
+        </div>
+      </div>
       <div class="section-title">Driver Efficiency Rankings</div>
       <div class="ranking-table-wrap">
         <table>
@@ -1198,10 +1283,21 @@ td{padding:12px 16px;vertical-align:middle}
               <span class="settings-toggle-slider"></span>
             </label>
           </div>
-          <div style="display:flex;gap:10px;margin-bottom:16px">
-            <div style="flex:1">
+          <div style="display:flex;gap:10px;margin-bottom:16px;align-items:flex-end;flex-wrap:wrap">
+            <div style="flex:1;min-width:260px">
               <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">Notes / Special Instructions</label>
-              <input class="order-item-input" id="orderNotes" placeholder="Optional…" style="width:100%"/>
+              <textarea class="order-item-input" id="orderNotes" rows="3" placeholder="Use this textbox for intake + notes (example: 10 lb salmon, 4 ea halibut, deliver before 9am)" style="width:100%;resize:vertical"></textarea>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px">Tip: include quantity + unit + product, then click Auto-fill Items.</div>
+            </div>
+            <div style="min-width:180px">
+              <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:6px">PO Vendor (optional)</label>
+              <input class="order-item-input" id="orderIntakeVendor" placeholder="Vendor name" style="width:100%"/>
+            </div>
+            <div style="display:flex;align-items:flex-end">
+              <div style="display:flex;gap:8px;flex-wrap:wrap;justify-content:flex-end">
+                <button class="btn btn-outline" id="orderIntakeBtn" onclick="autoFillOrderFromIntake()" style="white-space:nowrap">Auto-fill Items</button>
+                <button class="btn btn-outline" id="orderIntakePoBtn" onclick="createPurchaseOrderDraftFromOrderIntake()" style="white-space:nowrap">Draft PO Gaps</button>
+              </div>
             </div>
           </div>
           <!-- Items Table -->
@@ -1518,7 +1614,7 @@ td{padding:12px 16px;vertical-align:middle}
           </div>
         </div>
         <div class="fc-chart-card" style="padding:16px;margin-bottom:16px">
-          <div style="display:grid;grid-template-columns:2fr 1fr 2fr;gap:12px;align-items:flex-end;flex-wrap:wrap">
+          <div class="layout-three-col-mixed">
             <div>
               <label class="modal-label">Product</label>
               <select id="reorderAlertProduct" class="modal-input" style="margin-bottom:0;cursor:pointer"></select>
@@ -1557,7 +1653,7 @@ td{padding:12px 16px;vertical-align:middle}
           <div class="kpi-card skeleton" style="height:100px"></div>
           <div class="kpi-card skeleton" style="height:100px"></div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div class="layout-two-col" style="margin-bottom:16px">
           <!-- Top Products by volume -->
           <div class="fc-chart-card">
             <div class="fc-chart-title">Top Products by Order Volume</div>
@@ -1897,9 +1993,41 @@ td{padding:12px 16px;vertical-align:middle}
         <div id="projectionList" class="ops-mini-list"></div>
       </div>
       <div class="ops-card" style="margin-top:12px">
+        <div class="ops-title">PO Execution Workspace</div>
+        <div class="ops-sub">Planning owns rules, projections, and draft generation. Purchasing owns vendor POs, receiving, filters, and export.</div>
+        <button class="btn btn-accent" onclick="showTab('purchasing', null)">Go To Purchasing</button>
+      </div>
+    </div>
+
+    <!-- TAB: PURCHASING -->
+    <div class="tab-pane" id="tab-purchasing">
+      <div class="ops-kpi">
+        <div class="kpi-card"><div class="kpi-label">Open Vendor POs</div><div class="kpi-value" id="purchasingOpenCount">0</div></div>
+        <div class="kpi-card"><div class="kpi-label">Backordered POs</div><div class="kpi-value" id="purchasingBackorderCount">0</div></div>
+        <div class="kpi-card"><div class="kpi-label">Vendor POs Total</div><div class="kpi-value" id="purchasingTotalCount">0</div></div>
+      </div>
+      <div class="ops-card">
         <div class="ops-title">Draft Purchase Orders</div>
-        <div class="ops-sub">Generated from reorder suggestions and ready to move through your buying workflow.</div>
+        <div class="ops-sub">Generate and advance drafts, then convert to vendor PO with one click.</div>
         <div id="poDraftList" class="ops-mini-list"></div>
+      </div>
+      <div class="ops-card" style="margin-top:12px">
+        <div class="ops-title">Vendor Purchase Orders & Receiving</div>
+        <div class="ops-sub">Search and filter vendor POs, receive lines, and export filtered operational data.</div>
+        <div class="ops-form" style="margin-top:8px">
+          <input class="search-input" id="vendorPoSearch" placeholder="Search PO #, vendor, item…" oninput="renderPlanningTab()"/>
+          <select class="filter-select" id="vendorPoStatusFilter" onchange="renderPlanningTab()">
+            <option value="all">All statuses</option>
+            <option value="open">Open</option>
+            <option value="partial_received">Partial Received</option>
+            <option value="backordered">Backordered</option>
+            <option value="received">Received</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <button class="btn btn-outline" onclick="exportVendorPurchaseOrdersCsv()">Export CSV</button>
+        </div>
+        <div class="receive-po-note" id="vendorPoFilterSummary" style="margin-top:8px"></div>
+        <div id="vendorPoList" class="ops-mini-list"></div>
       </div>
     </div>
 
@@ -1990,7 +2118,7 @@ td{padding:12px 16px;vertical-align:middle}
     </div>
 
     <!-- Invoice details grid -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+    <div class="form-two-col" style="margin-bottom:12px">
       <div>
         <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Invoice #</label>
         <input class="search-input" id="ni_number" placeholder="Auto-generated" style="width:100%"/>
@@ -2305,7 +2433,7 @@ td{padding:12px 16px;vertical-align:middle}
     <h3 id="invModalTitle">Add Product</h3>
     <p class="modal-sub">Fill in the seafood product details below.</p>
     <input type="hidden" id="invEditId"/>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
+    <div class="form-two-col tight">
       <div>
         <label class="modal-label">Description (Product Name) *</label>
         <input class="modal-input" id="invName" placeholder="e.g. CAVIAR GOLDEN WHITE" oninput="autoDetectLotRequired()"/>
@@ -2417,7 +2545,7 @@ td{padding:12px 16px;vertical-align:middle}
     <h3>Log Yield Entry</h3>
     <p class="modal-sub" id="yieldProductName" style="color:var(--text);font-weight:600;font-size:14px;margin-bottom:12px"></p>
     <input type="hidden" id="yieldProductId"/>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <div class="form-two-col">
       <div>
         <label class="modal-label">Raw Weight (in)</label>
         <input class="modal-input" id="yieldRaw" type="number" min="0.01" step="0.01" placeholder="e.g. 40.0" oninput="updateYieldPreview()"/>
@@ -2450,7 +2578,7 @@ td{padding:12px 16px;vertical-align:middle}
     <h3 id="lotModalTitle">Add Lot / Batch</h3>
     <p class="modal-sub">Track received inventory by lot for full traceability, expiry management, and regulatory compliance.</p>
     <input type="hidden" id="lotEditId"/>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px">
+    <div class="form-two-col wide">
       <div>
         <label class="modal-label">Product *</label>
         <select class="modal-input" id="lotProduct" style="cursor:pointer">
@@ -2548,6 +2676,37 @@ td{padding:12px 16px;vertical-align:middle}
   </div>
 </div>
 
+<!-- VENDOR PO RECEIVE MODAL -->
+<div class="modal-overlay" id="vendorPoReceiveModal">
+  <div class="modal-box" style="width:min(900px,96vw);max-height:90vh;overflow-y:auto">
+    <h3>Receive Vendor Purchase Order</h3>
+    <p class="modal-sub" id="vendorPoReceiveSub">Review line receipts, enter actual quantities and unit costs, then submit once.</p>
+    <input type="hidden" id="vendorPoReceiveId"/>
+    <div style="overflow-x:auto">
+      <table class="receive-po-table">
+        <thead>
+          <tr>
+            <th>Product</th>
+            <th>Ordered</th>
+            <th>Received</th>
+            <th>Remaining</th>
+            <th>Receive Now</th>
+            <th>Unit Cost</th>
+          </tr>
+        </thead>
+        <tbody id="vendorPoReceiveBody"></tbody>
+      </table>
+    </div>
+    <label class="modal-label">Receipt Notes (optional)</label>
+    <input class="modal-input" id="vendorPoReceiveNotes" placeholder="Packing slip / condition notes"/>
+    <div class="modal-result" id="vendorPoReceiveResult"></div>
+    <div class="modal-actions">
+      <button class="btn btn-outline" onclick="closeVendorPoReceiveModal()">Cancel</button>
+      <button class="btn btn-accent" id="vendorPoReceiveSubmitBtn" onclick="submitVendorPoReceiveModal()">Receive Selected Lines</button>
+    </div>
+  </div>
+</div>
+
 <!-- INVITE DRIVER MODAL -->
 <div class="modal-overlay" id="inviteModal">
   <div class="modal-box">
@@ -2587,6 +2746,7 @@ async function doLogout() {
   window.location.href = '/';
 }
 let allDeliveries = [], allDrivers = [], analyticsData = {}, statsData = {};
+let reportingData = null;
 let delivSort = { key: 'orderId', dir: 1 };
 let delivPage = 1;
 const PAGE_SIZE = 10;
@@ -2600,6 +2760,8 @@ let opsPurchasing = [];
 let opsBarcodeEvents = [];
 let opsEdiJobs = [];
 let opsPoDrafts = [];
+let opsVendorPurchaseOrders = [];
+let activeVendorPoReceive = null;
 
 function h(v) {
   return String(v ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -2722,6 +2884,7 @@ function clearOrderForm() {
   document.getElementById('orderCustomerInput').value = '';
   document.getElementById('orderCustomerEmail').value = '';
   document.getElementById('orderCustomerAddress').value = '';
+  document.getElementById('orderIntakeVendor').value = '';
   document.getElementById('orderNotes').value = '';
   document.getElementById('orderFormMsg').style.display = 'none';
   document.getElementById('orderItemsBody').innerHTML = '';
@@ -2893,6 +3056,152 @@ function getOrderItems() {
       actual_weight: null
     };
   }).filter(i => i.name);
+}
+
+async function autoFillOrderFromIntake() {
+  const notesEl = document.getElementById('orderNotes');
+  const customerInputEl = document.getElementById('orderCustomerInput');
+  const btn = document.getElementById('orderIntakeBtn');
+  const body = document.getElementById('orderItemsBody');
+  const message = (notesEl?.value || '').trim();
+
+  if (!message) {
+    showOrderMsg('Enter intake text in Notes / Special Instructions first', 'error');
+    notesEl?.focus();
+    return;
+  }
+
+  const originalLabel = btn?.textContent || 'Auto-fill Items';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Parsing…';
+  }
+
+  try {
+    const res = await fetch(`${API}/ai/order-intake`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+      body: JSON.stringify({ message }),
+    });
+    const draft = await res.json().catch(() => ({}));
+    if (!res.ok || draft.error) throw new Error(draft.error || `Error ${res.status}`);
+
+    const items = Array.isArray(draft.items) ? draft.items.filter(i => i && String(i.name || '').trim()) : [];
+    if (!items.length) {
+      showOrderMsg('No clear items found. Add items manually or include quantity + unit + product.', 'error');
+      return;
+    }
+
+    body.innerHTML = '';
+    items.forEach((item) => {
+      const amount = Number(item.amount);
+      const unitPrice = Number(item.unit_price);
+      addOrderRow(
+        item.name || '',
+        item.unit === 'lb' ? 'lb' : 'each',
+        Number.isFinite(amount) && amount > 0 ? amount : 1,
+        Number.isFinite(unitPrice) && unitPrice > 0 ? unitPrice : '',
+        item.notes || '',
+        item.item_number || ''
+      );
+    });
+
+    const customerHint = String(draft.customer_name_hint || '').trim();
+    if (customerHint && !customerInputEl.value.trim()) {
+      const matched = findCustomerByName(customerHint);
+      if (matched) {
+        selectOrderCustomer(customerName(matched), customerEmail(matched), customerAddress(matched), matched);
+      } else {
+        customerInputEl.value = customerHint;
+      }
+    }
+
+    if (!notesEl.value.trim() && draft.order_notes) {
+      notesEl.value = String(draft.order_notes).trim();
+    }
+
+    recalcOrder();
+
+    const warningText = Array.isArray(draft.warnings) && draft.warnings.length
+      ? ` Review: ${draft.warnings[0]}`
+      : '';
+    showOrderMsg(`Auto-filled ${items.length} item${items.length === 1 ? '' : 's'} from intake message.${warningText}`, 'success');
+  } catch (err) {
+    showOrderMsg(err.message || 'Could not parse intake message', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  }
+}
+
+async function createPurchaseOrderDraftFromOrderIntake() {
+  const btn = document.getElementById('orderIntakePoBtn');
+  const vendor = document.getElementById('orderIntakeVendor')?.value?.trim() || '';
+  const intakeMessage = document.getElementById('orderNotes')?.value?.trim() || '';
+  const customer = document.getElementById('orderCustomerInput')?.value?.trim() || '';
+  const orderNotes = document.getElementById('orderNotes')?.value?.trim() || '';
+  const items = getOrderItems();
+
+  if (!items.length) {
+    showOrderMsg('Add or auto-fill at least one item before drafting PO gaps', 'error');
+    return;
+  }
+
+  const intakeItems = items.map((item) => ({
+    name: item.name,
+    item_number: item.item_number || '',
+    unit: item.unit || 'each',
+    quantity: item.unit === 'lb'
+      ? (parseFloat(item.requested_weight) || 0)
+      : (parseFloat(item.requested_qty) || 0),
+  })).filter((item) => item.name && item.quantity > 0);
+
+  if (!intakeItems.length) {
+    showOrderMsg('Could not calculate intake quantities from the current rows', 'error');
+    return;
+  }
+
+  const originalLabel = btn?.textContent || 'Draft PO Gaps';
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Drafting…';
+  }
+
+  try {
+    const res = await fetch(`${API}/ops/purchase-order-drafts/from-order-intake`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+      body: JSON.stringify({
+        intakeItems,
+        intakeMessage,
+        leadTimeDays: 5,
+        lookbackDays: 30,
+        vendor,
+        maxLines: 60,
+        notes: [customer ? `Order intake: ${customer}` : '', orderNotes].filter(Boolean).join(' · '),
+      }),
+    });
+    const payload = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(payload.error || `Error ${res.status}`);
+
+    const lines = Number(payload.line_count || 0);
+    const label = payload.draft_number || 'PO draft';
+    const unmatched = Array.isArray(payload.lines)
+      ? payload.lines.filter((line) => String(line.match_status || '').toLowerCase() === 'unmatched').length
+      : 0;
+    const unmatchedText = unmatched ? ` ${unmatched} line${unmatched === 1 ? '' : 's'} need inventory mapping.` : '';
+    showOrderMsg(`${label} created from intake gaps (${lines} lines).${unmatchedText}`, 'success');
+    refreshPlanningData();
+  } catch (err) {
+    showOrderMsg(err.message || 'Could not create PO draft from intake', 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = originalLabel;
+    }
+  }
 }
 
 async function sendOrderToProcessing() {
@@ -3549,7 +3858,7 @@ const NAV_GROUP_MAP = {
   deliveries:'logistics', map:'logistics', drivers:'logistics', routes:'logistics', stops:'logistics',
   customers:'people', vendors:'people', users:'people',
   financials:'financials', invoices:'financials', analytics:'financials', inventory:'financials', forecast:'financials',
-  warehouse:'operations', planning:'operations', integrations:'operations',
+  purchasing:'operations', warehouse:'operations', planning:'operations', integrations:'operations',
   aihelp:'ai'
 };
 
@@ -3576,6 +3885,7 @@ function showTab(name, el) {
   if (mobileIdx >= 0) document.querySelectorAll('.mobile-tab')[mobileIdx]?.classList.add('active');
   if (name === 'orders') { fetchOrders(); }
   if (name === 'invoices') { renderInprocessOrders(); }
+  if (name === 'purchasing') { loadPurchasingTab(); }
   if (name === 'warehouse') { loadWarehouseTab(); }
   if (name === 'planning') { loadPlanningTab(); }
   if (name === 'integrations') { loadIntegrationsTab(); }
@@ -3586,6 +3896,10 @@ function showTab(name, el) {
   if (name === 'aihelp') { initAIHelp(); }
   if (name === 'settings') { initSettings(); }
   if (name === 'financials') { loadFinancials(); }
+  if (name === 'analytics') {
+    renderReportingRollups();
+    if (!reportingData || reportingData.error) fetchReportingRollups();
+  }
 }
 
 function isNativeKeyboardTarget(el) {
@@ -3820,6 +4134,7 @@ async function fetchAll() {
       fetch(API+'/deliveries', authHeaders),
       fetch(API+'/drivers', authHeaders),
       fetch(API+'/analytics', authHeaders),
+      fetch(API+'/reporting/rollups?limit=12', authHeaders),
     ]);
 
     // If all core requests are 401, session expired — redirect to login
@@ -3830,8 +4145,10 @@ async function fetchAll() {
       return;
     }
 
-    const [s, d, dr, a] = await Promise.all(responses.map(r => r.json()));
-    statsData = s; allDeliveries = d; allDrivers = dr; analyticsData = a;
+    const [s, d, dr, a, reporting] = await Promise.all(responses.map(async (r) => {
+      try { return await r.json(); } catch (_err) { return null; }
+    }));
+    statsData = s; allDeliveries = d; allDrivers = dr; analyticsData = a; reportingData = reporting;
     document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
     renderKPIs();
     renderCharts();
@@ -3839,6 +4156,7 @@ async function fetchAll() {
     renderDeliveries();
     renderDrivers();
     renderAnalytics();
+    renderReportingRollups();
     renderMap();
     if (nrUser && nrUser.role === 'admin') fetchUsers();
     fetchStops();
@@ -4266,6 +4584,105 @@ function renderAnalytics() {
     Pending deliveries: <strong>${allDeliveries.filter(d=>d.status==='pending').length}</strong><br>
     Service area: <strong>Charleston, SC metro</strong>
   `;
+}
+
+function reportFmtMoney(v) {
+  return '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function reportFmtNumber(v) {
+  return Number(v || 0).toLocaleString('en-US');
+}
+
+function reportFmtPct(v) {
+  return `${Number(v || 0).toFixed(1)}%`;
+}
+
+function reportCardsMarkup(title, rows) {
+  if (!Array.isArray(rows) || !rows.length) {
+    return `<div class="report-rollup-card">
+      <div class="report-rollup-title">${escHtml(title)}</div>
+      <div class="report-rollup-meta">No rows for current filters.</div>
+    </div>`;
+  }
+
+  return `<div class="report-rollup-card">
+    <div class="report-rollup-title">${escHtml(title)}</div>
+    <div class="report-rollup-table-wrap">
+      <table class="report-rollup-table">
+        <thead><tr><th>Name</th><th>Revenue</th><th>Cost</th><th>Margin</th><th>Margin %</th><th>Qty</th></tr></thead>
+        <tbody>
+          ${rows.map(row => `<tr>
+            <td><strong>${escHtml(row.label || '—')}</strong><div style="font-size:11px;color:var(--muted)">${reportFmtNumber(row.invoice_count || 0)} invoices · ${reportFmtNumber(row.order_count || 0)} orders</div></td>
+            <td>${reportFmtMoney(row.revenue)}</td>
+            <td>${reportFmtMoney(row.estimated_cost)}</td>
+            <td>${reportFmtMoney(row.margin)}</td>
+            <td>${reportFmtPct(row.margin_pct)}</td>
+            <td>${reportFmtNumber(row.qty)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function renderReportingRollups() {
+  const overviewEl = document.getElementById('reportingOverview');
+  const gridEl = document.getElementById('reportingRollupGrid');
+  if (!overviewEl || !gridEl) return;
+
+  if (!reportingData || reportingData.error) {
+    overviewEl.textContent = reportingData?.error || 'Reporting rollups are not available.';
+    gridEl.innerHTML = '<div class="report-rollup-card">No rollup data available yet.</div>';
+    return;
+  }
+
+  const overview = reportingData.overview || {};
+  const generated = reportingData.generated_at ? new Date(reportingData.generated_at).toLocaleString() : '—';
+  const filters = reportingData.filters || {};
+  const start = filters.start ? new Date(filters.start).toLocaleDateString() : 'All time';
+  const end = filters.end ? new Date(filters.end).toLocaleDateString() : 'Now';
+  const limit = filters.limit || 12;
+
+  overviewEl.innerHTML = `
+    Window: <strong>${start}</strong> → <strong>${end}</strong> · Top <strong>${limit}</strong> per rollup · Generated <strong>${generated}</strong><br>
+    Orders: <strong>${reportFmtNumber(overview.order_count)}</strong> · Invoices: <strong>${reportFmtNumber(overview.invoice_count)}</strong> · Revenue: <strong>${reportFmtMoney(overview.revenue)}</strong> · Estimated Cost: <strong>${reportFmtMoney(overview.estimated_cost)}</strong> · Margin: <strong>${reportFmtMoney(overview.margin)}</strong> (${reportFmtPct(overview.margin_pct)})
+  `;
+
+  gridEl.innerHTML = [
+    reportCardsMarkup('By Customer', reportingData.customer || []),
+    reportCardsMarkup('By Route', reportingData.route || []),
+    reportCardsMarkup('By Driver', reportingData.driver || []),
+    reportCardsMarkup('By SKU', reportingData.sku || []),
+  ].join('');
+}
+
+async function fetchReportingRollups() {
+  const start = document.getElementById('reportStartDate')?.value || '';
+  const end = document.getElementById('reportEndDate')?.value || '';
+  const limitInput = parseInt(document.getElementById('reportRowLimit')?.value || '12', 10);
+  const limit = Number.isFinite(limitInput) ? Math.max(1, Math.min(500, limitInput)) : 12;
+
+  const params = new URLSearchParams();
+  if (start) params.set('start', start);
+  if (end) params.set('end', end);
+  params.set('limit', String(limit));
+
+  const overviewEl = document.getElementById('reportingOverview');
+  const gridEl = document.getElementById('reportingRollupGrid');
+  if (overviewEl) overviewEl.textContent = 'Refreshing rollups…';
+  if (gridEl) gridEl.innerHTML = '<div class="report-rollup-card">Loading…</div>';
+
+  try {
+    const res = await fetch(`${API}/reporting/rollups?${params.toString()}`, authHeaders);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not load reporting rollups');
+    reportingData = data;
+    renderReportingRollups();
+  } catch (error) {
+    reportingData = { error: error.message };
+    renderReportingRollups();
+  }
 }
 
 // ── STOPS TAB ──────────────────────────────────────────
@@ -5962,6 +6379,8 @@ document.getElementById('restockModal').addEventListener('click', e => { if (e.t
 document.getElementById('yieldModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeYieldModal(); });
 document.getElementById('lotModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeLotModal(); });
 document.getElementById('depleteLotModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeDepleteLotModal(); });
+document.getElementById('vendorPoReceiveModal').addEventListener('click', e => { if (e.target === e.currentTarget) closeVendorPoReceiveModal(); });
+document.getElementById('vendorPoReceiveModal').addEventListener('keydown', e => { if (e.key === 'Escape') closeVendorPoReceiveModal(); });
 
 // ── INVENTORY SUB-TABS ─────────────────────────────────
 function showInvTab(name, el) {
@@ -7428,28 +7847,71 @@ async function loadPlanningTab() {
   await refreshPlanningData();
 }
 
+async function loadPurchasingTab() {
+  await refreshPlanningData();
+}
+
+function openPurchasingWorkspace(status = 'all', autoExport = false) {
+  showTab('purchasing', null);
+  const statusEl = document.getElementById('vendorPoStatusFilter');
+  if (statusEl) statusEl.value = status || 'all';
+  renderPlanningTab();
+  if (autoExport) exportVendorPurchaseOrdersCsv();
+}
+
 async function refreshPlanningData() {
   try {
     const leadTimeDays = parseInt(document.getElementById('leadTimeDays')?.value || '5', 10);
     const coverageDays = parseInt(document.getElementById('coverageDays')?.value || '30', 10);
-    const [rulesRes, projRes, suggRes, draftRes] = await Promise.all([
+    const [rulesRes, projRes, suggRes, draftRes, vendorPoRes] = await Promise.all([
       fetch(`${API}/ops/uom-rules`, authHeaders),
       fetch(`${API}/ops/projections?days=30&lookbackDays=30`, authHeaders),
       fetch(`${API}/ops/purchasing-suggestions?coverageDays=${coverageDays}&leadTimeDays=${leadTimeDays}&lookbackDays=30`, authHeaders),
-      fetch(`${API}/ops/purchase-order-drafts`, authHeaders)
+      fetch(`${API}/ops/purchase-order-drafts`, authHeaders),
+      fetch(`${API}/ops/vendor-purchase-orders`, authHeaders)
     ]);
     opsUomRules = await rulesRes.json();
     opsProjection = (await projRes.json()).projections || [];
     opsPurchasing = (await suggRes.json()).suggestions || [];
     opsPoDrafts = await draftRes.json();
+    opsVendorPurchaseOrders = await vendorPoRes.json();
     renderPlanningTab();
   } catch (e) {}
+}
+
+function filteredVendorPurchaseOrders() {
+  const searchTerm = String(document.getElementById('vendorPoSearch')?.value || '').trim().toLowerCase();
+  const statusFilter = String(document.getElementById('vendorPoStatusFilter')?.value || 'all').trim().toLowerCase();
+  return (opsVendorPurchaseOrders || []).filter((po) => {
+    const status = String(po.status || 'open').toLowerCase();
+    if (statusFilter !== 'all' && status !== statusFilter) return false;
+    if (!searchTerm) return true;
+    const lineText = Array.isArray(po.lines)
+      ? po.lines.map((line) => `${line.product_name || ''} ${line.item_number || ''}`).join(' ')
+      : '';
+    const haystack = `${po.po_number || ''} ${po.vendor || ''} ${status} ${lineText}`.toLowerCase();
+    return haystack.includes(searchTerm);
+  });
 }
 
 function renderPlanningTab() {
   document.getElementById('poDraftCount').textContent = (opsPoDrafts || []).length;
   document.getElementById('projReorderCount').textContent = (opsPurchasing || []).length;
   document.getElementById('projRiskCount').textContent = (opsProjection || []).filter(p => p.projected_remaining_qty < 0).length;
+  const vendorPos = opsVendorPurchaseOrders || [];
+  const openPos = vendorPos.filter(po => String(po.status || '').toLowerCase() === 'open').length;
+  const backorderedPos = vendorPos.filter(po => String(po.status || '').toLowerCase() === 'backordered').length;
+  const receiveQueue = vendorPos.filter(po => ['open', 'partial_received', 'backordered'].includes(String(po.status || '').toLowerCase())).length;
+  const purchasingOpen = document.getElementById('purchasingOpenCount');
+  if (purchasingOpen) purchasingOpen.textContent = openPos;
+  const purchasingBackordered = document.getElementById('purchasingBackorderCount');
+  if (purchasingBackordered) purchasingBackordered.textContent = backorderedPos;
+  const purchasingTotal = document.getElementById('purchasingTotalCount');
+  if (purchasingTotal) purchasingTotal.textContent = vendorPos.length;
+  const dashboardSnapshot = document.getElementById('dashboardPurchasingSnapshot');
+  if (dashboardSnapshot) {
+    dashboardSnapshot.textContent = `${receiveQueue} POs need receiving action · ${backorderedPos} currently backordered · ${vendorPos.length} total vendor POs`;
+  }
 
   const uomList = document.getElementById('uomRuleList');
   if (uomList) {
@@ -7478,6 +7940,9 @@ function renderPlanningTab() {
       const orderedBtn = status === 'ready'
         ? `<button class="btn btn-outline" style="padding:3px 8px;font-size:11px" onclick="updatePurchaseOrderDraftStatus('${h(d.id)}','ordered')">Mark Ordered</button>`
         : '';
+      const createVendorPoBtn = (status === 'ready' || status === 'ordered') && !d.linked_vendor_po_id
+        ? `<button class="btn btn-outline" style="padding:3px 8px;font-size:11px" onclick="createVendorPurchaseOrderFromDraft('${h(d.id)}')">Create Vendor PO</button>`
+        : '';
       const archiveBtn = status !== 'archived'
         ? `<button class="btn btn-outline" style="padding:3px 8px;font-size:11px" onclick="updatePurchaseOrderDraftStatus('${h(d.id)}','archived')">Archive</button>`
         : '';
@@ -7485,11 +7950,95 @@ function renderPlanningTab() {
         <span><strong>${h(d.draft_number || 'Draft PO')}</strong> · ${h(d.vendor || 'Unassigned Vendor')} · ${h(d.line_count || 0)} lines · est $${h((d.total_estimated_cost || 0).toFixed ? d.total_estimated_cost.toFixed(2) : d.total_estimated_cost)}</span>
         <span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
           <span class="ops-pill ${pill}">${h(status)}</span>
-          ${readyBtn}${orderedBtn}${archiveBtn}
+          ${readyBtn}${orderedBtn}${createVendorPoBtn}${archiveBtn}
         </span>
       </div>`;
     }).join('') || `<div class="ops-row"><span style="color:var(--muted)">No draft purchase orders yet</span></div>`;
   }
+
+  const vendorPoList = document.getElementById('vendorPoList');
+  if (vendorPoList) {
+    const filtered = filteredVendorPurchaseOrders();
+    const summary = document.getElementById('vendorPoFilterSummary');
+    if (summary) {
+      const total = (opsVendorPurchaseOrders || []).length;
+      summary.textContent = `${filtered.length} of ${total} vendor POs shown`;
+    }
+    vendorPoList.innerHTML = filtered.slice(0, 80).map(po => {
+      const status = String(po.status || 'open').toLowerCase();
+      const pill = status === 'received' ? 'good' : (status === 'cancelled' ? 'bad' : (status === 'backordered' ? 'bad' : 'warn'));
+      const receiveBtn = (status === 'open' || status === 'partial_received' || status === 'backordered')
+        ? `<button class="btn btn-outline" style="padding:3px 8px;font-size:11px" onclick="receiveVendorPurchaseOrder('${h(po.id)}')">Receive</button>`
+        : '';
+      return `<div class="ops-row">
+        <span><strong>${h(po.po_number || 'Vendor PO')}</strong> · ${h(po.vendor || 'Unassigned Vendor')} · ${h(po.line_count || 0)} lines · recv ${h(po.total_received_qty || 0)}/${h(po.total_ordered_qty || 0)} · bo ${h(po.total_backordered_qty || 0)} · $${h((po.total_received_cost || 0).toFixed ? po.total_received_cost.toFixed(2) : po.total_received_cost)}</span>
+        <span style="display:flex;align-items:center;gap:6px;flex-wrap:wrap">
+          <span class="ops-pill ${pill}">${h(status)}</span>
+          ${receiveBtn}
+        </span>
+      </div>`;
+    }).join('') || `<div class="ops-row"><span style="color:var(--muted)">No vendor purchase orders yet</span></div>`;
+  }
+}
+
+function exportVendorPurchaseOrdersCsv() {
+  const rows = filteredVendorPurchaseOrders();
+  if (!rows.length) {
+    alert('No vendor purchase orders match the current filters.');
+    return;
+  }
+  const header = [
+    'PO Number',
+    'Vendor',
+    'Status',
+    'Expected Date',
+    'Line #',
+    'Item #',
+    'Product',
+    'Unit',
+    'Ordered Qty',
+    'Received Qty',
+    'Backordered Qty',
+    'Over Received Qty',
+    'Unit Cost',
+    'Line Total',
+    'Received Total',
+    'Updated At',
+  ];
+  const csvRows = [];
+  for (const po of rows) {
+    const lines = Array.isArray(po.lines) && po.lines.length ? po.lines : [null];
+    for (const line of lines) {
+      csvRows.push([
+        po.po_number || '',
+        po.vendor || '',
+        po.status || '',
+        po.expected_date || '',
+        line?.line_no ?? '',
+        line?.item_number ?? '',
+        line?.product_name ?? '',
+        line?.unit ?? '',
+        line?.ordered_qty ?? '',
+        line?.received_qty ?? '',
+        line?.backordered_qty ?? '',
+        line?.over_received_qty ?? '',
+        line?.unit_cost ?? '',
+        line?.line_total ?? '',
+        line?.received_total ?? '',
+        po.updated_at || po.created_at || '',
+      ]);
+    }
+  }
+  const csv = [header, ...csvRows]
+    .map((row) => row.map((value) => `"${String(value ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const fileDate = new Date().toISOString().split('T')[0];
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
+    download: `vendor-purchase-orders-${fileDate}.csv`,
+  });
+  a.click();
+  URL.revokeObjectURL(a.href);
 }
 
 async function createUomRule() {
@@ -7545,6 +8094,125 @@ async function updatePurchaseOrderDraftStatus(id, status) {
     return;
   }
   refreshPlanningData();
+}
+
+async function createVendorPurchaseOrderFromDraft(draftId) {
+  const vendor = window.prompt('Vendor name for this PO (leave blank to use draft vendor):', '');
+  const body = {};
+  if (vendor && vendor.trim()) body.vendor = vendor.trim();
+  const res = await fetch(`${API}/ops/vendor-purchase-orders/from-draft/${draftId}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+    body: JSON.stringify(body)
+  });
+  const payload = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    alert(payload.error || 'Could not create vendor purchase order');
+    return;
+  }
+  refreshPlanningData();
+}
+
+async function receiveVendorPurchaseOrder(poId) {
+  const po = (opsVendorPurchaseOrders || []).find(p => p.id === poId);
+  if (!po || !Array.isArray(po.lines) || !po.lines.length) return;
+  const pendingLines = po.lines.filter(l => (Number(l.ordered_qty) || 0) > (Number(l.received_qty) || 0));
+  if (!pendingLines.length) {
+    alert('All PO lines are already fully received');
+    return;
+  }
+  activeVendorPoReceive = po;
+  document.getElementById('vendorPoReceiveId').value = po.id;
+  document.getElementById('vendorPoReceiveSub').textContent = `${po.po_number || 'Vendor PO'} · ${po.vendor || 'Unassigned Vendor'} · ${pendingLines.length} pending line${pendingLines.length === 1 ? '' : 's'}`;
+  document.getElementById('vendorPoReceiveNotes').value = '';
+  const result = document.getElementById('vendorPoReceiveResult');
+  if (result) {
+    result.className = 'modal-result';
+    result.textContent = '';
+  }
+  const body = document.getElementById('vendorPoReceiveBody');
+  body.innerHTML = pendingLines.map((line, idx) => {
+    const ordered = Number(line.ordered_qty) || 0;
+    const received = Number(line.received_qty) || 0;
+    const remaining = Math.max(0, ordered - received);
+    const lineNo = line.line_no ?? (idx + 1);
+    return `<tr>
+      <td>
+        <div><strong>${h(line.product_name || 'Unknown product')}</strong></div>
+        <div class="receive-po-note">Line ${h(lineNo)}${line.item_number ? ` · #${h(line.item_number)}` : ''}</div>
+      </td>
+      <td>${h(ordered.toFixed(3))} ${h(line.unit || 'each')}</td>
+      <td>${h(received.toFixed(3))} ${h(line.unit || 'each')}</td>
+      <td>${h(remaining.toFixed(3))} ${h(line.unit || 'each')}</td>
+      <td><input class="receive-po-input" type="number" min="0" max="${h(remaining.toFixed(3))}" step="0.001" value="${h(remaining.toFixed(3))}" data-recv-line="${h(lineNo)}" data-recv-field="qty"/></td>
+      <td><input class="receive-po-input" type="number" min="0" step="0.0001" value="${h((Number(line.unit_cost) || 0).toFixed(4))}" data-recv-line="${h(lineNo)}" data-recv-field="cost"/></td>
+    </tr>`;
+  }).join('');
+  document.getElementById('vendorPoReceiveModal').classList.add('open');
+}
+
+function closeVendorPoReceiveModal() {
+  document.getElementById('vendorPoReceiveModal').classList.remove('open');
+  activeVendorPoReceive = null;
+}
+
+async function submitVendorPoReceiveModal() {
+  const poId = document.getElementById('vendorPoReceiveId').value;
+  if (!poId || !activeVendorPoReceive) return;
+  const body = document.getElementById('vendorPoReceiveBody');
+  const result = document.getElementById('vendorPoReceiveResult');
+  const submitBtn = document.getElementById('vendorPoReceiveSubmitBtn');
+  const payloadLines = [];
+
+  const qtyInputs = body.querySelectorAll('input[data-recv-field="qty"]');
+  for (const qtyInput of qtyInputs) {
+    const lineNo = parseInt(qtyInput.dataset.recvLine, 10);
+    if (!Number.isFinite(lineNo)) continue;
+    const qty = parseFloat(qtyInput.value || '0');
+    if (!(qty > 0)) continue;
+    const costInput = body.querySelector(`input[data-recv-line="${lineNo}"][data-recv-field="cost"]`);
+    const linePayload = { line_no: lineNo, qty_received: qty };
+    if (costInput && String(costInput.value || '').trim() !== '') {
+      const unitCost = parseFloat(costInput.value);
+      if (Number.isFinite(unitCost) && unitCost >= 0) linePayload.unit_cost = unitCost;
+    }
+    payloadLines.push(linePayload);
+  }
+
+  if (!payloadLines.length) {
+    result.className = 'modal-result error';
+    result.textContent = 'Enter a receive quantity greater than 0 for at least one line.';
+    return;
+  }
+
+  submitBtn.disabled = true;
+  submitBtn.textContent = 'Receiving…';
+  result.className = 'modal-result';
+  result.textContent = '';
+
+  const notes = document.getElementById('vendorPoReceiveNotes')?.value.trim();
+  const res = await fetch(`${API}/ops/vendor-purchase-orders/${poId}/receive`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+    body: JSON.stringify({ lines: payloadLines, notes })
+  });
+  const payload = await res.json().catch(() => ({}));
+  submitBtn.disabled = false;
+  submitBtn.textContent = 'Receive Selected Lines';
+  if (!res.ok) {
+    result.className = 'modal-result error';
+    result.textContent = payload.error || 'Could not receive this purchase order';
+    return;
+  }
+  result.className = 'modal-result success';
+  result.textContent = 'Receipt posted. Inventory quantities and costs were updated.';
+  refreshPlanningData();
+  if (typeof fetchInventory === 'function') {
+    await fetchInventory();
+    if (typeof renderInventory === 'function') renderInventory();
+    if (typeof renderInventoryKPIs === 'function') renderInventoryKPIs();
+  }
+  setTimeout(() => closeVendorPoReceiveModal(), 700);
 }
 
 async function loadIntegrationsTab() {

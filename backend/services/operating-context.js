@@ -1,5 +1,6 @@
 const COMPANY_FIELD_CANDIDATES = ['company_id', 'organization_id', 'tenant_id', 'org_id'];
 const COMPANY_NAME_FIELD_CANDIDATES = ['company_name', 'organization_name', 'tenant_name'];
+const COMPANY_LIST_FIELD_CANDIDATES = ['company_ids', 'organization_ids', 'tenant_ids', 'accessible_company_ids'];
 const LOCATION_FIELD_CANDIDATES = ['location_id', 'site_id', 'warehouse_id'];
 const LOCATION_NAME_FIELD_CANDIDATES = ['location_name', 'site_name', 'warehouse_name'];
 const LOCATION_LIST_FIELD_CANDIDATES = ['location_ids', 'site_ids', 'warehouse_ids', 'accessible_location_ids'];
@@ -86,10 +87,15 @@ function getUserOperatingContext(user) {
     ...parseIdList(firstValue(user, LOCATION_LIST_FIELD_CANDIDATES)),
     ...(baseLocationId ? [baseLocationId] : []),
   ].filter((value, index, all) => all.indexOf(value) === index);
+  const accessibleCompanyIds = [
+    ...parseIdList(firstValue(user, COMPANY_LIST_FIELD_CANDIDATES)),
+    ...(companyId ? [companyId] : []),
+  ].filter((value, index, all) => all.indexOf(value) === index);
 
   return {
     companyId,
     companyName,
+    accessibleCompanyIds,
     locationId: baseLocationId,
     locationName,
     accessibleLocationIds,
@@ -100,6 +106,21 @@ function getUserOperatingContext(user) {
 
 function buildRequestContext(req, user) {
   const userContext = getUserOperatingContext(user);
+  const requestedCompanyId = normalizeId(
+    req?.headers?.['x-company-id'] ||
+    req?.query?.companyId ||
+    req?.body?.companyId ||
+    null
+  );
+  let activeCompanyId = userContext.companyId;
+  if (requestedCompanyId) {
+    const canUseRequestedCompany =
+      userContext.isGlobalOperator ||
+      !userContext.accessibleCompanyIds.length ||
+      userContext.accessibleCompanyIds.includes(requestedCompanyId);
+    if (canUseRequestedCompany) activeCompanyId = requestedCompanyId;
+  }
+
   const requestedLocationId = normalizeId(
     req?.headers?.['x-location-id'] ||
     req?.query?.locationId ||
@@ -118,6 +139,8 @@ function buildRequestContext(req, user) {
 
   return {
     ...userContext,
+    requestedCompanyId,
+    activeCompanyId,
     requestedLocationId,
     activeLocationId,
   };
@@ -132,6 +155,8 @@ function userResponseWithContext(user) {
     role: user.role,
     companyId: context.companyId,
     companyName: context.companyName,
+    activeCompanyId: context.companyId,
+    accessibleCompanyIds: context.accessibleCompanyIds,
     locationId: context.locationId,
     locationName: context.locationName,
     accessibleLocationIds: context.accessibleLocationIds,
@@ -152,8 +177,12 @@ function rowMatchesContext(row, context) {
 
   const rowCompanyId = extractRowCompanyId(row);
   const rowLocationId = extractRowLocationId(row);
+  const activeCompanyId = normalizeId(context.activeCompanyId || context.companyId);
+  const allowedCompanies = Array.isArray(context.accessibleCompanyIds) ? context.accessibleCompanyIds : [];
 
-  if (context.companyId && rowCompanyId && rowCompanyId !== context.companyId) return false;
+  if (activeCompanyId && rowCompanyId && rowCompanyId !== activeCompanyId) return false;
+  if (!activeCompanyId && context.companyId && rowCompanyId && rowCompanyId !== context.companyId) return false;
+  if (!activeCompanyId && allowedCompanies.length && rowCompanyId && !allowedCompanies.includes(rowCompanyId)) return false;
 
   const allowedLocations = context.accessibleLocationIds || [];
   if (context.activeLocationId && rowLocationId && rowLocationId !== context.activeLocationId) return false;
@@ -169,7 +198,7 @@ function filterRowsByContext(rows, context) {
 
 function buildScopeFields(context, overrides = {}) {
   const scoped = { ...overrides };
-  const companyId = normalizeId(overrides.company_id || overrides.companyId || context.companyId);
+  const companyId = normalizeId(overrides.company_id || overrides.companyId || context.activeCompanyId || context.companyId);
   const locationId = normalizeId(overrides.location_id || overrides.locationId || context.activeLocationId || context.locationId);
 
   if (companyId) scoped.company_id = companyId;
