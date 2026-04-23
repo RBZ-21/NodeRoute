@@ -8,12 +8,22 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { getUserRole, requireAuthToken } from './lib/api';
 import { cn } from './lib/utils';
 import { AnalyticsPage } from './pages/AnalyticsPage';
+import { CustomersPage } from './pages/CustomersPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { DeliveriesPage } from './pages/DeliveriesPage';
+import { DriversPage } from './pages/DriversPage';
+import { ForecastingPage } from './pages/ForecastingPage';
 import { FinancialsPage } from './pages/FinancialsPage';
+import { IntegrationsPage } from './pages/IntegrationsPage';
 import { InventoryPage } from './pages/InventoryPage';
+import { InvoicesPage } from './pages/InvoicesPage';
 import { OrdersPage } from './pages/OrdersPage';
+import { PlanningPage } from './pages/PlanningPage';
 import { PurchasingPage } from './pages/PurchasingPage';
+import { RoutesPage } from './pages/RoutesPage';
+import { StopsPage } from './pages/StopsPage';
+import { VendorsPage } from './pages/VendorsPage';
+import { WarehousePage } from './pages/WarehousePage';
 
 type TabId =
   | 'dashboard'
@@ -265,8 +275,28 @@ function pageElement(item: NavItem, role: Role) {
       return <OrdersPage />;
     case 'deliveries':
       return <DeliveriesPage />;
+    case 'drivers':
+      return <DriversPage />;
+    case 'routes':
+      return <RoutesPage />;
+    case 'stops':
+      return <StopsPage />;
+    case 'customers':
+      return <CustomersPage />;
+    case 'invoices':
+      return <InvoicesPage />;
+    case 'forecast':
+      return <ForecastingPage />;
     case 'purchasing':
       return <PurchasingPage />;
+    case 'vendors':
+      return <VendorsPage />;
+    case 'warehouse':
+      return <WarehousePage />;
+    case 'planning':
+      return <PlanningPage />;
+    case 'integrations':
+      return <IntegrationsPage />;
     default:
       return <PlaceholderPage item={item} role={role} />;
   }

@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -31,6 +32,8 @@ type OrderCharge = {
 
 type Order = {
   id: string;
+  customer_id?: string;
+  customerId?: string;
   order_number?: string;
   customer_name?: string;
   customer_email?: string;
@@ -96,7 +99,13 @@ function draftSubtotal(lines: OrderLineDraft[]): number {
   return lines.reduce((sum, line) => sum + asNumber(line.quantity) * asNumber(line.unitPrice), 0);
 }
 
+function orderCustomerId(order: Order): string {
+  return String(order.customer_id || order.customerId || '');
+}
+
 export function OrdersPage() {
+  const [searchParams] = useSearchParams();
+  const customerIdParam = String(searchParams.get('customerId') || '').trim();
   const [orders, setOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -121,7 +130,8 @@ export function OrdersPage() {
     setLoading(true);
     setError('');
     try {
-      const data = await fetchWithAuth<Order[]>('/api/orders');
+      const query = customerIdParam ? `?customerId=${encodeURIComponent(customerIdParam)}` : '';
+      const data = await fetchWithAuth<Order[]>(`/api/orders${query}`);
       setOrders(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(String((err as Error).message || 'Could not load orders'));
@@ -132,11 +142,12 @@ export function OrdersPage() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [customerIdParam]);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return orders.filter((order) => {
+      if (customerIdParam && orderCustomerId(order) !== customerIdParam) return false;
       const orderStatus = normalizedStatus(order.status);
       if (status !== 'all' && orderStatus !== status) return false;
       if (!needle) return true;
@@ -145,7 +156,7 @@ export function OrdersPage() {
         String(order.customer_name || '').toLowerCase().includes(needle)
       );
     });
-  }, [orders, search, status]);
+  }, [orders, customerIdParam, search, status]);
 
   const summary = useMemo(() => {
     const pending = orders.filter((order) => normalizedStatus(order.status) === 'pending').length;
@@ -366,6 +377,11 @@ export function OrdersPage() {
       {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading orders...</div> : null}
       {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
+      {customerIdParam ? (
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700">
+          Filtered by customer from Customers page: <strong>{customerIdParam}</strong>
+        </div>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard title="Orders" value={orders.length.toLocaleString()} />
