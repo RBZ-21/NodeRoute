@@ -6,8 +6,14 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { getUserRole, requireAuthToken } from './lib/api';
 import { cn } from './lib/utils';
 import { AnalyticsPage } from './pages/AnalyticsPage';
+import { AIHelpPage, ForecastPage, IntegrationsPage, PlanningPage, SettingsPage, VendorsPage, WarehousePage } from './pages/ControlPages';
+import { DashboardPage, DriversPage, LiveMapPage } from './pages/DispatchPages';
+import { CustomersPage } from './pages/CustomersPage';
+import { DeliveriesPage } from './pages/DeliveriesPage';
 import { FinancialsPage } from './pages/FinancialsPage';
 import { InventoryPage } from './pages/InventoryPage';
+import { InvoicesPage } from './pages/InvoicesPage';
+import { RoutesPage, StopsPage, UsersPage } from './pages/NetworkPages';
 import { OrdersPage } from './pages/OrdersPage';
 import { PurchasingPage } from './pages/PurchasingPage';
 
@@ -189,26 +195,36 @@ export function App() {
 }
 
 function PageContent({ tab, role }: { tab: TabId; role: Role }) {
+  if (tab === 'dashboard') return <DashboardPage />;
+  if (tab === 'deliveries') return <DeliveriesPage />;
+  if (tab === 'map') return <LiveMapPage />;
+  if (tab === 'drivers') return <DriversPage />;
+  if (tab === 'routes') return <RoutesPage />;
+  if (tab === 'stops') return <StopsPage />;
+  if (tab === 'customers') return <CustomersPage />;
+  if (tab === 'users') return <UsersPage />;
   if (tab === 'financials') return <FinancialsPage />;
+  if (tab === 'invoices') return <InvoicesPage />;
   if (tab === 'orders') return <OrdersPage />;
   if (tab === 'analytics') return <AnalyticsPage />;
-  if (tab === 'purchasing') return <PurchasingPage />;
   if (tab === 'inventory') return <InventoryPage />;
+  if (tab === 'forecast') return <ForecastPage />;
+  if (tab === 'purchasing') return <PurchasingPage />;
+  if (tab === 'vendors') return <VendorsPage />;
+  if (tab === 'warehouse') return <WarehousePage />;
+  if (tab === 'planning') return <PlanningPage />;
+  if (tab === 'integrations') return <IntegrationsPage />;
+  if (tab === 'aihelp') return <AIHelpPage />;
+  if (tab === 'settings') return <SettingsPage />;
   return (
     <Card className="bg-muted/20">
       <CardHeader>
         <CardTitle>{pageTitle(tab)}</CardTitle>
         <CardDescription>
-          This section is queued for framework migration. Core APIs remain unchanged and this module will move to shared primitives next.
+          This section does not have a mapped renderer yet in v2.
         </CardDescription>
       </CardHeader>
-      <CardContent className="text-sm text-muted-foreground">
-        {tab === 'vendors' || tab === 'warehouse' || tab === 'planning' || tab === 'integrations'
-          ? role === 'admin'
-            ? 'Operations scope is enabled for admin users in V2.'
-            : 'Operations scope is admin-only and hidden for your role.'
-          : 'Next wave includes Analytics, Purchasing, and Inventory workflows.'}
-      </CardContent>
+      <CardContent className="text-sm text-muted-foreground">Signed in as {role.toUpperCase()}</CardContent>
     </Card>
   );
 }
