@@ -26,10 +26,12 @@ const settingsRouter = require('./routes/settings');
 const temperatureLogsRouter = require('./routes/temperature-logs');
 const opsRouter = require('./routes/ops');
 const reportingRouter = require('./routes/reporting').router;
+const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhookHandler);
 app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' }));
 app.disable('x-powered-by');
 app.use((req, res, next) => {
