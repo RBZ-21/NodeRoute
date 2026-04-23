@@ -1,0 +1,53 @@
+@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&family=Source+Sans+3:wght@400;500;600&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root {
+    --background: 214 56% 98%;
+    --foreground: 217 33% 17%;
+    --card: 0 0% 100%;
+    --card-foreground: 217 33% 17%;
+    --primary: 213 70% 42%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 213 43% 94%;
+    --secondary-foreground: 213 31% 28%;
+    --muted: 214 36% 95%;
+    --muted-foreground: 215 20% 41%;
+    --accent: 214 72% 94%;
+    --accent-foreground: 213 61% 33%;
+    --destructive: 0 75% 46%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 214 32% 88%;
+    --input: 214 32% 88%;
+    --ring: 213 70% 42%;
+    --radius: 0.72rem;
+  }
+
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground antialiased;
+    font-family: 'Source Sans 3', 'Segoe UI', sans-serif;
+  }
+
+  h1,
+  h2,
+  h3,
+  h4 {
+    font-family: 'Manrope', 'Segoe UI', sans-serif;
+  }
+}
+
+@layer utilities {
+  .bg-enterprise-gradient {
+    background:
+      radial-gradient(1000px 420px at 5% -5%, rgba(30, 90, 168, 0.12), transparent 60%),
+      radial-gradient(850px 330px at 95% 4%, rgba(28, 108, 185, 0.09), transparent 58%),
+      hsl(var(--background));
+  }
+}
