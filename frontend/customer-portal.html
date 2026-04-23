@@ -344,7 +344,7 @@ table,.balance-amount,.stat-value,.item-number,.item-total,.item-date,.price-ori
           <div class="payment-note">Only masked payment details are shown. Full account/card data is handled by your payment processor.</div>
         </div>
         <div class="payment-card">
-          <h3>Add Payment Method</h3>
+          <h3>Add Payment Method (Stripe)</h3>
           <div class="payment-grid">
             <div>
               <label class="form-label">Type</label>
@@ -357,44 +357,10 @@ table,.balance-amount,.stat-value,.item-number,.item-total,.item-date,.price-ori
               <label class="form-label">Label</label>
               <input id="pmLabel" class="payment-input" placeholder="Primary account"/>
             </div>
-            <div id="pmCardBrandWrap">
-              <label class="form-label">Card Brand</label>
-              <input id="pmCardBrand" class="payment-input" placeholder="Visa"/>
-            </div>
-            <div id="pmCardLast4Wrap">
-              <label class="form-label">Card Last 4</label>
-              <input id="pmCardLast4" class="payment-input" maxlength="4" placeholder="4242"/>
-            </div>
-            <div id="pmCardExpMonthWrap">
-              <label class="form-label">Exp Month</label>
-              <input id="pmCardExpMonth" class="payment-input" type="number" min="1" max="12" placeholder="12"/>
-            </div>
-            <div id="pmCardExpYearWrap">
-              <label class="form-label">Exp Year</label>
-              <input id="pmCardExpYear" class="payment-input" type="number" min="2026" placeholder="2028"/>
-            </div>
-            <div id="pmBankNameWrap" style="display:none">
-              <label class="form-label">Bank Name</label>
-              <input id="pmBankName" class="payment-input" placeholder="First National"/>
-            </div>
-            <div id="pmBankLast4Wrap" style="display:none">
-              <label class="form-label">Account Last 4</label>
-              <input id="pmBankLast4" class="payment-input" maxlength="4" placeholder="6789"/>
-            </div>
-            <div id="pmRoutingLast4Wrap" style="display:none">
-              <label class="form-label">Routing Last 4</label>
-              <input id="pmRoutingLast4" class="payment-input" maxlength="4" placeholder="0012"/>
-            </div>
-            <div id="pmBankTypeWrap" style="display:none">
-              <label class="form-label">Account Type</label>
-              <select id="pmBankType" class="payment-select">
-                <option value="checking">Checking</option>
-                <option value="savings">Savings</option>
-              </select>
-            </div>
             <div class="full">
-              <label class="form-label">Secure Payment Reference</label>
-              <input id="pmRef" class="payment-input" placeholder="pm_xxx or bank_xxx from processor"/>
+              <label class="form-label">Secure Stripe Form</label>
+              <div id="pmStripeElement" class="payment-input" style="padding:10px;min-height:52px"></div>
+              <div id="pmStripeStatus" class="payment-muted" style="margin-top:8px">Loading secure payment form…</div>
             </div>
           </div>
           <div class="payment-row" style="margin-top:10px">
@@ -532,6 +498,7 @@ table,.balance-amount,.stat-value,.item-number,.item-total,.item-date,.price-ori
   </div><!-- /portal-body -->
 </div><!-- /portal -->
 
+<script src="https://js.stripe.com/v3/"></script>
 <script>
 const API = '/api/portal';
 let portalToken = null;
@@ -545,6 +512,10 @@ let portalResendTimer = null;
 let portalBalanceDue = 0;
 let portalPaymentConfig = null;
 let portalPaymentProfile = null;
+let portalStripe = null;
+let portalStripeElements = null;
+let portalStripePaymentElement = null;
+let portalSetupIntentSecret = '';
 
 // ── SESSION ───────────────────────────────────────────────────────────────────
 function getStoredToken() { try { return sessionStorage.getItem('portal_token'); } catch { return null; } }
@@ -837,8 +808,8 @@ function updateStats(orders, invoices) {
   const billed  = invoices.reduce((s,i) => s + (parseFloat(i.total)||0), 0);
   document.getElementById('statBilled').textContent   = fmt$(billed);
 
-  // Balance = invoices not yet settled (pending or signed — no paid status in system)
-  const open   = invoices.filter(i => i.status === 'pending' || i.status === 'signed');
+  // Balance = invoices not yet settled.
+  const open   = invoices.filter(i => ['pending','signed','sent'].includes(String(i.status || '').toLowerCase()));
   const balance = open.reduce((s,i) => s + (parseFloat(i.total)||0), 0);
   portalBalanceDue = balance;
   const amountEl = document.getElementById('balanceAmount');
@@ -937,14 +908,56 @@ async function startOnlinePayment() {
 }
 
 function togglePaymentTypeFields() {
+  initStripeSetupForm().catch((error) => {
+    document.getElementById('pmStripeStatus').textContent = error.message || 'Could not load secure Stripe form.';
+  });
+}
+
+function stripeStatus(text) {
+  const el = document.getElementById('pmStripeStatus');
+  if (el) el.textContent = text;
+}
+
+async function initStripeSetupForm() {
+  stripeStatus('Preparing secure Stripe form…');
   const type = document.getElementById('pmType').value;
-  const isCard = type === 'debit_card';
-  ['pmCardBrandWrap','pmCardLast4Wrap','pmCardExpMonthWrap','pmCardExpYearWrap'].forEach(id => {
-    document.getElementById(id).style.display = isCard ? 'block' : 'none';
+  const paymentCard = document.getElementById('pmStripeElement');
+  if (!paymentCard) return;
+  paymentCard.innerHTML = '';
+
+  if (!portalPaymentConfig) {
+    await loadPortalPaymentConfig();
+  }
+
+  if (!portalPaymentConfig?.enabled || portalPaymentConfig.provider !== 'stripe' || !portalPaymentConfig.publishable_key) {
+    stripeStatus('Stripe is not configured for this environment.');
+    return;
+  }
+  if (typeof window.Stripe !== 'function') {
+    stripeStatus('Stripe.js failed to load. Check network/CSP and try again.');
+    return;
+  }
+
+  const setupRes = await fetch(API + '/payments/setup-intent', {
+    method: 'POST',
+    ...ah(),
+    body: JSON.stringify({ method_type: type }),
   });
-  ['pmBankNameWrap','pmBankLast4Wrap','pmRoutingLast4Wrap','pmBankTypeWrap'].forEach(id => {
-    document.getElementById(id).style.display = isCard ? 'none' : 'block';
-  });
+  const setup = await setupRes.json();
+  if (!setupRes.ok) throw new Error(setup.error || 'Could not initialize Stripe setup intent');
+
+  portalSetupIntentSecret = setup.client_secret || '';
+  if (!portalSetupIntentSecret) throw new Error('Stripe client secret not returned');
+
+  if (!portalStripe) {
+    portalStripe = window.Stripe(setup.publishable_key || portalPaymentConfig.publishable_key);
+  }
+  portalStripeElements = portalStripe.elements({ clientSecret: portalSetupIntentSecret });
+  portalStripePaymentElement = portalStripeElements.create('payment');
+  portalStripePaymentElement.mount('#pmStripeElement');
+  stripeStatus(type === 'ach_bank'
+    ? 'ACH setup ready. Complete bank verification in the secure form below.'
+    : 'Card setup ready. Enter your debit card details in the secure form.');
 }
 
 function showPaymentMethodAlert(message = '') {
@@ -1004,6 +1017,12 @@ async function loadPaymentsProfile() {
     portalPaymentProfile = data;
     renderPaymentMethods(Array.isArray(data.payment_methods) ? data.payment_methods : []);
     renderAutopaySettings(data.autopay || {});
+    await loadPortalPaymentConfig();
+    if (portalPaymentConfig?.provider === 'stripe' && portalPaymentConfig?.enabled) {
+      await initStripeSetupForm();
+    } else {
+      stripeStatus('Stripe is currently disabled. Contact support to enable online payments.');
+    }
     showPaymentMethodAlert('');
   } catch (error) {
     document.getElementById('paymentMethodsList').innerHTML = `<div class="payment-alert show">${esc(error.message || 'Could not load payment methods')}</div>`;
@@ -1012,30 +1031,33 @@ async function loadPaymentsProfile() {
 
 async function savePaymentMethod() {
   const type = document.getElementById('pmType').value;
-  const payload = {
-    method_type: type,
-    label: document.getElementById('pmLabel').value.trim(),
-    payment_method_ref: document.getElementById('pmRef').value.trim(),
-    is_default: document.getElementById('pmDefault').checked,
-  };
-  if (type === 'debit_card') {
-    payload.brand = document.getElementById('pmCardBrand').value.trim();
-    payload.last4 = document.getElementById('pmCardLast4').value.trim();
-    payload.exp_month = Number(document.getElementById('pmCardExpMonth').value || 0);
-    payload.exp_year = Number(document.getElementById('pmCardExpYear').value || 0);
-  } else {
-    payload.bank_name = document.getElementById('pmBankName').value.trim();
-    payload.account_last4 = document.getElementById('pmBankLast4').value.trim();
-    payload.routing_last4 = document.getElementById('pmRoutingLast4').value.trim();
-    payload.account_type = document.getElementById('pmBankType').value;
+  if (!portalStripe || !portalStripeElements || !portalStripePaymentElement) {
+    await initStripeSetupForm();
   }
-
-  if (!payload.payment_method_ref) {
-    showPaymentMethodAlert('Secure payment reference is required.');
+  if (!portalStripe || !portalStripeElements) {
+    showPaymentMethodAlert('Stripe secure form is not ready yet.');
     return;
   }
 
   try {
+    stripeStatus('Confirming secure setup…');
+    const confirmation = await portalStripe.confirmSetup({
+      elements: portalStripeElements,
+      redirect: 'if_required',
+    });
+    if (confirmation.error) throw new Error(confirmation.error.message || 'Could not confirm Stripe setup');
+    const setupIntent = confirmation.setupIntent;
+    const paymentMethodRef = setupIntent?.payment_method;
+    if (!paymentMethodRef) throw new Error('Stripe did not return a payment method');
+
+    const payload = {
+      method_type: type,
+      label: document.getElementById('pmLabel').value.trim(),
+      payment_method_ref: paymentMethodRef,
+      is_default: document.getElementById('pmDefault').checked,
+      provider: 'stripe',
+    };
+
     const res = await fetch(API + '/payments/methods', {
       method: 'POST',
       ...ah(),
@@ -1044,8 +1066,11 @@ async function savePaymentMethod() {
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || 'Could not save payment method');
     showPaymentMethodAlert('Payment method saved.');
+    stripeStatus('Saved. You can add another method or update autopay settings below.');
+    await initStripeSetupForm();
     await loadPaymentsProfile();
   } catch (error) {
+    stripeStatus(error.message || 'Could not save payment method.');
     showPaymentMethodAlert(error.message || 'Could not save payment method.');
   }
 }
@@ -1264,7 +1289,7 @@ function esc(s) {
   return String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 function lblStatus(s) {
-  return ({ pending:'Pending', in_process:'Processing', invoiced:'Invoiced', processed:'Processed', signed:'Signed', sent:'Sent' })[s]
+  return ({ pending:'Pending', in_process:'Processing', invoiced:'Invoiced', processed:'Processed', signed:'Signed', sent:'Sent', paid:'Paid' })[s]
     || (s ? s.charAt(0).toUpperCase()+s.slice(1) : '—');
 }
 function empty(icon, title, body) {

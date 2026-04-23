@@ -98,6 +98,11 @@ function sortRows(rows, limit = 100) {
     .slice(0, limit);
 }
 
+function isMissingTableError(error) {
+  const msg = String(error?.message || '');
+  return /public\.orders|relation ["']?orders["']? does not exist|schema cache/i.test(msg);
+}
+
 function computeRollups({ orders, invoices, routes, inventory, startDate, endDate, limit = 100 }) {
   const filteredOrders = (orders || []).filter((o) => inDateRange(o.created_at, startDate, endDate));
   const filteredInvoices = (invoices || []).filter((i) => inDateRange(i.created_at, startDate, endDate));
@@ -205,11 +210,15 @@ router.get('/rollups', authenticateToken, requireRole('admin', 'manager'), async
       supabase.from('seafood_inventory').select('item_number,description,cost'),
     ]);
 
-    const error = ordersResult.error || invoicesResult.error || routesResult.error || inventoryResult.error;
+    const ordersMissing = isMissingTableError(ordersResult.error);
+    if (ordersMissing) {
+      console.warn('[reporting] orders table not found; generating rollups without order-level joins');
+    }
+    const error = (!ordersMissing && ordersResult.error) || invoicesResult.error || routesResult.error || inventoryResult.error;
     if (error) return res.status(500).json({ error: error.message });
 
     const payload = computeRollups({
-      orders: filterRowsByContext(ordersResult.data || [], req.context),
+      orders: filterRowsByContext((ordersMissing ? [] : (ordersResult.data || [])), req.context),
       invoices: filterRowsByContext(invoicesResult.data || [], req.context),
       routes: filterRowsByContext(routesResult.data || [], req.context),
       inventory: filterRowsByContext(inventoryResult.data || [], req.context),

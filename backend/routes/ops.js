@@ -6,6 +6,7 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 
 const router = express.Router();
+router.use(authenticateToken, requireRole('admin'));
 
 const dataDir = path.join(__dirname, '../data');
 const opsFile = path.join(dataDir, 'ops.json');
@@ -18,6 +19,7 @@ function defaultOpsData() {
     returns: [],
     barcodeEvents: [],
     ediJobs: [],
+    vendors: [],
     poDrafts: [],
     vendorPurchaseOrders: []
   };
@@ -145,10 +147,14 @@ async function loadInventoryAndUsage(lookbackDays) {
     supabase.from('orders').select('items, created_at').gte('created_at', lookbackStart)
   ]);
   if (invErr) throw new Error(invErr.message);
-  if (ordErr) throw new Error(ordErr.message);
+  const missingOrdersTable = ordErr && /public\.orders|relation ["']?orders["']? does not exist|schema cache/i.test(String(ordErr.message || ''));
+  if (ordErr && !missingOrdersTable) throw new Error(ordErr.message);
+  if (missingOrdersTable) {
+    console.warn('[ops] orders table not found while building usage stats; using empty usage history');
+  }
 
   const usageByName = new Map();
-  for (const order of orders || []) {
+  for (const order of (missingOrdersTable ? [] : (orders || []))) {
     for (const item of order.items || []) {
       const name = String(item.name || item.description || '').trim().toLowerCase();
       if (!name) continue;
@@ -278,6 +284,35 @@ router.post('/warehouses', authenticateToken, requireRole('admin', 'manager'), (
   ops.warehouses.push(wh);
   writeOpsData(ops);
   res.json(wh);
+});
+
+router.get('/vendors', authenticateToken, (req, res) => {
+  const ops = readOpsData();
+  res.json(ops.vendors || []);
+});
+
+router.post('/vendors', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
+  const vendorName = String(req.body.vendorName || req.body.name || '').trim();
+  if (!vendorName) return res.status(400).json({ error: 'Vendor name required' });
+  const leadTimeDays = Math.max(0, Math.min(365, parseInt(req.body.leadTimeDays || '0', 10) || 0));
+  const ops = readOpsData();
+  ops.vendors = ops.vendors || [];
+  const vendor = {
+    id: genId('ven'),
+    name: vendorName,
+    contact_name: String(req.body.contactName || '').trim() || null,
+    email: String(req.body.email || '').trim() || null,
+    phone: String(req.body.phone || '').trim() || null,
+    payment_terms: String(req.body.paymentTerms || '').trim() || null,
+    lead_time_days: leadTimeDays || null,
+    notes: String(req.body.notes || '').trim() || null,
+    status: 'active',
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  };
+  ops.vendors.unshift(vendor);
+  writeOpsData(ops);
+  res.json(vendor);
 });
 
 router.get('/cycle-counts', authenticateToken, (req, res) => {

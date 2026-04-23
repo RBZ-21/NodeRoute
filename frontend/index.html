@@ -144,7 +144,7 @@ body.light img.logo-for-light{display:inline}
 .inprocess-section{background:rgba(61,186,127,0.04);border:1px solid rgba(61,186,127,0.2);border-radius:var(--r-card);padding:16px;margin-bottom:20px}
 .inprocess-title{font-size:13px;font-weight:600;color:var(--accent);margin-bottom:12px;display:flex;align-items:center;gap:8px}
 @media print{
-  .sidebar,.topbar,.mobile-tabs,.no-print{display:none!important}
+  .sidebar,.banner-nav,.topbar,.mobile-tabs,.no-print{display:none!important}
   .main{margin-left:0!important}
   .content{padding:0!important}
   body{background:#fff!important;color:#000!important}
@@ -197,7 +197,7 @@ a{color:inherit;text-decoration:none}
 table,th,td,.kpi-value,.stat-big,.stat-value,.queue-order-num,.order-summary-row,.charge-input,.charge-result,.dp-stat-val,.dp-progress-lbl,.driver-stat-val,.progress-label,.days-pill,.inv-status-pending,.inv-status-signed,.inv-status-sent,.item-number,.item-total,.price-orig,.price-new{font-variant-numeric:tabular-nums}
 
 /* SIDEBAR */
-.sidebar{width:200px;height:100vh;min-height:100vh;background:var(--surface);border-right:1px solid var(--border);display:flex;flex-direction:column;position:fixed;left:0;top:0;bottom:0;z-index:100;transition:var(--trans);overflow:hidden}
+.sidebar{width:200px;height:100vh;min-height:100vh;background:var(--surface);border-right:1px solid var(--border);display:none;flex-direction:column;position:fixed;left:0;top:0;bottom:0;z-index:100;transition:var(--trans);overflow:hidden}
 .sidebar-logo{padding:14px 14px 12px;border-bottom:1px solid var(--border)}
 .logo-mark{font-size:20px;font-weight:700;letter-spacing:-0.5px}
 .logo-mark span{color:var(--accent)}
@@ -222,8 +222,16 @@ table,th,td,.kpi-value,.stat-big,.stat-value,.queue-order-num,.order-summary-row
 .nav-child{padding-left:32px !important}
 
 /* MAIN */
-.main{margin-left:200px;flex:1;display:flex;flex-direction:column;min-height:100vh}
-.topbar{height:56px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:sticky;top:0;z-index:50}
+.main{margin-left:0;flex:1;display:flex;flex-direction:column;min-height:100vh}
+.banner-nav{position:sticky;top:0;z-index:115;background:var(--surface);border-bottom:1px solid var(--border);padding:10px 16px;display:flex;gap:10px;align-items:center;flex-wrap:wrap}
+.banner-group{position:relative}
+.banner-group-btn{background:rgba(61,186,127,0.1);border:1px solid rgba(61,186,127,0.28);color:var(--text);border-radius:999px;padding:8px 14px;font-size:12px;font-weight:700;letter-spacing:.2px;cursor:pointer;transition:var(--trans)}
+.banner-group-btn:hover,.banner-group.open .banner-group-btn{border-color:var(--accent);color:var(--accent);background:rgba(61,186,127,0.18)}
+.banner-menu{display:none;position:absolute;top:calc(100% + 8px);left:0;min-width:220px;background:var(--surface);border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 26px rgba(0,0,0,0.28);padding:8px;z-index:140}
+.banner-group.open .banner-menu{display:block}
+.banner-link{display:flex;align-items:center;width:100%;padding:8px 10px;border:none;background:none;color:var(--muted);font-size:13px;border-radius:8px;cursor:pointer;text-align:left;transition:var(--trans)}
+.banner-link:hover,.banner-link.active{background:rgba(61,186,127,0.14);color:var(--text)}
+.topbar{height:56px;background:var(--surface);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 24px;position:sticky;top:58px;z-index:110}
 .topbar-left{display:flex;align-items:center;gap:16px}
 .topbar-brand{font-size:16px;font-weight:700}
 .topbar-brand span{color:var(--accent)}
@@ -408,6 +416,10 @@ td{padding:12px 16px;vertical-align:middle}
 @media(max-width:900px){
   .sidebar{display:none}
   .main{margin-left:0;padding-bottom:70px}
+  .banner-nav{padding:8px 10px;gap:8px;overflow-x:auto;flex-wrap:nowrap}
+  .banner-group-btn{padding:7px 11px;font-size:11px;white-space:nowrap}
+  .banner-menu{position:fixed;left:12px;right:12px;top:56px;min-width:0}
+  .topbar{top:52px}
   .content{padding:16px}
   .section-header{flex-direction:column;align-items:flex-start;gap:10px}
   .kpi-row{grid-template-columns:1fr 1fr}
@@ -690,9 +702,6 @@ td{padding:12px 16px;vertical-align:middle}
         <div class="nav-item nav-child" data-tab="customers" onclick="showTab('customers',this)">
           <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>Customers
         </div>
-        <div class="nav-item nav-child" data-tab="vendors" onclick="showTab('vendors',this)">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>Vendors
-        </div>
         <div class="nav-item nav-child" id="usersNavItem" style="display:none" data-tab="users" onclick="showTab('users',this)">
           <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg></span>Users
         </div>
@@ -707,9 +716,6 @@ td{padding:12px 16px;vertical-align:middle}
         <span class="nav-group-chevron">›</span>
       </div>
       <div class="nav-group-items" id="group-financials">
-        <div class="nav-item nav-child" data-tab="financials" onclick="showTab('financials',this)">
-          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></svg></span>Overview
-        </div>
         <div class="nav-item nav-child" data-tab="invoices" onclick="showTab('invoices',this)">
           <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M14.5 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7.5L14.5 2z"/><polyline points="14 2 14 8 20 8"/><line x1="16" x2="8" y1="13" y2="13"/><line x1="16" x2="8" y1="17" y2="17"/><line x1="10" x2="8" y1="9" y2="9"/></svg></span>Invoices
         </div>
@@ -733,8 +739,14 @@ td{padding:12px 16px;vertical-align:middle}
         <span class="nav-group-chevron">›</span>
       </div>
       <div class="nav-group-items" id="group-operations">
+        <div class="nav-item nav-child" data-tab="financials" onclick="showTab('financials',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" x2="18" y1="20" y2="10"/><line x1="12" x2="12" y1="20" y2="4"/><line x1="6" x2="6" y1="20" y2="14"/></svg></span>Overview
+        </div>
         <div class="nav-item nav-child" data-tab="purchasing" onclick="showTab('purchasing',this)">
           <span class="nav-icon">🧾</span>Purchasing
+        </div>
+        <div class="nav-item nav-child" data-tab="vendors" onclick="showTab('vendors',this)">
+          <span class="nav-icon"><svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></span>Vendors
         </div>
         <div class="nav-item nav-child" data-tab="warehouse" onclick="showTab('warehouse',this)">
           <span class="nav-icon">🏬</span>Warehouse
@@ -771,6 +783,59 @@ td{padding:12px 16px;vertical-align:middle}
 
 <!-- MAIN -->
 <div class="main">
+  <div class="banner-nav no-print" id="bannerNav">
+    <div class="banner-group" data-banner-group="core">
+      <button class="banner-group-btn" onclick="toggleBannerGroup('core')">Core</button>
+      <div class="banner-menu">
+        <button class="banner-link" data-tab="dashboard" onclick="showTab('dashboard', this)">Dashboard</button>
+        <button class="banner-link" data-tab="orders" onclick="showTab('orders', this)">Orders</button>
+        <button class="banner-link" data-tab="settings" onclick="showTab('settings', this)">Settings</button>
+      </div>
+    </div>
+    <div class="banner-group" data-banner-group="logistics">
+      <button class="banner-group-btn" onclick="toggleBannerGroup('logistics')">Logistics</button>
+      <div class="banner-menu">
+        <button class="banner-link" data-tab="deliveries" onclick="showTab('deliveries', this)">Deliveries</button>
+        <button class="banner-link" data-tab="map" onclick="showTab('map', this)">Live Map</button>
+        <button class="banner-link" data-tab="drivers" onclick="showTab('drivers', this)">Drivers</button>
+        <button class="banner-link" data-tab="routes" onclick="showTab('routes', this)">Routes</button>
+        <button class="banner-link" data-tab="stops" onclick="showTab('stops', this)">Stops</button>
+      </div>
+    </div>
+    <div class="banner-group" data-banner-group="people">
+      <button class="banner-group-btn" onclick="toggleBannerGroup('people')">People</button>
+      <div class="banner-menu">
+        <button class="banner-link" data-tab="customers" onclick="showTab('customers', this)">Customers</button>
+        <button class="banner-link" data-tab="users" id="bannerUsersLink" style="display:none" onclick="showTab('users', this)">Users</button>
+      </div>
+    </div>
+    <div class="banner-group" data-banner-group="financials">
+      <button class="banner-group-btn" onclick="toggleBannerGroup('financials')">Financials</button>
+      <div class="banner-menu">
+        <button class="banner-link" data-tab="invoices" onclick="showTab('invoices', this)">Invoices</button>
+        <button class="banner-link" data-tab="analytics" onclick="showTab('analytics', this)">Analytics</button>
+        <button class="banner-link" data-tab="inventory" onclick="showTab('inventory', this)">Inventory</button>
+        <button class="banner-link" data-tab="forecast" onclick="showTab('forecast', this)">Forecasting</button>
+      </div>
+    </div>
+    <div class="banner-group" data-banner-group="operations" id="bannerOpsGroup">
+      <button class="banner-group-btn" onclick="toggleBannerGroup('operations')">Operations</button>
+      <div class="banner-menu">
+        <button class="banner-link" data-tab="financials" onclick="showTab('financials', this)">Overview</button>
+        <button class="banner-link" data-tab="purchasing" onclick="showTab('purchasing', this)">Purchasing</button>
+        <button class="banner-link" data-tab="vendors" onclick="showTab('vendors', this)">Vendors</button>
+        <button class="banner-link" data-tab="warehouse" onclick="showTab('warehouse', this)">Warehouse</button>
+        <button class="banner-link" data-tab="planning" onclick="showTab('planning', this)">Planning & Rules</button>
+        <button class="banner-link" data-tab="integrations" onclick="showTab('integrations', this)">Integrations</button>
+      </div>
+    </div>
+    <div class="banner-group" data-banner-group="ai">
+      <button class="banner-group-btn" onclick="toggleBannerGroup('ai')">AI Help</button>
+      <div class="banner-menu">
+        <button class="banner-link" data-tab="aihelp" onclick="showTab('aihelp', this)">Walkthroughs</button>
+      </div>
+    </div>
+  </div>
   <!-- TOPBAR -->
   <div class="topbar">
     <div class="topbar-left">
@@ -844,7 +909,7 @@ td{padding:12px 16px;vertical-align:middle}
           <tbody id="dashDelivTable"></tbody>
         </table>
       </div>
-      <div class="ops-card" style="margin-top:12px">
+      <div class="ops-card" id="dashboardOpsCard" style="margin-top:12px">
         <div class="ops-title">Purchasing Command Center</div>
         <div class="ops-sub">Jump directly into vendor PO creation, receiving, backorders, and exports.</div>
         <div class="ops-form">
@@ -930,12 +995,27 @@ td{padding:12px 16px;vertical-align:middle}
     <div class="tab-pane" id="tab-vendors">
       <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:16px">
         <div class="section-title" style="margin:0">Vendors</div>
+        <button class="btn btn-accent" onclick="document.getElementById('vendorName')?.focus()">+ Add Vendor</button>
       </div>
-      <div class="table-card" style="display:flex;align-items:center;justify-content:center;min-height:200px">
-        <div style="text-align:center;color:var(--muted)">
-          <div style="font-size:32px;margin-bottom:12px">🏪</div>
-          <div style="font-size:16px;font-weight:600;margin-bottom:6px">Vendor Management</div>
-          <div style="font-size:13px">Coming soon</div>
+      <div class="ops-grid">
+        <div class="ops-card">
+          <div class="ops-title">Add Vendor</div>
+          <div class="ops-sub">Save supplier details used by purchasing and receiving.</div>
+          <form class="ops-form" onsubmit="event.preventDefault();createVendorRecord()">
+            <input class="search-input" id="vendorName" placeholder="Vendor name" autocomplete="off"/>
+            <input class="search-input" id="vendorContact" placeholder="Contact name" autocomplete="off"/>
+            <input class="search-input" id="vendorEmail" type="email" placeholder="Email" autocomplete="off"/>
+            <input class="search-input" id="vendorPhone" placeholder="Phone" autocomplete="off"/>
+            <input class="search-input" id="vendorLeadTime" type="number" min="0" placeholder="Lead time (days)"/>
+            <input class="search-input" id="vendorTerms" placeholder="Payment terms (Net 15, Net 30)"/>
+            <input class="search-input" id="vendorNotes" placeholder="Notes (cutoff, dock hours, etc.)"/>
+            <button type="submit" class="btn btn-accent">Save Vendor</button>
+          </form>
+        </div>
+        <div class="ops-card">
+          <div class="ops-title">Vendor Directory</div>
+          <div class="ops-sub">Name, contact, lead time, payment terms, and notes used by operations.</div>
+          <div id="vendorDirectoryList" class="ops-mini-list"></div>
         </div>
       </div>
     </div>
@@ -1011,6 +1091,51 @@ td{padding:12px 16px;vertical-align:middle}
         <div class="stat-card"><div class="stat-label">This Month</div><div class="stat-value" id="finRevMonth">—</div><div style="font-size:11px;color:var(--muted);margin-top:4px">Current month</div></div>
         <div class="stat-card"><div class="stat-label">Outstanding</div><div class="stat-value" id="finOutstanding" style="color:var(--warn)">—</div><div style="font-size:11px;color:var(--muted);margin-top:4px">Pending signature</div></div>
         <div class="stat-card"><div class="stat-label">Invoices</div><div class="stat-value" id="finInvCount">—</div><div style="font-size:11px;color:var(--muted);margin-top:4px">Total issued</div></div>
+      </div>
+
+      <div class="chart-card" style="margin-bottom:24px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap">
+          <div>
+            <div class="card-title" style="margin-bottom:6px">Daily Sales</div>
+            <div style="font-size:12px;color:var(--muted)">Live daily running total and historical sales lookup by date range.</div>
+          </div>
+          <button class="btn btn-outline" id="dailySalesToggleBtn" onclick="toggleDailySalesHistory()">View Past Sales</button>
+        </div>
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-top:12px">
+          <div class="stat-card" style="margin:0">
+            <div class="stat-label">Today Sales</div>
+            <div class="stat-value" id="dailySalesToday" style="color:var(--accent)">—</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px" id="dailySalesTodayDate">—</div>
+          </div>
+          <div class="stat-card" style="margin:0">
+            <div class="stat-label">Invoices Today</div>
+            <div class="stat-value" id="dailySalesTodayCount">—</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px">Count of invoices posted today</div>
+          </div>
+        </div>
+        <div id="dailySalesHistoryPanel" style="display:none;margin-top:14px">
+          <div class="report-rollup-controls">
+            <div class="ctrl">
+              <label for="dailySalesStart">Start Date</label>
+              <input id="dailySalesStart" type="date">
+            </div>
+            <div class="ctrl">
+              <label for="dailySalesEnd">End Date</label>
+              <input id="dailySalesEnd" type="date">
+            </div>
+            <button class="btn btn-accent" style="height:36px" onclick="applyDailySalesRange()">Apply Date Range</button>
+            <button class="btn btn-outline" style="height:36px" onclick="exportDailySalesRangeCsv()">Export CSV</button>
+          </div>
+          <div id="dailySalesRangeSummary" class="report-rollup-meta">Select a date range and click Apply Date Range.</div>
+          <div class="table-card" style="margin:0">
+            <table>
+              <thead><tr><th>Date</th><th>Sales</th><th>Invoices</th></tr></thead>
+              <tbody id="dailySalesHistoryBody">
+                <tr><td colspan="3" style="text-align:center;padding:24px;color:var(--muted)">No range applied yet.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
       </div>
 
       <!-- Status breakdown + Revenue chart -->
@@ -1757,8 +1882,13 @@ td{padding:12px 16px;vertical-align:middle}
               <option value="Stops">Stops</option>
               <option value="Customers">Customers</option>
               <option value="Vendors">Vendors</option>
+              <option value="Planning">Planning (Draft PO generation)</option>
+              <option value="Purchasing">Purchasing (Vendor PO + receiving)</option>
+              <option value="Warehouse">Warehouse operations</option>
               <option value="Invoices">Invoices</option>
               <option value="Analytics">Analytics</option>
+              <option value="Reporting">Unified performance rollups</option>
+              <option value="Portal Payments">Customer portal payments</option>
               <option value="Inventory">Inventory</option>
               <option value="Forecasting">Forecasting</option>
               <option value="Settings">Settings</option>
@@ -1917,7 +2047,7 @@ td{padding:12px 16px;vertical-align:middle}
       <div class="ops-grid">
         <div class="ops-card">
           <div class="ops-title">Warehouses & Cycle Count</div>
-          <div class="ops-sub">Create warehouse locations and run monthly count sheets. Enter key fields and press Enter to submit.</div>
+          <div class="ops-sub">Create your own storage locations (main cooler, overflow, truck depot) and run monthly count sheets. Warehouses are your internal locations, not suppliers.</div>
           <form class="ops-form" onsubmit="event.preventDefault();createWarehouse()">
             <input class="search-input" id="whName" placeholder="Warehouse name" autocomplete="off"/>
             <input class="search-input" id="whCode" placeholder="Code (optional)" autocomplete="off"/>
@@ -1976,6 +2106,7 @@ td{padding:12px 16px;vertical-align:middle}
         </div>
         <div class="ops-card">
           <div class="ops-title">Auto Purchasing</div>
+          <div class="ops-sub">Create draft purchase orders here from reorder suggestions. Then move to Purchasing to convert a draft into a vendor PO and receive against it.</div>
           <div class="ops-form">
             <input class="search-input" id="leadTimeDays" type="number" min="0" value="5" placeholder="Lead time days"/>
             <input class="search-input" id="coverageDays" type="number" min="1" value="30" placeholder="Coverage days"/>
@@ -2001,6 +2132,15 @@ td{padding:12px 16px;vertical-align:middle}
 
     <!-- TAB: PURCHASING -->
     <div class="tab-pane" id="tab-purchasing">
+      <div class="ops-card" style="margin-bottom:12px">
+        <div class="ops-title">Purchasing Actions</div>
+        <div class="ops-sub">Create draft POs from reorder suggestions in Planning, then convert drafts into vendor POs and receive inventory here.</div>
+        <div class="ops-form" style="margin-top:8px">
+          <button class="btn btn-accent" onclick="showTab('planning', null)">Create Draft PO</button>
+          <button class="btn btn-outline" onclick="showTab('vendors', null)">Manage Vendors</button>
+          <button class="btn btn-outline" onclick="refreshPlanningData()">Refresh Purchasing Data</button>
+        </div>
+      </div>
       <div class="ops-kpi">
         <div class="kpi-card"><div class="kpi-label">Open Vendor POs</div><div class="kpi-value" id="purchasingOpenCount">0</div></div>
         <div class="kpi-card"><div class="kpi-label">Backordered POs</div><div class="kpi-value" id="purchasingBackorderCount">0</div></div>
@@ -2008,7 +2148,8 @@ td{padding:12px 16px;vertical-align:middle}
       </div>
       <div class="ops-card">
         <div class="ops-title">Draft Purchase Orders</div>
-        <div class="ops-sub">Generate and advance drafts, then convert to vendor PO with one click.</div>
+        <div class="ops-sub">Drafts are generated in Planning. From this list, click "Create Vendor PO" to place an order with a supplier.</div>
+        <button class="btn btn-outline" style="margin-top:8px" onclick="showTab('planning', null)">Go To Planning</button>
         <div id="poDraftList" class="ops-mini-list"></div>
       </div>
       <div class="ops-card" style="margin-top:12px">
@@ -2738,6 +2879,9 @@ const nrUser = JSON.parse(localStorage.getItem('nr_user') || 'null');
 if (!nrToken || !nrUser) { window.location.href = '/'; }
 if (nrUser && nrUser.role === 'driver') { window.location.href = '/driver'; }
 const authHeaders = { headers: { Authorization: `Bearer ${nrToken}` } };
+const isAdminUser = !!(nrUser && nrUser.role === 'admin');
+const ADMIN_ONLY_TABS = new Set(['financials', 'purchasing', 'vendors', 'warehouse', 'planning', 'integrations']);
+document.querySelector('.banner-link[data-tab="dashboard"]')?.classList.add('active');
 
 async function doLogout() {
   try { await fetch('/auth/logout', { method: 'POST', ...authHeaders }); } catch(e) {}
@@ -2753,6 +2897,7 @@ const PAGE_SIZE = 10;
 let chartHour, chartWeek, chartDonut, chartPeak, chartDoor;
 let alertDismissed = false;
 let opsWarehouses = [];
+let opsVendors = [];
 let opsReturns = [];
 let opsUomRules = [];
 let opsProjection = [];
@@ -3856,8 +4001,8 @@ async function submitFulfill() {
 // ── TABS ───────────────────────────────────────────────
 const NAV_GROUP_MAP = {
   deliveries:'logistics', map:'logistics', drivers:'logistics', routes:'logistics', stops:'logistics',
-  customers:'people', vendors:'people', users:'people',
-  financials:'financials', invoices:'financials', analytics:'financials', inventory:'financials', forecast:'financials',
+  customers:'people', users:'people', vendors:'operations',
+  financials:'operations', invoices:'financials', analytics:'financials', inventory:'financials', forecast:'financials',
   purchasing:'operations', warehouse:'operations', planning:'operations', integrations:'operations',
   aihelp:'ai'
 };
@@ -3867,15 +4012,35 @@ function toggleNavGroup(name) {
   group.classList.toggle('open');
 }
 
+function closeBannerGroups() {
+  document.querySelectorAll('.banner-group').forEach((group) => group.classList.remove('open'));
+}
+
+function toggleBannerGroup(name) {
+  const target = document.querySelector(`.banner-group[data-banner-group="${name}"]`);
+  if (!target) return;
+  const open = target.classList.contains('open');
+  closeBannerGroups();
+  if (!open) target.classList.add('open');
+}
+
 function showTab(name, el) {
+  if (ADMIN_ONLY_TABS.has(name) && !isAdminUser) {
+    showToast('Operations is available to admin role only.');
+    return;
+  }
+  closeBannerGroups();
   document.querySelectorAll('.tab-pane').forEach(p => p.classList.remove('active'));
   const pane = document.getElementById('tab-' + name);
   if (pane) pane.classList.add('active');
   document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
   document.querySelectorAll('.mobile-tab').forEach(n => n.classList.remove('active'));
+  document.querySelectorAll('.banner-link').forEach(n => n.classList.remove('active'));
   if (el) el.classList.add('active');
   const navEl = document.querySelector('.nav-item[data-tab="' + name + '"]');
   if (navEl) navEl.classList.add('active');
+  const bannerEl = document.querySelector('.banner-link[data-tab="' + name + '"]');
+  if (bannerEl) bannerEl.classList.add('active');
   const groupName = NAV_GROUP_MAP[name];
   if (groupName) {
     const group = document.getElementById('navgroup-' + groupName);
@@ -3892,6 +4057,7 @@ function showTab(name, el) {
   if (name === 'map') { setTimeout(() => renderMap(), 50); }
   if (name === 'inventory') { renderInventory(); renderInventoryKPIs(); }
   if (name === 'customers') { fetchCustomers(); }
+  if (name === 'vendors') { loadVendorsTab(); }
   if (name === 'forecast') { loadForecast(); renderFishingSeasons(); }
   if (name === 'aihelp') { initAIHelp(); }
   if (name === 'settings') { initSettings(); }
@@ -3954,9 +4120,123 @@ document.addEventListener('keydown', e => {
     target.click();
   }
 });
+document.addEventListener('click', e => {
+  if (!e.target.closest('.banner-group')) closeBannerGroups();
+});
 
 // ── FINANCIALS ──────────────────────────────────────────
 let finChartInstance = null;
+let financialInvoicesCache = [];
+let dailySalesRangeRows = [];
+
+function dateKeyLocal(dateValue) {
+  const d = new Date(dateValue);
+  if (!Number.isFinite(d.getTime())) return '';
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
+function groupSalesByDate(invoices, startDate = null, endDate = null) {
+  const map = new Map();
+  for (const inv of invoices || []) {
+    const key = dateKeyLocal(inv.created_at);
+    if (!key) continue;
+    if (startDate && key < startDate) continue;
+    if (endDate && key > endDate) continue;
+    const amount = parseFloat(inv.total || 0) || 0;
+    const current = map.get(key) || { date: key, sales: 0, invoiceCount: 0 };
+    current.sales += amount;
+    current.invoiceCount += 1;
+    map.set(key, current);
+  }
+  return [...map.values()].sort((a, b) => b.date.localeCompare(a.date));
+}
+
+function toggleDailySalesHistory() {
+  const panel = document.getElementById('dailySalesHistoryPanel');
+  const btn = document.getElementById('dailySalesToggleBtn');
+  if (!panel || !btn) return;
+  const open = panel.style.display !== 'none';
+  panel.style.display = open ? 'none' : 'block';
+  btn.textContent = open ? 'View Past Sales' : 'Hide Past Sales';
+  if (!open) {
+    applyDailySalesRange();
+  }
+}
+
+function applyDailySalesRange() {
+  const fmt = n => '$' + parseFloat(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const start = document.getElementById('dailySalesStart')?.value || '';
+  const end = document.getElementById('dailySalesEnd')?.value || '';
+  const rows = groupSalesByDate(financialInvoicesCache, start || null, end || null);
+  dailySalesRangeRows = rows;
+  const total = rows.reduce((sum, row) => sum + row.sales, 0);
+  const invoices = rows.reduce((sum, row) => sum + row.invoiceCount, 0);
+  const summary = document.getElementById('dailySalesRangeSummary');
+  if (summary) {
+    const startLabel = start || 'Beginning';
+    const endLabel = end || 'Today';
+    summary.textContent = `Sales ${startLabel} → ${endLabel}: ${fmt(total)} across ${invoices} invoices and ${rows.length} sales day(s).`;
+  }
+  const body = document.getElementById('dailySalesHistoryBody');
+  if (!body) return;
+  body.innerHTML = rows.length
+    ? rows.map((row) => `<tr>
+      <td>${new Date(row.date + 'T00:00:00').toLocaleDateString()}</td>
+      <td style="font-weight:600">${fmt(row.sales)}</td>
+      <td>${row.invoiceCount}</td>
+    </tr>`).join('')
+    : `<tr><td colspan="3" style="text-align:center;padding:24px;color:var(--muted)">No sales found in selected range.</td></tr>`;
+}
+
+function exportDailySalesRangeCsv() {
+  const rows = Array.isArray(dailySalesRangeRows) ? dailySalesRangeRows : [];
+  if (!rows.length) {
+    alert('No daily sales rows to export for the selected range.');
+    return;
+  }
+  const header = ['Date', 'Sales', 'Invoices'];
+  const dataRows = rows.map((row) => [row.date, (parseFloat(row.sales || 0) || 0).toFixed(2), row.invoiceCount || 0]);
+  const csv = [header, ...dataRows]
+    .map((r) => r.map((v) => `"${String(v ?? '').replace(/"/g, '""')}"`).join(','))
+    .join('\n');
+  const start = document.getElementById('dailySalesStart')?.value || 'start';
+  const end = document.getElementById('dailySalesEnd')?.value || dateKeyLocal(new Date());
+  const a = Object.assign(document.createElement('a'), {
+    href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
+    download: `daily-sales-${start}-to-${end}.csv`,
+  });
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+function renderDailySales(invoices) {
+  const fmt = n => '$' + parseFloat(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  financialInvoicesCache = Array.isArray(invoices) ? invoices : [];
+  const todayKey = dateKeyLocal(new Date());
+  const todayRows = groupSalesByDate(financialInvoicesCache, todayKey, todayKey);
+  const todaySales = todayRows.reduce((sum, row) => sum + row.sales, 0);
+  const todayInvoices = todayRows.reduce((sum, row) => sum + row.invoiceCount, 0);
+  const todayDateEl = document.getElementById('dailySalesTodayDate');
+  const todaySalesEl = document.getElementById('dailySalesToday');
+  const todayCountEl = document.getElementById('dailySalesTodayCount');
+  if (todaySalesEl) todaySalesEl.textContent = fmt(todaySales);
+  if (todayCountEl) todayCountEl.textContent = todayInvoices;
+  if (todayDateEl) todayDateEl.textContent = new Date().toLocaleDateString();
+
+  const startEl = document.getElementById('dailySalesStart');
+  const endEl = document.getElementById('dailySalesEnd');
+  if (startEl && !startEl.value) {
+    const firstInvoiceDate = financialInvoicesCache.length
+      ? dateKeyLocal(financialInvoicesCache.reduce((min, inv) => new Date(inv.created_at) < new Date(min.created_at) ? inv : min, financialInvoicesCache[0]).created_at)
+      : todayKey;
+    startEl.value = firstInvoiceDate || todayKey;
+  }
+  if (endEl && !endEl.value) endEl.value = todayKey;
+}
+
 async function loadFinancials() {
   const fmt = n => '$' + parseFloat(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const now = new Date();
@@ -3971,6 +4251,7 @@ async function loadFinancials() {
     ]);
     const invoices = invRes.ok ? await invRes.json() : [];
     const pos      = poRes.ok  ? await poRes.json()  : [];
+    renderDailySales(invoices);
 
     // ── Revenue KPIs ──
     const totalRev  = invoices.reduce((s, i) => s + parseFloat(i.total || 0), 0);
@@ -4080,6 +4361,9 @@ async function loadFinancials() {
 
     // ── Recent Purchase Orders ──
     renderPOHistory(pos);
+    if (document.getElementById('dailySalesHistoryPanel')?.style.display !== 'none') {
+      applyDailySalesRange();
+    }
 
   } catch(e) {
     console.error('loadFinancials:', e);
@@ -5695,6 +5979,16 @@ let allUsers = [];
 
 if (nrUser && nrUser.role === 'admin') {
   document.getElementById('usersNavItem').style.display = 'flex';
+  const bannerUsersLink = document.getElementById('bannerUsersLink');
+  if (bannerUsersLink) bannerUsersLink.style.display = 'flex';
+}
+if (!isAdminUser) {
+  const opsGroup = document.getElementById('navgroup-operations');
+  if (opsGroup) opsGroup.style.display = 'none';
+  const bannerOpsGroup = document.getElementById('bannerOpsGroup');
+  if (bannerOpsGroup) bannerOpsGroup.style.display = 'none';
+  const dashboardOpsCard = document.getElementById('dashboardOpsCard');
+  if (dashboardOpsCard) dashboardOpsCard.style.display = 'none';
 }
 
 async function fetchUsers() {
@@ -7754,6 +8048,68 @@ function initOperationalDefaults() {
 }
 
 // ── OPS TABS ───────────────────────────────────────────
+async function loadVendorsTab() {
+  try {
+    const res = await fetch(`${API}/ops/vendors`, authHeaders);
+    opsVendors = await res.json();
+    renderVendorsTab();
+  } catch (e) {
+    opsVendors = [];
+    renderVendorsTab();
+  }
+}
+
+function renderVendorsTab() {
+  const list = document.getElementById('vendorDirectoryList');
+  if (!list) return;
+  list.innerHTML = (opsVendors || []).map((v) => {
+    const contact = [v.contact_name, v.email, v.phone].filter(Boolean).join(' · ') || 'No contact details';
+    const terms = v.payment_terms || 'No payment terms';
+    const lead = v.lead_time_days != null ? `${v.lead_time_days}d lead` : 'Lead time not set';
+    const notes = v.notes ? `<div style="font-size:11px;color:var(--muted);margin-top:4px">${h(v.notes)}</div>` : '';
+    return `<div class="ops-row" style="align-items:flex-start">
+      <span>
+        <strong>${h(v.name || 'Unnamed Vendor')}</strong>
+        <div style="font-size:12px;color:var(--muted);margin-top:2px">${h(contact)}</div>
+        <div style="font-size:12px;color:var(--muted)">${h(lead)} · ${h(terms)}</div>
+        ${notes}
+      </span>
+      <span class="ops-pill good">${h(v.status || 'active')}</span>
+    </div>`;
+  }).join('') || `<div class="ops-row"><span style="color:var(--muted)">No vendors added yet</span></div>`;
+}
+
+async function createVendorRecord() {
+  const vendorName = document.getElementById('vendorName')?.value.trim();
+  if (!vendorName) {
+    alert('Vendor name is required');
+    return;
+  }
+  const payload = {
+    vendorName,
+    contactName: document.getElementById('vendorContact')?.value.trim() || '',
+    email: document.getElementById('vendorEmail')?.value.trim() || '',
+    phone: document.getElementById('vendorPhone')?.value.trim() || '',
+    leadTimeDays: parseInt(document.getElementById('vendorLeadTime')?.value || '0', 10) || 0,
+    paymentTerms: document.getElementById('vendorTerms')?.value.trim() || '',
+    notes: document.getElementById('vendorNotes')?.value.trim() || '',
+  };
+
+  const res = await fetch(`${API}/ops/vendors`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders.headers },
+    body: JSON.stringify(payload),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    alert(data.error || 'Could not save vendor');
+    return;
+  }
+  ['vendorName', 'vendorContact', 'vendorEmail', 'vendorPhone', 'vendorLeadTime', 'vendorTerms', 'vendorNotes']
+    .forEach((id) => { const el = document.getElementById(id); if (el) el.value = ''; });
+  await loadVendorsTab();
+}
+
 async function loadWarehouseTab() {
   try {
     const [whRes, retRes, scanRes] = await Promise.all([
@@ -7953,7 +8309,7 @@ function renderPlanningTab() {
           ${readyBtn}${orderedBtn}${createVendorPoBtn}${archiveBtn}
         </span>
       </div>`;
-    }).join('') || `<div class="ops-row"><span style="color:var(--muted)">No draft purchase orders yet</span></div>`;
+    }).join('') || `<div class="ops-row"><span style="color:var(--muted)">No draft purchase orders yet</span><button class="btn btn-outline" style="padding:3px 8px;font-size:11px" onclick="showTab('planning', null)">Go To Planning</button></div>`;
   }
 
   const vendorPoList = document.getElementById('vendorPoList');
@@ -7977,7 +8333,7 @@ function renderPlanningTab() {
           ${receiveBtn}
         </span>
       </div>`;
-    }).join('') || `<div class="ops-row"><span style="color:var(--muted)">No vendor purchase orders yet</span></div>`;
+    }).join('') || `<div class="ops-row"><span style="color:var(--muted)">No vendor purchase orders yet</span><button class="btn btn-outline" style="padding:3px 8px;font-size:11px" onclick="showTab('planning', null)">Create Draft PO</button></div>`;
   }
 }
 
