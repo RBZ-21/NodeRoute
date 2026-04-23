@@ -25,6 +25,7 @@ const trackingRouter = require('./routes/tracking');
 const settingsRouter = require('./routes/settings');
 const temperatureLogsRouter = require('./routes/temperature-logs');
 const opsRouter = require('./routes/ops');
+const reportingRouter = require('./routes/reporting').router;
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -49,7 +50,7 @@ app.use((req, res, next) => {
 const frontendDir = path.join(__dirname, '../frontend');
 app.use(express.static(frontendDir, { index: false }));
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@noderoute.com';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@noderoutesystems.com';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@123';
 
 // Auto-create admin on first run if no users exist in Supabase
@@ -118,6 +119,7 @@ app.use('/api/track', trackingRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/temperature-logs', temperatureLogsRouter);
 app.use('/api/ops', opsRouter);
+app.use('/api/reporting', reportingRouter);
 
 // Config endpoint — maps key exposed publicly (restricted via Google domain policy)
 const { authenticateToken, requireRole } = require('./middleware/auth');

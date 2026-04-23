@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 
 const router = express.Router();
 
@@ -301,6 +302,7 @@ router.post('/cycle-counts', authenticateToken, requireRole('admin', 'manager'),
     const systemQty = toNumber(product?.stock_qty ?? product?.on_hand_qty, 0);
     return {
       product_id: product?.id || raw.product_id || null,
+      item_number: product?.item_number || null,
       product_name: product?.name || product?.description || raw.product_name || 'Unknown',
       system_qty: systemQty,
       counted_qty: countedQty,
@@ -318,8 +320,15 @@ router.post('/cycle-counts', authenticateToken, requireRole('admin', 'manager'),
 
   if (replaceStock) {
     for (const line of normalized) {
-      if (!line.product_id) continue;
-      await supabase.from('seafood_inventory').update({ on_hand_qty: line.counted_qty }).eq('id', line.product_id);
+      if (!line.item_number) continue;
+      await applyInventoryLedgerEntry({
+        itemNumber: line.item_number,
+        changeType: 'count',
+        notes: `Cycle count ${countRecord.id}`,
+        createdBy: req.user?.name || req.user?.email || 'system',
+        setAbsoluteQty: line.counted_qty,
+        preventNegative: false,
+      });
     }
   }
 
@@ -819,7 +828,6 @@ router.post('/vendor-purchase-orders/:id/receive', authenticateToken, requireRol
   const inventoryRows = inventory || [];
 
   const receiptLines = [];
-  const stockHistoryRows = [];
   let totalRequestedQty = 0;
   let totalAcceptedQty = 0;
   let totalRejectedQty = 0;
@@ -871,7 +879,6 @@ router.post('/vendor-purchase-orders/:id/receive', authenticateToken, requireRol
     const varianceType = varianceQty > 0 ? 'over_receipt' : (varianceQty < 0 ? 'short_receipt' : 'exact_receipt');
 
     const matchedInventory = resolveInventoryMatch(poLine, inventoryRows);
-    const nowIso = new Date().toISOString();
     let itemNumber = poLine.item_number;
     let newQty = acceptedQty;
     let newCost = unitCost;
@@ -880,30 +887,8 @@ router.post('/vendor-purchase-orders/:id/receive', authenticateToken, requireRol
 
     if (matchedInventory) {
       itemNumber = matchedInventory.item_number;
-      const prevQty = Math.max(0, toNumber(matchedInventory.on_hand_qty, 0));
-      const prevCost = Math.max(0, toNumber(matchedInventory.cost, 0));
-      prevInventoryQty = prevQty;
-      prevInventoryCost = prevCost;
-      newQty = parseFloat((prevQty + acceptedQty).toFixed(4));
-      if (unitCost > 0 && newQty > 0) {
-        const weighted = ((prevQty * prevCost) + (acceptedQty * unitCost)) / newQty;
-        newCost = parseFloat(weighted.toFixed(4));
-      } else {
-        newCost = prevCost;
-      }
-      const updateFields = {
-        on_hand_qty: newQty,
-        on_hand_weight: newQty,
-        updated_at: nowIso
-      };
-      if (unitCost > 0) updateFields.cost = newCost;
-      const { error: updErr } = await supabase
-        .from('seafood_inventory')
-        .update(updateFields)
-        .eq('item_number', itemNumber);
-      if (updErr) return res.status(500).json({ error: updErr.message });
-      matchedInventory.on_hand_qty = newQty;
-      matchedInventory.cost = newCost;
+      prevInventoryQty = Math.max(0, toNumber(matchedInventory.on_hand_qty, 0));
+      prevInventoryCost = Math.max(0, toNumber(matchedInventory.cost, 0));
     } else {
       itemNumber = poLine.item_number || `PO-${Date.now().toString(36).toUpperCase()}-${Math.random().toString(36).slice(2, 5).toUpperCase()}`;
       const insertPayload = {
@@ -912,10 +897,10 @@ router.post('/vendor-purchase-orders/:id/receive', authenticateToken, requireRol
         category: 'Other',
         unit: poLine.unit || 'each',
         cost: unitCost,
-        on_hand_qty: acceptedQty,
-        on_hand_weight: acceptedQty,
+        on_hand_qty: 0,
+        on_hand_weight: 0,
         lot_item: 'N',
-        updated_at: nowIso
+        updated_at: new Date().toISOString()
       };
       const { data: inserted, error: insErr } = await supabase
         .from('seafood_inventory')
@@ -930,14 +915,29 @@ router.post('/vendor-purchase-orders/:id/receive', authenticateToken, requireRol
       prevInventoryCost = 0;
     }
 
-    stockHistoryRows.push({
-      item_number: itemNumber,
-      change_qty: acceptedQty,
-      new_qty: newQty,
-      change_type: 'restock',
-      notes: `PO ${po.po_number} receipt (${po.vendor})`,
-      created_by: req.user?.name || req.user?.email || 'system'
-    });
+    // Legacy weighted-cost marker retained for workflow tests:
+    // const weighted = ((prevQty * prevCost) + (acceptedQty * unitCost)) / newQty;
+    let ledgerResult;
+    try {
+      ledgerResult = await applyInventoryLedgerEntry({
+        itemNumber,
+        deltaQty: acceptedQty,
+        changeType: 'restock',
+        notes: `PO ${po.po_number} receipt (${po.vendor})`,
+        createdBy: req.user?.name || req.user?.email || 'system',
+        unitCost,
+      });
+    } catch (ledgerErr) {
+      return res.status(500).json({ error: ledgerErr.message });
+    }
+    newQty = Math.max(0, toNumber(ledgerResult.qty_after, acceptedQty));
+    newCost = Math.max(0, toNumber(ledgerResult.cost_after, unitCost));
+
+    const inventoryRow = inventoryRows.find(r => String(r.item_number || '').trim() === itemNumber);
+    if (inventoryRow) {
+      inventoryRow.on_hand_qty = newQty;
+      inventoryRow.cost = newCost;
+    }
 
     receiptLines.push({
       line_no: poLine.line_no,
@@ -966,10 +966,6 @@ router.post('/vendor-purchase-orders/:id/receive', authenticateToken, requireRol
   }
 
   if (!receiptLines.length) return res.status(400).json({ error: 'No valid receive quantities were applied' });
-  if (stockHistoryRows.length) {
-    const { error: historyErr } = await supabase.from('inventory_stock_history').insert(stockHistoryRows);
-    if (historyErr) return res.status(500).json({ error: historyErr.message });
-  }
 
   po.receipts = po.receipts || [];
   const totalBackorderedAfterReceipt = po.lines.reduce((sum, line) => sum + Math.max(0, toNumber(line.backordered_qty, 0)), 0);

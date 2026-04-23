@@ -11,7 +11,7 @@ const demoState = {
     {
       id: 'admin-001',
       name: 'Admin',
-      email: process.env.ADMIN_EMAIL || 'admin@noderoute.com',
+      email: process.env.ADMIN_EMAIL || 'admin@noderoutesystems.com',
       password_hash: bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'Admin@123', 10),
       role: 'admin',
       status: 'active',

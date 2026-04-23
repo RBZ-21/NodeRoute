@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 const {
   executeWithOptionalScope,
   filterRowsByContext,
@@ -43,6 +44,28 @@ function normalizeTaxRate(value) {
 function itemQuantity(item) {
   if (item?.unit === 'lb') return parseFloat(item.actual_weight || item.requested_weight || 0) || 0;
   return parseFloat(item?.requested_qty || item?.quantity || 0) || 0;
+}
+
+async function findInventoryMatchForFulfillment(item) {
+  const explicitItemNumber = String(item?.item_number || '').trim();
+  if (explicitItemNumber) {
+    const byNumber = await supabase
+      .from('seafood_inventory')
+      .select('item_number,description,on_hand_qty,cost')
+      .eq('item_number', explicitItemNumber)
+      .single();
+    if (!byNumber.error && byNumber.data) return byNumber.data;
+  }
+
+  const name = String(item?.name || item?.description || '').trim();
+  if (!name) return null;
+  const byName = await supabase
+    .from('seafood_inventory')
+    .select('item_number,description,on_hand_qty,cost')
+    .ilike('description', name)
+    .limit(1);
+  if (byName.error || !Array.isArray(byName.data) || !byName.data.length) return null;
+  return byName.data[0];
 }
 
 function invoiceItemsFromOrder(order, fulfilledItems) {
@@ -278,6 +301,38 @@ router.post('/:id/fulfill', authenticateToken, requireRole('admin', 'manager'), 
   if (!invoice) return;
   const trackingToken = order.tracking_token || generateTrackingToken();
   const trackingExpiresAt = order.tracking_expires_at || trackingExpiry();
+
+  const pickFailures = [];
+  for (const item of fulfilledItems) {
+    const qty = itemQuantity(item);
+    if (!Number.isFinite(qty) || qty <= 0) continue;
+    const inventoryMatch = await findInventoryMatchForFulfillment(item);
+    if (!inventoryMatch?.item_number) continue;
+    try {
+      await applyInventoryLedgerEntry({
+        itemNumber: inventoryMatch.item_number,
+        deltaQty: -qty,
+        changeType: 'pick',
+        notes: `Order ${order.order_number || order.id} fulfill pick`,
+        createdBy: req.user?.name || req.user?.email || 'system',
+      });
+    } catch (ledgerErr) {
+      pickFailures.push({
+        item_number: inventoryMatch.item_number,
+        item_name: item.name || item.description || null,
+        error: ledgerErr.message,
+      });
+    }
+  }
+
+  if (pickFailures.length) {
+    return res.status(409).json({
+      error: 'One or more picks could not be posted to inventory',
+      code: 'PICK_LEDGER_FAILED',
+      failures: pickFailures,
+    });
+  }
+
   const orderUpdate = await executeWithOptionalScope((candidate) => supabase.from('orders').update(candidate).eq('id', req.params.id), {
     status: 'invoiced',
     items: fulfilledItems,

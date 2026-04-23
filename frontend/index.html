@@ -260,6 +260,11 @@ table,th,td,.kpi-value,.stat-big,.stat-value,.queue-order-num,.order-summary-row
 .chart-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:20px}
 .card-title{font-size:14px;font-weight:600;margin-bottom:16px;color:var(--text)}
 .chart-wrap{position:relative;height:220px}
+.layout-two-col{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px}
+.layout-three-col-mixed{display:grid;grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,2fr);gap:12px;align-items:flex-end}
+.form-two-col{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}
+.form-two-col.tight{gap:0 14px}
+.form-two-col.wide{gap:0 16px}
 
 /* ANALYTICS ROW */
 .analytics-row{display:grid;grid-template-columns:1fr 1fr 1fr;gap:16px;margin-bottom:24px}
@@ -272,7 +277,7 @@ table,th,td,.kpi-value,.stat-big,.stat-value,.queue-order-num,.order-summary-row
 .stat-sub b{color:var(--text)}
 
 /* TABLE */
-.table-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);overflow:hidden;margin-bottom:24px}
+.table-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);overflow:auto;margin-bottom:24px}
 .table-header{padding:16px 20px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px}
 .table-header h3{font-size:14px;font-weight:600}
 table{width:100%;border-collapse:collapse;font-size:13px}
@@ -366,6 +371,19 @@ td{padding:12px 16px;vertical-align:middle}
 .analytics-section{margin-bottom:24px}
 .ranking-table-wrap{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);overflow:hidden;margin-bottom:24px}
 .analytics-charts{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px}
+.report-rollup-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;margin-bottom:12px}
+.report-rollup-controls .ctrl{display:flex;flex-direction:column;gap:6px;min-width:150px}
+.report-rollup-controls label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:0.4px}
+.report-rollup-controls input{background:var(--bg);border:1px solid var(--border);color:var(--text);padding:8px 10px;border-radius:8px;font-size:12px}
+.report-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.report-rollup-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--r-card);padding:12px}
+.report-rollup-title{font-size:12px;font-weight:700;margin-bottom:8px}
+.report-rollup-meta{font-size:11px;color:var(--muted);margin-bottom:10px}
+.report-rollup-table-wrap{overflow:auto;border:1px solid var(--border);border-radius:10px}
+.report-rollup-table{width:100%;border-collapse:collapse;font-size:12px}
+.report-rollup-table th,.report-rollup-table td{padding:8px 9px;border-bottom:1px solid var(--border);text-align:left;white-space:nowrap}
+.report-rollup-table th{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.4px}
+.report-rollup-table tbody tr:last-child td{border-bottom:none}
 
 /* SKELETON */
 .skeleton{background:linear-gradient(90deg,var(--border) 25%,rgba(26,47,94,0.5) 50%,var(--border) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:6px}
@@ -381,11 +399,26 @@ td{padding:12px 16px;vertical-align:middle}
 /* SECTION TITLE */
 .section-title{font-size:14px;font-weight:600;margin-bottom:16px;color:var(--text)}
 
+@media(max-width:1200px){
+  .search-input{width:190px}
+}
+@media(max-width:1024px){
+  .content{padding:20px}
+}
 @media(max-width:900px){
   .sidebar{display:none}
   .main{margin-left:0;padding-bottom:70px}
+  .content{padding:16px}
+  .section-header{flex-direction:column;align-items:flex-start;gap:10px}
   .kpi-row{grid-template-columns:1fr 1fr}
-  .charts-row,.analytics-row,.analytics-charts{grid-template-columns:1fr}
+  .charts-row,.analytics-row,.analytics-charts,.report-grid{grid-template-columns:1fr}
+  .layout-two-col,.layout-three-col-mixed,.form-two-col{grid-template-columns:1fr}
+  .chart-card,.stat-card,.kpi-card{padding:16px}
+  table{font-size:12px}
+  thead th,td{padding:10px 12px}
+  .report-rollup-controls{align-items:stretch}
+  .report-rollup-controls .ctrl{min-width:100%}
+  .report-rollup-controls input{width:100%}
   .ai-help-shell{grid-template-columns:1fr}
   .mobile-tabs{display:block}
   .expand-content{grid-template-columns:1fr 1fr}
@@ -394,6 +427,10 @@ td{padding:12px 16px;vertical-align:middle}
   .kpi-row{grid-template-columns:1fr}
   .expand-content{grid-template-columns:1fr}
   .ai-help-shell{padding:16px}
+}
+@media(max-width:420px){
+  .content{padding:12px}
+  .btn{padding:7px 10px;font-size:12px}
 }
 /* INVOICES */
 .inv-status-pending{background:#3a2808;color:#ffd27a;padding:2px 10px;border-radius:12px;font-size:11px;font-weight:600}
@@ -977,7 +1014,7 @@ td{padding:12px 16px;vertical-align:middle}
       </div>
 
       <!-- Status breakdown + Revenue chart -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+      <div class="layout-two-col" style="margin-bottom:24px">
         <div class="chart-card">
           <div class="card-title" style="margin-bottom:14px">Invoice Status</div>
           <div id="finStatusBreakdown" style="display:flex;flex-direction:column;gap:10px"></div>
@@ -989,7 +1026,7 @@ td{padding:12px 16px;vertical-align:middle}
       </div>
 
       <!-- Recent Invoices + Purchase Orders side by side -->
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px">
+      <div class="layout-two-col" style="margin-bottom:24px">
         <div class="chart-card">
           <div class="card-title" style="margin-bottom:14px">Recent Invoices (Revenue)</div>
           <div class="table-card" style="margin:0">
@@ -1019,6 +1056,34 @@ td{padding:12px 16px;vertical-align:middle}
     </div>
 
     <div class="tab-pane" id="tab-analytics">
+      <div class="chart-card" style="margin-bottom:16px">
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px">
+          <div>
+            <div class="card-title">Unified Performance Rollups</div>
+            <div style="font-size:12px;color:var(--muted);margin-top:2px">Customer, route, driver, and SKU margin reporting from one source of truth.</div>
+          </div>
+          <button class="btn btn-outline" onclick="fetchReportingRollups()">↻ Refresh Rollups</button>
+        </div>
+        <div class="report-rollup-controls">
+          <div class="ctrl">
+            <label for="reportStartDate">Start Date</label>
+            <input id="reportStartDate" type="date">
+          </div>
+          <div class="ctrl">
+            <label for="reportEndDate">End Date</label>
+            <input id="reportEndDate" type="date">
+          </div>
+          <div class="ctrl">
+            <label for="reportRowLimit">Top Rows</label>
+            <input id="reportRowLimit" type="number" min="1" max="500" value="12" style="width:100px">
+          </div>
+          <button class="btn btn-accent" style="height:36px" onclick="fetchReportingRollups()">Apply Filters</button>
+        </div>
+        <div id="reportingOverview" class="report-rollup-meta">Loading rollups…</div>
+        <div id="reportingRollupGrid" class="report-grid">
+          <div class="report-rollup-card">Loading…</div>
+        </div>
+      </div>
       <div class="section-title">Driver Efficiency Rankings</div>
       <div class="ranking-table-wrap">
         <table>
@@ -1549,7 +1614,7 @@ td{padding:12px 16px;vertical-align:middle}
           </div>
         </div>
         <div class="fc-chart-card" style="padding:16px;margin-bottom:16px">
-          <div style="display:grid;grid-template-columns:2fr 1fr 2fr;gap:12px;align-items:flex-end;flex-wrap:wrap">
+          <div class="layout-three-col-mixed">
             <div>
               <label class="modal-label">Product</label>
               <select id="reorderAlertProduct" class="modal-input" style="margin-bottom:0;cursor:pointer"></select>
@@ -1588,7 +1653,7 @@ td{padding:12px 16px;vertical-align:middle}
           <div class="kpi-card skeleton" style="height:100px"></div>
           <div class="kpi-card skeleton" style="height:100px"></div>
         </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+        <div class="layout-two-col" style="margin-bottom:16px">
           <!-- Top Products by volume -->
           <div class="fc-chart-card">
             <div class="fc-chart-title">Top Products by Order Volume</div>
@@ -2053,7 +2118,7 @@ td{padding:12px 16px;vertical-align:middle}
     </div>
 
     <!-- Invoice details grid -->
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px">
+    <div class="form-two-col" style="margin-bottom:12px">
       <div>
         <label style="font-size:12px;color:var(--muted);display:block;margin-bottom:4px">Invoice #</label>
         <input class="search-input" id="ni_number" placeholder="Auto-generated" style="width:100%"/>
@@ -2368,7 +2433,7 @@ td{padding:12px 16px;vertical-align:middle}
     <h3 id="invModalTitle">Add Product</h3>
     <p class="modal-sub">Fill in the seafood product details below.</p>
     <input type="hidden" id="invEditId"/>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 14px">
+    <div class="form-two-col tight">
       <div>
         <label class="modal-label">Description (Product Name) *</label>
         <input class="modal-input" id="invName" placeholder="e.g. CAVIAR GOLDEN WHITE" oninput="autoDetectLotRequired()"/>
@@ -2480,7 +2545,7 @@ td{padding:12px 16px;vertical-align:middle}
     <h3>Log Yield Entry</h3>
     <p class="modal-sub" id="yieldProductName" style="color:var(--text);font-weight:600;font-size:14px;margin-bottom:12px"></p>
     <input type="hidden" id="yieldProductId"/>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px">
+    <div class="form-two-col">
       <div>
         <label class="modal-label">Raw Weight (in)</label>
         <input class="modal-input" id="yieldRaw" type="number" min="0.01" step="0.01" placeholder="e.g. 40.0" oninput="updateYieldPreview()"/>
@@ -2513,7 +2578,7 @@ td{padding:12px 16px;vertical-align:middle}
     <h3 id="lotModalTitle">Add Lot / Batch</h3>
     <p class="modal-sub">Track received inventory by lot for full traceability, expiry management, and regulatory compliance.</p>
     <input type="hidden" id="lotEditId"/>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0 16px">
+    <div class="form-two-col wide">
       <div>
         <label class="modal-label">Product *</label>
         <select class="modal-input" id="lotProduct" style="cursor:pointer">
@@ -2681,6 +2746,7 @@ async function doLogout() {
   window.location.href = '/';
 }
 let allDeliveries = [], allDrivers = [], analyticsData = {}, statsData = {};
+let reportingData = null;
 let delivSort = { key: 'orderId', dir: 1 };
 let delivPage = 1;
 const PAGE_SIZE = 10;
@@ -3830,6 +3896,10 @@ function showTab(name, el) {
   if (name === 'aihelp') { initAIHelp(); }
   if (name === 'settings') { initSettings(); }
   if (name === 'financials') { loadFinancials(); }
+  if (name === 'analytics') {
+    renderReportingRollups();
+    if (!reportingData || reportingData.error) fetchReportingRollups();
+  }
 }
 
 function isNativeKeyboardTarget(el) {
@@ -4064,6 +4134,7 @@ async function fetchAll() {
       fetch(API+'/deliveries', authHeaders),
       fetch(API+'/drivers', authHeaders),
       fetch(API+'/analytics', authHeaders),
+      fetch(API+'/reporting/rollups?limit=12', authHeaders),
     ]);
 
     // If all core requests are 401, session expired — redirect to login
@@ -4074,8 +4145,10 @@ async function fetchAll() {
       return;
     }
 
-    const [s, d, dr, a] = await Promise.all(responses.map(r => r.json()));
-    statsData = s; allDeliveries = d; allDrivers = dr; analyticsData = a;
+    const [s, d, dr, a, reporting] = await Promise.all(responses.map(async (r) => {
+      try { return await r.json(); } catch (_err) { return null; }
+    }));
+    statsData = s; allDeliveries = d; allDrivers = dr; analyticsData = a; reportingData = reporting;
     document.getElementById('lastUpdated').textContent = 'Updated ' + new Date().toLocaleTimeString();
     renderKPIs();
     renderCharts();
@@ -4083,6 +4156,7 @@ async function fetchAll() {
     renderDeliveries();
     renderDrivers();
     renderAnalytics();
+    renderReportingRollups();
     renderMap();
     if (nrUser && nrUser.role === 'admin') fetchUsers();
     fetchStops();
@@ -4510,6 +4584,105 @@ function renderAnalytics() {
     Pending deliveries: <strong>${allDeliveries.filter(d=>d.status==='pending').length}</strong><br>
     Service area: <strong>Charleston, SC metro</strong>
   `;
+}
+
+function reportFmtMoney(v) {
+  return '$' + Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function reportFmtNumber(v) {
+  return Number(v || 0).toLocaleString('en-US');
+}
+
+function reportFmtPct(v) {
+  return `${Number(v || 0).toFixed(1)}%`;
+}
+
+function reportCardsMarkup(title, rows) {
+  if (!Array.isArray(rows) || !rows.length) {
+    return `<div class="report-rollup-card">
+      <div class="report-rollup-title">${escHtml(title)}</div>
+      <div class="report-rollup-meta">No rows for current filters.</div>
+    </div>`;
+  }
+
+  return `<div class="report-rollup-card">
+    <div class="report-rollup-title">${escHtml(title)}</div>
+    <div class="report-rollup-table-wrap">
+      <table class="report-rollup-table">
+        <thead><tr><th>Name</th><th>Revenue</th><th>Cost</th><th>Margin</th><th>Margin %</th><th>Qty</th></tr></thead>
+        <tbody>
+          ${rows.map(row => `<tr>
+            <td><strong>${escHtml(row.label || '—')}</strong><div style="font-size:11px;color:var(--muted)">${reportFmtNumber(row.invoice_count || 0)} invoices · ${reportFmtNumber(row.order_count || 0)} orders</div></td>
+            <td>${reportFmtMoney(row.revenue)}</td>
+            <td>${reportFmtMoney(row.estimated_cost)}</td>
+            <td>${reportFmtMoney(row.margin)}</td>
+            <td>${reportFmtPct(row.margin_pct)}</td>
+            <td>${reportFmtNumber(row.qty)}</td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+function renderReportingRollups() {
+  const overviewEl = document.getElementById('reportingOverview');
+  const gridEl = document.getElementById('reportingRollupGrid');
+  if (!overviewEl || !gridEl) return;
+
+  if (!reportingData || reportingData.error) {
+    overviewEl.textContent = reportingData?.error || 'Reporting rollups are not available.';
+    gridEl.innerHTML = '<div class="report-rollup-card">No rollup data available yet.</div>';
+    return;
+  }
+
+  const overview = reportingData.overview || {};
+  const generated = reportingData.generated_at ? new Date(reportingData.generated_at).toLocaleString() : '—';
+  const filters = reportingData.filters || {};
+  const start = filters.start ? new Date(filters.start).toLocaleDateString() : 'All time';
+  const end = filters.end ? new Date(filters.end).toLocaleDateString() : 'Now';
+  const limit = filters.limit || 12;
+
+  overviewEl.innerHTML = `
+    Window: <strong>${start}</strong> → <strong>${end}</strong> · Top <strong>${limit}</strong> per rollup · Generated <strong>${generated}</strong><br>
+    Orders: <strong>${reportFmtNumber(overview.order_count)}</strong> · Invoices: <strong>${reportFmtNumber(overview.invoice_count)}</strong> · Revenue: <strong>${reportFmtMoney(overview.revenue)}</strong> · Estimated Cost: <strong>${reportFmtMoney(overview.estimated_cost)}</strong> · Margin: <strong>${reportFmtMoney(overview.margin)}</strong> (${reportFmtPct(overview.margin_pct)})
+  `;
+
+  gridEl.innerHTML = [
+    reportCardsMarkup('By Customer', reportingData.customer || []),
+    reportCardsMarkup('By Route', reportingData.route || []),
+    reportCardsMarkup('By Driver', reportingData.driver || []),
+    reportCardsMarkup('By SKU', reportingData.sku || []),
+  ].join('');
+}
+
+async function fetchReportingRollups() {
+  const start = document.getElementById('reportStartDate')?.value || '';
+  const end = document.getElementById('reportEndDate')?.value || '';
+  const limitInput = parseInt(document.getElementById('reportRowLimit')?.value || '12', 10);
+  const limit = Number.isFinite(limitInput) ? Math.max(1, Math.min(500, limitInput)) : 12;
+
+  const params = new URLSearchParams();
+  if (start) params.set('start', start);
+  if (end) params.set('end', end);
+  params.set('limit', String(limit));
+
+  const overviewEl = document.getElementById('reportingOverview');
+  const gridEl = document.getElementById('reportingRollupGrid');
+  if (overviewEl) overviewEl.textContent = 'Refreshing rollups…';
+  if (gridEl) gridEl.innerHTML = '<div class="report-rollup-card">Loading…</div>';
+
+  try {
+    const res = await fetch(`${API}/reporting/rollups?${params.toString()}`, authHeaders);
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || 'Could not load reporting rollups');
+    reportingData = data;
+    renderReportingRollups();
+  } catch (error) {
+    reportingData = { error: error.message };
+    renderReportingRollups();
+  }
 }
 
 // ── STOPS TAB ──────────────────────────────────────────
