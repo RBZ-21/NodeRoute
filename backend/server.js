@@ -1,6 +1,7 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 
 const express = require('express');
+const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const { supabase } = require('./services/supabase');
@@ -50,7 +51,15 @@ app.use((req, res, next) => {
 });
 
 const frontendDir = path.join(__dirname, '../frontend');
+const frontendV2DistDir = path.join(__dirname, '../frontend-v2/dist');
+const hasFrontendV2Build = fs.existsSync(path.join(frontendV2DistDir, 'index.html'));
+const featureUiV2Default = /^(1|true|yes)$/i.test(String(process.env.FEATURE_UI_V2_DEFAULT || 'false'));
 app.use(express.static(frontendDir, { index: false }));
+if (hasFrontendV2Build) {
+  app.use('/dashboard-v2', express.static(frontendV2DistDir, { index: false }));
+} else {
+  console.warn('INFO: frontend-v2 build not found. Build it with `npm --prefix frontend-v2 run build` to enable /dashboard-v2.');
+}
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@noderoutesystems.com';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@123';
@@ -149,7 +158,26 @@ app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager
 // ── PAGES ─────────────────────────────────────────────────────────────────────
 app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'landing.html')));
 app.get('/login', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
-app.get('/dashboard', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
+app.get('/dashboard', (req, res) => {
+  const requestedUi = String(req.query.ui || '').toLowerCase();
+  const v2Requested = requestedUi === 'v2' || requestedUi === 'new';
+  if (hasFrontendV2Build && (featureUiV2Default || v2Requested)) {
+    return res.redirect('/dashboard-v2');
+  }
+  return res.sendFile(path.join(frontendDir, 'index.html'));
+});
+app.get('/dashboard-v2', (req, res) => {
+  if (!hasFrontendV2Build) {
+    return res.status(503).json({ error: 'Dashboard v2 is not built yet. Run `npm --prefix frontend-v2 run build`.' });
+  }
+  return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
+});
+app.get(/^\/dashboard-v2\/.*/, (req, res) => {
+  if (!hasFrontendV2Build) {
+    return res.status(503).json({ error: 'Dashboard v2 is not built yet. Run `npm --prefix frontend-v2 run build`.' });
+  }
+  return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
+});
 app.get('/driver', (req, res) => res.sendFile(path.join(frontendDir, 'driver.html')));
 app.get('/landing', (req, res) => res.sendFile(path.join(frontendDir, 'landing.html')));
 app.get('/portal', (req, res) => res.sendFile(path.join(frontendDir, 'customer-portal.html')));
