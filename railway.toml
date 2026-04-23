@@ -2,7 +2,7 @@
 aptPkgs = ["libatomic1"]
 
 [build]
-buildCommand = "cd backend && npm install"
+buildCommand = "cd backend && npm install && cd ../frontend-v2 && npm install && npm run build"
 
 [deploy]
 startCommand = "node backend/server.js"
