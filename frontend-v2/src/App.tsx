@@ -1,11 +1,14 @@
 import { ChevronDown, LayoutDashboard, LogOut } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import type { ReactElement } from 'react';
+import { useMemo } from 'react';
+import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from './components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu';
 import { getUserRole, requireAuthToken } from './lib/api';
 import { cn } from './lib/utils';
 import { AnalyticsPage } from './pages/AnalyticsPage';
+import { DashboardPage } from './pages/DashboardPage';
 import { FinancialsPage } from './pages/FinancialsPage';
 import { InventoryPage } from './pages/InventoryPage';
 import { OrdersPage } from './pages/OrdersPage';
@@ -40,6 +43,7 @@ type Role = 'admin' | 'manager' | 'driver' | 'unknown';
 type NavItem = {
   id: TabId;
   label: string;
+  path: string;
   adminOnly?: boolean;
 };
 
@@ -55,39 +59,39 @@ const navGroups: NavGroup[] = [
     id: 'core',
     label: 'Core',
     items: [
-      { id: 'dashboard', label: 'Dashboard' },
-      { id: 'orders', label: 'Orders' },
-      { id: 'settings', label: 'Settings' },
+      { id: 'dashboard', label: 'Dashboard', path: '/dashboard' },
+      { id: 'orders', label: 'Orders', path: '/orders' },
+      { id: 'settings', label: 'Settings', path: '/settings' },
     ],
   },
   {
     id: 'logistics',
     label: 'Logistics',
     items: [
-      { id: 'deliveries', label: 'Deliveries' },
-      { id: 'map', label: 'Live Map' },
-      { id: 'drivers', label: 'Drivers' },
-      { id: 'routes', label: 'Routes' },
-      { id: 'stops', label: 'Stops' },
+      { id: 'deliveries', label: 'Deliveries', path: '/deliveries' },
+      { id: 'map', label: 'Live Map', path: '/map' },
+      { id: 'drivers', label: 'Drivers', path: '/drivers' },
+      { id: 'routes', label: 'Routes', path: '/routes' },
+      { id: 'stops', label: 'Stops', path: '/stops' },
     ],
   },
   {
     id: 'people',
     label: 'People',
     items: [
-      { id: 'customers', label: 'Customers' },
-      { id: 'users', label: 'Users', adminOnly: true },
+      { id: 'customers', label: 'Customers', path: '/customers' },
+      { id: 'users', label: 'Users', path: '/users', adminOnly: true },
     ],
   },
   {
     id: 'financials',
     label: 'Financials',
     items: [
-      { id: 'financials', label: 'Financial Overview' },
-      { id: 'invoices', label: 'Invoices' },
-      { id: 'analytics', label: 'Analytics' },
-      { id: 'inventory', label: 'Inventory' },
-      { id: 'forecast', label: 'Forecasting' },
+      { id: 'financials', label: 'Financial Overview', path: '/financials' },
+      { id: 'invoices', label: 'Invoices', path: '/invoices' },
+      { id: 'analytics', label: 'Analytics', path: '/analytics' },
+      { id: 'inventory', label: 'Inventory', path: '/inventory' },
+      { id: 'forecast', label: 'Forecasting', path: '/forecast' },
     ],
   },
   {
@@ -95,23 +99,36 @@ const navGroups: NavGroup[] = [
     label: 'Operations',
     adminOnly: true,
     items: [
-      { id: 'purchasing', label: 'Purchasing' },
-      { id: 'vendors', label: 'Vendors' },
-      { id: 'warehouse', label: 'Warehouse' },
-      { id: 'planning', label: 'Planning & Rules' },
-      { id: 'integrations', label: 'Integrations' },
+      { id: 'purchasing', label: 'Purchasing', path: '/purchasing', adminOnly: true },
+      { id: 'vendors', label: 'Vendors', path: '/vendors', adminOnly: true },
+      { id: 'warehouse', label: 'Warehouse', path: '/warehouse', adminOnly: true },
+      { id: 'planning', label: 'Planning & Rules', path: '/planning', adminOnly: true },
+      { id: 'integrations', label: 'Integrations', path: '/integrations', adminOnly: true },
     ],
   },
   {
     id: 'ai',
     label: 'AI Help',
-    items: [{ id: 'aihelp', label: 'Walkthroughs' }],
+    items: [{ id: 'aihelp', label: 'Walkthroughs', path: '/aihelp' }],
   },
 ];
 
+const defaultPath = '/dashboard';
+const allNavItems = navGroups.flatMap((group) => group.items);
+
 export function App() {
+  if (!requireAuthToken()) {
+    window.location.href = '/login';
+    return null;
+  }
+
+  return <AppShell />;
+}
+
+function AppShell() {
   const role = getUserRole();
-  const [tab, setTab] = useState<TabId>('dashboard');
+  const location = useLocation();
+  const navigate = useNavigate();
 
   const availableGroups = useMemo(
     () =>
@@ -124,10 +141,7 @@ export function App() {
     [role]
   );
 
-  if (!requireAuthToken()) {
-    window.location.href = '/login';
-    return null;
-  }
+  const currentItem = useMemo(() => findNavItem(location.pathname) || findNavItem(defaultPath), [location.pathname]);
 
   return (
     <div className="min-h-screen bg-enterprise-gradient">
@@ -166,7 +180,11 @@ export function App() {
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="start">
                   {group.items.map((item) => (
-                    <DropdownMenuItem key={item.id} onSelect={() => setTab(item.id)} className={cn(tab === item.id && 'bg-accent')}>
+                    <DropdownMenuItem
+                      key={item.id}
+                      onSelect={() => navigate(item.path)}
+                      className={cn(currentItem?.id === item.id && 'bg-accent')}
+                    >
                       {item.label}
                     </DropdownMenuItem>
                   ))}
@@ -178,52 +196,89 @@ export function App() {
 
         <main className="mt-4 rounded-xl border border-border bg-card p-4 shadow-panel md:p-6">
           <div className="mb-4 flex flex-col gap-1 border-b border-border pb-4 md:flex-row md:items-end md:justify-between">
-            <h2 className="text-xl font-semibold text-foreground">{pageTitle(tab)}</h2>
+            <h2 className="text-xl font-semibold text-foreground">{currentItem?.label || 'Dashboard'}</h2>
             <p className="text-sm font-medium text-muted-foreground">Signed in as {role.toUpperCase()}</p>
           </div>
-          <PageContent tab={tab} role={role} />
+          <Routes>
+            <Route index element={<Navigate to={defaultPath} replace />} />
+            {allNavItems.map((item) => (
+              <Route
+                key={item.id}
+                path={routePath(item.path)}
+                element={
+                  item.adminOnly ? (
+                    <AdminOnlyRoute role={role}>{pageElement(item, role)}</AdminOnlyRoute>
+                  ) : (
+                    pageElement(item, role)
+                  )
+                }
+              />
+            ))}
+            <Route path="*" element={<Navigate to={defaultPath} replace />} />
+          </Routes>
         </main>
       </div>
     </div>
   );
 }
 
-function PageContent({ tab, role }: { tab: TabId; role: Role }) {
-  if (tab === 'financials') return <FinancialsPage />;
-  if (tab === 'orders') return <OrdersPage />;
-  if (tab === 'analytics') return <AnalyticsPage />;
-  if (tab === 'purchasing') return <PurchasingPage />;
-  if (tab === 'inventory') return <InventoryPage />;
+function AdminOnlyRoute({ children, role }: { children: ReactElement; role: Role }) {
+  if (role !== 'admin') {
+    return <Navigate to={defaultPath} replace />;
+  }
+
+  return children;
+}
+
+function PlaceholderPage({ item, role }: { item: NavItem; role: Role }) {
   return (
     <Card className="bg-muted/20">
       <CardHeader>
-        <CardTitle>{pageTitle(tab)}</CardTitle>
+        <CardTitle>{item.label}</CardTitle>
         <CardDescription>
           This section is queued for framework migration. Core APIs remain unchanged and this module will move to shared primitives next.
         </CardDescription>
       </CardHeader>
       <CardContent className="text-sm text-muted-foreground">
-        {tab === 'vendors' || tab === 'warehouse' || tab === 'planning' || tab === 'integrations'
+        {item.id === 'vendors' || item.id === 'warehouse' || item.id === 'planning' || item.id === 'integrations'
           ? role === 'admin'
             ? 'Operations scope is enabled for admin users in V2.'
             : 'Operations scope is admin-only and hidden for your role.'
-          : 'Next wave includes Analytics, Purchasing, and Inventory workflows.'}
+          : 'This route has its own URL now and is ready for the next migration pass.'}
       </CardContent>
     </Card>
   );
 }
 
-function pageTitle(tab: TabId): string {
-  switch (tab) {
+function pageElement(item: NavItem, role: Role) {
+  switch (item.id) {
+    case 'dashboard':
+      return <DashboardPage />;
+    case 'analytics':
+      return <AnalyticsPage />;
     case 'financials':
-      return 'Financial Overview';
+      return <FinancialsPage />;
+    case 'inventory':
+      return <InventoryPage />;
     case 'orders':
-      return 'Orders';
-    case 'aihelp':
-      return 'AI Help';
-    case 'map':
-      return 'Live Map';
+      return <OrdersPage />;
+    case 'purchasing':
+      return <PurchasingPage />;
     default:
-      return tab.charAt(0).toUpperCase() + tab.slice(1);
+      return <PlaceholderPage item={item} role={role} />;
   }
+}
+
+function findNavItem(pathname: string) {
+  const normalizedPath = normalizePath(pathname);
+  return allNavItems.find((item) => item.path === normalizedPath) || null;
+}
+
+function normalizePath(pathname: string) {
+  const trimmed = pathname.replace(/\/+$/, '');
+  return trimmed || defaultPath;
+}
+
+function routePath(pathname: string) {
+  return pathname.replace(/^\//, '');
 }
