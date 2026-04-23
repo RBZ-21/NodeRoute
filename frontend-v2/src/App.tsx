@@ -8,6 +8,7 @@ import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigge
 import { getUserRole, requireAuthToken } from './lib/api';
 import { cn } from './lib/utils';
 import { AnalyticsPage } from './pages/AnalyticsPage';
+import { DriverPage } from './pages/DriverPage';
 import { CustomersPage } from './pages/CustomersPage';
 import { DashboardPage } from './pages/DashboardPage';
 import { DeliveriesPage } from './pages/DeliveriesPage';
@@ -128,9 +129,19 @@ const defaultPath = '/dashboard';
 const allNavItems = navGroups.flatMap((group) => group.items);
 
 export function App() {
+  const location = useLocation();
+
   if (!requireAuthToken()) {
     window.location.href = '/login';
     return null;
+  }
+
+  if (location.pathname === '/driver') {
+    if (getUserRole() !== 'driver') {
+      window.location.href = '/dashboard-v2';
+      return null;
+    }
+    return <DriverPage />;
   }
 
   return <AppShell />;
@@ -173,7 +184,7 @@ function AppShell() {
               <a href="/dashboard" className={cn('inline-flex', role === 'unknown' && 'pointer-events-none opacity-50')}>
                 <Button variant="outline">Legacy Dashboard</Button>
               </a>
-              <Button onClick={() => (window.location.href = '/auth/logout')}>
+              <Button onClick={() => { localStorage.removeItem('nr_token'); localStorage.removeItem('nr_user'); window.location.href = '/login'; }}>
                 <LogOut className="mr-2 h-4 w-4" />
                 Logout
               </Button>
