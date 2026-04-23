@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -42,6 +43,9 @@ const emptyLine = (): PurchaseItemDraft => ({
 });
 
 export function PurchasingPage() {
+  const [searchParams] = useSearchParams();
+  const vendorParam = String(searchParams.get('vendor') || '').trim();
+
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -51,12 +55,14 @@ export function PurchasingPage() {
   const [poNumber, setPoNumber] = useState('');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<PurchaseItemDraft[]>([emptyLine()]);
+  const [vendorFilter, setVendorFilter] = useState<'all' | string>('all');
 
   async function load() {
     setLoading(true);
     setError('');
     try {
-      const data = await fetchWithAuth<PurchaseOrder[]>('/api/purchase-orders');
+      const query = vendorParam ? `?vendor=${encodeURIComponent(vendorParam)}` : '';
+      const data = await fetchWithAuth<PurchaseOrder[]>(`/api/purchase-orders${query}`);
       setOrders(Array.isArray(data) ? data : []);
     } catch (err) {
       setError(String((err as Error).message || 'Could not load purchase orders'));
@@ -67,7 +73,11 @@ export function PurchasingPage() {
 
   useEffect(() => {
     load();
-  }, []);
+  }, [vendorParam]);
+
+  useEffect(() => {
+    setVendorFilter(vendorParam || 'all');
+  }, [vendorParam]);
 
   const summary = useMemo(() => {
     return {
@@ -81,6 +91,20 @@ export function PurchasingPage() {
     () => lines.reduce((sum, line) => sum + asNumber(line.quantity) * asNumber(line.unit_price), 0),
     [lines]
   );
+
+  const vendorOptions = useMemo(() => {
+    const unique = new Set<string>();
+    for (const order of orders) {
+      const name = String(order.vendor || '').trim();
+      if (name) unique.add(name);
+    }
+    return Array.from(unique).sort((a, b) => a.localeCompare(b));
+  }, [orders]);
+
+  const filteredOrders = useMemo(() => {
+    if (vendorFilter === 'all') return orders;
+    return orders.filter((order) => String(order.vendor || '').trim() === vendorFilter);
+  }, [orders, vendorFilter]);
 
   function updateLine(index: number, key: keyof PurchaseItemDraft, value: string) {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, [key]: value } : line)));
@@ -152,6 +176,11 @@ export function PurchasingPage() {
       {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading purchasing data...</div> : null}
       {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
+      {vendorParam ? (
+        <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700">
+          Filtered by vendor from Vendors page: <strong>{vendorParam}</strong>
+        </div>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard label="Purchase Orders" value={summary.count.toLocaleString()} />
@@ -243,9 +272,26 @@ export function PurchasingPage() {
             <CardTitle>Purchasing Orders</CardTitle>
             <CardDescription>Historical purchase orders from existing backend APIs.</CardDescription>
           </div>
-          <Button variant="outline" onClick={load}>
-            Refresh
-          </Button>
+          <div className="flex flex-wrap items-end gap-2">
+            <label className="space-y-1 text-sm">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Vendor</span>
+              <select
+                value={vendorFilter}
+                onChange={(event) => setVendorFilter(event.target.value)}
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="all">All Vendors</option>
+                {vendorOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <Button variant="outline" onClick={load}>
+              Refresh
+            </Button>
+          </div>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
           <Table>
@@ -260,8 +306,8 @@ export function PurchasingPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {orders.length ? (
-                orders.map((order) => (
+              {filteredOrders.length ? (
+                filteredOrders.map((order) => (
                   <TableRow key={order.id}>
                     <TableCell className="font-medium">{order.po_number || order.id.slice(0, 8)}</TableCell>
                     <TableCell>{order.vendor || <Badge variant="neutral">Unspecified</Badge>}</TableCell>
@@ -274,7 +320,7 @@ export function PurchasingPage() {
               ) : (
                 <TableRow>
                   <TableCell colSpan={6} className="text-muted-foreground">
-                    No purchase orders found.
+                    No purchase orders found for the selected filters.
                   </TableCell>
                 </TableRow>
               )}
