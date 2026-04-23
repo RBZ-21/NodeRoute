@@ -9,6 +9,7 @@ import { getUserRole, requireAuthToken } from './lib/api';
 import { cn } from './lib/utils';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { DashboardPage } from './pages/DashboardPage';
+import { DeliveriesPage } from './pages/DeliveriesPage';
 import { FinancialsPage } from './pages/FinancialsPage';
 import { InventoryPage } from './pages/InventoryPage';
 import { OrdersPage } from './pages/OrdersPage';
@@ -262,6 +263,8 @@ function pageElement(item: NavItem, role: Role) {
       return <InventoryPage />;
     case 'orders':
       return <OrdersPage />;
+    case 'deliveries':
+      return <DeliveriesPage />;
     case 'purchasing':
       return <PurchasingPage />;
     default:
