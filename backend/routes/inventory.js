@@ -4,6 +4,11 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createMailer } = require('../services/email');
 const { analyzeInventory, generateReorderAlert } = require('../services/ai');
 const {
+  applyInventoryLedgerEntry,
+  transferInventoryLedgerEntry,
+  toNumber,
+} = require('../services/inventory-ledger');
+const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
@@ -19,7 +24,7 @@ const needsLot = desc => LOT_REQUIRED.test(desc || '');
 // Column names (updated to match current database):
 //   id uuid PK, description text NOT NULL (product name),
 //   category text, item_number text, unit text,
-//   cost numeric, on_hand_qty numeric, on_hand_weight numeric,
+//   cost numeric, on_hand_qty numeric, on_hand_weight numeric, notes text,
 //   lot_item text, created_at timestamptz DEFAULT now()
 // Analytics columns (migration 20260415_inventory_enhancements):
 //   avg_yield numeric, yield_count integer, updated_at timestamptz, alert_sent_at timestamptz
@@ -31,7 +36,7 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { description, category, item_number, unit, cost, on_hand_qty, on_hand_weight, lot_item } = req.body;
+  const { description, category, item_number, unit, cost, on_hand_qty, on_hand_weight, lot_item, notes } = req.body;
   if (!description) return res.status(400).json({ error: 'Product description required' });
   const insertResult = await insertRecordWithOptionalScope(supabase, 'seafood_inventory', {
     description,
@@ -42,6 +47,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
     on_hand_qty:    parseFloat(on_hand_qty)    || 0,
     on_hand_weight: parseFloat(on_hand_weight) || 0,
     lot_item:       needsLot(description) ? 'Y' : (lot_item || 'N'),
+    notes:          notes || null,
   }, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
@@ -280,20 +286,22 @@ router.post('/lots', authenticateToken, requireRole('admin', 'manager'), async (
   }]).select().single();
   if (error) return res.status(500).json({ error: error.message });
 
-  // Bump master product on_hand_qty and log history
-  const { data: prod } = await supabase.from('seafood_inventory').select('on_hand_qty,description').eq('item_number', item_number).single();
+  // Bump master product stock through unified ledger posting.
+  const { data: prod } = await supabase.from('seafood_inventory').select('*').eq('item_number', item_number).single();
   if (prod) {
-    const newQty = (parseFloat(prod.on_hand_qty) || 0) + qty;
-    await supabase.from('seafood_inventory').update({ on_hand_qty: newQty, updated_at: new Date().toISOString() }).eq('item_number', item_number);
-    await supabase.from('inventory_stock_history').insert([{
-      item_number,
-      change_qty:  qty,
-      new_qty:     newQty,
-      change_type: 'restock',
-      notes:       `Lot ${lot_number}${supplier_name ? ' · ' + supplier_name : ''}`,
-      created_by:  req.user.name || req.user.email,
-      lot_id:      data.id,
-    }]);
+    try {
+      await applyInventoryLedgerEntry({
+        itemNumber: item_number,
+        deltaQty: qty,
+        changeType: 'restock',
+        notes: `Lot ${lot_number}${supplier_name ? ' · ' + supplier_name : ''}`,
+        createdBy: req.user.name || req.user.email,
+        lotId: data.id,
+        unitCost: parseFloat(cost_per_unit) || 0,
+      });
+    } catch (ledgerErr) {
+      return res.status(500).json({ error: ledgerErr.message });
+    }
   }
 
   res.json({ ...data, item_description: prod?.description || null });
@@ -351,26 +359,24 @@ router.post('/lots/:lotId/deplete', authenticateToken, requireRole('admin', 'man
     .select().single();
   if (updErr) return res.status(500).json({ error: updErr.message });
 
-  // Deduct from master product qty and log to history
-  const { data: prod } = await supabase.from('seafood_inventory').select('on_hand_qty,description').eq('item_number', lot.item_number).single();
-  const newProdQty = parseFloat(((parseFloat(prod?.on_hand_qty) || 0) - removeQty).toFixed(4));
-  const { data: updProd } = await supabase.from('seafood_inventory')
-    .update({ on_hand_qty: newProdQty, updated_at: new Date().toISOString() })
-    .eq('item_number', lot.item_number)
-    .select().single();
-
-  await supabase.from('inventory_stock_history').insert([{
-    item_number:  lot.item_number,
-    change_qty:   -removeQty,
-    new_qty:      newProdQty,
-    change_type:  change_type || 'depletion',
-    notes:        notes || `Lot ${lot.lot_number}`,
-    created_by:   req.user.name || req.user.email,
-    lot_id:       lot.id,
-  }]);
+  // Deduct from master product qty through unified ledger posting.
+  let ledger;
+  try {
+    ledger = await applyInventoryLedgerEntry({
+      itemNumber: lot.item_number,
+      deltaQty: -removeQty,
+      changeType: change_type || 'depletion',
+      notes: notes || `Lot ${lot.lot_number}`,
+      createdBy: req.user.name || req.user.email,
+      lotId: lot.id,
+    });
+  } catch (ledgerErr) {
+    return res.status(500).json({ error: ledgerErr.message });
+  }
+  const updProd = ledger.item_after;
 
   res.json({
-    lot:     { ...updLot, item_description: prod?.description || null },
+    lot:     { ...updLot, item_description: ledger.item_before?.description || null },
     product: updProd,
   });
 });
@@ -384,6 +390,51 @@ router.delete('/lots/:lotId', authenticateToken, requireRole('admin', 'manager')
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+// POST /api/inventory/count — replace product stock quantities after a physical count
+router.post('/count', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const entries = Array.isArray(req.body.items) ? req.body.items : [];
+  const countNotes = req.body.notes || 'Physical inventory count';
+  const normalized = entries
+    .map(entry => ({
+      item_number: String(entry.item_number || '').trim(),
+      counted_qty: parseFloat(entry.counted_qty),
+    }))
+    .filter(entry => entry.item_number && Number.isFinite(entry.counted_qty) && entry.counted_qty >= 0);
+
+  if (!normalized.length) return res.status(400).json({ error: 'At least one counted item is required' });
+
+  const itemNumbers = normalized.map(entry => entry.item_number);
+  const { data: existing, error: fetchErr } = await supabase
+    .from('seafood_inventory')
+    .select('*')
+    .in('item_number', itemNumbers);
+  if (fetchErr) return res.status(500).json({ error: fetchErr.message });
+
+  const existingByNumber = new Map((filterRowsByContext(existing || [], req.context)).map(item => [item.item_number, item]));
+  const updatedItems = [];
+
+  for (const entry of normalized) {
+    const current = existingByNumber.get(entry.item_number);
+    if (!current) continue;
+
+    try {
+      const ledger = await applyInventoryLedgerEntry({
+        itemNumber: entry.item_number,
+        changeType: 'count',
+        notes: countNotes,
+        createdBy: req.user.name || req.user.email,
+        setAbsoluteQty: parseFloat(entry.counted_qty.toFixed(4)),
+        preventNegative: false,
+      });
+      updatedItems.push(ledger.item_after);
+    } catch (ledgerErr) {
+      return res.status(500).json({ error: ledgerErr.message });
+    }
+  }
+
+  res.json({ updated: updatedItems.length, items: updatedItems });
+});
+
 // POST /api/inventory/:id/restock — add stock and log history
 router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { qty, notes } = req.body;
@@ -391,7 +442,7 @@ router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager'), 
   if (!addQty || addQty <= 0) return res.status(400).json({ error: 'qty must be > 0' });
 
   const { data: item, error: fetchErr } = await supabase
-    .from('seafood_inventory').select('on_hand_qty,description,lot_item').eq('item_number', req.params.id).single();
+    .from('seafood_inventory').select('*').eq('item_number', req.params.id).single();
   if (fetchErr) return res.status(404).json({ error: 'Product not found' });
 
   if (item.lot_item === 'Y') {
@@ -401,23 +452,18 @@ router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager'), 
     });
   }
 
-  const newQty = (parseFloat(item.on_hand_qty) || 0) + addQty;
-  const { data, error } = await supabase
-    .from('seafood_inventory')
-    .update({ on_hand_qty: newQty, updated_at: new Date().toISOString() })
-    .eq('item_number', req.params.id).select().single();
-  if (error) return res.status(500).json({ error: error.message });
-
-  await supabase.from('inventory_stock_history').insert([{
-    item_number: item.item_number || req.params.id,
-    change_qty: addQty,
-    new_qty: newQty,
-    change_type: 'restock',
-    notes: notes || null,
-    created_by: req.user.name || req.user.email,
-  }]);
-
-  res.json(data);
+  try {
+    const ledger = await applyInventoryLedgerEntry({
+      itemNumber: req.params.id,
+      deltaQty: addQty,
+      changeType: 'restock',
+      notes: notes || null,
+      createdBy: req.user.name || req.user.email,
+    });
+    res.json(ledger.item_after);
+  } catch (ledgerErr) {
+    res.status(500).json({ error: ledgerErr.message });
+  }
 });
 
 // POST /api/inventory/:id/adjust — manual depletion, waste, or correction
@@ -427,27 +473,125 @@ router.post('/:id/adjust', authenticateToken, requireRole('admin', 'manager'), a
   if (d == null || isNaN(d)) return res.status(400).json({ error: 'delta (number) required' });
   const type = change_type || (d < 0 ? 'depletion' : 'adjustment');
 
-  const { data: item, error: fetchErr } = await supabase
-    .from('seafood_inventory').select('on_hand_qty').eq('item_number', req.params.id).single();
-  if (fetchErr) return res.status(404).json({ error: 'Product not found' });
+  try {
+    const ledger = await applyInventoryLedgerEntry({
+      itemNumber: req.params.id,
+      deltaQty: d,
+      changeType: type,
+      notes: notes || null,
+      createdBy: req.user.name || req.user.email,
+    });
+    res.json(ledger.item_after);
+  } catch (ledgerErr) {
+    if (ledgerErr.code === 'LEDGER_ITEM_NOT_FOUND') return res.status(404).json({ error: 'Product not found' });
+    if (ledgerErr.code === 'LEDGER_NEGATIVE_STOCK') return res.status(400).json({ error: ledgerErr.message });
+    res.status(500).json({ error: ledgerErr.message });
+  }
+});
 
-  const newQty = parseFloat(((parseFloat(item.on_hand_qty) || 0) + d).toFixed(4));
-  const { data, error } = await supabase
-    .from('seafood_inventory')
-    .update({ on_hand_qty: newQty, updated_at: new Date().toISOString() })
-    .eq('item_number', req.params.id).select().single();
+// POST /api/inventory/:id/pick — pick stock for an order or outbound workflow
+router.post('/:id/pick', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const qty = parseFloat(req.body.qty);
+  if (!qty || qty <= 0) return res.status(400).json({ error: 'qty must be > 0' });
+  const orderRef = String(req.body.order_id || req.body.order_number || '').trim();
+  const notes = String(req.body.notes || '').trim();
+
+  try {
+    const ledger = await applyInventoryLedgerEntry({
+      itemNumber: req.params.id,
+      deltaQty: -qty,
+      changeType: 'pick',
+      notes: notes || (orderRef ? `Order pick ${orderRef}` : 'Order pick'),
+      createdBy: req.user.name || req.user.email,
+    });
+    res.json(ledger.item_after);
+  } catch (ledgerErr) {
+    if (ledgerErr.code === 'LEDGER_ITEM_NOT_FOUND') return res.status(404).json({ error: 'Product not found' });
+    if (ledgerErr.code === 'LEDGER_NEGATIVE_STOCK') return res.status(400).json({ error: ledgerErr.message });
+    res.status(500).json({ error: ledgerErr.message });
+  }
+});
+
+// POST /api/inventory/:id/spoilage — record spoiled/wasted inventory
+router.post('/:id/spoilage', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const qty = parseFloat(req.body.qty);
+  if (!qty || qty <= 0) return res.status(400).json({ error: 'qty must be > 0' });
+  const reason = String(req.body.reason || '').trim();
+  const notes = String(req.body.notes || '').trim();
+
+  try {
+    const ledger = await applyInventoryLedgerEntry({
+      itemNumber: req.params.id,
+      deltaQty: -qty,
+      changeType: 'spoilage',
+      notes: [reason ? `Reason: ${reason}` : null, notes || null].filter(Boolean).join(' | ') || 'Spoilage',
+      createdBy: req.user.name || req.user.email,
+    });
+    res.json(ledger.item_after);
+  } catch (ledgerErr) {
+    if (ledgerErr.code === 'LEDGER_ITEM_NOT_FOUND') return res.status(404).json({ error: 'Product not found' });
+    if (ledgerErr.code === 'LEDGER_NEGATIVE_STOCK') return res.status(400).json({ error: ledgerErr.message });
+    res.status(500).json({ error: ledgerErr.message });
+  }
+});
+
+// POST /api/inventory/transfer — move stock from one item to another item
+router.post('/transfer', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const fromItemNumber = String(req.body.from_item_number || '').trim();
+  const toItemNumber = String(req.body.to_item_number || '').trim();
+  const qty = parseFloat(req.body.qty);
+  const notes = String(req.body.notes || '').trim();
+  if (!fromItemNumber || !toItemNumber) {
+    return res.status(400).json({ error: 'from_item_number and to_item_number are required' });
+  }
+  if (!qty || qty <= 0) return res.status(400).json({ error: 'qty must be > 0' });
+
+  try {
+    const result = await transferInventoryLedgerEntry({
+      fromItemNumber,
+      toItemNumber,
+      qty,
+      notes,
+      createdBy: req.user.name || req.user.email,
+    });
+    res.json(result);
+  } catch (ledgerErr) {
+    if (ledgerErr.code === 'LEDGER_ITEM_NOT_FOUND') return res.status(404).json({ error: ledgerErr.message });
+    if (ledgerErr.code === 'LEDGER_NEGATIVE_STOCK' || ledgerErr.code === 'LEDGER_INVALID_TRANSFER_TARGET') {
+      return res.status(400).json({ error: ledgerErr.message });
+    }
+    res.status(500).json({ error: ledgerErr.message });
+  }
+});
+
+// GET /api/inventory/ledger — unified stock movement ledger
+router.get('/ledger', authenticateToken, async (req, res) => {
+  const limit = Math.max(1, Math.min(parseInt(req.query.limit || '200', 10), 500));
+  const itemNumber = String(req.query.item_number || '').trim();
+  const changeType = String(req.query.change_type || '').trim().toLowerCase();
+
+  let query = supabase
+    .from('inventory_stock_history')
+    .select('*')
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
+  if (itemNumber) query = query.eq('item_number', itemNumber);
+  if (changeType) query = query.eq('change_type', changeType);
+
+  const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
 
-  await supabase.from('inventory_stock_history').insert([{
-    item_number: req.params.id,
-    change_qty: d,
-    new_qty: newQty,
-    change_type: type,
-    notes: notes || null,
-    created_by: req.user.name || req.user.email,
-  }]);
+  const rows = Array.isArray(data) ? data : [];
+  const summary = rows.reduce((acc, row) => {
+    const delta = toNumber(row.change_qty, 0);
+    acc.total_delta = parseFloat((acc.total_delta + delta).toFixed(4));
+    acc.inbound_qty = parseFloat((acc.inbound_qty + (delta > 0 ? delta : 0)).toFixed(4));
+    acc.outbound_qty = parseFloat((acc.outbound_qty + (delta < 0 ? Math.abs(delta) : 0)).toFixed(4));
+    return acc;
+  }, { count: rows.length, total_delta: 0, inbound_qty: 0, outbound_qty: 0 });
 
-  res.json(data);
+  res.json({ summary, entries: rows });
 });
 
 // GET /api/inventory/:id/history — stock movement log
@@ -579,7 +723,7 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   const existing = await dbQuery(supabase.from('seafood_inventory').select('*').eq('item_number', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Product not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
-  const allowed = ['description','category','item_number','unit','cost','on_hand_qty','on_hand_weight','lot_item'];
+  const allowed = ['description','category','item_number','unit','cost','on_hand_qty','on_hand_weight','lot_item','notes'];
   const fields = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) fields[k] = req.body[k]; });
   // Auto-enforce lot requirement when description is updated

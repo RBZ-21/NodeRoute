@@ -26,12 +26,24 @@ function buildInvoicePDF(inv) {
     let y = 110;
 
     // Bill To
+    const billToName = inv.billing_name || inv.customer_name;
+    const billToAddress = inv.billing_address || inv.customer_address;
+    const billToEmail = inv.billing_email || inv.customer_email;
+    const billToContact = inv.billing_contact || null;
+    const billToPhone = inv.billing_phone || null;
+
     doc.fillColor('#111').font('Helvetica-Bold').fontSize(11).text('BILL TO', 50, y);
     y += 16;
-    doc.fillColor('#333').font('Helvetica').fontSize(11).text(inv.customer_name, 50, y);
+    doc.fillColor('#333').font('Helvetica').fontSize(11).text(billToName, 50, y);
     y += 14;
-    if (inv.customer_address) { doc.text(inv.customer_address, 50, y); y += 14; }
-    if (inv.customer_email)   { doc.fillColor(ACCENT).text(inv.customer_email, 50, y); y += 14; }
+    if (billToContact) { doc.text(`Attn: ${billToContact}`, 50, y); y += 14; }
+    if (billToAddress) { doc.text(billToAddress, 50, y); y += 14; }
+    if (billToPhone) { doc.fillColor(MUTED).fontSize(10).text(billToPhone, 50, y); y += 14; }
+    if (billToEmail)   { doc.fillColor(ACCENT).fontSize(11).text(billToEmail, 50, y); y += 14; }
+    if (inv.billing_name && inv.customer_name && inv.billing_name !== inv.customer_name) {
+      doc.fillColor(MUTED).fontSize(10).text(`Delivery location: ${inv.customer_name}`, 50, y);
+      y += 14;
+    }
     if (inv.driver_name) {
       doc.fillColor(MUTED).fontSize(10).text(`Driver: ${inv.driver_name}`, 50, y); y += 14;
     }
@@ -50,13 +62,19 @@ function buildInvoicePDF(inv) {
     // Items rows
     const items = inv.items || [];
     items.forEach((item, i) => {
-      if (i % 2 === 0) doc.rect(50, y - 2, doc.page.width - 100, 20).fill('#fafafa');
+      const notes = item.notes ? String(item.notes) : '';
+      const rowHeight = notes ? 32 : 20;
+      if (i % 2 === 0) doc.rect(50, y - 2, doc.page.width - 100, rowHeight).fill('#fafafa');
       doc.fillColor('#222').font('Helvetica').fontSize(10);
       doc.text(item.description || '', 58, y, { width: 268 });
+      if (notes) {
+        doc.fillColor(MUTED).font('Helvetica-Oblique').fontSize(8).text(notes, 58, y + 12, { width: 268 });
+      }
+      doc.fillColor('#222').font('Helvetica').fontSize(10);
       doc.text(String(item.quantity || ''), 330, y, { width: 50, align: 'right' });
       doc.text(`$${parseFloat(item.unit_price||0).toFixed(2)}`, 388, y, { width: 80, align: 'right' });
       doc.text(`$${parseFloat(item.total||0).toFixed(2)}`,      476, y, { width: 74, align: 'right' });
-      y += 20;
+      y += rowHeight;
     });
 
     y += 10;

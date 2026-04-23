@@ -1,6 +1,7 @@
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 
 const express = require('express');
+const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const { supabase } = require('./services/supabase');
@@ -23,11 +24,22 @@ const driverRouter = require('./routes/driver');
 const purchaseOrdersRouter = require('./routes/purchase-orders');
 const trackingRouter = require('./routes/tracking');
 const settingsRouter = require('./routes/settings');
+const temperatureLogsRouter = require('./routes/temperature-logs');
+const opsRouter = require('./routes/ops');
+const reportingRouter = require('./routes/reporting').router;
+const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
 
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(express.json());
+app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhookHandler);
+app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' }));
+app.disable('x-powered-by');
+app.use((req, res, next) => {
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'same-origin');
+  next();
+});
 
 // CORS
 app.use((req, res, next) => {
@@ -39,9 +51,17 @@ app.use((req, res, next) => {
 });
 
 const frontendDir = path.join(__dirname, '../frontend');
+const frontendV2DistDir = path.join(__dirname, '../frontend-v2/dist');
+const hasFrontendV2Build = fs.existsSync(path.join(frontendV2DistDir, 'index.html'));
+const featureUiV2Default = /^(1|true|yes)$/i.test(String(process.env.FEATURE_UI_V2_DEFAULT || 'false'));
 app.use(express.static(frontendDir, { index: false }));
+if (hasFrontendV2Build) {
+  app.use('/dashboard-v2', express.static(frontendV2DistDir, { index: false }));
+} else {
+  console.warn('INFO: frontend-v2 build not found. Build it with `npm --prefix frontend-v2 run build` to enable /dashboard-v2.');
+}
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@noderoute.com';
+const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@noderoutesystems.com';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@123';
 
 // Auto-create admin on first run if no users exist in Supabase
@@ -80,7 +100,15 @@ if (hasResend && hasSmtp && String(process.env.EMAIL_PROVIDER || 'auto').toLower
   console.warn('INFO: Both Resend and SMTP are configured. EMAIL_PROVIDER=auto will try Resend first, then SMTP fallback.');
 }
 if (!process.env.OPENAI_API_KEY) {
-  console.warn('WARNING: OPENAI_API_KEY is not set — AI demand forecasting will not work.');
+  console.warn('WARNING: OPENAI_API_KEY is not set — AI walkthroughs, PO scanning, inventory analysis, reorder drafting, and demand forecasting will use fallbacks or be unavailable.');
+}
+if (process.env.NODE_ENV === 'production') {
+  if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'noderoute-dev-secret-change-in-production') {
+    console.warn('SECURITY WARNING: Set JWT_SECRET in production. The development fallback secret is not safe.');
+  }
+  if (ADMIN_PASSWORD === 'Admin@123') {
+    console.warn('SECURITY WARNING: Set ADMIN_PASSWORD in production before first boot.');
+  }
 }
 
 // Mount routers
@@ -100,6 +128,9 @@ app.use('/api/driver', driverRouter);
 app.use('/api/purchase-orders', purchaseOrdersRouter);
 app.use('/api/track', trackingRouter);
 app.use('/api/settings', settingsRouter);
+app.use('/api/temperature-logs', temperatureLogsRouter);
+app.use('/api/ops', opsRouter);
+app.use('/api/reporting', reportingRouter);
 
 // Config endpoint — maps key exposed publicly (restricted via Google domain policy)
 const { authenticateToken, requireRole } = require('./middleware/auth');
@@ -127,7 +158,26 @@ app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager
 // ── PAGES ─────────────────────────────────────────────────────────────────────
 app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'landing.html')));
 app.get('/login', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
-app.get('/dashboard', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
+app.get('/dashboard', (req, res) => {
+  const requestedUi = String(req.query.ui || '').toLowerCase();
+  const v2Requested = requestedUi === 'v2' || requestedUi === 'new';
+  if (hasFrontendV2Build && (featureUiV2Default || v2Requested)) {
+    return res.redirect('/dashboard-v2');
+  }
+  return res.sendFile(path.join(frontendDir, 'index.html'));
+});
+app.get('/dashboard-v2', (req, res) => {
+  if (!hasFrontendV2Build) {
+    return res.status(503).json({ error: 'Dashboard v2 is not built yet. Run `npm --prefix frontend-v2 run build`.' });
+  }
+  return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
+});
+app.get(/^\/dashboard-v2\/.*/, (req, res) => {
+  if (!hasFrontendV2Build) {
+    return res.status(503).json({ error: 'Dashboard v2 is not built yet. Run `npm --prefix frontend-v2 run build`.' });
+  }
+  return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
+});
 app.get('/driver', (req, res) => res.sendFile(path.join(frontendDir, 'driver.html')));
 app.get('/landing', (req, res) => res.sendFile(path.join(frontendDir, 'landing.html')));
 app.get('/portal', (req, res) => res.sendFile(path.join(frontendDir, 'customer-portal.html')));

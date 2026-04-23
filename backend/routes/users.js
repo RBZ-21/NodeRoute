@@ -105,6 +105,23 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
   if (!['admin', 'manager', 'driver'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
   if (role === 'admin' && req.user.role !== 'admin') return res.status(403).json({ error: 'Only admins can invite admins' });
 
+  const context = req.context || {};
+  const targetCompanyId = String(companyId || context.activeCompanyId || context.companyId || '').trim() || null;
+  const targetCompanyName = String(companyName || context.companyName || '').trim() || null;
+  const targetLocationId = String(locationId || context.activeLocationId || context.locationId || '').trim() || null;
+  const targetLocationName = String(locationName || context.locationName || '').trim() || null;
+  const canInviteAcrossCompanies = !!context.isGlobalOperator;
+  const allowedCompanyIds = Array.isArray(context.accessibleCompanyIds) ? context.accessibleCompanyIds : [];
+  const allowedLocationIds = Array.isArray(context.accessibleLocationIds) ? context.accessibleLocationIds : [];
+
+  if (!targetCompanyId) return res.status(400).json({ error: 'companyId is required for invite scoping' });
+  if (!canInviteAcrossCompanies && allowedCompanyIds.length && !allowedCompanyIds.includes(targetCompanyId)) {
+    return res.status(403).json({ error: 'Cannot invite users outside your company scope' });
+  }
+  if (!canInviteAcrossCompanies && targetLocationId && allowedLocationIds.length && !allowedLocationIds.includes(targetLocationId)) {
+    return res.status(403).json({ error: 'Cannot invite users outside your location scope' });
+  }
+
   const { data: existing } = await supabase
     .from('users')
     .select('id')
@@ -129,10 +146,10 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
     'users',
     {
       ...newUser,
-      ...(companyId ? { company_id: companyId } : {}),
-      ...(companyName ? { company_name: companyName } : {}),
-      ...(locationId ? { location_id: locationId } : {}),
-      ...(locationName ? { location_name: locationName } : {}),
+      ...(targetCompanyId ? { company_id: targetCompanyId } : {}),
+      ...(targetCompanyName ? { company_name: targetCompanyName } : {}),
+      ...(targetLocationId ? { location_id: targetLocationId } : {}),
+      ...(targetLocationName ? { location_name: targetLocationName } : {}),
     },
     req.context
   );

@@ -4,7 +4,7 @@
   "description": "",
   "main": "server.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "node --test tests/*.test.js && node scripts/stress-smoke.js",
     "start": "node server.js"
   },
   "keywords": [],
@@ -19,7 +19,7 @@
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.2",
     "multer": "^2.1.1",
-    "nodemailer": "^6.9.16",
+    "nodemailer": "^8.0.5",
     "openai": "^6.34.0",
     "pdfkit": "^0.18.0",
     "resend": "^6.12.0"

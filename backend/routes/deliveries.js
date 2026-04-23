@@ -326,7 +326,31 @@ function buildAnalytics(deliveries, drivers) {
   };
 }
 
-router.get('/stats', authenticateToken, async (req, res) => {
+function buildDriverSummary(deliveries, drivers, driverName) {
+  const myDeliveries = deliveries.filter((delivery) => normalize(delivery.driverName) === normalize(driverName));
+  const completed = myDeliveries.filter((delivery) => delivery.status === 'delivered');
+  const driver = drivers.find((entry) => normalize(entry.name) === normalize(driverName)) || {};
+
+  return {
+    onTimeRate: driver.onTimeRate ?? (completed.length
+      ? Math.round((completed.filter((delivery) => delivery.onTime !== false).length / completed.length) * 100)
+      : 100),
+    totalStopsToday: driver.totalStopsToday ?? completed.length,
+    milesToday: driver.milesToday ?? Number(myDeliveries.reduce((sum, delivery) => sum + toNumber(delivery.distanceMiles, 0), 0).toFixed(1)),
+    avgStopMinutes: driver.avgStopMinutes ?? (completed.length
+      ? Math.round(completed.reduce((sum, delivery) => sum + toNumber(delivery.stopDurationMinutes, 0), 0) / completed.length)
+      : 0),
+    avgSpeedMph: driver.avgSpeedMph ?? Number(
+      (myDeliveries.length
+        ? myDeliveries.reduce((sum, delivery) => sum + toNumber(delivery.speedMph, 0), 0) / myDeliveries.length
+        : 0).toFixed(1)
+    ),
+    status: driver.status || 'off-duty',
+    vehicleId: driver.vehicleId || 'Assigned Vehicle',
+  };
+}
+
+router.get('/stats', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { deliveries, drivers } = await loadDashboardContext(req.context);
     res.json(buildStats(deliveries, drivers));
@@ -349,12 +373,22 @@ router.get('/deliveries', authenticateToken, async (req, res) => {
   }
 });
 
-router.get('/drivers', authenticateToken, async (req, res) => {
+router.get('/drivers', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { drivers } = await loadDashboardContext(req.context);
     res.json(drivers);
   } catch (error) {
     console.error('deliveries/drivers:', error.message);
+    res.status(500).json({ error: error.message });
+  }
+});
+
+router.get('/driver/summary', authenticateToken, requireRole('driver', 'manager', 'admin'), async (req, res) => {
+  try {
+    const { deliveries, drivers } = await loadDashboardContext(req.context);
+    res.json(buildDriverSummary(deliveries, drivers, req.user.name));
+  } catch (error) {
+    console.error('deliveries/driver-summary:', error.message);
     res.status(500).json({ error: error.message });
   }
 });

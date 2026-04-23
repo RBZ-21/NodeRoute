@@ -42,9 +42,17 @@ function signJWT(user) {
 router.post('/login', async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
-  const users = await dbQuery(supabase.from('users').select('*').ilike('email', email).limit(1), res);
+
+  const normalizedEmail = String(email).trim().toLowerCase();
+  // Avoid .ilike() here; some client adapters don't expose it on this query path.
+  // Perform a deterministic case-insensitive lookup in memory.
+  const users = await dbQuery(supabase.from('users').select('*'), res);
   if (!users) return;
-  const u = users && users[0];
+
+  const u = (Array.isArray(users) ? users : []).find(
+    (user) => String(user?.email || '').trim().toLowerCase() === normalizedEmail
+  );
+
   if (!u || u.status !== 'active') return res.status(401).json({ error: 'Invalid credentials' });
   const { valid, migrate } = verifyPassword(password, u.password_hash);
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' });

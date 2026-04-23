@@ -1,13 +1,65 @@
 const express = require('express');
 const { supabase, dbQuery } = require('../services/supabase');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createMailer } = require('../services/email');
 const { buildInvoicePDF } = require('../services/pdf');
+const { loadDriverInvoiceScope } = require('../services/driver-invoice-access');
+const {
+  buildScopeFields,
+  filterRowsByContext,
+  insertRecordWithOptionalScope,
+  rowMatchesContext,
+} = require('../services/operating-context');
 
 const router = express.Router();
 
+const DEFAULT_TAX_RATE = 0.09;
+
+function parseBoolean(value) {
+  return value === true || value === 'true' || value === 1 || value === '1' || value === 'on';
+}
+
+function asMoney(value) {
+  return parseFloat((parseFloat(value || 0) || 0).toFixed(2));
+}
+
+function invoiceBodyValue(body, ...keys) {
+  for (const key of keys) {
+    if (body[key] !== undefined && body[key] !== null && body[key] !== '') return body[key];
+  }
+  return null;
+}
+
+function normalizeInvoiceItems(items = []) {
+  return (Array.isArray(items) ? items : []).map((item) => {
+    const quantity = parseFloat(item.quantity || item.qty || 0) || 0;
+    const unitPrice = parseFloat(item.unit_price ?? item.unitPrice ?? item.price ?? 0) || 0;
+    return {
+      description: item.description || item.name || '',
+      notes: item.notes || null,
+      quantity,
+      unit: item.unit || null,
+      unit_price: unitPrice,
+      total: asMoney(item.total || quantity * unitPrice),
+    };
+  });
+}
+
+async function canDriverAccessInvoice(req, invoice) {
+  if (!req.user || req.user.role !== 'driver') return true;
+  if (!invoice?.id) return false;
+  const scope = await loadDriverInvoiceScope(supabase, req.user, req.context);
+  return scope.assignedInvoiceIds.has(invoice.id);
+}
+
+async function canAccessInvoice(req, invoice) {
+  if (req.user?.role === 'driver') return canDriverAccessInvoice(req, invoice);
+  return rowMatchesContext(invoice, req.context);
+}
+
 async function sendInvoiceEmail(inv, subjectPrefix = 'Your Invoice') {
-  if (!inv?.customer_email) {
+  const recipient = inv?.billing_email || inv?.customer_email;
+  if (!recipient) {
     return { sent: false, error: 'No email on file for this customer' };
   }
 
@@ -21,7 +73,7 @@ async function sendInvoiceEmail(inv, subjectPrefix = 'Your Invoice') {
 
   await mailer.sendMail({
     from: process.env.EMAIL_FROM,
-    to: inv.customer_email,
+    to: recipient,
     subject: `${subjectPrefix} ${invoiceLabel} from NodeRoute`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px">
@@ -48,21 +100,64 @@ async function sendInvoiceEmail(inv, subjectPrefix = 'Your Invoice') {
 }
 
 router.get('/', authenticateToken, async (req, res) => {
+  if (req.user.role === 'driver') {
+    try {
+      const scope = await loadDriverInvoiceScope(supabase, req.user, req.context);
+      return res.json(scope.invoices);
+    } catch (error) {
+      return res.status(500).json({ error: error.message });
+    }
+  }
+
   const data = await dbQuery(supabase.from('invoices').select('*').order('created_at', { ascending: false }), res);
   if (!data) return;
-  res.json(data);
+  res.json(filterRowsByContext(data, req.context));
 });
 
-router.post('/', authenticateToken, async (req, res) => {
-  const { invoice_number, customer_name, customer_email, customer_address, items, subtotal, tax, total, driver_name, notes, entree_invoice_id } = req.body;
+router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const customer_name = invoiceBodyValue(req.body, 'customer_name', 'customerName');
   if (!customer_name) return res.status(400).json({ error: 'Customer name required' });
-  const data = await dbQuery(supabase.from('invoices').insert([{ invoice_number, customer_name, customer_email, customer_address, items: items||[], subtotal: subtotal||0, tax: tax||0, total: total||0, status: 'pending', driver_name, notes, entree_invoice_id }]).select().single(), res);
+
+  const items = normalizeInvoiceItems(req.body.items);
+  const subtotal = req.body.subtotal !== undefined
+    ? asMoney(req.body.subtotal)
+    : asMoney(items.reduce((sum, item) => sum + item.total, 0));
+  const taxEnabled = parseBoolean(req.body.tax_enabled ?? req.body.taxEnabled);
+  const taxRate = parseFloat(req.body.tax_rate ?? req.body.taxRate);
+  const normalizedTaxRate = Number.isFinite(taxRate) && taxRate >= 0 ? taxRate : DEFAULT_TAX_RATE;
+  const tax = req.body.tax !== undefined ? asMoney(req.body.tax) : (taxEnabled ? asMoney(subtotal * normalizedTaxRate) : 0);
+  const total = req.body.total !== undefined ? asMoney(req.body.total) : asMoney(subtotal + tax);
+  const insertResult = await insertRecordWithOptionalScope(supabase, 'invoices', {
+    invoice_number: invoiceBodyValue(req.body, 'invoice_number', 'invoiceNumber') || `INV-${Date.now().toString().slice(-6)}`,
+    customer_name,
+    customer_email: invoiceBodyValue(req.body, 'customer_email', 'customerEmail') || null,
+    customer_address: invoiceBodyValue(req.body, 'customer_address', 'customerAddress', 'deliveryAddress') || null,
+    billing_name: invoiceBodyValue(req.body, 'billing_name', 'billingName') || null,
+    billing_contact: invoiceBodyValue(req.body, 'billing_contact', 'billingContact') || null,
+    billing_email: invoiceBodyValue(req.body, 'billing_email', 'billingEmail') || null,
+    billing_phone: invoiceBodyValue(req.body, 'billing_phone', 'billingPhone') || null,
+    billing_address: invoiceBodyValue(req.body, 'billing_address', 'billingAddress') || null,
+    items,
+    subtotal,
+    tax,
+    total,
+    tax_enabled: taxEnabled,
+    tax_rate: normalizedTaxRate,
+    order_id: invoiceBodyValue(req.body, 'order_id', 'orderId'),
+    status: 'pending',
+    driver_name: invoiceBodyValue(req.body, 'driver_name', 'driverName'),
+    driver_id: invoiceBodyValue(req.body, 'driver_id', 'driverId'),
+    notes: req.body.notes || null,
+    entree_invoice_id: req.body.entree_invoice_id || null,
+  }, req.context);
+  if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
+  const data = insertResult.data;
   if (!data) return;
   res.json(data);
 });
 
 // Entree import — accepts one or many invoices in Entree's export format
-router.post('/import', authenticateToken, async (req, res) => {
+router.post('/import', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const raw = Array.isArray(req.body) ? req.body : [req.body];
   const mapped = raw.map(e => ({
     invoice_number:   e.InvoiceNumber || e.invoice_number || null,
@@ -83,7 +178,10 @@ router.post('/import', authenticateToken, async (req, res) => {
     entree_invoice_id: e.InvoiceNumber || e.InvoiceID || null,
     status: 'pending',
   }));
-  const data = await dbQuery(supabase.from('invoices').insert(mapped).select(), res);
+  const data = await dbQuery(supabase.from('invoices').insert(mapped.map(inv => ({
+    ...inv,
+    ...buildScopeFields(req.context),
+  }))).select(), res);
   if (!data) return;
   res.json({ imported: data.length, invoices: data });
 });
@@ -95,6 +193,7 @@ router.post('/:id/sign', authenticateToken, async (req, res) => {
 
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!(await canAccessInvoice(req, inv))) return res.status(403).json({ error: 'Forbidden' });
 
   // Update invoice as signed
   const updated = await dbQuery(supabase.from('invoices').update({ signature_data, status: 'signed', signed_at: new Date().toISOString() }).eq('id', req.params.id).select().single(), res);
@@ -102,9 +201,9 @@ router.post('/:id/sign', authenticateToken, async (req, res) => {
 
   // Generate PDF
   let emailSent = false;
-  if (inv.customer_email) {
+  if (inv.billing_email || inv.customer_email) {
     try {
-      const emailResult = await sendInvoiceEmail({ ...updated, customer_email: inv.customer_email }, 'Your Signed Invoice');
+      const emailResult = await sendInvoiceEmail({ ...updated, billing_email: inv.billing_email, customer_email: inv.customer_email }, 'Your Signed Invoice');
       emailSent = emailResult.sent;
       if (emailSent) {
         await supabase.from('invoices').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', req.params.id);
@@ -117,9 +216,10 @@ router.post('/:id/sign', authenticateToken, async (req, res) => {
   res.json({ ...updated, status: emailSent ? 'sent' : 'signed', emailSent });
 });
 
-router.post('/:id/email', authenticateToken, async (req, res) => {
+router.post('/:id/email', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!rowMatchesContext(inv, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
   try {
     const result = await sendInvoiceEmail(inv);
@@ -133,9 +233,10 @@ router.post('/:id/email', authenticateToken, async (req, res) => {
 });
 
 // Resend email for an already-signed invoice
-router.post('/:id/resend', authenticateToken, async (req, res) => {
+router.post('/:id/resend', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!rowMatchesContext(inv, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
   try {
     const result = await sendInvoiceEmail(inv, 'Invoice');
@@ -152,6 +253,7 @@ router.post('/:id/resend', authenticateToken, async (req, res) => {
 router.get('/:id/pdf', authenticateToken, async (req, res) => {
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!(await canAccessInvoice(req, inv))) return res.status(403).json({ error: 'Forbidden' });
   const pdfBuffer = await buildInvoicePDF(inv);
   res.setHeader('Content-Type', 'application/pdf');
   res.setHeader('Content-Disposition', `attachment; filename="invoice-${inv.invoice_number || inv.id.slice(0,8)}.pdf"`);
