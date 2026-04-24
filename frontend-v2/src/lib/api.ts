@@ -1,8 +1,37 @@
+const AUTH_ERROR_KEY = 'nr_auth_error';
+
+function saveAuthError(message: string) {
+  try {
+    sessionStorage.setItem(AUTH_ERROR_KEY, message);
+  } catch {
+    // Ignore storage failures and fall back to redirecting only.
+  }
+}
+
+export function readAndClearAuthError(): string {
+  try {
+    const message = sessionStorage.getItem(AUTH_ERROR_KEY) || '';
+    if (message) sessionStorage.removeItem(AUTH_ERROR_KEY);
+    return message;
+  } catch {
+    return '';
+  }
+}
+
+export function clearSession() {
+  localStorage.removeItem('nr_token');
+  localStorage.removeItem('nr_user');
+}
+
+export function redirectToLogin(message?: string) {
+  if (message) saveAuthError(message);
+  window.location.href = '/login';
+}
+
 async function parseResponse<T>(response: Response, url: string): Promise<T> {
   if (response.status === 401) {
-    localStorage.removeItem('nr_token');
-    localStorage.removeItem('nr_user');
-    window.location.href = '/login';
+    clearSession();
+    redirectToLogin('Your session could not be verified. Please sign in again.');
     throw new Error('Unauthorized');
   }
 
@@ -34,6 +63,10 @@ export async function sendWithAuth<T>(url: string, method: 'POST' | 'PATCH' | 'D
   });
 
   return parseResponse<T>(response, url);
+}
+
+export async function fetchCurrentUser<T>(): Promise<T> {
+  return fetchWithAuth<T>('/auth/me');
 }
 
 export function getUserRole(): 'admin' | 'manager' | 'driver' | 'unknown' {

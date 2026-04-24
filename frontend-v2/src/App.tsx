@@ -1,11 +1,11 @@
 import { ChevronDown, LayoutDashboard, LogOut } from 'lucide-react';
 import type { ReactElement } from 'react';
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { Button } from './components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu';
-import { getUserRole, requireAuthToken } from './lib/api';
+import { clearSession, fetchCurrentUser, getUserRole, redirectToLogin, requireAuthToken } from './lib/api';
 import { cn } from './lib/utils';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { DriverPage } from './pages/DriverPage';
@@ -131,10 +131,47 @@ const allNavItems = navGroups.flatMap((group) => group.items);
 
 export function App() {
   const location = useLocation();
+  const [sessionState, setSessionState] = useState<'checking' | 'ready'>('checking');
 
-  if (!requireAuthToken()) {
-    window.location.href = '/login';
-    return null;
+  useEffect(() => {
+    let cancelled = false;
+
+    async function validateSession() {
+      if (!requireAuthToken()) {
+        redirectToLogin('Please sign in to continue.');
+        return;
+      }
+
+      try {
+        await fetchCurrentUser();
+        if (!cancelled) setSessionState('ready');
+      } catch {
+        clearSession();
+        redirectToLogin('Your session could not be verified. Please sign in again.');
+      }
+    }
+
+    void validateSession();
+
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  if (sessionState === 'checking') {
+    return (
+      <div className="min-h-screen bg-enterprise-gradient">
+        <div className="mx-auto flex min-h-screen max-w-[1420px] items-center justify-center p-4 md:p-6">
+          <Card className="w-full max-w-md">
+            <CardHeader>
+              <CardTitle>Verifying session</CardTitle>
+              <CardDescription>Checking your NodeRoute access before loading the workspace.</CardDescription>
+            </CardHeader>
+            <CardContent className="text-sm text-muted-foreground">Please wait a moment.</CardContent>
+          </Card>
+        </div>
+      </div>
+    );
   }
 
   if (location.pathname === '/driver') {
