@@ -52,13 +52,20 @@ app.use((req, res, next) => {
 
 const frontendDir = path.join(__dirname, '../frontend');
 const frontendV2DistDir = path.join(__dirname, '../frontend-v2/dist');
+const landingV2DistDir = path.join(__dirname, '../landing-v2/dist');
 const hasFrontendV2Build = fs.existsSync(path.join(frontendV2DistDir, 'index.html'));
+const hasLandingV2Build = fs.existsSync(path.join(landingV2DistDir, 'index.html'));
 const featureUiV2Default = /^(1|true|yes)$/i.test(String(process.env.FEATURE_UI_V2_DEFAULT || 'false'));
 app.use(express.static(frontendDir, { index: false }));
 if (hasFrontendV2Build) {
   app.use('/dashboard-v2', express.static(frontendV2DistDir, { index: false }));
 } else {
   console.warn('INFO: frontend-v2 build not found. Build it with `npm --prefix frontend-v2 run build` to enable /dashboard-v2.');
+}
+if (hasLandingV2Build) {
+  app.use(express.static(landingV2DistDir, { index: false }));
+} else {
+  console.warn('INFO: landing-v2 build not found. Build it with `npm --prefix landing-v2 run build` to serve the new landing page.');
 }
 
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@noderoutesystems.com';
@@ -156,7 +163,10 @@ app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager
 }, (req, res) => res.redirect(307, '/api/users/invite'));
 
 // ── PAGES ─────────────────────────────────────────────────────────────────────
-app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'landing.html')));
+app.get('/', (req, res) => {
+  if (hasLandingV2Build) return res.sendFile(path.join(landingV2DistDir, 'index.html'));
+  return res.sendFile(path.join(frontendDir, 'landing.html'));
+});
 app.get('/login', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
 app.get('/dashboard', (req, res) => {
   const requestedUi = String(req.query.ui || '').toLowerCase();
@@ -179,7 +189,10 @@ app.get(/^\/dashboard-v2\/.*/, (req, res) => {
   return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
 });
 app.get('/driver', (req, res) => res.sendFile(path.join(frontendDir, 'driver.html')));
-app.get('/landing', (req, res) => res.sendFile(path.join(frontendDir, 'landing.html')));
+app.get('/landing', (req, res) => {
+  if (hasLandingV2Build) return res.sendFile(path.join(landingV2DistDir, 'index.html'));
+  return res.sendFile(path.join(frontendDir, 'landing.html'));
+});
 app.get('/portal', (req, res) => res.sendFile(path.join(frontendDir, 'customer-portal.html')));
 app.get('/customer-portal', (req, res) => res.sendFile(path.join(frontendDir, 'customer-portal.html')));
 app.get('/track', (req, res) => res.sendFile(path.join(frontendDir, 'track.html')));
