@@ -24,6 +24,7 @@ import { PurchasingPage } from './pages/PurchasingPage';
 import { RoutesPage } from './pages/RoutesPage';
 import { StopsPage } from './pages/StopsPage';
 import { VendorsPage } from './pages/VendorsPage';
+import { MapPage } from './pages/MapPage';
 import { WarehousePage } from './pages/WarehousePage';
 
 type TabId =
@@ -308,6 +309,8 @@ function pageElement(item: NavItem, role: Role) {
       return <PlanningPage />;
     case 'integrations':
       return <IntegrationsPage />;
+    case 'map':
+      return <MapPage />;
     default:
       return <PlaceholderPage item={item} role={role} />;
   }
