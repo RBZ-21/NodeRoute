@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './com
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu';
 import { clearSession, fetchCurrentUser, getUserRole, redirectToLogin, requireAuthToken } from './lib/api';
 import { cn } from './lib/utils';
+import { AIHelpPage } from './pages/AIHelpPage';
 import { AnalyticsPage } from './pages/AnalyticsPage';
 import { DriverPage } from './pages/DriverPage';
 import { CustomersPage } from './pages/CustomersPage';
@@ -22,7 +23,9 @@ import { OrdersPage } from './pages/OrdersPage';
 import { PlanningPage } from './pages/PlanningPage';
 import { PurchasingPage } from './pages/PurchasingPage';
 import { RoutesPage } from './pages/RoutesPage';
+import { SettingsPage } from './pages/SettingsPage';
 import { StopsPage } from './pages/StopsPage';
+import { UsersPage } from './pages/UsersPage';
 import { VendorsPage } from './pages/VendorsPage';
 import { MapPage } from './pages/MapPage';
 import { WarehousePage } from './pages/WarehousePage';
@@ -322,6 +325,8 @@ function pageElement(item: NavItem, role: Role) {
       return <InventoryPage />;
     case 'orders':
       return <OrdersPage />;
+    case 'settings':
+      return <SettingsPage />;
     case 'deliveries':
       return <DeliveriesPage />;
     case 'drivers':
@@ -332,6 +337,8 @@ function pageElement(item: NavItem, role: Role) {
       return <StopsPage />;
     case 'customers':
       return <CustomersPage />;
+    case 'users':
+      return <UsersPage />;
     case 'invoices':
       return <InvoicesPage />;
     case 'forecast':
@@ -346,6 +353,8 @@ function pageElement(item: NavItem, role: Role) {
       return <PlanningPage />;
     case 'integrations':
       return <IntegrationsPage />;
+    case 'aihelp':
+      return <AIHelpPage />;
     case 'map':
       return <MapPage />;
     default:

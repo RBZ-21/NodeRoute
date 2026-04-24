@@ -25,9 +25,12 @@ function verifyPassword(pw, stored) {
 
 function signJWT(user) {
   const context = getUserOperatingContext(user);
+  const userId = user?.id;
   return jwt.sign(
     {
-      userId: user.id,
+      userId,
+      id: userId,
+      sub: userId,
       email: user.email,
       role: user.role,
       companyId: context.companyId,
