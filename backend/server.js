@@ -188,6 +188,34 @@ app.get(/^\/dashboard-v2\/.*/, (req, res) => {
   }
   return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
 });
+const frontendV2Routes = [
+  '/orders',
+  '/deliveries',
+  '/map',
+  '/drivers',
+  '/routes',
+  '/stops',
+  '/customers',
+  '/users',
+  '/invoices',
+  '/analytics',
+  '/inventory',
+  '/forecast',
+  '/financials',
+  '/purchasing',
+  '/vendors',
+  '/warehouse',
+  '/planning',
+  '/integrations',
+  '/aihelp',
+  '/settings',
+];
+app.get(frontendV2Routes, (req, res) => {
+  if (!hasFrontendV2Build) {
+    return res.status(503).json({ error: 'Dashboard v2 is not built yet. Run `npm --prefix frontend-v2 run build`.' });
+  }
+  return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
+});
 app.get('/driver', (req, res) => res.sendFile(path.join(frontendDir, 'driver.html')));
 app.get('/landing', (req, res) => {
   if (hasLandingV2Build) return res.sendFile(path.join(landingV2DistDir, 'index.html'));

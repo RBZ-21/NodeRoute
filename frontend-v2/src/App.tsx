@@ -26,6 +26,9 @@ import { StopsPage } from './pages/StopsPage';
 import { VendorsPage } from './pages/VendorsPage';
 import { MapPage } from './pages/MapPage';
 import { WarehousePage } from './pages/WarehousePage';
+import { AIHelpPage } from './pages/AIHelpPage';
+import { SettingsPage } from './pages/SettingsPage';
+import { UsersPage } from './pages/UsersPage';
 
 type TabId =
   | 'dashboard'
@@ -332,6 +335,8 @@ function pageElement(item: NavItem, role: Role) {
       return <StopsPage />;
     case 'customers':
       return <CustomersPage />;
+    case 'users':
+      return <UsersPage />;
     case 'invoices':
       return <InvoicesPage />;
     case 'forecast':
@@ -348,6 +353,10 @@ function pageElement(item: NavItem, role: Role) {
       return <IntegrationsPage />;
     case 'map':
       return <MapPage />;
+    case 'aihelp':
+      return <AIHelpPage />;
+    case 'settings':
+      return <SettingsPage />;
     default:
       return <PlaceholderPage item={item} role={role} />;
   }
