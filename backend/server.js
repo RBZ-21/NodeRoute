@@ -233,13 +233,28 @@ app.get(frontendV2Routes, (req, res) => {
   }
   return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
 });
-app.get('/driver', (req, res) => res.sendFile(path.join(frontendDir, 'driver.html')));
 app.get('/landing', (req, res) => {
   if (hasLandingV2Build) return res.sendFile(path.join(landingV2DistDir, 'index.html'));
   return res.sendFile(path.join(frontendDir, 'landing.html'));
 });
-app.get('/portal', (req, res) => res.sendFile(path.join(frontendDir, 'customer-portal.html')));
-app.get('/customer-portal', (req, res) => res.sendFile(path.join(frontendDir, 'customer-portal.html')));
+app.get('/driver', (req, res) => {
+  if (hasFrontendV2Build) {
+    return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
+  }
+  return res.sendFile(path.join(frontendDir, 'driver.html'));
+});
+app.get('/portal', (req, res) => {
+  if (hasFrontendV2Build) {
+    return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
+  }
+  return res.sendFile(path.join(frontendDir, 'customer-portal.html'));
+});
+app.get('/customer-portal', (req, res) => {
+  if (hasFrontendV2Build) {
+    return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
+  }
+  return res.sendFile(path.join(frontendDir, 'customer-portal.html'));
+});
 app.get('/track', (req, res) => res.sendFile(path.join(frontendDir, 'track.html')));
 app.get('/track/:token', (req, res) => res.redirect(`/track?t=${encodeURIComponent(req.params.token)}`));
 

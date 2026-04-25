@@ -25,6 +25,7 @@ import { PurchasingPage } from './pages/PurchasingPage';
 import { RoutesPage } from './pages/RoutesPage';
 import { SettingsPage } from './pages/SettingsPage';
 import { StopsPage } from './pages/StopsPage';
+import { CustomerPortalPage } from './pages/CustomerPortalPage';
 import { UsersPage } from './pages/UsersPage';
 import { VendorsPage } from './pages/VendorsPage';
 import { MapPage } from './pages/MapPage';
@@ -137,12 +138,14 @@ export function App() {
   const location = useLocation();
   const [sessionState, setSessionState] = useState<'checking' | 'ready'>('checking');
   const isLoginRoute = location.pathname === '/login';
+  const isPortalRoute = location.pathname === '/portal' || location.pathname === '/customer-portal';
+  const isDriverRoute = location.pathname === '/driver';
 
   useEffect(() => {
     let cancelled = false;
 
     async function validateSession() {
-      if (isLoginRoute) {
+      if (isLoginRoute || isPortalRoute) {
         if (!cancelled) setSessionState('ready');
         return;
       }
@@ -166,10 +169,14 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [isLoginRoute]);
+  }, [isLoginRoute, isPortalRoute]);
 
   if (isLoginRoute) {
     return <LoginPage />;
+  }
+
+  if (isPortalRoute) {
+    return <CustomerPortalPage />;
   }
 
   if (sessionState === 'checking') {
@@ -188,7 +195,7 @@ export function App() {
     );
   }
 
-  if (location.pathname === '/driver') {
+  if (isDriverRoute) {
     if (getUserRole() !== 'driver') {
       window.location.href = '/dashboard-v2';
       return null;
