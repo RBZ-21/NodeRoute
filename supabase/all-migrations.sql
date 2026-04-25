@@ -536,8 +536,22 @@ end $$;
 -- ================================================================
 -- 20260421_routes_active_stops.sql
 -- ================================================================
-alter table if exists routes
-  add column if not exists active_stop_ids jsonb default '[]'::jsonb;
+do $$
+begin
+  if not exists (
+    select 1 from information_schema.columns
+    where table_name = 'routes' and column_name = 'active_stop_ids'
+  ) then
+    alter table routes add column active_stop_ids jsonb default '[]'::jsonb;
+  elsif (
+    select data_type from information_schema.columns
+    where table_name = 'routes' and column_name = 'active_stop_ids'
+  ) = 'ARRAY' then
+    alter table routes
+      alter column active_stop_ids type jsonb using to_jsonb(active_stop_ids),
+      alter column active_stop_ids set default '[]'::jsonb;
+  end if;
+end $$;
 update routes set active_stop_ids = to_jsonb(stop_ids)
 where active_stop_ids = '[]'::jsonb and stop_ids is not null;
 
