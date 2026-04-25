@@ -547,9 +547,9 @@ begin
     select data_type from information_schema.columns
     where table_name = 'routes' and column_name = 'active_stop_ids'
   ) = 'ARRAY' then
-    alter table routes
-      alter column active_stop_ids type jsonb using to_jsonb(active_stop_ids),
-      alter column active_stop_ids set default '[]'::jsonb;
+    alter table routes alter column active_stop_ids drop default;
+    alter table routes alter column active_stop_ids type jsonb using to_jsonb(active_stop_ids);
+    alter table routes alter column active_stop_ids set default '[]'::jsonb;
   end if;
 end $$;
 update routes set active_stop_ids = to_jsonb(stop_ids)
