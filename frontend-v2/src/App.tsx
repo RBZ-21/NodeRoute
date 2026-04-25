@@ -29,6 +29,7 @@ import { UsersPage } from './pages/UsersPage';
 import { VendorsPage } from './pages/VendorsPage';
 import { MapPage } from './pages/MapPage';
 import { WarehousePage } from './pages/WarehousePage';
+import { LoginPage } from './pages/LoginPage';
 
 type TabId =
   | 'dashboard'
@@ -135,11 +136,17 @@ const allNavItems = navGroups.flatMap((group) => group.items);
 export function App() {
   const location = useLocation();
   const [sessionState, setSessionState] = useState<'checking' | 'ready'>('checking');
+  const isLoginRoute = location.pathname === '/login';
 
   useEffect(() => {
     let cancelled = false;
 
     async function validateSession() {
+      if (isLoginRoute) {
+        if (!cancelled) setSessionState('ready');
+        return;
+      }
+
       if (!requireAuthToken()) {
         redirectToLogin('Please sign in to continue.');
         return;
@@ -159,7 +166,11 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [isLoginRoute]);
+
+  if (isLoginRoute) {
+    return <LoginPage />;
+  }
 
   if (sessionState === 'checking') {
     return (

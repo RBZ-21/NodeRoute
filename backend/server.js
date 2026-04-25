@@ -71,13 +71,21 @@ if (hasLandingV2Build) {
 const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@noderoutesystems.com';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@123';
 
+function extractRows(result) {
+  if (Array.isArray(result)) return result;
+  if (Array.isArray(result?.data)) return result.data;
+  return [];
+}
+
 // Auto-create admin on first run if no users exist in Supabase
 async function ensureAdminExists() {
-  const { data, error } = await supabase.from('users').select('id').limit(1);
+  const result = await supabase.from('users').select('*');
+  const users = extractRows(result);
+  const error = result?.error || null;
   if (error) { console.error('Could not check users table:', error.message); return; }
-  if (data && data.length === 0) {
+  if (users.length === 0) {
     const passwordHash = bcrypt.hashSync(ADMIN_PASSWORD, 10);
-    const { error: insertErr } = await supabase.from('users').insert([{
+    const insertResult = await supabase.from('users').insert([{
       id: 'admin-001',
       name: 'Admin',
       email: ADMIN_EMAIL,
@@ -88,6 +96,7 @@ async function ensureAdminExists() {
       invite_expires: null,
       created_at: new Date().toISOString()
     }]);
+    const insertErr = insertResult?.error || null;
     if (insertErr) console.error('Failed to create admin user:', insertErr.message);
     else console.log('Admin user created:', ADMIN_EMAIL);
   }
@@ -167,7 +176,12 @@ app.get('/', (req, res) => {
   if (hasLandingV2Build) return res.sendFile(path.join(landingV2DistDir, 'index.html'));
   return res.sendFile(path.join(frontendDir, 'landing.html'));
 });
-app.get('/login', (req, res) => res.sendFile(path.join(frontendDir, 'login.html')));
+app.get('/login', (req, res) => {
+  if (hasFrontendV2Build) {
+    return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
+  }
+  return res.sendFile(path.join(frontendDir, 'login.html'));
+});
 app.get('/dashboard', (req, res) => {
   const requestedUi = String(req.query.ui || '').toLowerCase();
   const v2Requested = requestedUi === 'v2' || requestedUi === 'new';
