@@ -10,6 +10,108 @@ const {
   rowMatchesContext,
 } = require('../services/operating-context');
 
+// ── FSMA 204 lot validation ────────────────────────────────────────────────────
+// For each item that references an FTL-flagged product, lot_id is required.
+// Returns null on success, or an error string on validation failure.
+async function validateFtlLots(items) {
+  if (!Array.isArray(items) || !items.length) return null;
+
+  // Collect item_numbers that appear in this order
+  const itemNumbers = items
+    .map((it) => String(it.item_number || '').trim())
+    .filter(Boolean);
+
+  if (!itemNumbers.length) return null;
+
+  // Fetch FTL flags for all referenced products in one query
+  const { data: products, error: prodErr } = await supabase
+    .from('seafood_inventory')
+    .select('item_number, description, is_ftl_product')
+    .in('item_number', itemNumbers);
+
+  if (prodErr) return `Could not verify FTL product status: ${prodErr.message}`;
+
+  const ftlSet = new Set(
+    (products || []).filter((p) => p.is_ftl_product).map((p) => p.item_number)
+  );
+
+  if (!ftlSet.size) return null; // no FTL products in this order — nothing to check
+
+  // Collect lot_ids that need to be validated
+  const lotIds = items
+    .filter((it) => ftlSet.has(String(it.item_number || '').trim()) && it.lot_id)
+    .map((it) => parseInt(it.lot_id, 10))
+    .filter((id) => Number.isFinite(id));
+
+  // Check each FTL item has a lot_id
+  for (const item of items) {
+    const itemNum = String(item.item_number || '').trim();
+    if (!ftlSet.has(itemNum)) continue;
+    if (!item.lot_id) {
+      const prodName = (products || []).find((p) => p.item_number === itemNum)?.description || itemNum;
+      return `Lot assignment is required for FTL product "${prodName}" (item ${itemNum}). Assign a lot before confirming this order.`;
+    }
+  }
+
+  if (!lotIds.length) return null;
+
+  // Validate each lot_id belongs to the correct product
+  const { data: lots, error: lotErr } = await supabase
+    .from('lot_codes')
+    .select('id, lot_number, product_id')
+    .in('id', lotIds);
+
+  if (lotErr) return `Could not verify lot assignments: ${lotErr.message}`;
+
+  const lotMap = {};
+  (lots || []).forEach((l) => { lotMap[l.id] = l; });
+
+  for (const item of items) {
+    const itemNum = String(item.item_number || '').trim();
+    if (!ftlSet.has(itemNum) || !item.lot_id) continue;
+    const lotId = parseInt(item.lot_id, 10);
+    const lot = lotMap[lotId];
+    if (!lot) return `Lot ID ${item.lot_id} not found.`;
+    if (lot.product_id && lot.product_id !== itemNum) {
+      return `Lot "${lot.lot_number}" belongs to product "${lot.product_id}", not "${itemNum}". Use a lot for the correct product.`;
+    }
+  }
+
+  return null; // all checks passed
+}
+
+// Fetch lot metadata and embed lot_number + quantity_from_lot into each item that has a lot_id.
+async function enrichItemsWithLotData(items) {
+  if (!Array.isArray(items) || !items.length) return items || [];
+
+  const lotIds = [...new Set(
+    items.map((it) => parseInt(it.lot_id, 10)).filter((id) => Number.isFinite(id))
+  )];
+  if (!lotIds.length) return items;
+
+  const { data: lots } = await supabase
+    .from('lot_codes')
+    .select('id, lot_number, expiration_date')
+    .in('id', lotIds);
+
+  const lotMap = {};
+  (lots || []).forEach((l) => { lotMap[l.id] = l; });
+
+  return items.map((item) => {
+    const lotId = parseInt(item.lot_id, 10);
+    if (!Number.isFinite(lotId) || !lotMap[lotId]) return item;
+    const lot = lotMap[lotId];
+    const qtyFromLot = parseFloat(item.quantity_from_lot ?? item.requested_weight ?? item.quantity ?? 0) || 0;
+    return {
+      ...item,
+      lot_id:            lotId,
+      lot_number:        lot.lot_number,
+      quantity_from_lot: qtyFromLot,
+      lot_expiration:    lot.expiration_date || null,
+    };
+  });
+}
+
 const router = express.Router();
 
 function generateTrackingToken() {
@@ -209,6 +311,13 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
     }
   }
 
+  // FSMA 204: validate FTL product lot assignments before creating the order
+  const ftlError = await validateFtlLots(items);
+  if (ftlError) return res.status(422).json({ error: ftlError, code: 'FTL_LOT_REQUIRED' });
+
+  // Enrich items with lot metadata (lot_number, quantity_from_lot) from lot_codes
+  const enrichedItems = await enrichItemsWithLotData(items);
+
   const orderNumber = 'ORD-' + Date.now().toString().slice(-6);
   const trackingToken = generateTrackingToken();
   const taxEnabled = parseBoolean(req.body.taxEnabled ?? req.body.tax_enabled);
@@ -218,7 +327,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
     customer_name: customerName,
     customer_email: customerEmail || null,
     customer_address: customerAddress || null,
-    items: items || [],
+    items: enrichedItems || [],
     charges: Array.isArray(charges) ? charges : [],
     status: 'pending',
     notes: notes || null,
@@ -246,7 +355,11 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   if (req.body.customerName !== undefined) updates.customer_name = req.body.customerName;
   if (req.body.customerEmail !== undefined) updates.customer_email = req.body.customerEmail || null;
   if (req.body.customerAddress !== undefined) updates.customer_address = req.body.customerAddress || null;
-  if (req.body.items !== undefined) updates.items = req.body.items;
+  if (req.body.items !== undefined) {
+    const ftlError = await validateFtlLots(req.body.items);
+    if (ftlError) return res.status(422).json({ error: ftlError, code: 'FTL_LOT_REQUIRED' });
+    updates.items = await enrichItemsWithLotData(req.body.items);
+  }
   if (req.body.charges !== undefined) updates.charges = Array.isArray(req.body.charges) ? req.body.charges : [];
   if (req.body.status !== undefined) updates.status = req.body.status;
   if (req.body.driverName !== undefined) updates.driver_name = req.body.driverName;

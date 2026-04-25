@@ -27,6 +27,7 @@ const settingsRouter = require('./routes/settings');
 const temperatureLogsRouter = require('./routes/temperature-logs');
 const opsRouter = require('./routes/ops');
 const reportingRouter = require('./routes/reporting').router;
+const lotsRouter = require('./routes/lots');
 const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
 
 const app = express();
@@ -148,6 +149,8 @@ app.use('/api/settings', settingsRouter);
 app.use('/api/temperature-logs', temperatureLogsRouter);
 app.use('/api/ops', opsRouter);
 app.use('/api/reporting', reportingRouter);
+app.use('/api/lots', lotsRouter);
+// traceability/report lives under /api/lots prefix as /api/lots/traceability/report
 
 // Config endpoint — maps key exposed publicly (restricted via Google domain policy)
 const { authenticateToken, requireRole } = require('./middleware/auth');
@@ -226,6 +229,7 @@ const frontendV2Routes = [
   '/integrations',
   '/aihelp',
   '/settings',
+  '/admin/traceability',
 ];
 app.get(frontendV2Routes, (req, res) => {
   if (!hasFrontendV2Build) {

@@ -31,6 +31,7 @@ import { VendorsPage } from './pages/VendorsPage';
 import { MapPage } from './pages/MapPage';
 import { WarehousePage } from './pages/WarehousePage';
 import { LoginPage } from './pages/LoginPage';
+import { TraceabilityPage } from './pages/TraceabilityPage';
 
 type TabId =
   | 'dashboard'
@@ -53,7 +54,8 @@ type TabId =
   | 'planning'
   | 'integrations'
   | 'aihelp'
-  | 'settings';
+  | 'settings'
+  | 'traceability';
 
 type GroupId = 'core' | 'logistics' | 'people' | 'financials' | 'operations' | 'ai';
 type Role = 'admin' | 'manager' | 'driver' | 'unknown';
@@ -118,6 +120,7 @@ const navGroups: NavGroup[] = [
     adminOnly: true,
     items: [
       { id: 'purchasing', label: 'Purchasing', path: '/purchasing', adminOnly: true },
+      { id: 'traceability', label: 'FSMA Traceability', path: '/admin/traceability', adminOnly: true },
       { id: 'vendors', label: 'Vendors', path: '/vendors', adminOnly: true },
       { id: 'warehouse', label: 'Warehouse', path: '/warehouse', adminOnly: true },
       { id: 'planning', label: 'Planning & Rules', path: '/planning', adminOnly: true },
@@ -363,6 +366,8 @@ function pageElement(item: NavItem, role: Role) {
       return <ForecastingPage />;
     case 'purchasing':
       return <PurchasingPage />;
+    case 'traceability':
+      return <TraceabilityPage />;
     case 'vendors':
       return <VendorsPage />;
     case 'warehouse':

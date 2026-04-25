@@ -14,6 +14,7 @@ type InventoryItem = {
   on_hand_qty?: number | string;
   cost?: number | string;
   unit?: string;
+  is_ftl_product?: boolean;
 };
 
 type LedgerSummary = {
@@ -501,7 +502,9 @@ export function InventoryPage() {
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <CardTitle>Inventory Overview</CardTitle>
-            <CardDescription>Live stock visibility from existing `/api/inventory` routes.</CardDescription>
+            <CardDescription>
+              Live stock visibility. Toggle <strong>FTL</strong> (FDA Traceability List) to require lot assignment on every order for that product.
+            </CardDescription>
           </div>
           <div className="flex gap-2">
             <Input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Search item/category" />
@@ -520,6 +523,7 @@ export function InventoryPage() {
                 <TableHead>On Hand</TableHead>
                 <TableHead>Cost</TableHead>
                 <TableHead>Status</TableHead>
+                <TableHead title="FDA Food Traceability List — requires lot on every order">FTL</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -538,12 +542,23 @@ export function InventoryPage() {
                       </TableCell>
                       <TableCell>{money(asNumber(item.cost))}</TableCell>
                       <TableCell>{status}</TableCell>
+                      <TableCell>
+                        <FtlToggle item={item} onToggled={(updated) => {
+                          setItems((current) =>
+                            current.map((it) =>
+                              it.item_number === updated.item_number
+                                ? { ...it, is_ftl_product: updated.is_ftl_product }
+                                : it
+                            )
+                          );
+                        }} />
+                      </TableCell>
                     </TableRow>
                   );
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-muted-foreground">
+                  <TableCell colSpan={7} className="text-muted-foreground">
                     No inventory rows available.
                   </TableCell>
                 </TableRow>
@@ -564,5 +579,49 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
         <CardTitle className="text-2xl">{value}</CardTitle>
       </CardHeader>
     </Card>
+  );
+}
+
+function FtlToggle({ item, onToggled }: {
+  item: InventoryItem;
+  onToggled: (updated: { item_number: string; is_ftl_product: boolean }) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+
+  async function toggle() {
+    if (!item.item_number) return;
+    setSaving(true);
+    try {
+      const result = await sendWithAuth<{ item_number: string; is_ftl_product: boolean }>(
+        `/api/lots/products/${encodeURIComponent(item.item_number)}/ftl`,
+        'PATCH',
+        { is_ftl_product: !item.is_ftl_product }
+      );
+      onToggled(result);
+    } catch {
+      // toggle reverts on failure since we didn't optimistically update
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={saving}
+      title={item.is_ftl_product ? 'On FDA Traceability List — click to remove' : 'Not on FDA Traceability List — click to flag'}
+      className={[
+        'inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1',
+        item.is_ftl_product ? 'bg-blue-600 focus:ring-blue-500' : 'bg-gray-200 focus:ring-gray-400',
+        saving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
+      ].join(' ')}
+    >
+      <span
+        className={[
+          'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
+          item.is_ftl_product ? 'translate-x-6' : 'translate-x-1',
+        ].join(' ')}
+      />
+    </button>
   );
 }
