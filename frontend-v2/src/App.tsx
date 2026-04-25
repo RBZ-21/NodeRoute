@@ -233,7 +233,7 @@ function AppShell() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
-              <a href="/dashboard" className={cn('inline-flex', role === 'unknown' && 'pointer-events-none opacity-50')}>
+              <a href="/dashboard-legacy" className={cn('inline-flex', role === 'unknown' && 'pointer-events-none opacity-50')}>
                 <Button variant="outline">Legacy Dashboard</Button>
               </a>
               <Button onClick={() => { localStorage.removeItem('nr_token'); localStorage.removeItem('nr_user'); window.location.href = '/login'; }}>

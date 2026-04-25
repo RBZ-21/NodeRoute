@@ -55,7 +55,8 @@ const frontendV2DistDir = path.join(__dirname, '../frontend-v2/dist');
 const landingV2DistDir = path.join(__dirname, '../landing-v2/dist');
 const hasFrontendV2Build = fs.existsSync(path.join(frontendV2DistDir, 'index.html'));
 const hasLandingV2Build = fs.existsSync(path.join(landingV2DistDir, 'index.html'));
-const featureUiV2Default = /^(1|true|yes)$/i.test(String(process.env.FEATURE_UI_V2_DEFAULT || 'false'));
+const featureUiV2Setting = String(process.env.FEATURE_UI_V2_DEFAULT || '').trim();
+const featureUiV2Default = hasFrontendV2Build && !/^(0|false|no)$/i.test(featureUiV2Setting);
 app.use(express.static(frontendDir, { index: false }));
 if (hasFrontendV2Build) {
   app.use('/dashboard-v2', express.static(frontendV2DistDir, { index: false }));
@@ -185,11 +186,13 @@ app.get('/login', (req, res) => {
 app.get('/dashboard', (req, res) => {
   const requestedUi = String(req.query.ui || '').toLowerCase();
   const v2Requested = requestedUi === 'v2' || requestedUi === 'new';
-  if (hasFrontendV2Build && (featureUiV2Default || v2Requested)) {
+  const legacyRequested = requestedUi === 'legacy' || requestedUi === 'old';
+  if (hasFrontendV2Build && !legacyRequested && (featureUiV2Default || v2Requested)) {
     return res.redirect('/dashboard-v2');
   }
   return res.sendFile(path.join(frontendDir, 'index.html'));
 });
+app.get('/dashboard-legacy', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
 app.get('/dashboard-v2', (req, res) => {
   if (!hasFrontendV2Build) {
     return res.status(503).json({ error: 'Dashboard v2 is not built yet. Run `npm --prefix frontend-v2 run build`.' });
