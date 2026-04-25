@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth } from '../lib/api';
+import { fetchWithAuth, sendWithAuth } from '../lib/api';
 
 type CustomerStatus = 'active' | 'inactive' | 'on-hold' | 'other';
 
@@ -16,6 +16,7 @@ type Customer = {
   name?: string;
   customerName?: string;
   customer_name?: string;
+  company_name?: string;
   email?: string;
   phone?: string;
   address?: string;
@@ -25,6 +26,9 @@ type Customer = {
   outstanding_balance?: number | string;
   balance?: number | string;
   status?: string;
+  credit_hold?: boolean;
+  credit_hold_reason?: string | null;
+  credit_hold_placed_at?: string | null;
 };
 
 const statusColors = {
@@ -33,8 +37,9 @@ const statusColors = {
   'on-hold': 'yellow',
 } as const;
 
-function normalizeStatus(value: string | undefined): CustomerStatus {
-  const normalized = String(value || '')
+function normalizeStatus(customer: Customer): CustomerStatus {
+  if (customer.credit_hold) return 'on-hold';
+  const normalized = String(customer.status || '')
     .trim()
     .toLowerCase()
     .replace(/[\s_]+/g, '-');
@@ -54,11 +59,11 @@ function asMoney(value: number): string {
 }
 
 function customerId(customer: Customer, index: number): string {
-  return String(customer.customerId || customer.customer_id || customer.id || `CUS-${index + 1}`);
+  return String(customer.id || customer.customerId || customer.customer_id || `CUS-${index + 1}`);
 }
 
 function customerName(customer: Customer): string {
-  return String(customer.name || customer.customerName || customer.customer_name || '-');
+  return String(customer.company_name || customer.name || customer.customerName || customer.customer_name || '-');
 }
 
 function totalOrders(customer: Customer): number {
@@ -69,6 +74,8 @@ function outstandingBalance(customer: Customer): number {
   return toNumber(customer.outstandingBalance ?? customer.outstanding_balance ?? customer.balance);
 }
 
+type HoldDialogState = { customerId: string; customerName: string } | null;
+
 export function CustomersPage() {
   const navigate = useNavigate();
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -77,6 +84,11 @@ export function CustomersPage() {
   const [notice, setNotice] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | CustomerStatus>('all');
   const [search, setSearch] = useState('');
+
+  // Hold dialog state
+  const [holdDialog, setHoldDialog] = useState<HoldDialogState>(null);
+  const [holdReason, setHoldReason] = useState('');
+  const [holdSubmitting, setHoldSubmitting] = useState(false);
 
   async function load() {
     setLoading(true);
@@ -98,7 +110,7 @@ export function CustomersPage() {
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return customers.filter((customer) => {
-      const status = normalizeStatus(customer.status);
+      const status = normalizeStatus(customer);
       if (statusFilter !== 'all' && status !== statusFilter) return false;
       if (!needle) return true;
       return (
@@ -111,9 +123,9 @@ export function CustomersPage() {
   }, [customers, statusFilter, search]);
 
   const summary = useMemo(() => {
-    const active = customers.filter((customer) => normalizeStatus(customer.status) === 'active').length;
-    const onHold = customers.filter((customer) => normalizeStatus(customer.status) === 'on-hold').length;
-    const outstanding = customers.reduce((sum, customer) => sum + outstandingBalance(customer), 0);
+    const active = customers.filter((c) => normalizeStatus(c) === 'active').length;
+    const onHold = customers.filter((c) => c.credit_hold === true).length;
+    const outstanding = customers.reduce((sum, c) => sum + outstandingBalance(c), 0);
     return { active, onHold, outstanding };
   }, [customers]);
 
@@ -125,8 +137,44 @@ export function CustomersPage() {
     navigate(`/invoices?customerId=${encodeURIComponent(customerId(customer, index))}`);
   }
 
-  function editCustomer(customer: Customer, index: number) {
-    setNotice(`Customer editor opened for ${customerName(customer)} (${customerId(customer, index)}).`);
+  function openHoldDialog(customer: Customer, index: number) {
+    setHoldReason('');
+    setHoldDialog({ customerId: customerId(customer, index), customerName: customerName(customer) });
+  }
+
+  function closeHoldDialog() {
+    setHoldDialog(null);
+    setHoldReason('');
+  }
+
+  async function placeHold() {
+    if (!holdDialog) return;
+    setHoldSubmitting(true);
+    setError('');
+    try {
+      await sendWithAuth(`/api/customers/${holdDialog.customerId}/hold`, 'POST', { reason: holdReason.trim() || undefined });
+      setNotice(`Credit hold placed on ${holdDialog.customerName}.`);
+      closeHoldDialog();
+      await load();
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not place credit hold'));
+    } finally {
+      setHoldSubmitting(false);
+    }
+  }
+
+  async function liftHold(customer: Customer, index: number) {
+    const id = customerId(customer, index);
+    const name = customerName(customer);
+    if (!confirm(`Lift credit hold for ${name}?`)) return;
+    setError('');
+    try {
+      await sendWithAuth(`/api/customers/${id}/hold`, 'DELETE');
+      setNotice(`Credit hold lifted for ${name}.`);
+      await load();
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not lift credit hold'));
+    }
   }
 
   return (
@@ -135,10 +183,38 @@ export function CustomersPage() {
       {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
+      {/* Credit Hold Dialog */}
+      {holdDialog ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-md rounded-lg border border-border bg-background p-6 shadow-xl space-y-4">
+            <h2 className="text-lg font-semibold">Place Credit Hold</h2>
+            <p className="text-sm text-muted-foreground">
+              Placing a credit hold on <strong>{holdDialog.customerName}</strong> will block new orders for this customer.
+            </p>
+            <label className="space-y-1 text-sm block">
+              <span className="font-semibold text-muted-foreground">Reason (optional)</span>
+              <Input
+                value={holdReason}
+                onChange={(e) => setHoldReason(e.target.value)}
+                placeholder="e.g. Overdue balance — 90 days past due"
+                autoFocus
+                onKeyDown={(e) => { if (e.key === 'Enter') placeHold(); if (e.key === 'Escape') closeHoldDialog(); }}
+              />
+            </label>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={closeHoldDialog} disabled={holdSubmitting}>Cancel</Button>
+              <Button onClick={placeHold} disabled={holdSubmitting}>
+                {holdSubmitting ? 'Placing Hold…' : 'Place Hold'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard label="Customers" value={customers.length.toLocaleString()} />
         <SummaryCard label="Active" value={summary.active.toLocaleString()} />
-        <SummaryCard label="On Hold" value={summary.onHold.toLocaleString()} />
+        <SummaryCard label="On Credit Hold" value={summary.onHold.toLocaleString()} />
         <SummaryCard label="Outstanding Balance" value={asMoney(summary.outstanding)} />
       </div>
 
@@ -146,7 +222,7 @@ export function CustomersPage() {
         <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="space-y-1">
             <CardTitle>Customers Workbench</CardTitle>
-            <CardDescription>Customer account and billing visibility from `/api/customers`.</CardDescription>
+            <CardDescription>Manage customer accounts and credit holds.</CardDescription>
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
@@ -190,11 +266,17 @@ export function CustomersPage() {
               {filtered.length ? (
                 filtered.map((customer, index) => {
                   const id = customerId(customer, index);
-                  const status = normalizeStatus(customer.status);
+                  const status = normalizeStatus(customer);
+                  const onHold = customer.credit_hold === true;
                   return (
-                    <TableRow key={id}>
+                    <TableRow key={id} className={onHold ? 'bg-yellow-50/60' : undefined}>
                       <TableCell className="font-medium">{id}</TableCell>
-                      <TableCell>{customerName(customer)}</TableCell>
+                      <TableCell>
+                        <span>{customerName(customer)}</span>
+                        {onHold && customer.credit_hold_reason ? (
+                          <p className="text-xs text-yellow-700 mt-0.5">{customer.credit_hold_reason}</p>
+                        ) : null}
+                      </TableCell>
                       <TableCell>{customer.email || '-'}</TableCell>
                       <TableCell>{customer.phone || '-'}</TableCell>
                       <TableCell>{customer.address || '-'}</TableCell>
@@ -211,9 +293,15 @@ export function CustomersPage() {
                           <Button variant="secondary" size="sm" onClick={() => viewInvoices(customer, index)}>
                             View Invoices
                           </Button>
-                          <Button size="sm" onClick={() => editCustomer(customer, index)}>
-                            Edit Customer
-                          </Button>
+                          {onHold ? (
+                            <Button variant="outline" size="sm" className="border-yellow-400 text-yellow-700 hover:bg-yellow-50" onClick={() => liftHold(customer, index)}>
+                              Lift Hold
+                            </Button>
+                          ) : (
+                            <Button variant="outline" size="sm" className="border-red-300 text-red-600 hover:bg-red-50" onClick={() => openHoldDialog(customer, index)}>
+                              Place Hold
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>

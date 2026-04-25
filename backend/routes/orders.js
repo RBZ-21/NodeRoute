@@ -190,6 +190,25 @@ router.get('/', authenticateToken, async (req, res) => {
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { customerName, customerEmail, customerAddress, items, charges, notes } = req.body;
+
+  // Block orders for customers on credit hold
+  if (customerName) {
+    const { data: heldCustomer } = await supabase
+      .from('Customers')
+      .select('id, company_name, credit_hold, credit_hold_reason')
+      .ilike('company_name', customerName.trim())
+      .eq('credit_hold', true)
+      .limit(1)
+      .maybeSingle();
+    if (heldCustomer) {
+      const reason = heldCustomer.credit_hold_reason ? ` Reason: ${heldCustomer.credit_hold_reason}` : '';
+      return res.status(422).json({
+        error: `Order blocked: ${heldCustomer.company_name} is on credit hold.${reason}`,
+        code: 'CUSTOMER_CREDIT_HOLD',
+      });
+    }
+  }
+
   const orderNumber = 'ORD-' + Date.now().toString().slice(-6);
   const trackingToken = generateTrackingToken();
   const taxEnabled = parseBoolean(req.body.taxEnabled ?? req.body.tax_enabled);
