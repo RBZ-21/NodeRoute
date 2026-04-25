@@ -246,6 +246,7 @@ begin
 end;
 $$;
 
+drop trigger if exists trg_inventory_updated_at on seafood_inventory;
 create trigger trg_inventory_updated_at
   before update on seafood_inventory
   for each row execute function set_updated_at();
