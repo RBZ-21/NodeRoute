@@ -22,6 +22,7 @@ const CUSTOMER_FIELDS = [
   'billing_email',
   'billing_phone',
   'billing_address',
+  'credit_hold_reason',
 ];
 
 function parseBoolean(value) {
@@ -35,6 +36,8 @@ function customerPayload(source) {
   });
   const taxValue = source.tax_enabled ?? source.taxEnabled;
   if (taxValue !== undefined) payload.tax_enabled = parseBoolean(taxValue);
+  const holdValue = source.credit_hold ?? source.creditHold;
+  if (holdValue !== undefined) payload.credit_hold = parseBoolean(holdValue);
   return payload;
 }
 
@@ -76,6 +79,45 @@ router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async 
   const data = await dbQuery(supabase.from('Customers').delete().eq('id', req.params.id), res);
   if (data === null) return;
   res.json({ message: 'Deleted' });
+});
+
+// ── CREDIT HOLD ────────────────────────────────────────────────────────────────
+
+// Place a customer on credit hold
+router.post('/:id/hold', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const existing = await dbQuery(supabase.from('Customers').select('*').eq('id', req.params.id).single(), res);
+  if (!existing) return res.status(404).json({ error: 'Customer not found' });
+  if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
+
+  const reason = req.body?.reason ? String(req.body.reason).trim() : null;
+  const updateResult = await executeWithOptionalScope(
+    (candidate) => supabase.from('Customers').update(candidate).eq('id', req.params.id).select().single(),
+    {
+      credit_hold: true,
+      credit_hold_reason: reason,
+      credit_hold_placed_at: new Date().toISOString(),
+    }
+  );
+  if (updateResult.error) return res.status(500).json({ error: updateResult.error.message });
+  res.json(updateResult.data);
+});
+
+// Lift a customer's credit hold
+router.delete('/:id/hold', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const existing = await dbQuery(supabase.from('Customers').select('*').eq('id', req.params.id).single(), res);
+  if (!existing) return res.status(404).json({ error: 'Customer not found' });
+  if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
+
+  const updateResult = await executeWithOptionalScope(
+    (candidate) => supabase.from('Customers').update(candidate).eq('id', req.params.id).select().single(),
+    {
+      credit_hold: false,
+      credit_hold_reason: null,
+      credit_hold_placed_at: null,
+    }
+  );
+  if (updateResult.error) return res.status(500).json({ error: updateResult.error.message });
+  res.json(updateResult.data);
 });
 
 module.exports = router;

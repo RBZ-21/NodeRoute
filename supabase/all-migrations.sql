@@ -561,3 +561,11 @@ where active_stop_ids = '[]'::jsonb and stop_ids is not null;
 alter table if exists public.routes
   add column if not exists driver_id text;
 create index if not exists idx_routes_driver_id on public.routes(driver_id);
+
+-- ================================================================
+-- 20260425_customer_credit_hold.sql
+-- ================================================================
+alter table if exists "Customers"
+  add column if not exists credit_hold            boolean     not null default false,
+  add column if not exists credit_hold_reason     text,
+  add column if not exists credit_hold_placed_at  timestamptz;
