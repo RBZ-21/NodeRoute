@@ -47,7 +47,16 @@
   <script>
     const AUTH_ERROR_KEY = 'nr_auth_error';
 
-    function landingFor(user) { return user && user.role === 'driver' ? '/driver' : '/dashboard'; }
+    function requestedReturnPath() {
+      const next = new URLSearchParams(window.location.search).get('next') || '';
+      if (!next || !next.startsWith('/') || next.startsWith('//') || next.includes('://')) return '';
+      return next;
+    }
+    function landingFor(user) {
+      const next = requestedReturnPath();
+      if (next) return next;
+      return user && user.role === 'driver' ? '/driver' : '/dashboard';
+    }
     function setError(message) {
       const err = document.getElementById('err');
       err.textContent = message || '';

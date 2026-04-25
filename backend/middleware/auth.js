@@ -14,22 +14,25 @@ function normalizeEmail(value) {
   return String(value).trim().toLowerCase();
 }
 
+function extractRows(result) {
+  if (Array.isArray(result)) return result;
+  if (Array.isArray(result?.data)) return result.data;
+  return [];
+}
+
 async function findUserFromTokenPayload(payload) {
-  const tokenUserId = normalizeId(payload?.userId || payload?.id || payload?.sub);
-  const tokenEmail = normalizeEmail(payload?.email);
+  const tokenUserId = normalizeId(payload?.userId || payload?.id || payload?.sub || payload?.user_id);
+  const tokenEmail = normalizeEmail(payload?.email) || normalizeEmail(payload?.userEmail || payload?.user_email);
+  const usersResult = await supabase.from('users').select('*');
+  const users = extractRows(usersResult);
 
   if (tokenUserId) {
-    const { data: userById, error: idError } = await supabase.from('users').select('*').eq('id', tokenUserId).single();
+    const userById = users.find((user) => normalizeId(user?.id) === tokenUserId);
     if (userById) return { user: userById, error: null };
-    if (idError && !String(idError.message || '').toLowerCase().includes('no rows')) {
-      return { user: null, error: idError };
-    }
   }
 
   if (tokenEmail) {
-    const { data: usersByEmail, error: emailError } = await supabase.from('users').select('*');
-    if (emailError) return { user: null, error: emailError };
-    const matched = (Array.isArray(usersByEmail) ? usersByEmail : []).find(
+    const matched = users.find(
       (user) => normalizeEmail(user?.email) === tokenEmail
     );
     if (matched) return { user: matched, error: null };

@@ -25,7 +25,9 @@ export function clearSession() {
 
 export function redirectToLogin(message?: string) {
   if (message) saveAuthError(message);
-  window.location.href = '/login';
+  const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+  const next = currentPath && currentPath !== '/login' ? `?next=${encodeURIComponent(currentPath)}` : '';
+  window.location.href = `/login${next}`;
 }
 
 async function parseResponse<T>(response: Response, url: string): Promise<T> {
