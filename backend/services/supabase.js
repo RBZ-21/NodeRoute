@@ -380,6 +380,8 @@ class ResilientQuery {
     if (spec.operation === 'update') query = query.update(spec.payload);
     if (spec.operation === 'delete') query = query.delete();
 
+    if (spec.selectCalled) query = query.select(...(spec.selectArgs || []));
+
     for (const filter of spec.filters || []) {
       if (filter.type === 'eq') query = query.eq(filter.field, filter.value);
       if (filter.type === 'ilike') query = query.ilike(filter.field, filter.value);
@@ -389,7 +391,6 @@ class ResilientQuery {
 
     if (spec.orderBy) query = query.order(spec.orderBy.field, { ascending: spec.orderBy.ascending !== false });
     if (spec.limitCount != null) query = query.limit(spec.limitCount);
-    if (spec.selectCalled) query = query.select(...(spec.selectArgs || []));
     if (spec.shouldSingle) query = query.single();
     return query;
   }
