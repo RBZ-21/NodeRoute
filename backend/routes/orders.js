@@ -264,6 +264,11 @@ function invoicePayloadForOrder(order, fulfilledItems = null, overrides = {}) {
     customer_name: order.customer_name,
     customer_email: order.customer_email,
     customer_address: order.customer_address,
+    billing_name: overrides.billing_name || null,
+    billing_contact: overrides.billing_contact || null,
+    billing_email: overrides.billing_email || order.customer_email || null,
+    billing_phone: overrides.billing_phone || null,
+    billing_address: overrides.billing_address || order.customer_address || null,
     items,
     ...totals,
     tax_enabled: taxEnabled,
@@ -513,10 +518,29 @@ router.post('/:id/fulfill', authenticateToken, requireRole('admin', 'manager'), 
   if (!order) return;
   if (!rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const fulfilledItems = Array.isArray(items) ? items : (order.items || []);
+
+  // Enrich invoice with billing data from Customers table
+  const billingOverrides = {};
+  if (order.customer_name) {
+    const { data: customer } = await supabase
+      .from('Customers')
+      .select('billing_name,billing_contact,billing_email,billing_phone,billing_address,phone_number,contact_name,address')
+      .eq('company_name', order.customer_name)
+      .limit(1)
+      .single();
+    if (customer) {
+      if (customer.billing_name) billingOverrides.billing_name = customer.billing_name;
+      if (customer.billing_contact || customer.contact_name) billingOverrides.billing_contact = customer.billing_contact || customer.contact_name;
+      if (customer.billing_email) billingOverrides.billing_email = customer.billing_email;
+      if (customer.billing_phone || customer.phone_number) billingOverrides.billing_phone = customer.billing_phone || customer.phone_number;
+      if (customer.billing_address || customer.address) billingOverrides.billing_address = customer.billing_address || customer.address;
+    }
+  }
+
   const invoice = await createOrUpdateProcessingInvoice(
     order,
     fulfilledItems,
-    { driverName: driverName || null, notes: order.notes || null },
+    { driverName: driverName || null, notes: order.notes || null, ...billingOverrides },
     req,
     res
   );
