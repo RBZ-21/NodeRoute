@@ -23,6 +23,8 @@ type PurchaseItemDraft = {
   unit_price: string;
   unit: string;
   category: string;
+  lot_number: string;
+  expiration_date: string;
 };
 
 function money(value: number): string {
@@ -40,6 +42,8 @@ const emptyLine = (): PurchaseItemDraft => ({
   unit_price: '',
   unit: 'lb',
   category: 'Other',
+  lot_number: '',
+  expiration_date: '',
 });
 
 export function PurchasingPage() {
@@ -121,11 +125,13 @@ export function PurchasingPage() {
   async function submitPurchaseOrder() {
     const items = lines
       .map((line) => ({
-        description: line.description.trim(),
-        quantity: asNumber(line.quantity),
-        unit_price: asNumber(line.unit_price),
-        unit: line.unit.trim() || 'lb',
-        category: line.category.trim() || 'Other',
+        description:     line.description.trim(),
+        quantity:        asNumber(line.quantity),
+        unit_price:      asNumber(line.unit_price),
+        unit:            line.unit.trim() || 'lb',
+        category:        line.category.trim() || 'Other',
+        lot_number:      line.lot_number.trim() || undefined,
+        expiration_date: line.expiration_date || undefined,
       }))
       .filter((item) => item.description && item.quantity > 0);
 
@@ -139,13 +145,13 @@ export function PurchasingPage() {
     setNotice('');
     try {
       const total_cost = items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
-      const response = await sendWithAuth<{ errors?: string[] }>(
+      const response = await sendWithAuth<{ errors?: string[]; lots_created?: number }>(
         '/api/purchase-orders/confirm',
         'POST',
         {
-          vendor: vendor || null,
-          po_number: poNumber || null,
-          notes: notes || null,
+          vendor:    vendor    || null,
+          po_number: poNumber  || null,
+          notes:     notes     || null,
           total_cost,
           items: items.map((item) => ({
             ...item,
@@ -154,10 +160,11 @@ export function PurchasingPage() {
         }
       );
       const failed = Array.isArray(response.errors) && response.errors.length;
+      const lotsMsg = response.lots_created ? ` ${response.lots_created} lot record(s) created.` : '';
       setNotice(
         failed
-          ? `PO saved with ${response.errors?.length || 0} line errors. Review backend validation details if needed.`
-          : 'Purchase order confirmed and inventory updated.'
+          ? `PO saved with ${response.errors?.length || 0} line errors.${lotsMsg}`
+          : `Purchase order confirmed and inventory updated.${lotsMsg}`
       );
       setVendor('');
       setPoNumber('');
@@ -174,8 +181,8 @@ export function PurchasingPage() {
   return (
     <div className="space-y-5">
       {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading purchasing data...</div> : null}
-      {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
-      {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
+      {error   ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
+      {notice  ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
       {vendorParam ? (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700">
           Filtered by vendor from Vendors page: <strong>{vendorParam}</strong>
@@ -184,14 +191,17 @@ export function PurchasingPage() {
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard label="Purchase Orders" value={summary.count.toLocaleString()} />
-        <StatCard label="Total Spend" value={money(summary.spend)} />
-        <StatCard label="Active Vendors" value={summary.vendors.toLocaleString()} />
+        <StatCard label="Total Spend"     value={money(summary.spend)} />
+        <StatCard label="Active Vendors"  value={summary.vendors.toLocaleString()} />
       </div>
 
       <Card>
         <CardHeader>
           <CardTitle>Confirm Purchase Order</CardTitle>
-          <CardDescription>Manual ingest flow using `/api/purchase-orders/confirm` for migration parity.</CardDescription>
+          <CardDescription>
+            Lot Number is required for FSMA 204 traceability on FDA Food Traceability List products.
+            Expiration date is optional but strongly recommended (enables FEFO picking).
+          </CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-3 md:grid-cols-3">
@@ -209,7 +219,7 @@ export function PurchasingPage() {
             </label>
           </div>
 
-          <div className="rounded-lg border border-border">
+          <div className="rounded-lg border border-border overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -218,6 +228,14 @@ export function PurchasingPage() {
                   <TableHead>Unit Price</TableHead>
                   <TableHead>Unit</TableHead>
                   <TableHead>Category</TableHead>
+                  <TableHead>
+                    Lot Number
+                    <span className="ml-1 text-xs font-normal text-muted-foreground">(FSMA)</span>
+                  </TableHead>
+                  <TableHead>
+                    Expiration
+                    <span className="ml-1 text-xs font-normal text-muted-foreground">(optional)</span>
+                  </TableHead>
                   <TableHead>Total</TableHead>
                   <TableHead />
                 </TableRow>
@@ -226,21 +244,56 @@ export function PurchasingPage() {
                 {lines.map((line, index) => (
                   <TableRow key={index}>
                     <TableCell>
-                      <Input value={line.description} onChange={(event) => updateLine(index, 'description', event.target.value)} placeholder="Atlantic Salmon" />
+                      <Input
+                        value={line.description}
+                        onChange={(event) => updateLine(index, 'description', event.target.value)}
+                        placeholder="Atlantic Salmon"
+                      />
                     </TableCell>
                     <TableCell>
-                      <Input type="number" min="0" step="0.01" value={line.quantity} onChange={(event) => updateLine(index, 'quantity', event.target.value)} />
+                      <Input
+                        type="number" min="0" step="0.01"
+                        value={line.quantity}
+                        onChange={(event) => updateLine(index, 'quantity', event.target.value)}
+                      />
                     </TableCell>
                     <TableCell>
-                      <Input type="number" min="0" step="0.01" value={line.unit_price} onChange={(event) => updateLine(index, 'unit_price', event.target.value)} />
+                      <Input
+                        type="number" min="0" step="0.01"
+                        value={line.unit_price}
+                        onChange={(event) => updateLine(index, 'unit_price', event.target.value)}
+                      />
                     </TableCell>
                     <TableCell>
-                      <Input value={line.unit} onChange={(event) => updateLine(index, 'unit', event.target.value)} />
+                      <Input
+                        value={line.unit}
+                        onChange={(event) => updateLine(index, 'unit', event.target.value)}
+                      />
                     </TableCell>
                     <TableCell>
-                      <Input value={line.category} onChange={(event) => updateLine(index, 'category', event.target.value)} />
+                      <Input
+                        value={line.category}
+                        onChange={(event) => updateLine(index, 'category', event.target.value)}
+                      />
                     </TableCell>
-                    <TableCell>{money(asNumber(line.quantity) * asNumber(line.unit_price))}</TableCell>
+                    <TableCell>
+                      <Input
+                        value={line.lot_number}
+                        onChange={(event) => updateLine(index, 'lot_number', event.target.value)}
+                        placeholder="e.g. SAL-2026-001"
+                        className="font-mono text-sm"
+                      />
+                    </TableCell>
+                    <TableCell>
+                      <Input
+                        type="date"
+                        value={line.expiration_date}
+                        onChange={(event) => updateLine(index, 'expiration_date', event.target.value)}
+                      />
+                    </TableCell>
+                    <TableCell>
+                      {money(asNumber(line.quantity) * asNumber(line.unit_price))}
+                    </TableCell>
                     <TableCell>
                       <Button variant="ghost" size="sm" onClick={() => removeLine(index)}>
                         Remove
@@ -282,9 +335,7 @@ export function PurchasingPage() {
               >
                 <option value="all">All Vendors</option>
                 {vendorOptions.map((option) => (
-                  <option key={option} value={option}>
-                    {option}
-                  </option>
+                  <option key={option} value={option}>{option}</option>
                 ))}
               </select>
             </label>

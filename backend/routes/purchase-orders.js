@@ -53,7 +53,7 @@ router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
 
 // ── POST /api/purchase-orders/confirm ──────────────────────────────────────
 // User has reviewed and confirmed the AI-extracted items.
-// Upsert inventory, log stock history, save the PO record.
+// Upsert inventory, log stock history, create lot_codes records, save the PO.
 router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { vendor, po_number, date, items, total_cost, notes } = req.body;
   if (!Array.isArray(items) || !items.length) {
@@ -63,7 +63,7 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), asyn
   // Fetch all current inventory for matching by description
   const { data: inventory, error: invErr } = await supabase
     .from('seafood_inventory')
-    .select('item_number, description, on_hand_qty, cost, unit');
+    .select('item_number, description, on_hand_qty, cost, unit, is_ftl_product');
   if (invErr) return res.status(500).json({ error: invErr.message });
 
   const invMap = {};
@@ -71,9 +71,11 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), asyn
     invMap[row.description.toLowerCase().trim()] = row;
   });
 
-  let itemsCreated = 0;
-  let itemsUpdated = 0;
-  const errors = [];
+  let itemsCreated  = 0;
+  let itemsUpdated  = 0;
+  let lotsCreated   = 0;
+  const errors      = [];
+  const savedItems  = []; // items array to store in PO record (with lot data)
 
   for (const item of items) {
     const desc = (item.description || '').trim();
@@ -87,13 +89,16 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), asyn
     const existing = invMap[key];
     const poRef    = `PO scan${po_number ? ' · ' + po_number : ''}${vendor ? ' from ' + vendor : ''}`;
 
+    // Determine item_number for lot association
+    let resolvedItemNumber = existing?.item_number || null;
+
     if (existing) {
       try {
         await applyInventoryLedgerEntry({
           itemNumber: existing.item_number,
           deltaQty: qty,
           changeType: 'restock',
-          notes: poRef,
+          notes: `${poRef}${item.lot_number ? ' · Lot ' + item.lot_number : ''}`,
           createdBy: req.user.name || req.user.email,
           unitCost: unitPrice,
         });
@@ -105,6 +110,7 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), asyn
     } else {
       // Generate a unique item_number
       const itemNumber = 'PO-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
+      resolvedItemNumber = itemNumber;
 
       const { data: inserted, error: insErr } = await supabase.from('seafood_inventory').insert([{
         item_number:    itemNumber,
@@ -115,6 +121,7 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), asyn
         on_hand_qty:    0,
         on_hand_weight: 0,
         lot_item:       LOT_REQUIRED.test(desc) ? 'Y' : 'N',
+        is_ftl_product: false,
       }]).select().single();
 
       if (insErr) {
@@ -127,7 +134,7 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), asyn
           itemNumber,
           deltaQty: qty,
           changeType: 'restock',
-          notes: `New item · ${poRef}`,
+          notes: `New item · ${poRef}${item.lot_number ? ' · Lot ' + item.lot_number : ''}`,
           createdBy: req.user.name || req.user.email,
           unitCost: unitPrice,
         });
@@ -137,6 +144,47 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), asyn
       }
       itemsCreated++;
     }
+
+    // Auto-create a lot_codes record when lot_number is provided
+    let lotId = null;
+    if (item.lot_number && item.lot_number.trim()) {
+      const lotNumber = item.lot_number.trim(); // stored verbatim — never normalised
+      const { data: existingLot } = await supabase
+        .from('lot_codes')
+        .select('id')
+        .eq('lot_number', lotNumber)
+        .maybeSingle();
+
+      if (existingLot) {
+        lotId = existingLot.id;
+      } else {
+        const { data: newLot, error: lotErr } = await supabase.from('lot_codes').insert([{
+          lot_number:        lotNumber,
+          product_id:        resolvedItemNumber,
+          vendor_id:         vendor || null,
+          quantity_received: qty,
+          unit_of_measure:   item.unit || 'lb',
+          received_date:     date || new Date().toISOString().slice(0, 10),
+          received_by:       req.user.name || req.user.email,
+          expiration_date:   item.expiration_date || null,
+          notes:             `Auto-created from PO confirm${po_number ? ' · ' + po_number : ''}`,
+        }]).select('id').single();
+
+        if (lotErr && lotErr.code !== '23505') {
+          errors.push(`Lot ${lotNumber}: ${lotErr.message}`);
+        } else if (newLot) {
+          lotId = newLot.id;
+          lotsCreated++;
+        }
+      }
+    }
+
+    savedItems.push({
+      ...item,
+      lot_number:      item.lot_number ? item.lot_number.trim() : undefined,
+      lot_id:          lotId,
+      expiration_date: item.expiration_date || undefined,
+    });
   }
 
   // Persist the purchase order record
@@ -146,13 +194,20 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), asyn
   const { data: po } = await supabase.from('purchase_orders').insert([{
     po_number:    po_number || null,
     vendor:       vendor    || null,
-    items,
+    items:        savedItems.length ? savedItems : items,
     total_cost:   computedTotal,
     notes:        notes || null,
     confirmed_by: req.user.name || req.user.email,
   }]).select().single();
 
-  res.json({ success: true, items_created: itemsCreated, items_updated: itemsUpdated, errors, purchase_order: po || null });
+  res.json({
+    success: true,
+    items_created: itemsCreated,
+    items_updated: itemsUpdated,
+    lots_created:  lotsCreated,
+    errors,
+    purchase_order: po || null,
+  });
 });
 
 // ── GET /api/purchase-orders ──────────────────────────────────────────────
