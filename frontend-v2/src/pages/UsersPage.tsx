@@ -112,6 +112,12 @@ export function UsersPage() {
   const [inviteUrl, setInviteUrl] = useState('');
   const [rowBusyUserId, setRowBusyUserId] = useState('');
 
+  const [addName, setAddName] = useState('');
+  const [addEmail, setAddEmail] = useState('');
+  const [addPassword, setAddPassword] = useState('');
+  const [addRole, setAddRole] = useState<Role>('driver');
+  const [submittingAdd, setSubmittingAdd] = useState(false);
+
   async function loadUsers() {
     setLoading(true);
     setError('');
@@ -187,6 +193,31 @@ export function UsersPage() {
     }
   }
 
+  async function submitAddUser() {
+    if (!canAdminister) { setError('Only admins can create users directly.'); return; }
+    const name = addName.trim();
+    const email = addEmail.trim();
+    const password = addPassword.trim();
+    if (!name || !email || !password) { setError('Name, email, and password are all required.'); return; }
+    if (password.length < 8) { setError('Password must be at least 8 characters.'); return; }
+    setSubmittingAdd(true);
+    setError('');
+    setNotice('');
+    try {
+      await sendWithAuth('/api/users', 'POST', { name, email, password, role: addRole });
+      setNotice(`User ${email} created and set to active.`);
+      setAddName('');
+      setAddEmail('');
+      setAddPassword('');
+      setAddRole('driver');
+      await loadUsers();
+    } catch (err) {
+      setError(String((err as Error).message || 'Failed to create user'));
+    } finally {
+      setSubmittingAdd(false);
+    }
+  }
+
   async function copyInviteUrl() {
     if (!inviteUrl) return;
     try {
@@ -250,6 +281,54 @@ export function UsersPage() {
         <SummaryCard label="Pending Setup" value={summary.pending.toLocaleString()} />
         <SummaryCard label="Admins" value={summary.admins.toLocaleString()} />
       </div>
+
+      {canAdminister ? (
+        <Card>
+          <CardHeader className="space-y-2">
+            <CardTitle>Add User</CardTitle>
+            <CardDescription>Create an active account immediately with a set password. Use Invite for self-service sign-up.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-5">
+              <Input
+                placeholder="Full name"
+                value={addName}
+                onChange={(event) => setAddName(event.target.value)}
+                disabled={submittingAdd}
+              />
+              <Input
+                type="email"
+                placeholder="email@company.com"
+                value={addEmail}
+                onChange={(event) => setAddEmail(event.target.value)}
+                disabled={submittingAdd}
+              />
+              <Input
+                type="password"
+                placeholder="Password (min 8 chars)"
+                value={addPassword}
+                onChange={(event) => setAddPassword(event.target.value)}
+                disabled={submittingAdd}
+              />
+              <select
+                value={addRole}
+                onChange={(event) => setAddRole(event.target.value as Role)}
+                disabled={submittingAdd}
+                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+              >
+                {inviteRoleOptions.map((option) => (
+                  <option key={option} value={option}>
+                    {option.charAt(0).toUpperCase() + option.slice(1)}
+                  </option>
+                ))}
+              </select>
+              <Button onClick={submitAddUser} disabled={submittingAdd}>
+                {submittingAdd ? 'Creating...' : 'Add User'}
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card>
         <CardHeader className="space-y-2">
