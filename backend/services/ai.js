@@ -3,17 +3,17 @@ const OpenAI = require('openai');
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const DEFAULT_VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4o';
 
-const FORECAST_SYSTEM_PROMPT = `You are a demand forecasting analyst for a seafood and perishable goods delivery warehouse.
+const FORECAST_SYSTEM_PROMPT = `You are a demand forecasting analyst for a food wholesale distribution warehouse.
 Your job is to analyze historical sales data and predict future demand accurately.
 
 Rules you MUST follow:
 1. Focus on recent consumption patterns first, then adjust for trend.
-2. Perishable goods should avoid aggressive over-ordering.
+2. Perishables and short-shelf-life items should avoid aggressive over-ordering.
 3. If history is sparse, lower confidence instead of inventing certainty.
 4. Use whole integers for all unit counts.
 5. Keep reasoning practical and concise.`;
 
-const INVENTORY_SYSTEM_PROMPT = `You are a warehouse inventory management AI for a seafood distribution and delivery business.
+const INVENTORY_SYSTEM_PROMPT = `You are a warehouse inventory management AI for a food wholesale distribution business.
 You specialize in perishable goods, spoilage prevention, and waste reduction.
 
 Rules:
@@ -22,7 +22,7 @@ Rules:
 3. Keep reasons short and operationally useful.
 4. Suggested actions should be specific next steps, not generic advice.`;
 
-const REORDER_ALERT_SYSTEM_PROMPT = `You are an operations alert writer for a seafood warehouse delivery company.
+const REORDER_ALERT_SYSTEM_PROMPT = `You are an operations alert writer for a food wholesale distribution company.
 Write short, direct reorder alerts for the warehouse team.
 
 Rules:
@@ -40,7 +40,7 @@ Rules:
 3. Mention role restrictions or gotchas in warnings.
 4. Use simple language that fits inside the UI.`;
 
-const ORDER_INTAKE_SYSTEM_PROMPT = `You are an order-intake assistant for a seafood and perishable delivery operation.
+const ORDER_INTAKE_SYSTEM_PROMPT = `You are an order-intake assistant for a food wholesale delivery operation.
 Convert unstructured customer messages into clean line items for order entry.
 
 Rules:
@@ -51,7 +51,7 @@ Rules:
 5. Keep notes short and operational.
 6. Return structured JSON only.`;
 
-const PO_SCAN_PROMPT = `You are a purchase order scanner for a seafood distribution warehouse.
+const PO_SCAN_PROMPT = `You are a purchase order scanner for a food wholesale distribution warehouse.
 Extract every visible line item from this purchase order or vendor invoice image.
 
 Rules:
@@ -397,18 +397,18 @@ function normalizeForecast(result, product, forecastDays, history) {
 
 async function forecastDemand(product, history, forecastDays = 14) {
   const weeklyBuckets = buildWeeklyBuckets(history, 12);
-  const userMessage = `Analyze demand for this seafood/perishable product and provide a ${forecastDays}-day forecast.
+  const userMessage = `Analyze demand for this food wholesale product and provide a ${forecastDays}-day forecast.
 
 Product:
 - ID: ${stringOr(product.item_number, 'unknown')}
 - Name: ${stringOr(product.description, 'Unknown product')}
-- Category: ${stringOr(product.category, 'Seafood')}
-- Unit: ${stringOr(product.unit, 'lb')}
-- Current stock on hand: ${numberOr(product.on_hand_qty, 0)} ${stringOr(product.unit, 'lb')}
+- Category: ${product.category || 'Food'}
+- Unit: ${product.unit || 'unit'}
+- Current stock on hand: ${numberOr(product.on_hand_qty, 0)} ${product.unit || 'unit'}
 - Cost per unit: $${numberOr(product.cost, 0)}
 
 Weekly usage history (last ${weeklyBuckets.length} weeks, oldest to newest):
-${weeklyBuckets.map((week) => `- Week of ${week.week}: used ${week.used} ${stringOr(product.unit, 'units')}`).join('\n')}
+${weeklyBuckets.map((week) => `- Week of ${week.week}: used ${week.used} ${product.unit || 'units'}`).join('\n')}
 
 Weeks with usage data: ${weeklyBuckets.filter((week) => week.used > 0).length}
 Forecast period: ${forecastDays} days`;
@@ -769,6 +769,13 @@ function normalizeUnitToken(raw) {
   const unit = String(raw || '').trim().toLowerCase();
   if (['lb', 'lbs', 'pound', 'pounds'].includes(unit)) return 'lb';
   if (['ea', 'each', 'ct', 'count', 'pc', 'pcs', 'piece', 'pieces', 'unit', 'units'].includes(unit)) return 'each';
+  if (['case', 'cases', 'cs'].includes(unit)) return 'case';
+  if (['box', 'boxes', 'bx'].includes(unit)) return 'box';
+  if (['pallet', 'pallets', 'plt'].includes(unit)) return 'pallet';
+  if (['gallon', 'gallons', 'gal'].includes(unit)) return 'gallon';
+  if (['dozen', 'dozens', 'dz'].includes(unit)) return 'dozen';
+  if (['bag', 'bags'].includes(unit)) return 'bag';
+  if (['carton', 'cartons', 'ctn'].includes(unit)) return 'carton';
   return '';
 }
 
@@ -781,7 +788,7 @@ function splitIntakeLines(message) {
 }
 
 function parseIntakeLine(line) {
-  const qtyFirst = line.match(/^(\d+(?:\.\d+)?)\s*(lb|lbs|pound|pounds|ea|each|ct|count|pc|pcs|piece|pieces)?\s+(.+?)(?:\s*(?:@|at)\s*\$?(\d+(?:\.\d+)?))?$/i);
+  const qtyFirst = line.match(/^(\d+(?:\.\d+)?)\s*(lb|lbs|pound|pounds|ea|each|ct|count|pc|pcs|piece|pieces|case|cases|cs|box|boxes|bx|pallet|pallets|plt|gallon|gallons|gal|dozen|dozens|dz|bag|bags|carton|cartons|ctn)?\s+(.+?)(?:\s*(?:@|at)\s*\$?(\d+(?:\.\d+)?))?$/i);
   if (qtyFirst) {
     const amount = numberOr(qtyFirst[1], 1);
     const unit = normalizeUnitToken(qtyFirst[2]) || 'each';
@@ -790,7 +797,7 @@ function parseIntakeLine(line) {
     if (name) return { name, unit, amount, unit_price: unitPrice, notes: '', item_number: '' };
   }
 
-  const qtyLast = line.match(/^(.+?)\s*(?:-|:|,)?\s*(\d+(?:\.\d+)?)\s*(lb|lbs|pound|pounds|ea|each|ct|count|pc|pcs|piece|pieces)(?:\s*(?:@|at)\s*\$?(\d+(?:\.\d+)?))?$/i);
+  const qtyLast = line.match(/^(.+?)\s*(?:-|:|,)?\s*(\d+(?:\.\d+)?)\s*(lb|lbs|pound|pounds|ea|each|ct|count|pc|pcs|piece|pieces|case|cases|cs|box|boxes|bx|pallet|pallets|plt|gallon|gallons|gal|dozen|dozens|dz|bag|bags|carton|cartons|ctn)(?:\s*(?:@|at)\s*\$?(\d+(?:\.\d+)?))?$/i);
   if (qtyLast) {
     const name = stringOr(qtyLast[1]).replace(/\s{2,}/g, ' ');
     const amount = numberOr(qtyLast[2], 1);
@@ -908,7 +915,7 @@ async function generateOrderIntakeDraft(message) {
   const heuristic = normalizeOrderIntakeDraft(null, sourceMessage);
   if (!sourceMessage) return heuristic;
 
-  const userMessage = `Parse this order intake message into structured order-entry fields.
+  const userMessage = `Parse this food wholesale order intake message into structured order-entry fields.
 
 Message:
 ${sourceMessage}
