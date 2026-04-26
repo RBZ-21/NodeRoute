@@ -51,6 +51,46 @@ Rules:
 5. Keep notes short and operational.
 6. Return structured JSON only.`;
 
+const CHAT_SYSTEM_PROMPT = `You are a knowledgeable operations assistant for NodeRoute, a food wholesale distribution and delivery management platform. You are helping {name} (role: {role}).
+
+You help users navigate the platform, understand features, troubleshoot issues, and optimize their workflows. Be concise, practical, and operational. Answer directly and avoid filler.
+
+{knowledge}`;
+
+const NODEROUTE_KNOWLEDGE = `## NodeRoute Platform Overview
+
+**Navigation:** The platform is organized into groups: Core (Dashboard, Orders, Settings), Logistics (Deliveries, Live Map, Drivers, Routes, Stops), People (Customers, Users), Financials (Financial Overview, Invoices, Analytics, Inventory, Forecasting), Operations (Purchasing, FSMA Traceability, Vendors, Warehouse, Planning & Rules, Integrations), and AI Help.
+
+**Orders:** Create and manage customer orders. Each order line can specify a product, quantity, unit, and price. For FTL (Food Traceability List) products, a lot number must be assigned. Orders have statuses: pending, confirmed, in_transit, delivered, cancelled.
+
+**FSMA Traceability (admin only):** Tracks Food Traceability List products through the supply chain per FDA Section 204. Use the Lot Trace panel to look up a specific lot number and see which orders and delivery stops it went to. Use the Movements Report for paginated lot history with CSV export. Lot numbers are assigned during purchasing receiving or manually.
+
+**Inventory:** View all products (seafood/food items) with stock levels, categories, costs, and FTL flags. FTL toggle marks items as Food Traceability List products — these require lot assignment on orders. Use AI Health Analysis for reorder and expiry alerts.
+
+**Purchasing:** Manage vendor purchase orders. Draft POs come from Planning suggestions. Convert drafts to Vendor POs, then receive line items to update inventory. When receiving FTL items, enter a lot number to auto-create a lot_codes record.
+
+**Planning & Rules:** Generate draft purchase orders from demand projections. Set lead time and coverage days, then recalculate. Create Draft PO button outputs a draft to Purchasing.
+
+**Warehouse:** Manage internal storage locations (coolers, freezers, depots). Log scan/receive/pick/adjust events. Track customer returns.
+
+**Analytics:** Unified Performance Rollups for customer, route, driver, and SKU performance. Set date range and row limit, then run the report.
+
+**Drivers:** Manage driver accounts. Drivers log into /driver for a simplified mobile view showing their assigned stops.
+
+**Routes and Stops:** Routes group stops for a delivery run. Stops represent individual delivery points with addresses, shipped lots, and completion status.
+
+**Customers:** Manage customer accounts and contact info. Customer portal available at /portal for invoice viewing and payment.
+
+**Invoices:** Generate and manage customer invoices. Stripe integration enables online payment via the customer portal.
+
+**Forecasting:** AI-powered demand forecasting per product using historical usage. Shows predicted demand, reorder recommendations, and trend.
+
+**Integrations (admin only):** Configure third-party integrations (QuickBooks, Stripe, etc.).
+
+**Roles:** admin (full access), manager (most features, no user management or some admin ops), driver (delivery view only).
+
+**AI Help > Walkthroughs:** Get step-by-step guides for any feature by entering the feature name and an optional question.`;
+
 const PO_SCAN_PROMPT = `You are a purchase order scanner for a food wholesale distribution warehouse.
 Extract every visible line item from this purchase order or vendor invoice image.
 
@@ -999,6 +1039,47 @@ async function parsePurchaseOrderImage(base64Image, mimeType = 'image/jpeg') {
   return normalizePOScan(parsed);
 }
 
+const chatRateLimiter = new Map();
+const CHAT_RATE_LIMIT = 20;
+const CHAT_RATE_WINDOW_MS = 60_000;
+
+function checkChatRateLimit(userId) {
+  const now = Date.now();
+  const entry = chatRateLimiter.get(userId);
+  if (!entry || now - entry.windowStart >= CHAT_RATE_WINDOW_MS) {
+    chatRateLimiter.set(userId, { windowStart: now, count: 1 });
+    return true;
+  }
+  if (entry.count >= CHAT_RATE_LIMIT) return false;
+  entry.count += 1;
+  return true;
+}
+
+async function generateChatReply(userName, userRole, message, history = []) {
+  const client = getClient();
+  const systemContent = CHAT_SYSTEM_PROMPT
+    .replace('{name}', stringOr(userName, 'User'))
+    .replace('{role}', stringOr(userRole, 'user'))
+    .replace('{knowledge}', NODEROUTE_KNOWLEDGE);
+
+  const cappedHistory = history.slice(-10);
+  const messages = [
+    { role: 'system', content: systemContent },
+    ...cappedHistory,
+    { role: 'user', content: String(message || '') },
+  ];
+
+  const response = await client.chat.completions.create({
+    model: DEFAULT_MODEL,
+    max_tokens: 600,
+    messages,
+  });
+
+  const choice = response.choices && response.choices[0];
+  const reply = extractMessageContent(choice && choice.message && choice.message.content);
+  return reply || 'I was unable to generate a response. Please try again.';
+}
+
 module.exports = {
   forecastDemand,
   analyzeInventory,
@@ -1007,4 +1088,6 @@ module.exports = {
   generateOrderIntakeDraft,
   parsePurchaseOrderImage,
   buildWeeklyBuckets,
+  generateChatReply,
+  checkChatRateLimit,
 };
