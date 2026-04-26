@@ -1,5 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createConfiguredMailers } = require('../services/email');
@@ -97,6 +98,37 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
   if (!data) return;
   const scopedUsers = filterRowsByContext(data, req.context);
   res.json(scopedUsers.map(u => ({ ...userResponseWithContext(u), status: u.status, createdAt: u.created_at })));
+});
+
+// Admin: create a user directly with a password (no invite flow)
+router.post('/', authenticateToken, requireRole('admin'), async (req, res) => {
+  const { name, email, password, role = 'driver' } = req.body;
+  if (!name || !email || !password) return res.status(400).json({ error: 'Name, email, and password are required' });
+  if (!['admin', 'manager', 'driver'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+
+  const { data: existing } = await supabase.from('users').select('id').ilike('email', email).limit(1);
+  if (existing && existing.length > 0) return res.status(409).json({ error: 'A user with that email already exists' });
+
+  const password_hash = await bcrypt.hash(password, 10);
+  const insertResult = await insertRecordWithOptionalScope(
+    supabase,
+    'users',
+    {
+      id: 'user-' + Date.now(),
+      name,
+      email,
+      password_hash,
+      role,
+      status: 'active',
+      invite_token: null,
+      invite_expires: null,
+      created_at: new Date().toISOString(),
+    },
+    req.context
+  );
+  if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
+  res.status(201).json({ message: `User ${email} created successfully`, user: userResponseWithContext(insertResult.data) });
 });
 
 router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
