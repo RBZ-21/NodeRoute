@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Combobox } from '../components/ui/combobox';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { fetchWithAuth, getUserRole, sendWithAuth } from '../lib/api';
@@ -60,12 +61,23 @@ type Order = {
   charges?: OrderCharge[];
 };
 
+type Customer = {
+  id: string;
+  company_name?: string;
+  billing_email?: string;
+  address?: string;
+  billing_address?: string;
+  phone_number?: string;
+};
+
 type InventoryProduct = {
   item_number: string;
   description: string;
   is_ftl_product?: boolean;
   is_catch_weight?: boolean;
   default_price_per_lb?: number | string;
+  unit?: string;
+  cost?: number | string;
 };
 
 type LotCode = {
@@ -168,6 +180,8 @@ export function OrdersPage() {
   const [submitting, setSubmitting] = useState(false);
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
 
+  const [customers, setCustomers] = useState<Customer[]>([]);
+
   const [customerName, setCustomerName]       = useState('');
   const [customerEmail, setCustomerEmail]     = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
@@ -223,7 +237,13 @@ export function OrdersPage() {
     }
   }
 
-  useEffect(() => { load(); loadProducts(); }, [customerIdParam]);
+  useEffect(() => {
+    load();
+    loadProducts();
+    fetchWithAuth<Customer[]>('/api/customers')
+      .then((data) => setCustomers(Array.isArray(data) ? data : []))
+      .catch(() => {});
+  }, [customerIdParam]);
 
   // When item_number changes in a line, pre-fetch lots for that product
   useEffect(() => {
@@ -253,6 +273,24 @@ export function OrdersPage() {
     return map;
   }, [products]);
 
+  const customerOptions = useMemo(
+    () => customers.map((c) => ({
+      label: c.company_name || '',
+      sublabel: [c.phone_number, c.billing_email].filter(Boolean).join(' · '),
+      value: c.id,
+    })),
+    [customers],
+  );
+
+  const productOptions = useMemo(
+    () => products.map((p) => ({
+      label: p.description,
+      sublabel: `#${p.item_number}${p.unit ? ' · ' + p.unit : ''}${asNumber(p.cost) > 0 ? ' · $' + asNumber(p.cost).toFixed(2) : ''}`,
+      value: p.item_number,
+    })),
+    [products],
+  );
+
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return orders.filter((order) => {
@@ -274,6 +312,26 @@ export function OrdersPage() {
     const totalValue = orders.reduce((sum, o) => sum + calcOrderTotal(o), 0);
     return { pending, inProcess, invoiced, totalValue };
   }, [orders]);
+
+  const customerOptions = useMemo(
+    () =>
+      customers.map((c) => ({
+        label: c.company_name || '',
+        sublabel: [c.phone_number, c.billing_email].filter(Boolean).join(' · '),
+        value: c.id,
+      })),
+    [customers],
+  );
+
+  const productOptions = useMemo(
+    () =>
+      products.map((p) => ({
+        label: p.description,
+        sublabel: `#${p.item_number} · ${p.unit ?? 'lb'} · $${asNumber(p.cost).toFixed(2)}`,
+        value: p.item_number,
+      })),
+    [products],
+  );
 
   const subtotal = useMemo(() => draftSubtotal(lines), [lines]);
   const charges  = useMemo(() => {
@@ -536,7 +594,19 @@ export function OrdersPage() {
           <div className="grid gap-3 md:grid-cols-3">
             <label className="space-y-1 text-sm">
               <span className="font-semibold text-muted-foreground">Customer Name</span>
-              <Input value={customerName} onChange={(e) => setCustomerName(e.target.value)} placeholder="Oceanview Market" />
+              <Combobox
+                value={customerName}
+                onChange={setCustomerName}
+                onSelect={(opt) => {
+                  const c = customers.find((x) => x.id === opt.value);
+                  if (!c) return;
+                  setCustomerName(c.company_name || '');
+                  setCustomerEmail(c.billing_email || '');
+                  setCustomerAddress(c.billing_address || c.address || '');
+                }}
+                options={customerOptions}
+                placeholder="Oceanview Market"
+              />
             </label>
             <label className="space-y-1 text-sm">
               <span className="font-semibold text-muted-foreground">Customer Email</span>
@@ -579,7 +649,7 @@ export function OrdersPage() {
             </label>
           </div>
 
-          <div className="rounded-lg border border-border overflow-x-auto">
+          <div className="overflow-visible rounded-lg border border-border overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -612,7 +682,31 @@ export function OrdersPage() {
                   return (
                     <TableRow key={index} className={needsLot ? 'bg-amber-50/50' : ''}>
                       <TableCell>
-                        <Input value={line.name} onChange={(e) => updateLine(index, 'name', e.target.value)} placeholder="Atlantic Salmon" />
+                        <Combobox
+                          value={line.name}
+                          onChange={(v) => updateLine(index, 'name', v)}
+                          onSelect={(opt) => {
+                            const p = products.find((x) => x.item_number === opt.value);
+                            if (!p) return;
+                            setLines((current) => current.map((l, i) => {
+                              if (i !== index) return l;
+                              const isCatchWeight = !!p.is_catch_weight;
+                              return {
+                                ...l,
+                                name: p.description,
+                                itemNumber: p.item_number,
+                                lotId: '',
+                                isCatchWeight,
+                                unit: isCatchWeight ? 'lb' : (String(p.unit ?? 'lb').toLowerCase() === 'lb' ? 'lb' : 'each'),
+                                unitPrice: !isCatchWeight && asNumber(p.cost) > 0 ? String(asNumber(p.cost)) : l.unitPrice,
+                                pricePerLb: isCatchWeight && p.default_price_per_lb != null ? String(asNumber(p.default_price_per_lb)) : l.pricePerLb,
+                                estimatedWeight: isCatchWeight ? l.estimatedWeight : '',
+                              };
+                            }));
+                          }}
+                          options={productOptions}
+                          placeholder="Atlantic Salmon"
+                        />
                       </TableCell>
                       <TableCell>
                         <Input value={line.itemNumber} onChange={(e) => updateLine(index, 'itemNumber', e.target.value)} placeholder="SAL-01" />

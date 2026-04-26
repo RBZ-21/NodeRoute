@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Combobox } from '../components/ui/combobox';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
@@ -17,8 +18,17 @@ type PurchaseOrder = {
   items?: unknown[];
 };
 
+type InventoryProduct = {
+  item_number: string;
+  description: string;
+  unit?: string;
+  cost?: number | string;
+  category?: string;
+};
+
 type PurchaseItemDraft = {
   description: string;
+  item_number: string;
   quantity: string;
   unit_price: string;
   unit: string;
@@ -38,6 +48,7 @@ function asNumber(value: unknown): number {
 
 const emptyLine = (): PurchaseItemDraft => ({
   description: '',
+  item_number: '',
   quantity: '',
   unit_price: '',
   unit: 'lb',
@@ -51,6 +62,7 @@ export function PurchasingPage() {
   const vendorParam = String(searchParams.get('vendor') || '').trim();
 
   const [orders, setOrders] = useState<PurchaseOrder[]>([]);
+  const [products, setProducts] = useState<InventoryProduct[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -77,6 +89,9 @@ export function PurchasingPage() {
 
   useEffect(() => {
     load();
+    fetchWithAuth<InventoryProduct[]>('/api/inventory')
+      .then((data) => setProducts(Array.isArray(data) ? data : []))
+      .catch(() => {});
   }, [vendorParam]);
 
   useEffect(() => {
@@ -102,8 +117,20 @@ export function PurchasingPage() {
       const name = String(order.vendor || '').trim();
       if (name) unique.add(name);
     }
-    return Array.from(unique).sort((a, b) => a.localeCompare(b));
+    return Array.from(unique)
+      .sort((a, b) => a.localeCompare(b))
+      .map((v) => ({ label: v, value: v }));
   }, [orders]);
+
+  const productOptions = useMemo(
+    () =>
+      products.map((p) => ({
+        label: p.description,
+        sublabel: `#${p.item_number} · ${p.unit ?? 'lb'} · $${asNumber(p.cost).toFixed(2)}`,
+        value: p.item_number,
+      })),
+    [products],
+  );
 
   const filteredOrders = useMemo(() => {
     if (vendorFilter === 'all') return orders;
@@ -126,6 +153,7 @@ export function PurchasingPage() {
     const items = lines
       .map((line) => ({
         description:     line.description.trim(),
+        item_number:     line.item_number.trim() || undefined,
         quantity:        asNumber(line.quantity),
         unit_price:      asNumber(line.unit_price),
         unit:            line.unit.trim() || 'lb',
@@ -157,7 +185,7 @@ export function PurchasingPage() {
             ...item,
             total: parseFloat((item.quantity * item.unit_price).toFixed(2)),
           })),
-        }
+        },
       );
       const failed = Array.isArray(response.errors) && response.errors.length;
       const lotsMsg = response.lots_created ? ` ${response.lots_created} lot record(s) created.` : '';
@@ -207,7 +235,13 @@ export function PurchasingPage() {
           <div className="grid gap-3 md:grid-cols-3">
             <label className="space-y-1 text-sm">
               <span className="font-semibold text-muted-foreground">Vendor</span>
-              <Input value={vendor} onChange={(event) => setVendor(event.target.value)} placeholder="Blue Ocean Seafood" />
+              <Combobox
+                value={vendor}
+                onChange={setVendor}
+                onSelect={(opt) => setVendor(opt.label)}
+                options={vendorOptions}
+                placeholder="Blue Ocean Seafood"
+              />
             </label>
             <label className="space-y-1 text-sm">
               <span className="font-semibold text-muted-foreground">PO Number</span>
@@ -219,11 +253,12 @@ export function PurchasingPage() {
             </label>
           </div>
 
-          <div className="rounded-lg border border-border overflow-x-auto">
+          <div className="overflow-visible overflow-x-auto rounded-lg border border-border">
             <Table>
               <TableHeader>
                 <TableRow>
                   <TableHead>Description</TableHead>
+                  <TableHead>Item #</TableHead>
                   <TableHead>Qty</TableHead>
                   <TableHead>Unit Price</TableHead>
                   <TableHead>Unit</TableHead>
@@ -244,11 +279,33 @@ export function PurchasingPage() {
                 {lines.map((line, index) => (
                   <TableRow key={index}>
                     <TableCell>
-                      <Input
+                      <Combobox
                         value={line.description}
-                        onChange={(event) => updateLine(index, 'description', event.target.value)}
+                        onChange={(v) => updateLine(index, 'description', v)}
+                        onSelect={(opt) => {
+                          const p = products.find((x) => x.item_number === opt.value);
+                          if (!p) return;
+                          setLines((current) =>
+                            current.map((l, i) =>
+                              i !== index
+                                ? l
+                                : {
+                                    ...l,
+                                    description: p.description,
+                                    item_number: p.item_number,
+                                    unit: p.unit ?? 'lb',
+                                    unit_price: asNumber(p.cost) > 0 ? String(asNumber(p.cost)) : l.unit_price,
+                                    category: p.category ?? l.category,
+                                  },
+                            ),
+                          );
+                        }}
+                        options={productOptions}
                         placeholder="Atlantic Salmon"
                       />
+                    </TableCell>
+                    <TableCell>
+                      <Input value={line.item_number} onChange={(event) => updateLine(index, 'item_number', event.target.value)} placeholder="SAL-01" />
                     </TableCell>
                     <TableCell>
                       <Input
@@ -335,7 +392,7 @@ export function PurchasingPage() {
               >
                 <option value="all">All Vendors</option>
                 {vendorOptions.map((option) => (
-                  <option key={option} value={option}>{option}</option>
+                  <option key={option.value} value={option.value}>{option.label}</option>
                 ))}
               </select>
             </label>

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
@@ -131,6 +131,7 @@ function isOverdueByDate(invoice: Invoice): boolean {
 }
 
 export function InvoicesPage() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const customerIdParam = String(searchParams.get('customerId') || '').trim();
 
@@ -409,7 +410,21 @@ export function InvoicesPage() {
                         </div>
                       </TableCell>
                       <TableCell>{customerName(invoice)}</TableCell>
-                      <TableCell>{invoice.orderNumber || invoice.order_number || '-'}</TableCell>
+                      <TableCell>
+                        {invoice.orderNumber || invoice.order_number ? (
+                          <button
+                            className="font-medium text-primary underline-offset-2 hover:underline"
+                            onClick={() => {
+                              const cid = customerId(invoice);
+                              navigate(cid ? `/orders?customerId=${encodeURIComponent(cid)}` : '/orders');
+                            }}
+                          >
+                            {invoice.orderNumber || invoice.order_number}
+                          </button>
+                        ) : (
+                          '-'
+                        )}
+                      </TableCell>
                       <TableCell>{issueDate(invoice) ? new Date(issueDate(invoice)).toLocaleDateString() : '-'}</TableCell>
                       <TableCell>{dueDate(invoice) ? new Date(dueDate(invoice)).toLocaleDateString() : '-'}</TableCell>
                       <TableCell>{asMoney(amount(invoice))}</TableCell>
