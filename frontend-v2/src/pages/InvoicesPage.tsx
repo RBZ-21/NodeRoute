@@ -31,6 +31,7 @@ type Invoice = {
   status?: string;
   pdfUrl?: string;
   pdf_url?: string;
+  estimated_weight_pending?: boolean;
 };
 
 type InvoicePdfResponse = {
@@ -399,7 +400,14 @@ export function InvoicesPage() {
                   const pendingAction = pendingActionById[apiId];
                   return (
                     <TableRow key={id}>
-                      <TableCell className="font-medium">{invoiceNumber(invoice, index)}</TableCell>
+                      <TableCell className="font-medium">
+                        <div className="space-y-0.5">
+                          <span>{invoiceNumber(invoice, index)}</span>
+                          {invoice.estimated_weight_pending && (
+                            <div className="text-xs font-medium text-amber-600">⚠️ Weight Pending</div>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell>{customerName(invoice)}</TableCell>
                       <TableCell>{invoice.orderNumber || invoice.order_number || '-'}</TableCell>
                       <TableCell>{issueDate(invoice) ? new Date(issueDate(invoice)).toLocaleDateString() : '-'}</TableCell>

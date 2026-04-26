@@ -170,9 +170,49 @@ async function findInventoryMatchForFulfillment(item) {
   return byName.data[0];
 }
 
+// Compute catch weight display fields — appended to items in GET responses.
+function enrichCatchWeightItem(item) {
+  if (!item.is_catch_weight) return item;
+  const est = parseFloat(item.estimated_weight) || null;
+  const act = parseFloat(item.actual_weight) > 0 ? parseFloat(item.actual_weight) : null;
+  const ppl = parseFloat(item.price_per_lb) || null;
+  return {
+    ...item,
+    estimated_total:  est !== null && ppl !== null ? asMoney(est * ppl) : null,
+    actual_total:     act !== null && ppl !== null ? asMoney(act * ppl) : null,
+    weight_variance:  act !== null && est !== null ? parseFloat((act - est).toFixed(3)) : null,
+    weight_confirmed: act !== null,
+  };
+}
+
+function enrichOrderResponse(order) {
+  return { ...order, items: (order.items || []).map(enrichCatchWeightItem) };
+}
+
 function invoiceItemsFromOrder(order, fulfilledItems) {
   const sourceItems = Array.isArray(fulfilledItems) ? fulfilledItems : (order.items || []);
   const invoiceItems = sourceItems.map((it) => {
+    if (it.is_catch_weight) {
+      const act = parseFloat(it.actual_weight);
+      const est = parseFloat(it.estimated_weight) || 0;
+      const hasActual = Number.isFinite(act) && act > 0;
+      const weight = hasActual ? act : est;
+      const pricePerLb = parseFloat(it.price_per_lb) || 0;
+      return {
+        description: it.name || it.description || '',
+        notes: hasActual
+          ? `Actual Weight: ${weight.toFixed(3)} lbs`
+          : `Estimated Weight: ${est.toFixed(3)} lbs (pending confirmation)`,
+        quantity: weight,
+        requested_weight: est || null,
+        actual_weight: hasActual ? act : null,
+        unit: 'lb',
+        unit_price: pricePerLb,
+        total: asMoney(weight * pricePerLb),
+        is_catch_weight: true,
+        weight_confirmed: hasActual,
+      };
+    }
     const qty = itemQuantity(it);
     const unitPrice = parseFloat(it.unit_price || it.unitPrice || 0) || 0;
     return {
@@ -213,6 +253,10 @@ function totalsForItems(items, taxEnabled, taxRate) {
 function invoicePayloadForOrder(order, fulfilledItems = null, overrides = {}) {
   const taxEnabled = parseBoolean(order.tax_enabled);
   const taxRate = normalizeTaxRate(order.tax_rate);
+  const sourceItems = Array.isArray(fulfilledItems) ? fulfilledItems : (order.items || []);
+  const estimatedWeightPending = sourceItems.some(
+    (it) => it.is_catch_weight && !(parseFloat(it.actual_weight) > 0)
+  );
   const items = invoiceItemsFromOrder(order, fulfilledItems);
   const totals = totalsForItems(items, taxEnabled, taxRate);
   return {
@@ -228,6 +272,7 @@ function invoicePayloadForOrder(order, fulfilledItems = null, overrides = {}) {
     driver_name: overrides.driverName || order.driver_name || null,
     status: 'pending',
     notes: overrides.notes !== undefined ? overrides.notes : order.notes || 'Awaiting final weights',
+    estimated_weight_pending: estimatedWeightPending,
   };
 }
 
@@ -345,6 +390,51 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
     ...data,
     tracking_url: data.tracking_token ? buildTrackingUrl(req, data.tracking_token) : null,
   });
+});
+
+router.get('/:id', authenticateToken, async (req, res) => {
+  const order = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (!rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
+  res.json(enrichOrderResponse(order));
+});
+
+// Capture actual weight for a single catch-weight line item.
+// Recalculates line total and returns the updated order.
+router.patch('/:id/items/:itemIndex/actual-weight', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const order = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
+  if (!order) return res.status(404).json({ error: 'Order not found' });
+  if (!rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
+
+  const idx = parseInt(req.params.itemIndex, 10);
+  const items = Array.isArray(order.items) ? order.items : [];
+  if (!Number.isFinite(idx) || idx < 0 || idx >= items.length) {
+    return res.status(400).json({ error: `Item index ${req.params.itemIndex} is out of range` });
+  }
+
+  const item = items[idx];
+  if (!item.is_catch_weight) {
+    return res.status(400).json({ error: 'Item at this index is not a catch weight item' });
+  }
+
+  const actualWeight = parseFloat(req.body.actual_weight);
+  if (!Number.isFinite(actualWeight) || actualWeight <= 0) {
+    return res.status(400).json({ error: 'actual_weight must be a positive number greater than 0' });
+  }
+  const rounded = parseFloat(actualWeight.toFixed(3));
+  const pricePerLb = parseFloat(item.price_per_lb) || 0;
+
+  const updatedItems = items.map((it, i) => {
+    if (i !== idx) return it;
+    return { ...it, actual_weight: rounded, total: asMoney(rounded * pricePerLb) };
+  });
+
+  // eslint-disable-next-line no-console
+  console.log(`[catch-weight] order=${order.id} item=${idx} actual_weight=${rounded} user=${req.user?.id || req.user?.email} ts=${new Date().toISOString()}`);
+
+  const updated = await updateRecord('orders', req.params.id, { items: updatedItems }, res);
+  if (!updated) return;
+  res.json(enrichOrderResponse(updated));
 });
 
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {

@@ -723,7 +723,7 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   const existing = await dbQuery(supabase.from('seafood_inventory').select('*').eq('item_number', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Product not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
-  const allowed = ['description','category','item_number','unit','cost','on_hand_qty','on_hand_weight','lot_item','notes'];
+  const allowed = ['description','category','item_number','unit','cost','on_hand_qty','on_hand_weight','lot_item','notes','is_catch_weight','default_price_per_lb'];
   const fields = {};
   allowed.forEach(k => { if (req.body[k] !== undefined) fields[k] = req.body[k]; });
   // Auto-enforce lot requirement when description is updated

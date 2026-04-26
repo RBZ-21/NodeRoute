@@ -15,6 +15,8 @@ type InventoryItem = {
   cost?: number | string;
   unit?: string;
   is_ftl_product?: boolean;
+  is_catch_weight?: boolean;
+  default_price_per_lb?: number | string;
 };
 
 type LedgerSummary = {
@@ -524,6 +526,8 @@ export function InventoryPage() {
                 <TableHead>Cost</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead title="FDA Food Traceability List — requires lot on every order">FTL</TableHead>
+                <TableHead title="Sold by actual measured weight — invoice uses real weight">Catch Wt</TableHead>
+                <TableHead title="Default price per pound for catch weight products">$/lb</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -553,12 +557,38 @@ export function InventoryPage() {
                           );
                         }} />
                       </TableCell>
+                      <TableCell>
+                        <CatchWeightToggle item={item} onToggled={(updated) => {
+                          setItems((current) =>
+                            current.map((it) =>
+                              it.item_number === updated.item_number
+                                ? { ...it, is_catch_weight: updated.is_catch_weight }
+                                : it
+                            )
+                          );
+                        }} />
+                      </TableCell>
+                      <TableCell>
+                        {item.is_catch_weight ? (
+                          <CatchWeightPriceInput item={item} onSaved={(updated) => {
+                            setItems((current) =>
+                              current.map((it) =>
+                                it.item_number === updated.item_number
+                                  ? { ...it, default_price_per_lb: updated.default_price_per_lb }
+                                  : it
+                              )
+                            );
+                          }} />
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
                     </TableRow>
                   );
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-muted-foreground">
+                  <TableCell colSpan={9} className="text-muted-foreground">
                     No inventory rows available.
                   </TableCell>
                 </TableRow>
@@ -579,6 +609,110 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
         <CardTitle className="text-2xl">{value}</CardTitle>
       </CardHeader>
     </Card>
+  );
+}
+
+function CatchWeightToggle({ item, onToggled }: {
+  item: InventoryItem;
+  onToggled: (updated: { item_number: string; is_catch_weight: boolean }) => void;
+}) {
+  const [saving, setSaving] = useState(false);
+
+  async function toggle() {
+    if (!item.item_number) return;
+    setSaving(true);
+    try {
+      const result = await sendWithAuth<{ item_number: string; is_catch_weight: boolean }>(
+        `/api/inventory/${encodeURIComponent(item.item_number)}`,
+        'PATCH',
+        { is_catch_weight: !item.is_catch_weight }
+      );
+      onToggled({ item_number: result.item_number, is_catch_weight: result.is_catch_weight ?? !item.is_catch_weight });
+    } catch {
+      // reverts on failure
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <button
+      onClick={toggle}
+      disabled={saving}
+      title={item.is_catch_weight ? 'Catch weight ON — click to turn off' : 'Not catch weight — click to enable'}
+      className={[
+        'inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1',
+        item.is_catch_weight ? 'bg-orange-500 focus:ring-orange-400' : 'bg-gray-200 focus:ring-gray-400',
+        saving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer',
+      ].join(' ')}
+    >
+      <span
+        className={[
+          'inline-block h-4 w-4 rounded-full bg-white shadow transition-transform',
+          item.is_catch_weight ? 'translate-x-6' : 'translate-x-1',
+        ].join(' ')}
+      />
+    </button>
+  );
+}
+
+function CatchWeightPriceInput({ item, onSaved }: {
+  item: InventoryItem;
+  onSaved: (updated: { item_number: string; default_price_per_lb: number }) => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState(String(item.default_price_per_lb ?? ''));
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    if (!item.item_number) return;
+    const parsed = parseFloat(value);
+    if (!Number.isFinite(parsed) || parsed < 0) return;
+    setSaving(true);
+    try {
+      const result = await sendWithAuth<{ item_number: string; default_price_per_lb: number }>(
+        `/api/inventory/${encodeURIComponent(item.item_number)}`,
+        'PATCH',
+        { default_price_per_lb: parsed }
+      );
+      onSaved({ item_number: result.item_number, default_price_per_lb: result.default_price_per_lb ?? parsed });
+      setEditing(false);
+    } catch {
+      // stays in edit mode on failure
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  if (!editing) {
+    const display = item.default_price_per_lb != null ? `$${Number(item.default_price_per_lb).toFixed(4)}` : 'Set';
+    return (
+      <button onClick={() => { setValue(String(item.default_price_per_lb ?? '')); setEditing(true); }}
+        className="text-xs text-blue-600 underline underline-offset-2 hover:text-blue-800">
+        {display}
+      </button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-1">
+      <input
+        type="number" min="0" step="0.0001"
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }}
+        className="h-7 w-20 rounded border border-input bg-background px-2 text-xs"
+        autoFocus
+      />
+      <button onClick={save} disabled={saving}
+        className="rounded bg-orange-500 px-2 py-0.5 text-xs font-medium text-white hover:bg-orange-600 disabled:opacity-50">
+        {saving ? '…' : 'Save'}
+      </button>
+      <button onClick={() => setEditing(false)}
+        className="text-xs text-muted-foreground hover:text-foreground">
+        ✕
+      </button>
+    </div>
   );
 }
 
