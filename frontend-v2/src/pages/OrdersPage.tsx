@@ -5,7 +5,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchWithAuth, getUserRole, sendWithAuth } from '../lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -25,6 +25,14 @@ type OrderItem = {
   lot_id?: number | string;
   lot_number?: string;
   quantity_from_lot?: number | string;
+  // catch weight fields
+  is_catch_weight?: boolean;
+  estimated_weight?: number | string;
+  price_per_lb?: number | string;
+  estimated_total?: number | string;
+  actual_total?: number | string;
+  weight_variance?: number | null;
+  weight_confirmed?: boolean;
 };
 
 type OrderCharge = {
@@ -56,6 +64,8 @@ type InventoryProduct = {
   item_number: string;
   description: string;
   is_ftl_product?: boolean;
+  is_catch_weight?: boolean;
+  default_price_per_lb?: number | string;
 };
 
 type LotCode = {
@@ -74,13 +84,16 @@ type OrderLineDraft = {
   quantity: string;
   unitPrice: string;
   notes: string;
-  lotId: string;       // selected lot_id (string for form state)
+  lotId: string;
+  isCatchWeight: boolean;
+  estimatedWeight: string;
+  pricePerLb: string;
 };
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 function emptyLine(): OrderLineDraft {
-  return { name: '', itemNumber: '', unit: 'lb', quantity: '', unitPrice: '', notes: '', lotId: '' };
+  return { name: '', itemNumber: '', unit: 'lb', quantity: '', unitPrice: '', notes: '', lotId: '', isCatchWeight: false, estimatedWeight: '', pricePerLb: '' };
 }
 
 function asNumber(value: unknown): number {
@@ -93,6 +106,10 @@ function asMoney(value: number): string {
 }
 
 function orderItemQty(item: OrderItem): number {
+  if (item.is_catch_weight) {
+    const aw = asNumber(item.actual_weight);
+    return aw > 0 ? aw : asNumber(item.estimated_weight);
+  }
   if (String(item.unit || '').toLowerCase() === 'lb') {
     return asNumber(item.requested_weight ?? item.actual_weight ?? item.quantity ?? 0);
   }
@@ -100,7 +117,10 @@ function orderItemQty(item: OrderItem): number {
 }
 
 function calcOrderTotal(order: Order): number {
-  const itemTotal  = (order.items  || []).reduce((sum, item)   => sum + orderItemQty(item)  * asNumber(item.unit_price), 0);
+  const itemTotal = (order.items || []).reduce((sum, item) => {
+    if (item.is_catch_weight) return sum + orderItemQty(item) * asNumber(item.price_per_lb);
+    return sum + orderItemQty(item) * asNumber(item.unit_price);
+  }, 0);
   const chargeTotal = (order.charges || []).reduce((sum, charge) => sum + asNumber(charge.amount), 0);
   return itemTotal + chargeTotal;
 }
@@ -119,7 +139,10 @@ function statusVariant(status: OrderStatus): 'warning' | 'secondary' | 'success'
 }
 
 function draftSubtotal(lines: OrderLineDraft[]): number {
-  return lines.reduce((sum, line) => sum + asNumber(line.quantity) * asNumber(line.unitPrice), 0);
+  return lines.reduce((sum, line) => {
+    if (line.isCatchWeight) return sum + asNumber(line.estimatedWeight) * asNumber(line.pricePerLb);
+    return sum + asNumber(line.quantity) * asNumber(line.unitPrice);
+  }, 0);
 }
 
 function orderCustomerId(order: Order): string {
@@ -159,6 +182,13 @@ export function OrdersPage() {
   // FTL lot data: product list + per-product lots cache
   const [products, setProducts]   = useState<InventoryProduct[]>([]);
   const [lotsCache, setLotsCache] = useState<Record<string, LotCode[]>>({});
+
+  // Catch weight: expanded weight capture panel
+  const [weightCaptureOrder, setWeightCaptureOrder] = useState<Order | null>(null);
+  const [weightInputs, setWeightInputs]             = useState<Record<string, string>>({});
+  const [savingWeight, setSavingWeight]             = useState<Record<string, boolean>>({});
+
+  const role = getUserRole();
 
   async function load() {
     setLoading(true);
@@ -208,6 +238,21 @@ export function OrdersPage() {
     [products]
   );
 
+  const catchWeightSet = useMemo(
+    () => new Set(products.filter((p) => p.is_catch_weight).map((p) => p.item_number)),
+    [products]
+  );
+
+  const defaultPriceMap = useMemo(() => {
+    const map: Record<string, number> = {};
+    for (const p of products) {
+      if (p.is_catch_weight && p.default_price_per_lb != null) {
+        map[p.item_number] = asNumber(p.default_price_per_lb);
+      }
+    }
+    return map;
+  }, [products]);
+
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return orders.filter((order) => {
@@ -246,10 +291,38 @@ export function OrdersPage() {
   function updateLine(index: number, key: keyof OrderLineDraft, value: string) {
     setLines((current) => current.map((line, i) => {
       if (i !== index) return line;
-      const updated = { ...line, [key]: value };
-      // When item_number changes, clear lot selection
-      if (key === 'itemNumber') updated.lotId = '';
+      const updated: OrderLineDraft = { ...line, [key]: value };
+      if (key === 'itemNumber') {
+        updated.lotId = '';
+        const trimmed = value.trim();
+        const prod = products.find((p) => p.item_number === trimmed);
+        if (prod) {
+          updated.isCatchWeight = !!prod.is_catch_weight;
+          if (prod.is_catch_weight && prod.default_price_per_lb != null) {
+            updated.pricePerLb = String(asNumber(prod.default_price_per_lb));
+          }
+          if (!prod.is_catch_weight) {
+            updated.estimatedWeight = '';
+            updated.pricePerLb = '';
+          }
+        }
+      }
       return updated;
+    }));
+  }
+
+  function toggleLineCatchWeight(index: number) {
+    setLines((current) => current.map((line, i) => {
+      if (i !== index) return line;
+      const newCw = !line.isCatchWeight;
+      return {
+        ...line,
+        isCatchWeight: newCw,
+        estimatedWeight: newCw ? line.estimatedWeight : '',
+        pricePerLb: newCw ? line.pricePerLb : '',
+        quantity: newCw ? '' : line.quantity,
+        unitPrice: newCw ? '' : line.unitPrice,
+      };
     }));
   }
 
@@ -281,30 +354,54 @@ export function OrdersPage() {
     setMinimumFlat(existingMinimum    ? String(existingMinimum.value  ?? '') : '');
 
     const draftLines = (order.items || []).map<OrderLineDraft>((item) => ({
-      name:       String(item.name || item.description || ''),
-      itemNumber: String(item.item_number || ''),
-      unit:       String(item.unit || '').toLowerCase() === 'lb' ? 'lb' : 'each',
-      quantity:   String(orderItemQty(item) || ''),
-      unitPrice:  String(asNumber(item.unit_price) || ''),
-      notes:      String(item.notes || ''),
-      lotId:      String(item.lot_id || ''),
+      name:            String(item.name || item.description || ''),
+      itemNumber:      String(item.item_number || ''),
+      unit:            item.is_catch_weight ? 'lb' : (String(item.unit || '').toLowerCase() === 'lb' ? 'lb' : 'each'),
+      quantity:        item.is_catch_weight ? '' : String(orderItemQty(item) || ''),
+      unitPrice:       item.is_catch_weight ? '' : String(asNumber(item.unit_price) || ''),
+      notes:           String(item.notes || ''),
+      lotId:           String(item.lot_id || ''),
+      isCatchWeight:   !!item.is_catch_weight,
+      estimatedWeight: item.is_catch_weight ? String(asNumber(item.estimated_weight) || '') : '',
+      pricePerLb:      item.is_catch_weight ? String(asNumber(item.price_per_lb) || '') : '',
     }));
     setLines(draftLines.length ? draftLines : [emptyLine()]);
     setNotice(`Editing ${order.order_number || order.id.slice(0, 8)}`);
   }
 
   function draftPayload() {
-    const validLines = lines
-      .map((line) => ({
-        name:       line.name.trim(),
+    const validLines = lines.filter((line) => {
+      if (!line.name.trim()) return false;
+      return line.isCatchWeight ? asNumber(line.estimatedWeight) > 0 : asNumber(line.quantity) > 0;
+    });
+
+    const items = validLines.map((line) => {
+      if (line.isCatchWeight) {
+        return {
+          name:             line.name.trim(),
+          item_number:      line.itemNumber.trim() || undefined,
+          unit:             'lb' as const,
+          is_catch_weight:  true,
+          estimated_weight: asNumber(line.estimatedWeight),
+          price_per_lb:     asNumber(line.pricePerLb),
+          notes:            line.notes.trim() || undefined,
+          lot_id:           line.lotId ? parseInt(line.lotId, 10) : undefined,
+        };
+      }
+      const qty = asNumber(line.quantity);
+      const base = {
+        name:        line.name.trim(),
         item_number: line.itemNumber.trim() || undefined,
         unit:        line.unit,
-        quantity:    asNumber(line.quantity),
+        quantity:    qty,
         unit_price:  asNumber(line.unitPrice),
         notes:       line.notes.trim() || undefined,
         lot_id:      line.lotId ? parseInt(line.lotId, 10) : undefined,
-      }))
-      .filter((line) => line.name && line.quantity > 0);
+      };
+      return line.unit === 'lb'
+        ? { ...base, requested_weight: qty }
+        : { ...base, requested_qty: qty };
+    });
 
     return {
       customerName:    customerName.trim(),
@@ -314,11 +411,7 @@ export function OrdersPage() {
       taxEnabled,
       taxRate: asNumber(taxRate) || 0.09,
       charges,
-      items: validLines.map((line) =>
-        line.unit === 'lb'
-          ? { name: line.name, item_number: line.item_number, unit: 'lb',   requested_weight: line.quantity, quantity: line.quantity, unit_price: line.unit_price, notes: line.notes, lot_id: line.lot_id }
-          : { name: line.name, item_number: line.item_number, unit: 'each', requested_qty: line.quantity,    quantity: line.quantity, unit_price: line.unit_price, notes: line.notes, lot_id: line.lot_id }
-      ),
+      items,
     };
   }
 
@@ -384,6 +477,33 @@ export function OrdersPage() {
     } catch (err) {
       setError(String((err as Error).message || 'Could not fulfill order'));
     }
+  }
+
+  async function saveActualWeight(orderId: string, itemIndex: number) {
+    const key = `${orderId}:${itemIndex}`;
+    const raw = weightInputs[key] ?? '';
+    const val = parseFloat(raw);
+    if (!Number.isFinite(val) || val <= 0) {
+      setError('Actual weight must be a positive number.');
+      return;
+    }
+    setSavingWeight((s) => ({ ...s, [key]: true }));
+    setError('');
+    try {
+      const updated = await sendWithAuth<Order>(`/api/orders/${orderId}/items/${itemIndex}/actual-weight`, 'PATCH', { actual_weight: val });
+      setOrders((current) => current.map((o) => (o.id === orderId ? updated : o)));
+      if (weightCaptureOrder?.id === orderId) setWeightCaptureOrder(updated);
+      setWeightInputs((wi) => { const next = { ...wi }; delete next[key]; return next; });
+      setNotice('Actual weight saved. Order total recalculated.');
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not save actual weight'));
+    } finally {
+      setSavingWeight((s) => { const next = { ...s }; delete next[key]; return next; });
+    }
+  }
+
+  function hasCatchWeightPending(order: Order): boolean {
+    return (order.items || []).some((it) => it.is_catch_weight && !(asNumber(it.actual_weight) > 0));
   }
 
   // ── Render ──────────────────────────────────────────────────────────────────
@@ -466,8 +586,11 @@ export function OrdersPage() {
                   <TableHead>Product</TableHead>
                   <TableHead>Item #</TableHead>
                   <TableHead>Unit</TableHead>
-                  <TableHead>Qty</TableHead>
-                  <TableHead>Unit Price</TableHead>
+                  <TableHead>
+                    <span title="Catch weight products are invoiced by actual measured weight">CW</span>
+                  </TableHead>
+                  <TableHead>Qty / Est. Wt</TableHead>
+                  <TableHead>Unit Price / $/lb</TableHead>
                   <TableHead>Line Total</TableHead>
                   <TableHead>Notes</TableHead>
                   <TableHead>
@@ -479,9 +602,13 @@ export function OrdersPage() {
               </TableHeader>
               <TableBody>
                 {lines.map((line, index) => {
-                  const isFtl  = ftlSet.has(line.itemNumber.trim());
-                  const lots   = lotsCache[line.itemNumber.trim()] || [];
+                  const isFtl    = ftlSet.has(line.itemNumber.trim());
+                  const isCw     = line.isCatchWeight || catchWeightSet.has(line.itemNumber.trim());
+                  const lots     = lotsCache[line.itemNumber.trim()] || [];
                   const needsLot = isFtl && !line.lotId;
+                  const lineTotal = isCw
+                    ? asMoney(asNumber(line.estimatedWeight) * asNumber(line.pricePerLb))
+                    : asMoney(asNumber(line.quantity) * asNumber(line.unitPrice));
                   return (
                     <TableRow key={index} className={needsLot ? 'bg-amber-50/50' : ''}>
                       <TableCell>
@@ -491,19 +618,58 @@ export function OrdersPage() {
                         <Input value={line.itemNumber} onChange={(e) => updateLine(index, 'itemNumber', e.target.value)} placeholder="SAL-01" />
                       </TableCell>
                       <TableCell>
-                        <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-                          value={line.unit} onChange={(e) => updateLine(index, 'unit', e.target.value as 'lb' | 'each')}>
-                          <option value="lb">lb</option>
-                          <option value="each">each</option>
-                        </select>
+                        {isCw ? (
+                          <span className="inline-flex h-10 items-center px-3 text-sm text-muted-foreground">lb</span>
+                        ) : (
+                          <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                            value={line.unit} onChange={(e) => updateLine(index, 'unit', e.target.value as 'lb' | 'each')}>
+                            <option value="lb">lb</option>
+                            <option value="each">each</option>
+                          </select>
+                        )}
                       </TableCell>
                       <TableCell>
-                        <Input type="number" min="0" step="0.01" value={line.quantity} onChange={(e) => updateLine(index, 'quantity', e.target.value)} />
+                        <button
+                          type="button"
+                          onClick={() => toggleLineCatchWeight(index)}
+                          title={line.isCatchWeight ? 'Catch weight ON — click to disable' : 'Enable catch weight for this line'}
+                          className={[
+                            'inline-flex h-6 w-11 items-center rounded-full transition-colors',
+                            line.isCatchWeight ? 'bg-orange-500' : 'bg-gray-200',
+                          ].join(' ')}
+                        >
+                          <span className={['inline-block h-4 w-4 rounded-full bg-white shadow transition-transform', line.isCatchWeight ? 'translate-x-6' : 'translate-x-1'].join(' ')} />
+                        </button>
                       </TableCell>
                       <TableCell>
-                        <Input type="number" min="0" step="0.01" value={line.unitPrice} onChange={(e) => updateLine(index, 'unitPrice', e.target.value)} />
+                        {isCw ? (
+                          <div className="space-y-0.5">
+                            <Input type="number" min="0" step="0.001" value={line.estimatedWeight}
+                              onChange={(e) => updateLine(index, 'estimatedWeight', e.target.value)}
+                              placeholder="0.000 lbs" />
+                            <p className="text-xs text-muted-foreground">Est. weight (lbs)</p>
+                          </div>
+                        ) : (
+                          <Input type="number" min="0" step="0.01" value={line.quantity} onChange={(e) => updateLine(index, 'quantity', e.target.value)} />
+                        )}
                       </TableCell>
-                      <TableCell>{asMoney(asNumber(line.quantity) * asNumber(line.unitPrice))}</TableCell>
+                      <TableCell>
+                        {isCw ? (
+                          <div className="space-y-0.5">
+                            <Input type="number" min="0" step="0.0001" value={line.pricePerLb}
+                              onChange={(e) => updateLine(index, 'pricePerLb', e.target.value)}
+                              placeholder="0.0000" />
+                            <p className="text-xs text-muted-foreground">$ per lb</p>
+                          </div>
+                        ) : (
+                          <Input type="number" min="0" step="0.01" value={line.unitPrice} onChange={(e) => updateLine(index, 'unitPrice', e.target.value)} />
+                        )}
+                      </TableCell>
+                      <TableCell>
+                        {isCw
+                          ? <span className="text-sm">{lineTotal}<span className="ml-1 text-xs text-muted-foreground">(est.)</span></span>
+                          : lineTotal}
+                      </TableCell>
                       <TableCell>
                         <Input value={line.notes} onChange={(e) => updateLine(index, 'notes', e.target.value)} placeholder="Optional" />
                       </TableCell>
@@ -589,9 +755,17 @@ export function OrdersPage() {
                 {filtered.length ? (
                   filtered.map((order) => {
                     const parsedStatus = normalizedStatus(order.status);
+                    const pendingWeights = hasCatchWeightPending(order);
                     return (
                       <TableRow key={order.id}>
-                        <TableCell className="font-medium">{order.order_number || order.id.slice(0, 8)}</TableCell>
+                        <TableCell className="font-medium">
+                          <div className="space-y-0.5">
+                            <span>{order.order_number || order.id.slice(0, 8)}</span>
+                            {pendingWeights && (
+                              <div className="text-xs font-medium text-amber-600">⚠️ Weight Pending</div>
+                            )}
+                          </div>
+                        </TableCell>
                         <TableCell>{order.customer_name || '-'}</TableCell>
                         <TableCell>
                           <Badge variant={statusVariant(parsedStatus)}>{String(order.status || 'unknown').replace('_', ' ')}</Badge>
@@ -607,6 +781,18 @@ export function OrdersPage() {
                             ) : null}
                             {parsedStatus === 'in_process' ? (
                               <Button variant="secondary" size="sm" onClick={() => quickFulfill(order)}>Fulfill</Button>
+                            ) : null}
+                            {(order.items || []).some((it) => it.is_catch_weight) && (role === 'admin' || role === 'manager') ? (
+                              <Button
+                                variant={weightCaptureOrder?.id === order.id ? 'secondary' : 'outline'}
+                                size="sm"
+                                onClick={() => {
+                                  setWeightCaptureOrder(weightCaptureOrder?.id === order.id ? null : order);
+                                  setWeightInputs({});
+                                }}
+                              >
+                                Weights
+                              </Button>
                             ) : null}
                             <Button variant="ghost" size="sm" onClick={() => deleteOrder(order.id)}>Delete</Button>
                           </div>
@@ -624,6 +810,87 @@ export function OrdersPage() {
           </div>
         </CardContent>
       </Card>
+      {weightCaptureOrder ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Capture Actual Weights — {weightCaptureOrder.order_number || weightCaptureOrder.id.slice(0, 8)}</CardTitle>
+            <CardDescription>
+              Enter the actual measured weight for each catch weight item. Line totals recalculate on save.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Product</TableHead>
+                  <TableHead>Est. Weight</TableHead>
+                  <TableHead>Actual Weight</TableHead>
+                  <TableHead>Price/lb</TableHead>
+                  <TableHead>Total</TableHead>
+                  <TableHead>Variance</TableHead>
+                  {(role === 'admin' || role === 'manager') ? <TableHead>Capture</TableHead> : null}
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(weightCaptureOrder.items || []).map((item, idx) => {
+                  if (!item.is_catch_weight) return null;
+                  const key = `${weightCaptureOrder.id}:${idx}`;
+                  const est = asNumber(item.estimated_weight);
+                  const act = asNumber(item.actual_weight);
+                  const ppl = asNumber(item.price_per_lb);
+                  const confirmed = act > 0;
+                  const variance = confirmed ? parseFloat((act - est).toFixed(3)) : null;
+                  const within10Pct = variance !== null && est > 0 && Math.abs(variance / est) <= 0.1;
+                  return (
+                    <TableRow key={idx}>
+                      <TableCell className="font-medium">{item.name || item.description || `Item ${idx + 1}`}</TableCell>
+                      <TableCell>{est.toFixed(3)} lbs</TableCell>
+                      <TableCell>
+                        {confirmed
+                          ? <span className="font-semibold">{act.toFixed(3)} lbs</span>
+                          : <span className="text-muted-foreground text-xs">Not captured</span>}
+                      </TableCell>
+                      <TableCell>${ppl.toFixed(4)}/lb</TableCell>
+                      <TableCell>
+                        {confirmed
+                          ? asMoney(act * ppl)
+                          : <span className="text-muted-foreground text-xs">{asMoney(est * ppl)} (est.)</span>}
+                      </TableCell>
+                      <TableCell>
+                        {variance !== null ? (
+                          <span className={variance === 0 ? '' : within10Pct ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
+                            {variance > 0 ? '+' : ''}{variance.toFixed(3)} lbs
+                          </span>
+                        ) : <span className="text-muted-foreground text-xs">—</span>}
+                      </TableCell>
+                      {(role === 'admin' || role === 'manager') ? (
+                        <TableCell>
+                          <div className="flex items-center gap-2">
+                            <Input
+                              type="number" min="0.001" step="0.001"
+                              placeholder="0.000"
+                              value={weightInputs[key] ?? (confirmed ? String(act) : '')}
+                              onChange={(e) => setWeightInputs((wi) => ({ ...wi, [key]: e.target.value }))}
+                              className="w-28"
+                            />
+                            <Button
+                              size="sm"
+                              disabled={!!savingWeight[key]}
+                              onClick={() => saveActualWeight(weightCaptureOrder.id, idx)}
+                            >
+                              {savingWeight[key] ? 'Saving…' : 'Save'}
+                            </Button>
+                          </div>
+                        </TableCell>
+                      ) : null}
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      ) : null}
     </div>
   );
 }
