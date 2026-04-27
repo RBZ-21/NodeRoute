@@ -1,4 +1,4 @@
-import { ChevronDown, LayoutDashboard, LogOut } from 'lucide-react';
+import { ChevronDown, LayoutDashboard, LogOut, Moon, Sun } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { useEffect, useMemo, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
@@ -140,6 +140,20 @@ const allNavItems = navGroups.flatMap((group) => group.items);
 export function App() {
   const location = useLocation();
   const [sessionState, setSessionState] = useState<'checking' | 'ready'>('checking');
+
+  // Dark mode — persisted to localStorage, applied as class on <html>
+  const [dark, setDark] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('nr_theme');
+      if (stored) return stored === 'dark';
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    } catch { return false; }
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+    try { localStorage.setItem('nr_theme', dark ? 'dark' : 'light'); } catch {}
+  }, [dark]);
   const isLoginRoute = location.pathname === '/login';
   const isPortalRoute = location.pathname === '/portal' || location.pathname === '/customer-portal';
   const isDriverRoute = location.pathname === '/driver';
@@ -246,6 +260,9 @@ function AppShell() {
               <a href="/dashboard-legacy" className={cn('inline-flex', role === 'unknown' && 'pointer-events-none opacity-50')}>
                 <Button variant="outline">Legacy Dashboard</Button>
               </a>
+              <Button variant="outline" size="sm" onClick={() => setDark((d) => !d)} title={dark ? 'Switch to light mode' : 'Switch to dark mode'}>
+                {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
+              </Button>
               <Button onClick={() => { localStorage.removeItem('nr_token'); localStorage.removeItem('nr_user'); window.location.href = '/login'; }}>
                 <LogOut className="mr-2 h-4 w-4" />
                 Logout
