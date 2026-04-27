@@ -6,24 +6,46 @@
 
 @layer base {
   :root {
-    --background: 214 56% 98%;
+    /* Light mode — softer grey-blue base instead of near-white */
+    --background: 214 25% 93%;
     --foreground: 217 33% 17%;
-    --card: 0 0% 100%;
+    --card: 214 30% 97%;
     --card-foreground: 217 33% 17%;
     --primary: 213 70% 42%;
     --primary-foreground: 0 0% 100%;
-    --secondary: 213 43% 94%;
+    --secondary: 213 30% 88%;
     --secondary-foreground: 213 31% 28%;
-    --muted: 214 36% 95%;
+    --muted: 214 22% 89%;
     --muted-foreground: 215 20% 41%;
-    --accent: 214 72% 94%;
+    --accent: 214 50% 90%;
     --accent-foreground: 213 61% 33%;
     --destructive: 0 75% 46%;
     --destructive-foreground: 0 0% 100%;
-    --border: 214 32% 88%;
-    --input: 214 32% 88%;
+    --border: 214 22% 82%;
+    --input: 214 22% 82%;
     --ring: 213 70% 42%;
     --radius: 0.72rem;
+  }
+
+  .dark {
+    /* Dark mode — deep navy matching brand tones */
+    --background: 222 28% 10%;
+    --foreground: 213 20% 86%;
+    --card: 222 24% 14%;
+    --card-foreground: 213 20% 86%;
+    --primary: 213 65% 55%;
+    --primary-foreground: 0 0% 100%;
+    --secondary: 217 22% 21%;
+    --secondary-foreground: 213 20% 78%;
+    --muted: 217 20% 18%;
+    --muted-foreground: 215 15% 52%;
+    --accent: 214 35% 22%;
+    --accent-foreground: 213 50% 76%;
+    --destructive: 0 62% 52%;
+    --destructive-foreground: 0 0% 100%;
+    --border: 217 18% 26%;
+    --input: 217 18% 26%;
+    --ring: 213 65% 55%;
   }
 
   * {
