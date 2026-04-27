@@ -140,6 +140,21 @@ async function resolvePortalCustomer(email) {
     };
   }
 
+  // Check Customers table by billing_email — allows customers to log in before any order exists
+  const { data: customers } = await supabase
+    .from('Customers')
+    .select('company_name, billing_email, company_id, location_id')
+    .ilike('billing_email', normalized)
+    .limit(1);
+  if (customers && customers.length > 0) {
+    return {
+      email: normalized,
+      name: customers[0].company_name || normalized,
+      companyId: customers[0].company_id || null,
+      locationId: customers[0].location_id || null,
+    };
+  }
+
   if (canUsePortalPreview(normalized)) {
     const { data: users, error: userError } = await supabase
       .from('users')
