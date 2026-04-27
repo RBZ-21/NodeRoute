@@ -313,26 +313,6 @@ export function OrdersPage() {
     return { pending, inProcess, invoiced, totalValue };
   }, [orders]);
 
-  const customerOptions = useMemo(
-    () =>
-      customers.map((c) => ({
-        label: c.company_name || '',
-        sublabel: [c.phone_number, c.billing_email].filter(Boolean).join(' · '),
-        value: c.id,
-      })),
-    [customers],
-  );
-
-  const productOptions = useMemo(
-    () =>
-      products.map((p) => ({
-        label: p.description,
-        sublabel: `#${p.item_number} · ${p.unit ?? 'lb'} · $${asNumber(p.cost).toFixed(2)}`,
-        value: p.item_number,
-      })),
-    [products],
-  );
-
   const subtotal = useMemo(() => draftSubtotal(lines), [lines]);
   const charges  = useMemo(() => {
     const fuel    = asNumber(fuelPercent);
