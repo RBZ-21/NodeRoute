@@ -141,19 +141,6 @@ export function App() {
   const location = useLocation();
   const [sessionState, setSessionState] = useState<'checking' | 'ready'>('checking');
 
-  // Dark mode — persisted to localStorage, applied as class on <html>
-  const [dark, setDark] = useState<boolean>(() => {
-    try {
-      const stored = localStorage.getItem('nr_theme');
-      if (stored) return stored === 'dark';
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    } catch { return false; }
-  });
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', dark);
-    try { localStorage.setItem('nr_theme', dark ? 'dark' : 'light'); } catch {}
-  }, [dark]);
   const isLoginRoute = location.pathname === '/login';
   const isPortalRoute = location.pathname === '/portal' || location.pathname === '/customer-portal';
   const isDriverRoute = location.pathname === '/driver';
@@ -227,6 +214,20 @@ function AppShell() {
   const role = getUserRole();
   const location = useLocation();
   const navigate = useNavigate();
+
+  // Dark mode — persisted to localStorage, applied as class on <html>
+  const [dark, setDark] = useState<boolean>(() => {
+    try {
+      const stored = localStorage.getItem('nr_theme');
+      if (stored) return stored === 'dark';
+      return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    } catch { return false; }
+  });
+
+  useEffect(() => {
+    document.documentElement.classList.toggle('dark', dark);
+    try { localStorage.setItem('nr_theme', dark ? 'dark' : 'light'); } catch {}
+  }, [dark]);
 
   const availableGroups = useMemo(
     () =>
