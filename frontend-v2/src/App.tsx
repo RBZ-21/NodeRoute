@@ -32,6 +32,8 @@ import { MapPage } from './pages/MapPage';
 import { WarehousePage } from './pages/WarehousePage';
 import { LoginPage } from './pages/LoginPage';
 import { TraceabilityPage } from './pages/TraceabilityPage';
+import { TrackPage } from './pages/TrackPage';
+import { SetupPasswordPage } from './pages/SetupPasswordPage';
 
 type TabId =
   | 'dashboard'
@@ -144,12 +146,14 @@ export function App() {
   const isLoginRoute = location.pathname === '/login';
   const isPortalRoute = location.pathname === '/portal' || location.pathname === '/customer-portal';
   const isDriverRoute = location.pathname === '/driver';
+  const isTrackRoute = location.pathname === '/track' || location.pathname.startsWith('/track/');
+  const isSetupPasswordRoute = location.pathname === '/setup-password';
 
   useEffect(() => {
     let cancelled = false;
 
     async function validateSession() {
-      if (isLoginRoute || isPortalRoute) {
+      if (isLoginRoute || isPortalRoute || isTrackRoute || isSetupPasswordRoute) {
         if (!cancelled) setSessionState('ready');
         return;
       }
@@ -173,7 +177,7 @@ export function App() {
     return () => {
       cancelled = true;
     };
-  }, [isLoginRoute, isPortalRoute]);
+  }, [isLoginRoute, isPortalRoute, isTrackRoute, isSetupPasswordRoute]);
 
   if (isLoginRoute) {
     return <LoginPage />;
@@ -181,6 +185,14 @@ export function App() {
 
   if (isPortalRoute) {
     return <CustomerPortalPage />;
+  }
+
+  if (isTrackRoute) {
+    return <TrackPage />;
+  }
+
+  if (isSetupPasswordRoute) {
+    return <SetupPasswordPage />;
   }
 
   if (sessionState === 'checking') {

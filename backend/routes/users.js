@@ -187,7 +187,7 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
   );
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
 
-  const inviteUrl = `${BASE_URL}/setup-password.html?token=${inviteToken}`;
+  const inviteUrl = `${BASE_URL}/setup-password?token=${inviteToken}`;
   console.log(`\nINVITE for ${name} (${email}) as ${role}:\n${inviteUrl}\n`);
   const queuedMailers = createConfiguredMailers();
   const emailQueued = queuedMailers.length > 0;
