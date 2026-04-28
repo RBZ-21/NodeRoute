@@ -1,7 +1,6 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const { filterRowsByContext, rowMatchesContext } = require('../services/operating-context');
-const { dwellRecords } = require('./stops');
 
 const router = express.Router();
 
@@ -168,10 +167,18 @@ router.get('/:token', async (req, res) => {
     updatedAt: driverLocation?.updated_at || null,
   };
 
-  const relevantDwell = dwellRecords.filter((record) => String(record.routeId || '') === String(order.route_id || ''));
-  const completedStopIds = new Set(relevantDwell.filter((record) => record.departedAt).map((record) => record.stopId));
-  const activeDwell = relevantDwell.find((record) => !record.departedAt) || null;
-  const activeDwellMinutes = activeDwell ? (Date.now() - new Date(activeDwell.arrivedAt).getTime()) / 60000 : 0;
+  let completedStopIds = new Set();
+  let activeDwellMinutes = 0;
+  if (order.route_id) {
+    const { data: dwellRows } = await supabase
+      .from('dwell_records')
+      .select('stop_id, arrived_at, departed_at')
+      .eq('route_id', order.route_id);
+    const relevantDwell = dwellRows || [];
+    completedStopIds = new Set(relevantDwell.filter((r) => r.departed_at).map((r) => r.stop_id));
+    const activeDwell = relevantDwell.find((r) => !r.departed_at) || null;
+    activeDwellMinutes = activeDwell ? (Date.now() - new Date(activeDwell.arrived_at).getTime()) / 60000 : 0;
+  }
 
   const stopsBeforeYou =
     matchedStopIndex >= 0
@@ -187,6 +194,8 @@ router.get('/:token', async (req, res) => {
     status: order.status,
     deliveryAddress: order.customer_address,
     customerName: order.customer_name,
+    customerEmail: order.customer_email || null,
+    customerPhone: order.customer_phone || null,
     stopsBeforeYou,
     totalRouteStops: orderedStops.length,
     driver,
