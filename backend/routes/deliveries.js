@@ -347,7 +347,7 @@ function buildDriverSummary(deliveries, drivers, driverName) {
         : 0).toFixed(1)
     ),
     status: driver.status || 'off-duty',
-    vehicleId: driver.vehicleId || 'Assigned Vehicle',
+    vehicleId: driver.vehicleId || null,
   };
 }
 
@@ -447,3 +447,5 @@ router.patch('/deliveries/:id/status', authenticateToken, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.mapOrderStatus = mapOrderStatus;
+module.exports.findMatchingStop = findMatchingStop;
