@@ -263,8 +263,15 @@ app.get('/customer-portal', (req, res) => {
   }
   return res.sendFile(path.join(frontendDir, 'customer-portal.html'));
 });
-app.get('/track', (req, res) => res.sendFile(path.join(frontendDir, 'track.html')));
+app.get('/track', (req, res) => {
+  if (hasFrontendV2Build) return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
+  return res.sendFile(path.join(frontendDir, 'track.html'));
+});
 app.get('/track/:token', (req, res) => res.redirect(`/track?t=${encodeURIComponent(req.params.token)}`));
+app.get('/setup-password', (req, res) => {
+  if (hasFrontendV2Build) return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
+  return res.sendFile(path.join(frontendDir, 'setup-password.html'));
+});
 
 // ── 404 for unknown API routes (must be before the global error handler) ──────
 app.use('/api', (req, res) => {

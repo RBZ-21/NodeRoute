@@ -205,3 +205,6 @@ router.get('/:token', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.buildEta = buildEta;
+module.exports.findMatchingStopIndex = findMatchingStopIndex;
+module.exports.buildDestination = buildDestination;
