@@ -58,10 +58,7 @@ async function authorizeDwellEvent(req, res) {
   return { route, routeId };
 }
 
-// ── DWELL TIME (geofence check-in/out) ──────────────────
-const dwellRecords = []; // { id, stopId, routeId, driverId, arrivedAt, departedAt, dwellMs }
-
-router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.get('/',authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const data = await dbQuery(supabase.from('stops').select('*').order('created_at', { ascending: true }), res);
   if (!data) return;
   res.json(filterRowsByContext(data, req.context));
@@ -105,24 +102,58 @@ router.post('/:id/arrive', authenticateToken, requireRole('driver', 'admin', 'ma
   const authorized = await authorizeDwellEvent(req, res);
   if (!authorized) return;
   const { routeId } = authorized;
-  const existing = dwellRecords.find(d => d.stopId === req.params.id && d.routeId === routeId && !d.departedAt);
-  if (existing) return res.json(existing);
-  const record = { id: 'dwell-' + Date.now(), stopId: req.params.id, routeId: routeId||'', driverId: req.user.id, arrivedAt: new Date().toISOString(), departedAt: null, dwellMs: null };
-  dwellRecords.push(record);
-  res.json(record);
+
+  const { data: existing } = await supabase
+    .from('dwell_records')
+    .select('*')
+    .eq('stop_id', req.params.id)
+    .eq('route_id', routeId || '')
+    .is('departed_at', null)
+    .limit(1);
+  if (existing && existing[0]) return res.json(existing[0]);
+
+  const record = {
+    id: 'dwell-' + Date.now(),
+    stop_id: req.params.id,
+    route_id: routeId || '',
+    driver_id: req.user.id,
+    arrived_at: new Date().toISOString(),
+    departed_at: null,
+    dwell_ms: null,
+  };
+
+  const { data, error } = await supabase.from('dwell_records').insert(record).select().single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
 });
 
 router.post('/:id/depart', authenticateToken, requireRole('driver', 'admin', 'manager'), async (req, res) => {
   const authorized = await authorizeDwellEvent(req, res);
   if (!authorized) return;
   const { routeId } = authorized;
-  const record = dwellRecords.find(d => d.stopId === req.params.id && d.routeId === routeId && !d.departedAt);
+
+  const { data: rows } = await supabase
+    .from('dwell_records')
+    .select('*')
+    .eq('stop_id', req.params.id)
+    .eq('route_id', routeId || '')
+    .is('departed_at', null)
+    .limit(1);
+  const record = rows && rows[0];
   if (!record) return res.status(404).json({ error: 'No active arrival found' });
-  record.departedAt = new Date().toISOString();
-  record.dwellMs = new Date(record.departedAt) - new Date(record.arrivedAt);
-  res.json(record);
+
+  const departedAt = new Date().toISOString();
+  const dwellMs = new Date(departedAt) - new Date(record.arrived_at);
+
+  const { data, error } = await supabase
+    .from('dwell_records')
+    .update({ departed_at: departedAt, dwell_ms: dwellMs })
+    .eq('id', record.id)
+    .select()
+    .single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
 });
 
 module.exports = router;
-module.exports.dwellRecords = dwellRecords;
 module.exports.isRouteAssignedToUser = isRouteAssignedToUser;

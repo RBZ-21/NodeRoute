@@ -569,3 +569,27 @@ alter table if exists "Customers"
   add column if not exists credit_hold            boolean     not null default false,
   add column if not exists credit_hold_reason     text,
   add column if not exists credit_hold_placed_at  timestamptz;
+
+-- ================================================================
+-- 20260428_driver_profile_fields.sql
+-- ================================================================
+alter table public.users
+  add column if not exists phone      text,
+  add column if not exists vehicle_id text;
+
+-- ================================================================
+-- 20260428_dwell_records.sql
+-- ================================================================
+create table if not exists public.dwell_records (
+  id          text        primary key,
+  stop_id     text        not null,
+  route_id    text        not null default '',
+  driver_id   text        not null default '',
+  arrived_at  timestamptz not null,
+  departed_at timestamptz,
+  dwell_ms    bigint,
+  created_at  timestamptz not null default now()
+);
+
+create index if not exists idx_dwell_records_stop_id  on public.dwell_records(stop_id);
+create index if not exists idx_dwell_records_route_id on public.dwell_records(route_id);
