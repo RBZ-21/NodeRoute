@@ -92,6 +92,9 @@ function matchesFilter(row, filter) {
   if (filter.type === 'is') {
     return filter.value === null ? value == null : value === filter.value;
   }
+  if (filter.type === 'in') {
+    return Array.isArray(filter.value) && filter.value.map(String).includes(String(value));
+  }
   if (filter.type === 'ilike') {
     const haystack = String(value ?? '').toLowerCase();
     const needle = String(filter.value ?? '').toLowerCase().replace(/%/g, '');
@@ -157,6 +160,11 @@ class DemoQuery {
 
   is(field, value) {
     this.filters.push({ type: 'is', field, value });
+    return this;
+  }
+
+  in(field, values) {
+    this.filters.push({ type: 'in', field, value: values });
     return this;
   }
 
@@ -348,6 +356,11 @@ class ResilientQuery {
     return this;
   }
 
+  in(field, values) {
+    this.filters.push({ type: 'in', field, value: values });
+    return this;
+  }
+
   gte(field, value) {
     this.filters.push({ type: 'gte', field, value });
     return this;
@@ -399,6 +412,7 @@ class ResilientQuery {
       if (filter.type === 'eq') query = query.eq(filter.field, filter.value);
       if (filter.type === 'ilike') query = query.ilike(filter.field, filter.value);
       if (filter.type === 'is' && typeof query.is === 'function') query = query.is(filter.field, filter.value);
+      if (filter.type === 'in' && typeof query.in === 'function') query = query.in(filter.field, filter.value);
       if (filter.type === 'gte' && typeof query.gte === 'function') query = query.gte(filter.field, filter.value);
       if (filter.type === 'lte' && typeof query.lte === 'function') query = query.lte(filter.field, filter.value);
     }
