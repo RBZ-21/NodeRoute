@@ -14,7 +14,6 @@ const invoicesRouter = require('./routes/invoices');
 const inventoryRouter = require('./routes/inventory');
 const deliveriesRouter = require('./routes/deliveries');
 const stopsRouter = require('./routes/stops');
-const { dwellRecords } = require('./routes/stops');
 const routesRouter = require('./routes/routes');
 const customersRouter = require('./routes/customers');
 const forecastRouter = require('./routes/forecast');
@@ -162,12 +161,17 @@ app.get('/healthz', (req, res) => {
   res.json({ ok: true });
 });
 
-// Dwell records (top-level path, shares in-memory state with stops router)
-app.get('/api/dwell', authenticateToken, (req, res) => {
-  if (req.user.role === 'driver') {
-    return res.json(dwellRecords.filter((record) => record.driverId === req.user.id));
+// Dwell records (top-level path, reads from Supabase)
+app.get('/api/dwell', authenticateToken, async (req, res) => {
+  try {
+    let query = supabase.from('dwell_records').select('*');
+    if (req.user.role === 'driver') query = query.eq('driver_id', req.user.id);
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data || []);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
-  res.json(dwellRecords);
 });
 
 // Legacy alias: /api/drivers/invite → /api/users/invite
