@@ -38,9 +38,14 @@ Set `OPENAI_API_KEY` in the same runtime environment as the backend process, not
 
 The automated tests intentionally run without `OPENAI_API_KEY` and verify that walkthroughs fall back to safe heuristic guidance, so the test warning is expected. Production AI features require the variable to be present.
 
+## Tests
+
+Run the backend test suite (Node built-in runner, no extra dependencies):
+
+```
+npm --prefix backend test
+```
+
 ## Current Cleanup Notes
 
-- Delivery stats and driver analytics still rely on hard-coded demo data in `backend/routes/deliveries.js`.
-- Public order tracking is not implemented end to end.
 - The customer portal auth flow should be hardened before production use.
-- Backend automated tests have not been added yet.
