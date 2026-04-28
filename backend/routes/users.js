@@ -222,13 +222,16 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
   });
 });
 
-// Any user can update their own name; admins can update anyone
+// Any user can update their own profile; admins can update anyone
 router.patch('/:id', authenticateToken, async (req, res) => {
   if (req.user.id !== req.params.id && req.user.role !== 'admin')
     return res.status(403).json({ error: 'Forbidden' });
-  const { name } = req.body;
+  const { name, phone, vehicle_id } = req.body;
   if (!name || !name.trim()) return res.status(400).json({ error: 'Name required' });
-  const { data, error } = await supabase.from('users').update({ name: name.trim() }).eq('id', req.params.id).select('id,name').single();
+  const updates = { name: name.trim() };
+  if (phone !== undefined) updates.phone = phone ? String(phone).trim() || null : null;
+  if (vehicle_id !== undefined) updates.vehicle_id = vehicle_id ? String(vehicle_id).trim() || null : null;
+  const { data, error } = await supabase.from('users').update(updates).eq('id', req.params.id).select('id,name,phone,vehicle_id').single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
