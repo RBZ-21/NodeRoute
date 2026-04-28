@@ -2,8 +2,6 @@ const express = require('express');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { supabase } = require('../services/supabase');
 const { filterRowsByContext, rowMatchesContext } = require('../services/operating-context');
-const { dwellRecords } = require('./stops');
-
 const router = express.Router();
 
 function normalize(value) {
@@ -79,6 +77,7 @@ async function loadDashboardContext(context) {
     driverLocationsResult,
     usersResult,
     contactsResult,
+    dwellResult,
   ] = await Promise.all([
     supabase
       .from('orders')
@@ -87,8 +86,9 @@ async function loadDashboardContext(context) {
     supabase.from('routes').select('id, name, stop_ids, driver, notes, created_at'),
     supabase.from('stops').select('id, name, address, lat, lng, notes, door_code, created_at'),
     supabase.from('driver_locations').select('driver_name, lat, lng, heading, speed_mph, updated_at'),
-    supabase.from('users').select('id, name, email, role, status, created_at').order('created_at', { ascending: true }),
+    supabase.from('users').select('id, name, email, role, status, phone, vehicle_id, created_at').order('created_at', { ascending: true }),
     supabase.from('portal_contacts').select('name, email, door_code, phone'),
+    supabase.from('dwell_records').select('id, stop_id, route_id, driver_id, arrived_at, departed_at, dwell_ms'),
   ]);
 
   const errors = [
@@ -110,6 +110,7 @@ async function loadDashboardContext(context) {
   const stopMap = Object.fromEntries(stops.map((stop) => [stop.id, stop]));
   const driverLocations = filterRowsByContext(driverLocationsResult.data || [], context);
   const locationMap = Object.fromEntries(driverLocations.map((loc) => [normalize(loc.driver_name), loc]));
+  const dwellRecords = dwellResult.data || [];
   const contacts = filterRowsByContext(contactsResult.data || [], context);
   const contactDoorMap = {};
   contacts.forEach((contact) => {
@@ -136,10 +137,10 @@ async function loadDashboardContext(context) {
     const driverLocation = locationMap[normalize(driverName)] || null;
 
     const activeDwell = matchedStop
-      ? dwellRecords.find((record) => record.stopId === matchedStop.id && String(record.routeId || '') === String(order.route_id || '') && !record.departedAt)
+      ? dwellRecords.find((record) => record.stop_id === matchedStop.id && String(record.route_id || '') === String(order.route_id || '') && !record.departed_at)
       : null;
     const completedDwell = matchedStop
-      ? dwellRecords.find((record) => record.stopId === matchedStop.id && String(record.routeId || '') === String(order.route_id || '') && !!record.departedAt)
+      ? dwellRecords.find((record) => record.stop_id === matchedStop.id && String(record.route_id || '') === String(order.route_id || '') && !!record.departed_at)
       : null;
 
     const destination = {
@@ -152,10 +153,10 @@ async function loadDashboardContext(context) {
     };
     const status = mapOrderStatus(order, !!driverLocation);
     const createdAt = new Date(order.created_at);
-    const stopDurationMinutes = completedDwell?.dwellMs
-      ? Math.round(completedDwell.dwellMs / 60000)
-      : activeDwell?.arrivedAt
-        ? Math.max(1, Math.round((Date.now() - new Date(activeDwell.arrivedAt).getTime()) / 60000))
+    const stopDurationMinutes = completedDwell?.dwell_ms
+      ? Math.round(completedDwell.dwell_ms / 60000)
+      : activeDwell?.arrived_at
+        ? Math.max(1, Math.round((Date.now() - new Date(activeDwell.arrived_at).getTime()) / 60000))
         : null;
     const distanceMiles = Number(haversineMiles(driverCoords, destination).toFixed(1));
     const deliveryDoor =
@@ -184,7 +185,7 @@ async function loadDashboardContext(context) {
       expectedWindowStart: order.created_at,
       expectedWindowEnd: new Date(createdAt.getTime() + 2 * 60 * 60 * 1000).toISOString(),
       startTime: route?.created_at || order.created_at,
-      endTime: status === 'delivered' ? (completedDwell?.departedAt || order.created_at) : null,
+      endTime: status === 'delivered' ? (completedDwell?.departed_at || order.created_at) : null,
       stopDurationMinutes,
       speedMph: Number(toNumber(driverLocation?.speed_mph, 0).toFixed(1)),
       items: itemList,
@@ -210,8 +211,8 @@ async function loadDashboardContext(context) {
     return {
       id: user.id,
       name: user.name,
-      vehicleId: 'Assigned Vehicle',
-      phone: '—',
+      vehicleId: user.vehicle_id || null,
+      phone: user.phone || null,
       status: onDuty ? 'on-duty' : 'off-duty',
       onTimeRate: completed.length ? Math.round((completed.filter((delivery) => delivery.onTime !== false).length / completed.length) * 100) : 100,
       totalStopsToday: completed.length,
