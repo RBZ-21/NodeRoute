@@ -151,9 +151,8 @@ app.use('/api/reporting', reportingRouter);
 app.use('/api/lots', lotsRouter);
 // traceability/report lives under /api/lots prefix as /api/lots/traceability/report
 
-// Config endpoint — maps key exposed publicly (restricted via Google domain policy)
 const { authenticateToken, requireRole } = require('./middleware/auth');
-app.get('/api/config/maps-key', (req, res) => {
+app.get('/api/config/maps-key', authenticateToken, (req, res) => {
   res.json({ key: process.env.GOOGLE_MAPS_KEY || '' });
 });
 
