@@ -4,7 +4,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
-const opsRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops.js'), 'utf8');
+const opsRouteSource = [
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops.js'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops-purchasing.js'), 'utf8'),
+].join('\n');
 const frontendSource = fs.readFileSync(path.join(repoRoot, 'frontend', 'index.html'), 'utf8');
 
 test('ops routes expose the expected API surface', () => {
