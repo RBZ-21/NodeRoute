@@ -5,7 +5,10 @@ const assert = require('node:assert/strict');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const inventoryRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'inventory.js'), 'utf8');
-const opsRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops.js'), 'utf8');
+const opsRouteSource = [
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops.js'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops-purchasing.js'), 'utf8'),
+].join('\n');
 const ordersRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'orders.js'), 'utf8');
 const purchaseOrdersRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'purchase-orders.js'), 'utf8');
 const ledgerServiceSource = fs.readFileSync(path.join(repoRoot, 'backend', 'services', 'inventory-ledger.js'), 'utf8');

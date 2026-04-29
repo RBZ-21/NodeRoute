@@ -4,7 +4,10 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
-const portalRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal.js'), 'utf8');
+const portalRouteSource = [
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal.js'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal-payments.js'), 'utf8'),
+].join('\n');
 const portalFrontendSource = fs.readFileSync(path.join(repoRoot, 'frontend', 'customer-portal.html'), 'utf8');
 
 test('portal backend exposes payment readiness endpoints', () => {
