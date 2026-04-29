@@ -1,0 +1,111 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  backend-tests:
+    name: Backend Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Cache backend node_modules
+        uses: actions/cache@v4
+        with:
+          path: backend/node_modules
+          key: ${{ runner.os }}-node20-backend-${{ hashFiles('backend/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node20-backend-
+
+      - name: Install backend dependencies
+        run: npm --prefix backend ci
+
+      - name: Run backend tests
+        run: npm --prefix backend test
+
+  frontend-build:
+    name: Frontend Build
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Cache frontend-v2 node_modules
+        uses: actions/cache@v4
+        with:
+          path: frontend-v2/node_modules
+          key: ${{ runner.os }}-node20-frontend-v2-${{ hashFiles('frontend-v2/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node20-frontend-v2-
+
+      - name: Install frontend-v2 dependencies
+        run: npm --prefix frontend-v2 ci
+
+      - name: Run frontend-v2 build
+        run: npm --prefix frontend-v2 run build
+
+  frontend-tests:
+    name: Frontend Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Detect frontend-v2 test script
+        id: detect-test-script
+        shell: bash
+        run: |
+          if node -e "const pkg=require('./frontend-v2/package.json'); process.exit(pkg.scripts && pkg.scripts.test ? 0 : 1)"; then
+            echo "has_test_script=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_test_script=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Cache frontend-v2 node_modules
+        if: steps.detect-test-script.outputs.has_test_script == 'true'
+        uses: actions/cache@v4
+        with:
+          path: frontend-v2/node_modules
+          key: ${{ runner.os }}-node20-frontend-v2-${{ hashFiles('frontend-v2/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node20-frontend-v2-
+
+      - name: Install frontend-v2 dependencies
+        if: steps.detect-test-script.outputs.has_test_script == 'true'
+        run: npm --prefix frontend-v2 ci
+
+      - name: Run frontend-v2 tests
+        if: steps.detect-test-script.outputs.has_test_script == 'true'
+        run: npm --prefix frontend-v2 run test
+
+      - name: Skip frontend-v2 tests when script is missing
+        if: steps.detect-test-script.outputs.has_test_script != 'true'
+        run: echo "frontend-v2 test script not found; skipping frontend tests."

@@ -4,10 +4,18 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
-const opsRouteSource = [
-  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops.js'), 'utf8'),
-  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops-purchasing.js'), 'utf8'),
-].join('\n');
+function readSources(paths) {
+  return paths.map((filePath) => fs.readFileSync(filePath, 'utf8')).join('\n');
+}
+
+const opsRouteSource = readSources([
+  path.join(repoRoot, 'backend', 'routes', 'ops.js'),
+  path.join(repoRoot, 'backend', 'routes', 'ops-purchasing.js'),
+  path.join(repoRoot, 'backend', 'routes', 'ops', 'admin-routes.js'),
+  path.join(repoRoot, 'backend', 'routes', 'ops', 'purchasing-shared.js'),
+  path.join(repoRoot, 'backend', 'routes', 'ops', 'purchasing-planning-routes.js'),
+  path.join(repoRoot, 'backend', 'routes', 'ops', 'purchasing-order-routes.js'),
+]);
 const frontendSource = fs.readFileSync(path.join(repoRoot, 'frontend', 'index.html'), 'utf8');
 
 test('ops routes expose the expected API surface', () => {

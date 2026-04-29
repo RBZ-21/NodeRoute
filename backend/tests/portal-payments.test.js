@@ -4,10 +4,18 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
-const portalRouteSource = [
-  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal.js'), 'utf8'),
-  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal-payments.js'), 'utf8'),
-].join('\n');
+function readSources(paths) {
+  return paths.map((filePath) => fs.readFileSync(filePath, 'utf8')).join('\n');
+}
+
+const portalRouteSource = readSources([
+  path.join(repoRoot, 'backend', 'routes', 'portal.js'),
+  path.join(repoRoot, 'backend', 'routes', 'portal-payments.js'),
+  path.join(repoRoot, 'backend', 'routes', 'portal', 'shared.js'),
+  path.join(repoRoot, 'backend', 'routes', 'portal', 'payment-profile-routes.js'),
+  path.join(repoRoot, 'backend', 'routes', 'portal', 'payment-method-routes.js'),
+  path.join(repoRoot, 'backend', 'routes', 'portal', 'payment-collection-routes.js'),
+]);
 const portalFrontendSource = fs.readFileSync(path.join(repoRoot, 'frontend', 'customer-portal.html'), 'utf8');
 
 test('portal backend exposes payment readiness endpoints', () => {
