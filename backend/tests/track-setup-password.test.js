@@ -6,6 +6,11 @@ const path = require('node:path');
 const frontendV2 = path.join(__dirname, '../../frontend-v2/src');
 const backendRoutes = path.join(__dirname, '..', 'routes');
 const backendRoot = path.join(__dirname, '..');
+const portalSource = [
+  fs.readFileSync(path.join(backendRoutes, 'portal.js'), 'utf8'),
+  fs.readFileSync(path.join(backendRoutes, 'portal', 'shared.js'), 'utf8'),
+  fs.readFileSync(path.join(backendRoutes, 'portal', 'auth-routes.js'), 'utf8'),
+].join('\n');
 
 // ── TrackPage.tsx structural checks ──────────────────────────────────────────
 
@@ -131,30 +136,26 @@ test('auth.js setup-password requires both token and password', () => {
 // ── portal.js auth hardening checks ──────────────────────────────────────────
 
 test('portal.js uses Supabase portal_challenges table not in-memory Map', () => {
-  const src = fs.readFileSync(path.join(backendRoutes, 'portal.js'), 'utf8');
-  assert.ok(!src.includes('portalChallenges'), 'must not use in-memory portalChallenges Map');
-  assert.ok(src.includes("from('portal_challenges')"), 'must query portal_challenges table');
+  assert.ok(!portalSource.includes('portalChallenges'), 'must not use in-memory portalChallenges Map');
+  assert.ok(portalSource.includes("from('portal_challenges')"), 'must query portal_challenges table');
 });
 
 test('portal.js uses Supabase portal_auth_attempts table not in-memory Map', () => {
-  const src = fs.readFileSync(path.join(backendRoutes, 'portal.js'), 'utf8');
-  assert.ok(!src.includes('authAttempts'), 'must not use in-memory authAttempts Map');
-  assert.ok(src.includes("from('portal_auth_attempts')"), 'must query portal_auth_attempts table');
+  assert.ok(!portalSource.includes('authAttempts'), 'must not use in-memory authAttempts Map');
+  assert.ok(portalSource.includes("from('portal_auth_attempts')"), 'must query portal_auth_attempts table');
 });
 
 test('portal.js challenge uses snake_case DB field names', () => {
-  const src = fs.readFileSync(path.join(backendRoutes, 'portal.js'), 'utf8');
-  assert.ok(src.includes('code_hash'), 'must use code_hash not codeHash');
-  assert.ok(src.includes('expires_at'), 'must use expires_at not expiresAt');
-  assert.ok(src.includes('attempts_left'), 'must use attempts_left not attemptsLeft');
-  assert.ok(src.includes('last_sent_at'), 'must use last_sent_at not lastSentAt');
-  assert.ok(src.includes('company_id'), 'must store company_id in challenge');
-  assert.ok(src.includes('location_id'), 'must store location_id in challenge');
+  assert.ok(portalSource.includes('code_hash'), 'must use code_hash not codeHash');
+  assert.ok(portalSource.includes('expires_at'), 'must use expires_at not expiresAt');
+  assert.ok(portalSource.includes('attempts_left'), 'must use attempts_left not attemptsLeft');
+  assert.ok(portalSource.includes('last_sent_at'), 'must use last_sent_at not lastSentAt');
+  assert.ok(portalSource.includes('company_id'), 'must store company_id in challenge');
+  assert.ok(portalSource.includes('location_id'), 'must store location_id in challenge');
 });
 
 test('portal.js signPortalJWT receives only safe context fields from challenge', () => {
-  const src = fs.readFileSync(path.join(backendRoutes, 'portal.js'), 'utf8');
-  assert.ok(src.includes('companyId: challenge.company_id'), 'must extract companyId from DB field');
-  assert.ok(src.includes('locationId: challenge.location_id'), 'must extract locationId from DB field');
-  assert.ok(!src.includes('signPortalJWT(challenge.email, challenge.name, challenge)'), 'must not pass raw challenge to JWT signer');
+  assert.ok(portalSource.includes('companyId: challenge.company_id'), 'must extract companyId from DB field');
+  assert.ok(portalSource.includes('locationId: challenge.location_id'), 'must extract locationId from DB field');
+  assert.ok(!portalSource.includes('signPortalJWT(challenge.email, challenge.name, challenge)'), 'must not pass raw challenge to JWT signer');
 });

@@ -8,6 +8,9 @@ const inventoryRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'rou
 const opsRouteSource = [
   fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops.js'), 'utf8'),
   fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops-purchasing.js'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops', 'admin-routes.js'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops', 'purchasing-shared.js'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops', 'purchasing-order-routes.js'), 'utf8'),
 ].join('\n');
 const ordersRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'orders.js'), 'utf8');
 const purchaseOrdersRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'purchase-orders.js'), 'utf8');
@@ -50,6 +53,9 @@ test('fulfillment and purchasing workflows post through unified inventory ledger
     assert.ok(purchaseOrdersRouteSource.includes(marker), `purchase-orders missing marker ${marker}`);
   }
 
-  assert.ok(opsRouteSource.includes("const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');"));
+  assert.ok(
+    opsRouteSource.includes("const { applyInventoryLedgerEntry } = require('../../services/inventory-ledger');")
+    || opsRouteSource.includes("const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');")
+  );
   assert.ok(opsRouteSource.includes("notes: `PO ${po.po_number} receipt (${po.vendor})`"));
 });
