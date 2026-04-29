@@ -7,6 +7,10 @@ const repoRoot = path.resolve(__dirname, '..', '..');
 const opsRouteSource = [
   fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops.js'), 'utf8'),
   fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops-purchasing.js'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops-utils.js'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops-projections.js'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops-po-drafts.js'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops-vendor-pos.js'), 'utf8'),
 ].join('\n');
 const frontendSource = fs.readFileSync(path.join(repoRoot, 'frontend', 'index.html'), 'utf8');
 

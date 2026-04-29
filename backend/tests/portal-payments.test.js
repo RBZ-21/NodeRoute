@@ -7,6 +7,11 @@ const repoRoot = path.resolve(__dirname, '..', '..');
 const portalRouteSource = [
   fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal.js'), 'utf8'),
   fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal-payments.js'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal-payment-utils.js'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal-payment-config.js'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal-payment-methods.js'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal-autopay.js'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal-invoice-payments.js'), 'utf8'),
 ].join('\n');
 const portalFrontendSource = fs.readFileSync(path.join(repoRoot, 'frontend', 'customer-portal.html'), 'utf8');
 
