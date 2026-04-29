@@ -37,9 +37,6 @@ const PORTAL_PAYMENT_CURRENCY = String(process.env.PORTAL_PAYMENT_CURRENCY || 'u
 const PORTAL_PAYMENT_STUB_CHECKOUT_URL = process.env.PORTAL_PAYMENT_STUB_CHECKOUT_URL || '';
 const AUTOPAY_METHOD_TYPES = ['debit_card', 'ach_bank'];
 const PORTAL_PREVIEW_EMAILS = String(process.env.PORTAL_PREVIEW_EMAILS || '').split(',').map(v => normalizeEmail(v)).filter(Boolean);
-const portalChallenges = new Map();
-const authAttempts = new Map();
-
 function signPortalJWT(email, name, context = {}) {
   return jwt.sign(
     {
@@ -80,30 +77,26 @@ function codesMatch(expectedHash, actualHash) {
   return crypto.timingSafeEqual(expected, actual);
 }
 
-function pruneExpiredChallenges() {
-  const now = Date.now();
-  for (const [challengeId, challenge] of portalChallenges.entries()) {
-    if (challenge.expiresAt <= now) portalChallenges.delete(challengeId);
-  }
+async function pruneExpiredChallenges() {
+  const now = new Date().toISOString();
+  const windowStart = new Date(Date.now() - PORTAL_AUTH_RATE_WINDOW_MS).toISOString();
+  await supabase.from('portal_challenges').delete().lte('expires_at', now);
+  await supabase.from('portal_auth_attempts').delete().lte('attempted_at', windowStart);
 }
 
-function touchRateLimitBucket(email) {
-  const now = Date.now();
-  const key = normalizeEmail(email);
-  const bucket = authAttempts.get(key) || [];
-  const fresh = bucket.filter((timestamp) => now - timestamp < PORTAL_AUTH_RATE_WINDOW_MS);
-  fresh.push(now);
-  authAttempts.set(key, fresh);
-  return fresh.length;
+async function touchRateLimitBucket(email) {
+  await supabase.from('portal_auth_attempts').insert({
+    id: crypto.randomBytes(16).toString('hex'),
+    email,
+    attempted_at: new Date().toISOString(),
+  });
 }
 
-function canRequestCode(email) {
-  const key = normalizeEmail(email);
-  const bucket = authAttempts.get(key) || [];
-  const now = Date.now();
-  const fresh = bucket.filter((timestamp) => now - timestamp < PORTAL_AUTH_RATE_WINDOW_MS);
-  authAttempts.set(key, fresh);
-  return fresh.length < PORTAL_AUTH_RATE_LIMIT;
+async function canRequestCode(email) {
+  const windowStart = new Date(Date.now() - PORTAL_AUTH_RATE_WINDOW_MS).toISOString();
+  const { data } = await supabase.from('portal_auth_attempts')
+    .select('id').eq('email', email).gte('attempted_at', windowStart);
+  return (data?.length || 0) < PORTAL_AUTH_RATE_LIMIT;
 }
 
 async function resolvePortalCustomer(email) {
@@ -426,46 +419,54 @@ function stripePaymentMethodSummary(paymentMethod) {
 
 // POST /api/portal/auth — send a short-lived verification code to the customer email
 router.post('/auth', async (req, res) => {
-  pruneExpiredChallenges();
+  await pruneExpiredChallenges();
 
   const normalized = normalizeEmail(req.body?.email);
   if (!normalized) return res.status(400).json({ error: 'Email required' });
-  if (!canRequestCode(normalized)) {
+  if (!(await canRequestCode(normalized))) {
     return res.status(429).json({ error: 'Too many portal login attempts. Please wait a few minutes and try again.' });
   }
 
   try {
     const customer = await resolvePortalCustomer(normalized);
     if (!customer) {
-      touchRateLimitBucket(normalized);
+      await touchRateLimitBucket(normalized);
       return res.status(404).json({ error: 'No account found for that email. Contact your NodeRoute representative.' });
     }
 
-    const existing = [...portalChallenges.values()].find((challenge) => challenge.email === normalized);
-    if (existing && Date.now() - existing.lastSentAt < PORTAL_RESEND_COOLDOWN_MS) {
-      const retryAfterSeconds = Math.ceil((PORTAL_RESEND_COOLDOWN_MS - (Date.now() - existing.lastSentAt)) / 1000);
-      return res.status(429).json({
-        error: 'A verification code was just sent. Please wait a moment before requesting another one.',
-        retryAfterSeconds,
-      });
+    const nowIso = new Date().toISOString();
+    const { data: existingRows } = await supabase.from('portal_challenges')
+      .select('*').eq('email', normalized).gte('expires_at', nowIso).limit(1);
+    const existing = existingRows?.[0] || null;
+
+    if (existing) {
+      const lastSentMs = new Date(existing.last_sent_at).getTime();
+      if (Date.now() - lastSentMs < PORTAL_RESEND_COOLDOWN_MS) {
+        const retryAfterSeconds = Math.ceil((PORTAL_RESEND_COOLDOWN_MS - (Date.now() - lastSentMs)) / 1000);
+        return res.status(429).json({
+          error: 'A verification code was just sent. Please wait a moment before requesting another one.',
+          retryAfterSeconds,
+        });
+      }
     }
 
     const challengeId = crypto.randomBytes(24).toString('hex');
     const code = generateVerificationCode();
-    const challenge = {
+
+    if (existing) await supabase.from('portal_challenges').delete().eq('id', existing.id);
+    await sendPortalCodeEmail({ email: customer.email, name: customer.name, code });
+    await supabase.from('portal_challenges').insert({
       id: challengeId,
       email: customer.email,
       name: customer.name,
-      codeHash: hashCode(challengeId, code),
-      expiresAt: Date.now() + PORTAL_CODE_TTL_MS,
-      attemptsLeft: PORTAL_MAX_VERIFY_ATTEMPTS,
-      lastSentAt: Date.now(),
-    };
-
-    if (existing) portalChallenges.delete(existing.id);
-    await sendPortalCodeEmail({ email: customer.email, name: customer.name, code });
-    portalChallenges.set(challengeId, challenge);
-    touchRateLimitBucket(normalized);
+      code_hash: hashCode(challengeId, code),
+      expires_at: new Date(Date.now() + PORTAL_CODE_TTL_MS).toISOString(),
+      attempts_left: PORTAL_MAX_VERIFY_ATTEMPTS,
+      last_sent_at: new Date().toISOString(),
+      company_id: customer.companyId || null,
+      location_id: customer.locationId || null,
+    });
+    await touchRateLimitBucket(normalized);
 
     return res.json({
       challengeId,
@@ -480,30 +481,37 @@ router.post('/auth', async (req, res) => {
 });
 
 router.post('/verify', async (req, res) => {
-  pruneExpiredChallenges();
+  await pruneExpiredChallenges();
 
   const challengeId = String(req.body?.challengeId || '').trim();
   const code = String(req.body?.code || '').trim();
   if (!challengeId || !code) return res.status(400).json({ error: 'Challenge ID and verification code are required' });
 
-  const challenge = portalChallenges.get(challengeId);
-  if (!challenge || challenge.expiresAt <= Date.now()) {
-    if (challenge) portalChallenges.delete(challengeId);
+  const { data: challengeRows } = await supabase.from('portal_challenges')
+    .select('*').eq('id', challengeId).limit(1);
+  const challenge = challengeRows?.[0] || null;
+
+  if (!challenge || new Date(challenge.expires_at).getTime() <= Date.now()) {
+    if (challenge) await supabase.from('portal_challenges').delete().eq('id', challengeId);
     return res.status(401).json({ error: 'This verification code has expired. Please request a new one.' });
   }
 
-  if (!codesMatch(challenge.codeHash, hashCode(challengeId, code))) {
-    challenge.attemptsLeft -= 1;
-    if (challenge.attemptsLeft <= 0) {
-      portalChallenges.delete(challengeId);
+  if (!codesMatch(challenge.code_hash, hashCode(challengeId, code))) {
+    const attemptsLeft = challenge.attempts_left - 1;
+    if (attemptsLeft <= 0) {
+      await supabase.from('portal_challenges').delete().eq('id', challengeId);
       return res.status(401).json({ error: 'Too many incorrect attempts. Please request a new verification code.' });
     }
-    return res.status(401).json({ error: `Incorrect code. ${challenge.attemptsLeft} attempt${challenge.attemptsLeft === 1 ? '' : 's'} remaining.` });
+    await supabase.from('portal_challenges').update({ attempts_left: attemptsLeft }).eq('id', challengeId);
+    return res.status(401).json({ error: `Incorrect code. ${attemptsLeft} attempt${attemptsLeft === 1 ? '' : 's'} remaining.` });
   }
 
-  portalChallenges.delete(challengeId);
+  await supabase.from('portal_challenges').delete().eq('id', challengeId);
   return res.json({
-    token: signPortalJWT(challenge.email, challenge.name, challenge),
+    token: signPortalJWT(challenge.email, challenge.name, {
+      companyId: challenge.company_id,
+      locationId: challenge.location_id,
+    }),
     name: challenge.name,
     email: challenge.email,
   });
