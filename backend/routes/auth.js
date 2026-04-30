@@ -5,6 +5,11 @@ const jwt = require('jsonwebtoken');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken } = require('../middleware/auth');
 const { getUserOperatingContext, userResponseWithContext } = require('../services/operating-context');
+const {
+  parseLoginBody,
+  parseSetupPasswordBody,
+  parseChangePasswordBody,
+} = require('../lib/auth-schemas');
 
 const router = express.Router();
 
@@ -43,10 +48,11 @@ function signJWT(user) {
 }
 
 router.post('/login', async (req, res) => {
-  const { email, password } = req.body;
-  if (!email || !password) return res.status(400).json({ error: 'Email and password required' });
+  const parsed = parseLoginBody(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error });
+  const { email, password } = parsed.data;
 
-  const normalizedEmail = String(email).trim().toLowerCase();
+  const normalizedEmail = email.toLowerCase();
   // Avoid .ilike() here; some client adapters don't expose it on this query path.
   // Perform a deterministic case-insensitive lookup in memory.
   const users = await dbQuery(supabase.from('users').select('*'), res);
@@ -67,9 +73,9 @@ router.post('/login', async (req, res) => {
 });
 
 router.post('/setup-password', async (req, res) => {
-  const { token, password } = req.body;
-  if (!token || !password) return res.status(400).json({ error: 'Token and password required' });
-  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+  const parsed = parseSetupPasswordBody(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error });
+  const { token, password } = parsed.data;
   const users = await dbQuery(supabase.from('users').select('*').eq('invite_token', token).limit(1), res);
   if (!users) return;
   const u = users && users[0];
@@ -95,9 +101,9 @@ router.post('/logout', authenticateToken, (req, res) => {
 });
 
 router.post('/change-password', authenticateToken, async (req, res) => {
-  const { currentPassword, newPassword } = req.body;
-  if (!currentPassword || !newPassword) return res.status(400).json({ error: 'Both passwords required' });
-  if (newPassword.length < 8) return res.status(400).json({ error: 'New password must be at least 8 characters' });
+  const parsed = parseChangePasswordBody(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error });
+  const { currentPassword, newPassword } = parsed.data;
   const { data: user, error } = await supabase.from('users').select('*').eq('id', req.user.id).single();
   if (error || !user) return res.status(404).json({ error: 'User not found' });
   const { valid } = verifyPassword(currentPassword, user.password_hash);

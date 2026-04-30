@@ -86,10 +86,18 @@ test('driver routes import invoice stop matching helper', () => {
 
   assert.ok(source.includes('stopMatchesInvoice'), 'driver route hydration needs stopMatchesInvoice');
   assert.ok(source.includes("require('../services/driver-invoice-access')"));
-  assert.ok(source.includes('lat < -90 || lat > 90'), 'driver location should validate latitude bounds');
-  assert.ok(source.includes('lng < -180 || lng > 180'), 'driver location should validate longitude bounds');
+  assert.ok(source.includes('validateBody(driverLocationBodySchema)'), 'driver location should use shared Zod body validation');
+  assert.ok(source.includes('Valid lat and lng are required'), 'driver location should reject invalid coordinates');
   assert.deepEqual(routeStopIdsForToday({ stop_ids: ['a', 'b'], active_stop_ids: ['b'] }), ['b']);
   assert.deepEqual(routeStopIdsForToday({ stop_ids: ['a', 'b'] }), ['a', 'b']);
+});
+
+test('temperature logs routes use shared Zod validation for body and query payloads', () => {
+  const source = routeSource('temperature-logs');
+  assert.ok(source.includes("require('../lib/zod-validate')"), 'temperature logs should import shared Zod helpers');
+  assert.ok(source.includes('validateQuery(temperatureLogQuerySchema)'), 'temperature logs GET should validate queries');
+  assert.ok(source.includes('validateBody(temperatureLogBodySchema)'), 'temperature logs POST should validate body payloads');
+  assert.ok(source.includes('Date must be in YYYY-MM-DD format'), 'temperature logs query should validate date formatting');
 });
 
 test('ai routes protect order-intake automation behind auth and manager/admin checks', () => {

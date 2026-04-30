@@ -1,12 +1,45 @@
 const express = require('express');
+const { z } = require('zod');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
 } = require('../services/operating-context');
+const { validateBody, validateQuery } = require('../lib/zod-validate');
 
 const router = express.Router();
+
+const temperatureLogQuerySchema = z.object({
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format').optional(),
+}).passthrough();
+
+const temperatureLogBodySchema = z.object({
+  temperature: z.coerce.number(),
+  logged_at: z.string().optional(),
+  loggedAt: z.string().optional(),
+  storage_area: z.string().optional(),
+  storageArea: z.string().optional(),
+  unit: z.string().optional(),
+  check_type: z.string().optional(),
+  checkType: z.string().optional(),
+  corrective_action: z.any().optional(),
+  correctiveAction: z.any().optional(),
+  initials: z.any().optional(),
+  notes: z.any().optional(),
+}).superRefine((body, ctx) => {
+  const storageArea = String(body.storage_area || body.storageArea || '').trim();
+  if (!storageArea) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Storage area is required' });
+  }
+  if (!Number.isFinite(body.temperature)) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Temperature is required' });
+  }
+  const loggedAt = body.logged_at || body.loggedAt || new Date().toISOString();
+  if (Number.isNaN(new Date(loggedAt).getTime())) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Valid log time is required' });
+  }
+});
 
 function dateKey(value) {
   const date = value ? new Date(value) : new Date();
@@ -31,22 +64,19 @@ function normalizeTemperaturePayload(body, user) {
   };
 }
 
-router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.get('/', authenticateToken, requireRole('admin', 'manager'), validateQuery(temperatureLogQuerySchema), async (req, res) => {
   const data = await dbQuery(supabase.from('temperature_logs').select('*').order('logged_at', { ascending: false }), res);
   if (!data) return;
   let rows = filterRowsByContext(data, req.context);
-  if (req.query.date) {
-    rows = rows.filter((row) => dateKey(row.logged_at) === req.query.date);
+  const { date } = req.validated.query;
+  if (date) {
+    rows = rows.filter((row) => dateKey(row.logged_at) === date);
   }
   res.json(rows);
 });
 
-router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const payload = normalizeTemperaturePayload(req.body || {}, req.user);
-  if (!payload.storage_area) return res.status(400).json({ error: 'Storage area is required' });
-  if (!Number.isFinite(payload.temperature)) return res.status(400).json({ error: 'Temperature is required' });
-  if (Number.isNaN(new Date(payload.logged_at).getTime())) return res.status(400).json({ error: 'Valid log time is required' });
-
+router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBody(temperatureLogBodySchema), async (req, res) => {
+  const payload = normalizeTemperaturePayload(req.validated.body, req.user);
   const insertResult = await insertRecordWithOptionalScope(supabase, 'temperature_logs', payload, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   res.json(insertResult.data);

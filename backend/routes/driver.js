@@ -1,4 +1,5 @@
 const express = require('express');
+const { z } = require('zod');
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { loadDriverInvoiceScope, stopMatchesInvoice } = require('../services/driver-invoice-access');
@@ -8,8 +9,20 @@ const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
 } = require('../services/operating-context');
+const { validateBody } = require('../lib/zod-validate');
 
 const router = express.Router();
+
+const driverLocationBodySchema = z.object({
+  lat: z.coerce.number(),
+  lng: z.coerce.number(),
+  heading: z.any().optional(),
+  speed_mph: z.any().optional(),
+}).superRefine((body, ctx) => {
+  if (!Number.isFinite(body.lat) || body.lat < -90 || body.lat > 90 || !Number.isFinite(body.lng) || body.lng < -180 || body.lng > 180) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'Valid lat and lng are required' });
+  }
+});
 
 function routeStopIdsForToday(route) {
   const templateIds = Array.isArray(route?.stop_ids) ? route.stop_ids : [];
@@ -127,20 +140,16 @@ router.get('/invoices', authenticateToken, requireRole('driver', 'manager', 'adm
   }
 });
 
-router.patch('/location', authenticateToken, requireRole('driver', 'manager', 'admin'), async (req, res) => {
-  const lat = Number(req.body.lat);
-  const lng = Number(req.body.lng);
-  if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lng) || lng < -180 || lng > 180) {
-    return res.status(400).json({ error: 'Valid lat and lng are required' });
-  }
+router.patch('/location', authenticateToken, requireRole('driver', 'manager', 'admin'), validateBody(driverLocationBodySchema), async (req, res) => {
+  const { lat, lng, heading, speed_mph: speedMph } = req.validated.body;
 
   const payload = {
     ...buildScopeFields(req.context),
     driver_name: req.user.name,
     lat,
     lng,
-    heading: Number.isFinite(Number(req.body.heading)) ? Number(req.body.heading) : 0,
-    speed_mph: Number.isFinite(Number(req.body.speed_mph)) ? Number(req.body.speed_mph) : 0,
+    heading: Number.isFinite(Number(heading)) ? Number(heading) : 0,
+    speed_mph: Number.isFinite(Number(speedMph)) ? Number(speedMph) : 0,
     updated_at: new Date().toISOString(),
   };
 

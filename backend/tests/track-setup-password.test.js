@@ -6,10 +6,15 @@ const path = require('node:path');
 const frontendV2 = path.join(__dirname, '../../frontend-v2/src');
 const backendRoutes = path.join(__dirname, '..', 'routes');
 const backendRoot = path.join(__dirname, '..');
+const backendLib = path.join(__dirname, '..', 'lib');
 const portalSource = [
   fs.readFileSync(path.join(backendRoutes, 'portal.js'), 'utf8'),
   fs.readFileSync(path.join(backendRoutes, 'portal', 'shared.js'), 'utf8'),
   fs.readFileSync(path.join(backendRoutes, 'portal', 'auth-routes.js'), 'utf8'),
+].join('\n');
+const authValidationSource = [
+  fs.readFileSync(path.join(backendRoutes, 'auth.js'), 'utf8'),
+  fs.readFileSync(path.join(backendLib, 'auth-schemas.js'), 'utf8'),
 ].join('\n');
 
 // ── TrackPage.tsx structural checks ──────────────────────────────────────────
@@ -135,8 +140,7 @@ test('App.tsx no longer links to the legacy dashboard escape hatch', () => {
 // ── auth.js setup-password validation ────────────────────────────────────────
 
 test('auth.js setup-password enforces minimum 8-character password', () => {
-  const src = fs.readFileSync(path.join(backendRoutes, 'auth.js'), 'utf8');
-  assert.ok(src.includes('Password must be at least 8 characters'), 'must reject short passwords');
+  assert.ok(authValidationSource.includes('Password must be at least 8 characters'), 'must reject short passwords');
 });
 
 test('auth.js setup-password checks invite token expiry', () => {
@@ -146,8 +150,7 @@ test('auth.js setup-password checks invite token expiry', () => {
 });
 
 test('auth.js setup-password requires both token and password', () => {
-  const src = fs.readFileSync(path.join(backendRoutes, 'auth.js'), 'utf8');
-  assert.ok(src.includes('Token and password required'), 'must require both fields');
+  assert.ok(authValidationSource.includes('Token and password required'), 'must require both fields');
 });
 
 // ── portal.js auth hardening checks ──────────────────────────────────────────

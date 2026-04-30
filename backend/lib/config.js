@@ -1,48 +1,79 @@
 'use strict';
 
+const { z } = require('zod');
+
 // Validate and normalize all environment variables at startup.
 // Call validate() in server.js after dotenv.config() — it logs issues
 // via the provided logger and exits the process on fatal errors in production.
 
-const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+const DEV_JWT_SECRET = 'noderoute-dev-secret-change-in-production';
+const envSchema = z.object({
+  NODE_ENV: z.string().optional().default('development'),
+  PORT: z.preprocess(
+    (value) => (value === undefined || value === null || value === '' ? 3001 : value),
+    z.coerce.number().int().positive().catch(3001)
+  ),
+  JSON_BODY_LIMIT: z.string().optional().default('1mb'),
+  SUPABASE_URL: z.string().optional().default(''),
+  SUPABASE_SERVICE_KEY: z.string().optional().default(''),
+  JWT_SECRET: z.string().optional().default(DEV_JWT_SECRET),
+  BASE_URL: z.string().optional().default(''),
+  RESEND_API_KEY: z.string().optional().default(''),
+  SMTP_HOST: z.string().optional().default(''),
+  SMTP_PORT: z.string().optional().default(''),
+  SMTP_USER: z.string().optional().default(''),
+  SMTP_PASS: z.string().optional().default(''),
+  EMAIL_PROVIDER: z.string().optional().default('auto'),
+  OPENAI_API_KEY: z.string().optional().default(''),
+  ADMIN_EMAIL: z.string().optional().default('admin@noderoutesystems.com'),
+  ADMIN_PASSWORD: z.string().optional().default('Admin@123'),
+  GOOGLE_MAPS_KEY: z.string().optional().default(''),
+  CORS_ORIGINS: z.string().optional().default(''),
+  CORS_ORIGIN: z.string().optional().default(''),
+  PORTAL_PAYMENT_ENABLED: z.string().optional().default('false'),
+  PORTAL_PAYMENT_PROVIDER: z.string().optional().default('manual'),
+}).passthrough();
+
+const rawEnv = envSchema.parse(process.env);
+const isProduction = rawEnv.NODE_ENV.toLowerCase() === 'production';
 
 // ── Normalized values ────────────────────────────────────────────────────────
 
-const NODE_ENV         = process.env.NODE_ENV || 'development';
-const PORT             = Number(process.env.PORT) || 3001;
-const JSON_BODY_LIMIT  = process.env.JSON_BODY_LIMIT || '1mb';
+const NODE_ENV = rawEnv.NODE_ENV;
+const PORT = rawEnv.PORT;
+const JSON_BODY_LIMIT = rawEnv.JSON_BODY_LIMIT;
 
-const SUPABASE_URL         = process.env.SUPABASE_URL || '';
-const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY || '';
+const SUPABASE_URL = rawEnv.SUPABASE_URL;
+const SUPABASE_SERVICE_KEY = rawEnv.SUPABASE_SERVICE_KEY;
 
-const JWT_SECRET = process.env.JWT_SECRET || 'noderoute-dev-secret-change-in-production';
-const DEV_JWT_SECRET = 'noderoute-dev-secret-change-in-production';
+const JWT_SECRET = rawEnv.JWT_SECRET;
 
-const BASE_URL = process.env.BASE_URL || '';
+const BASE_URL = rawEnv.BASE_URL;
 
-const RESEND_API_KEY = process.env.RESEND_API_KEY || '';
+const RESEND_API_KEY = rawEnv.RESEND_API_KEY;
 const hasResend = !!RESEND_API_KEY;
-const hasSmtp   = !!(process.env.SMTP_HOST && process.env.SMTP_PORT &&
-                     process.env.SMTP_USER && process.env.SMTP_PASS);
-const EMAIL_PROVIDER = String(process.env.EMAIL_PROVIDER || 'auto').toLowerCase();
+const hasSmtp = !!(rawEnv.SMTP_HOST && rawEnv.SMTP_PORT && rawEnv.SMTP_USER && rawEnv.SMTP_PASS);
+const EMAIL_PROVIDER = z.enum(['auto', 'resend', 'smtp']).catch('auto').parse(String(rawEnv.EMAIL_PROVIDER || 'auto').toLowerCase());
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY || '';
+const OPENAI_API_KEY = rawEnv.OPENAI_API_KEY;
 
-const ADMIN_EMAIL    = process.env.ADMIN_EMAIL    || 'admin@noderoutesystems.com';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@123';
+const ADMIN_EMAIL = rawEnv.ADMIN_EMAIL;
+const ADMIN_PASSWORD = rawEnv.ADMIN_PASSWORD;
 
-const GOOGLE_MAPS_KEY = process.env.GOOGLE_MAPS_KEY || '';
+const GOOGLE_MAPS_KEY = rawEnv.GOOGLE_MAPS_KEY;
 
 // CORS: accept a comma-separated list of exact allowed origins.
 // Falls back to a single CORS_ORIGIN value, then to '*' in dev.
 // In production with no explicit list, '*' is NOT used — all origins are blocked.
-const _corsRaw = process.env.CORS_ORIGINS || process.env.CORS_ORIGIN || '';
+const _corsRaw = rawEnv.CORS_ORIGINS || rawEnv.CORS_ORIGIN || '';
 const CORS_ORIGINS = _corsRaw.split(',').map((s) => s.trim()).filter(Boolean);
 
 // Normalize boolean-like env var — catches "True", "TRUE", "1", "yes"
-const _rawPaymentEnabled = String(process.env.PORTAL_PAYMENT_ENABLED || 'false');
-const PORTAL_PAYMENT_ENABLED = _rawPaymentEnabled.toLowerCase() === 'true';
-const PORTAL_PAYMENT_PROVIDER = String(process.env.PORTAL_PAYMENT_PROVIDER || 'manual').toLowerCase();
+const _rawPaymentEnabled = String(rawEnv.PORTAL_PAYMENT_ENABLED || 'false');
+const PORTAL_PAYMENT_ENABLED = z.enum(['true', 'false']).catch('false').parse(_rawPaymentEnabled.toLowerCase()) === 'true';
+const PORTAL_PAYMENT_PROVIDER = z.enum(['manual', 'stripe', 'stub']).catch('manual').parse(
+  String(rawEnv.PORTAL_PAYMENT_PROVIDER || 'manual').toLowerCase()
+);
 
 // ── Validation ───────────────────────────────────────────────────────────────
 
@@ -81,6 +112,13 @@ function validate(logger) {
     logger.info('Both Resend and SMTP are configured. EMAIL_PROVIDER=auto will try Resend first, then SMTP fallback.');
   }
 
+  const baseUrlResult = BASE_URL ? z.string().url().safeParse(BASE_URL) : { success: true };
+  if (BASE_URL && !baseUrlResult.success) {
+    const message = 'BASE_URL is not a valid absolute URL';
+    if (isProduction) errors.push(message);
+    else warns.push(message);
+  }
+
   // AI
   if (!OPENAI_API_KEY) {
     warns.push('OPENAI_API_KEY not set — AI walkthroughs, PO scanning, inventory analysis, reorder drafting, and demand forecasting will use fallbacks or be unavailable.');
@@ -95,6 +133,16 @@ function validate(logger) {
   if (process.env.PORTAL_PAYMENT_ENABLED &&
       !['true', 'false'].includes(_rawPaymentEnabled.toLowerCase())) {
     warns.push(`PORTAL_PAYMENT_ENABLED="${_rawPaymentEnabled}" is not "true" or "false" — treated as disabled. Use lowercase "true" to enable.`);
+  }
+
+  if (process.env.PORTAL_PAYMENT_PROVIDER &&
+      !['manual', 'stripe', 'stub'].includes(String(process.env.PORTAL_PAYMENT_PROVIDER).toLowerCase())) {
+    warns.push(`PORTAL_PAYMENT_PROVIDER="${process.env.PORTAL_PAYMENT_PROVIDER}" is not recognized — treated as "manual".`);
+  }
+
+  if (process.env.EMAIL_PROVIDER &&
+      !['auto', 'resend', 'smtp'].includes(String(process.env.EMAIL_PROVIDER).toLowerCase())) {
+    warns.push(`EMAIL_PROVIDER="${process.env.EMAIL_PROVIDER}" is not recognized — treated as "auto".`);
   }
 
   for (const msg of warns)   logger.warn(msg);
