@@ -11,6 +11,12 @@ const {
   buildPurchasingSuggestions,
   resolveInventoryMatch,
 } = require('./ops-utils');
+const { validateBody } = require('../lib/zod-validate');
+const {
+  poDraftFromSuggestionsBodySchema,
+  poDraftFromOrderIntakeBodySchema,
+  poDraftStatusPatchBodySchema,
+} = require('../lib/ops-po-drafts-schemas');
 
 const router = express.Router();
 
@@ -19,17 +25,9 @@ router.get('/purchase-order-drafts', authenticateToken, (req, res) => {
   res.json((ops.poDrafts || []).slice(0, 100));
 });
 
-router.post('/purchase-order-drafts/from-suggestions', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const coverageDays = Math.max(1, Math.min(90, parseInt(req.body.coverageDays || '30', 10)));
-  const leadTimeDays = Math.max(0, Math.min(60, parseInt(req.body.leadTimeDays || '5', 10)));
-  const lookbackDays = Math.max(7, Math.min(90, parseInt(req.body.lookbackDays || '30', 10)));
-  const minOrderQty = Math.max(0, toNumber(req.body.minOrderQty, 0));
-  const maxLines = Math.max(1, Math.min(200, parseInt(req.body.maxLines || '50', 10)));
-  const vendor = String(req.body.vendor || '').trim() || 'Unassigned Vendor';
-  const notes = String(req.body.notes || '').trim();
-  const includedUrgencies = Array.isArray(req.body.includeUrgencies) && req.body.includeUrgencies.length
-    ? new Set(req.body.includeUrgencies.map(v => String(v).toLowerCase()))
-    : new Set(['high', 'normal']);
+router.post('/purchase-order-drafts/from-suggestions', authenticateToken, requireRole('admin', 'manager'), validateBody(poDraftFromSuggestionsBodySchema), async (req, res) => {
+  const { coverageDays, leadTimeDays, lookbackDays, minOrderQty, maxLines, vendor, notes, includeUrgencies } = req.validated.body;
+  const includedUrgencies = new Set(includeUrgencies);
 
   try {
     const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays);
@@ -88,16 +86,8 @@ router.post('/purchase-order-drafts/from-suggestions', authenticateToken, requir
   }
 });
 
-router.post('/purchase-order-drafts/from-order-intake', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const intakeItems = Array.isArray(req.body.intakeItems) ? req.body.intakeItems : [];
-  if (!intakeItems.length) return res.status(400).json({ error: 'intakeItems is required' });
-
-  const leadTimeDays = Math.max(0, Math.min(60, parseInt(req.body.leadTimeDays || '5', 10)));
-  const lookbackDays = Math.max(7, Math.min(90, parseInt(req.body.lookbackDays || '30', 10)));
-  const minOrderQty = Math.max(0, toNumber(req.body.minOrderQty, 0));
-  const maxLines = Math.max(1, Math.min(200, parseInt(req.body.maxLines || '50', 10)));
-  const vendor = String(req.body.vendor || '').trim() || 'Unassigned Vendor';
-  const notes = String(req.body.notes || '').trim();
+router.post('/purchase-order-drafts/from-order-intake', authenticateToken, requireRole('admin', 'manager'), validateBody(poDraftFromOrderIntakeBodySchema), async (req, res) => {
+  const { intakeItems, leadTimeDays, lookbackDays, minOrderQty, maxLines, vendor, notes, intakeMessage } = req.validated.body;
 
   try {
     const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays);
@@ -199,7 +189,7 @@ router.post('/purchase-order-drafts/from-order-intake', authenticateToken, requi
         minOrderQty,
         maxLines,
         intake_item_count: normalizedIntake.length,
-        intake_message_excerpt: String(req.body.intakeMessage || '').trim().slice(0, 200) || null
+        intake_message_excerpt: intakeMessage ? intakeMessage.slice(0, 200) : null
       },
       lines,
       line_count: lines.length,
@@ -220,10 +210,8 @@ router.post('/purchase-order-drafts/from-order-intake', authenticateToken, requi
   }
 });
 
-router.patch('/purchase-order-drafts/:id/status', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
-  const allowed = new Set(['draft', 'ready', 'ordered', 'archived']);
-  const nextStatus = String(req.body.status || '').toLowerCase();
-  if (!allowed.has(nextStatus)) return res.status(400).json({ error: 'Invalid status' });
+router.patch('/purchase-order-drafts/:id/status', authenticateToken, requireRole('admin', 'manager'), validateBody(poDraftStatusPatchBodySchema), (req, res) => {
+  const nextStatus = req.validated.body.status;
 
   const ops = readOpsData();
   ops.poDrafts = ops.poDrafts || [];

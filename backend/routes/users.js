@@ -10,6 +10,13 @@ const {
   rowMatchesContext,
   userResponseWithContext,
 } = require('../services/operating-context');
+const { validateBody } = require('../lib/zod-validate');
+const {
+  userCreateBodySchema,
+  userInviteBodySchema,
+  userPatchBodySchema,
+  userRolePatchBodySchema,
+} = require('../lib/users-schemas');
 
 const router = express.Router();
 
@@ -101,11 +108,8 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
 });
 
 // Admin: create a user directly with a password (no invite flow)
-router.post('/', authenticateToken, requireRole('admin'), async (req, res) => {
-  const { name, email, password, role = 'driver' } = req.body;
-  if (!name || !email || !password) return res.status(400).json({ error: 'Name, email, and password are required' });
-  if (!['admin', 'manager', 'driver'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
-  if (password.length < 8) return res.status(400).json({ error: 'Password must be at least 8 characters' });
+router.post('/', authenticateToken, requireRole('admin'), validateBody(userCreateBodySchema), async (req, res) => {
+  const { name, email, password, role } = req.validated.body;
 
   const { data: existing } = await supabase.from('users').select('id').ilike('email', email).limit(1);
   if (existing && existing.length > 0) return res.status(409).json({ error: 'A user with that email already exists' });
@@ -131,17 +135,15 @@ router.post('/', authenticateToken, requireRole('admin'), async (req, res) => {
   res.status(201).json({ message: `User ${email} created successfully`, user: userResponseWithContext(insertResult.data) });
 });
 
-router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { name, email, role = 'driver', companyId, companyName, locationId, locationName } = req.body;
-  if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
-  if (!['admin', 'manager', 'driver'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+router.post('/invite', authenticateToken, requireRole('admin', 'manager'), validateBody(userInviteBodySchema), async (req, res) => {
+  const { name, email, role, companyId, companyName, locationId, locationName } = req.validated.body;
   if (role === 'admin' && req.user.role !== 'admin') return res.status(403).json({ error: 'Only admins can invite admins' });
 
   const context = req.context || {};
-  const targetCompanyId = String(companyId || context.activeCompanyId || context.companyId || '').trim() || null;
-  const targetCompanyName = String(companyName || context.companyName || '').trim() || null;
-  const targetLocationId = String(locationId || context.activeLocationId || context.locationId || '').trim() || null;
-  const targetLocationName = String(locationName || context.locationName || '').trim() || null;
+  const targetCompanyId = companyId || String(context.activeCompanyId || context.companyId || '').trim() || null;
+  const targetCompanyName = companyName || String(context.companyName || '').trim() || null;
+  const targetLocationId = locationId || String(context.activeLocationId || context.locationId || '').trim() || null;
+  const targetLocationName = locationName || String(context.locationName || '').trim() || null;
   const canInviteAcrossCompanies = !!context.isGlobalOperator;
   const allowedCompanyIds = Array.isArray(context.accessibleCompanyIds) ? context.accessibleCompanyIds : [];
   const allowedLocationIds = Array.isArray(context.accessibleLocationIds) ? context.accessibleLocationIds : [];
@@ -223,14 +225,13 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
 });
 
 // Any user can update their own profile; admins can update anyone
-router.patch('/:id', authenticateToken, async (req, res) => {
+router.patch('/:id', authenticateToken, validateBody(userPatchBodySchema), async (req, res) => {
   if (req.user.id !== req.params.id && req.user.role !== 'admin')
     return res.status(403).json({ error: 'Forbidden' });
-  const { name, phone, vehicle_id } = req.body;
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Name required' });
-  const updates = { name: name.trim() };
-  if (phone !== undefined) updates.phone = phone ? String(phone).trim() || null : null;
-  if (vehicle_id !== undefined) updates.vehicle_id = vehicle_id ? String(vehicle_id).trim() || null : null;
+  const { name, phone, vehicle_id } = req.validated.body;
+  const updates = { name };
+  if (phone !== undefined) updates.phone = phone;
+  if (vehicle_id !== undefined) updates.vehicle_id = vehicle_id;
   const { data, error } = await supabase.from('users').update(updates).eq('id', req.params.id).select('id,name,phone,vehicle_id').single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
@@ -248,9 +249,8 @@ router.delete('/:id', authenticateToken, requireRole('admin'), async (req, res) 
   res.json({ message: 'User deleted' });
 });
 
-router.patch('/:id/role', authenticateToken, requireRole('admin'), async (req, res) => {
-  const { role } = req.body;
-  if (!['admin', 'manager', 'driver'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+router.patch('/:id/role', authenticateToken, requireRole('admin'), validateBody(userRolePatchBodySchema), async (req, res) => {
+  const { role } = req.validated.body;
   const currentUser = await dbQuery(supabase.from('users').select('*').eq('id', req.params.id).single(), res);
   if (!currentUser) return res.status(404).json({ error: 'User not found' });
   if (!rowMatchesContext(currentUser, req.context)) return res.status(403).json({ error: 'Forbidden' });

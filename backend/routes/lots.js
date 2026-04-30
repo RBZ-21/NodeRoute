@@ -1,6 +1,8 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { validateBody } = require('../lib/zod-validate');
+const { lotCreateBodySchema, lotFtlPatchBodySchema } = require('../lib/lots-schemas');
 
 const router = express.Router();
 
@@ -32,23 +34,19 @@ router.get('/', authenticateToken, async (req, res) => {
 
 // ── POST /api/lots ─────────────────────────────────────────────────────────────
 // Create a lot record manually (also called internally by PO confirm).
-router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { lot_number, product_id, vendor_id, quantity_received, unit_of_measure, received_date, expiration_date, notes } = req.body;
-
-  if (!lot_number || !lot_number.trim()) {
-    return res.status(400).json({ error: 'lot_number is required' });
-  }
+router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBody(lotCreateBodySchema), async (req, res) => {
+  const { lot_number, product_id, vendor_id, quantity_received, unit_of_measure, received_date, expiration_date, notes } = req.validated.body;
 
   const { data, error } = await supabase.from('lot_codes').insert([{
-    lot_number:        lot_number.trim(), // stored exactly as entered
-    product_id:        product_id || null,
-    vendor_id:         vendor_id  || null,
-    quantity_received: parseFloat(quantity_received) || 0,
-    unit_of_measure:   unit_of_measure || 'lb',
-    received_date:     received_date   || new Date().toISOString().slice(0, 10),
-    received_by:       req.user?.name  || req.user?.email || null,
-    expiration_date:   expiration_date || null,
-    notes:             notes || null,
+    lot_number,
+    product_id:        product_id        || null,
+    vendor_id:         vendor_id         || null,
+    quantity_received: quantity_received ?? 0,
+    unit_of_measure:   unit_of_measure   || 'lb',
+    received_date:     received_date     || new Date().toISOString().slice(0, 10),
+    received_by:       req.user?.name    || req.user?.email || null,
+    expiration_date:   expiration_date   || null,
+    notes:             notes             || null,
   }]).select().single();
 
   if (error) {
@@ -226,9 +224,9 @@ router.get('/traceability/report', authenticateToken, requireRole('admin'), asyn
 // ── PATCH /api/lots/products/:itemNumber/ftl ──────────────────────────────────
 // Toggle is_ftl_product flag on a seafood_inventory item.
 // Admin only — determines whether lot assignment is required on orders.
-router.patch('/products/:itemNumber/ftl', authenticateToken, requireRole('admin'), async (req, res) => {
+router.patch('/products/:itemNumber/ftl', authenticateToken, requireRole('admin'), validateBody(lotFtlPatchBodySchema), async (req, res) => {
   const { itemNumber } = req.params;
-  const isFtl = req.body.is_ftl_product === true || req.body.is_ftl_product === 'true';
+  const isFtl = req.validated.body.is_ftl_product;
 
   const { data, error } = await supabase
     .from('seafood_inventory')
