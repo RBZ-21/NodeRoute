@@ -1,4 +1,4 @@
-import { ChevronDown, LayoutDashboard, LogOut, Moon, Sun } from 'lucide-react';
+import { ChevronDown, LogOut, Moon, Sun } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
@@ -295,7 +295,6 @@ function AppShell() {
           <div className="flex flex-col gap-4 border-b border-border p-5 md:flex-row md:items-center md:justify-between">
             <div className="space-y-1">
               <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-primary">
-                <LayoutDashboard className="h-4 w-4" />
                 NodeRoute Enterprise UI (V2)
               </div>
               <h1 className="text-2xl font-semibold tracking-tight text-foreground">Admin Command Center</h1>
@@ -305,9 +304,6 @@ function AppShell() {
             </div>
             <div className="flex flex-wrap gap-2">
               {showSentryTestButton ? <ErrorButton /> : null}
-              <a href="/dashboard-legacy" className={cn('inline-flex', role === 'unknown' && 'pointer-events-none opacity-50')}>
-                <Button variant="outline">Legacy Dashboard</Button>
-              </a>
               <Button variant="outline" size="sm" onClick={() => setDark((d) => !d)} title={dark ? 'Switch to light mode' : 'Switch to dark mode'}>
                 {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
               </Button>

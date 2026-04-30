@@ -41,7 +41,7 @@ jobs:
         run: npm --prefix backend test
 
   frontend-build:
-    name: Frontend Build
+    name: Frontend Builds
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
@@ -62,12 +62,28 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-node20-frontend-v2-
 
+      - name: Cache landing-v2 node_modules
+        uses: actions/cache@v4
+        with:
+          path: landing-v2/node_modules
+          key: ${{ runner.os }}-node20-landing-v2-${{ hashFiles('landing-v2/package-lock.json') }}
+          restore-keys: |
+            ${{ runner.os }}-node20-landing-v2-
+
       - name: Install frontend-v2 dependencies
         working-directory: frontend-v2
         run: npm ci
 
       - name: Run frontend-v2 build
         working-directory: frontend-v2
+        run: npm run build
+
+      - name: Install landing-v2 dependencies
+        working-directory: landing-v2
+        run: npm ci
+
+      - name: Run landing-v2 build
+        working-directory: landing-v2
         run: npm run build
 
   frontend-tests:

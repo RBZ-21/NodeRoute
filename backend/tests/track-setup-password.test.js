@@ -107,12 +107,29 @@ test('App.tsx renders SetupPasswordPage for setup-password route', () => {
 test('server.js serves v2 index.html for /track when built', () => {
   const src = fs.readFileSync(path.join(backendRoot, 'server.js'), 'utf8');
   assert.ok(src.includes("app.get('/track'"), '/track route must exist');
-  assert.ok(src.includes('hasFrontendV2Build'), '/track must check for v2 build');
+  assert.ok(src.includes('return res.sendFile(frontendV2Entry);'), '/track must serve frontend-v2 entry');
 });
 
 test('server.js serves v2 index.html for /setup-password when built', () => {
   const src = fs.readFileSync(path.join(backendRoot, 'server.js'), 'utf8');
   assert.ok(src.includes("app.get('/setup-password'"), '/setup-password route must exist');
+  assert.ok(src.includes('requireBuildArtifact('), 'server should require built frontend artifacts before boot');
+});
+
+test('server.js no longer exposes legacy dashboard or HTML fallbacks', () => {
+  const src = fs.readFileSync(path.join(backendRoot, 'server.js'), 'utf8');
+  assert.ok(!src.includes("app.get('/dashboard-legacy'"), 'legacy dashboard route should be removed');
+  assert.ok(!src.includes("path.join(frontendDir, 'index.html')"), 'dashboard should not fall back to frontend/index.html');
+  assert.ok(!src.includes("path.join(frontendDir, 'landing.html')"), 'landing should not fall back to frontend/landing.html');
+  assert.ok(!src.includes("path.join(frontendDir, 'driver.html')"), 'driver should not fall back to frontend/driver.html');
+  assert.ok(!src.includes("path.join(frontendDir, 'customer-portal.html')"), 'portal should not fall back to frontend/customer-portal.html');
+  assert.ok(!src.includes("path.join(frontendDir, 'track.html')"), 'track should not fall back to frontend/track.html');
+  assert.ok(!src.includes("path.join(frontendDir, 'setup-password.html')"), 'setup-password should not fall back to frontend/setup-password.html');
+});
+
+test('App.tsx no longer links to the legacy dashboard escape hatch', () => {
+  const src = fs.readFileSync(path.join(frontendV2, 'App.tsx'), 'utf8');
+  assert.ok(!src.includes('/dashboard-legacy'), 'AppShell should not link to /dashboard-legacy');
 });
 
 // ── auth.js setup-password validation ────────────────────────────────────────

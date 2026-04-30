@@ -1,5 +1,5 @@
 [build]
-buildCommand = "cd backend && npm install && cd ../frontend-v2 && npm install --include=dev && VITE_MAP_API_KEY='' npm run build && cd ../landing-v2 && npm install --include=dev && npm run build"
+buildCommand = "npm --prefix backend install && npm --prefix frontend-v2 install --include=dev && npm --prefix landing-v2 install --include=dev && VITE_MAP_API_KEY='' npm run build"
 
 [deploy]
 startCommand = "node backend/server.js"

@@ -59,3 +59,18 @@ test('fulfillment and purchasing workflows post through unified inventory ledger
   );
   assert.ok(opsRouteSource.includes("notes: `PO ${po.po_number} receipt (${po.vendor})`"));
 });
+
+test('purchase orders are tenant-scoped with company and location context', () => {
+  for (const marker of [
+    'buildScopeFields,',
+    'filterRowsByContext,',
+    'insertRecordWithOptionalScope,',
+    ".select('item_number, description, on_hand_qty, cost, unit, is_ftl_product, company_id, location_id')",
+    ".select('id, po_number, vendor, total_cost, items, confirmed_by, created_at, company_id, location_id')",
+    "filterRowsByContext(data || [], req.context)",
+    "const poInsert = await insertRecordWithOptionalScope(supabase, 'purchase_orders', {",
+    "...buildScopeFields(req.context)",
+  ]) {
+    assert.ok(purchaseOrdersRouteSource.includes(marker), `purchase-orders missing tenant-scope marker ${marker}`);
+  }
+});

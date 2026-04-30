@@ -113,4 +113,114 @@ describe('OrdersPage', () => {
 
     expect(await screen.findByText('Orders API down')).toBeInTheDocument();
   });
+
+  it('loads an order into edit mode and sends an update request', async () => {
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/orders')) {
+        return [
+          {
+            id: 'order-1',
+            order_number: 'ORD-100',
+            customer_name: 'Blue Fin',
+            customer_email: 'buyer@bluefin.test',
+            customer_address: '1 Harbor Way',
+            notes: 'Call on arrival',
+            tax_enabled: true,
+            tax_rate: 0.08,
+            status: 'pending',
+            charges: [{ key: 'fuel', value: 5, amount: 1 }],
+            items: [{ name: 'Atlantic Salmon', item_number: 'SAL-01', quantity: 2, unit_price: 11, unit: 'each' }],
+          },
+        ];
+      }
+      if (url === '/api/inventory') return [{ item_number: 'SAL-01', description: 'Atlantic Salmon', cost: 11, unit: 'each' }];
+      if (url === '/api/customers') return [];
+      return [];
+    });
+    sendWithAuthMock.mockResolvedValueOnce({ id: 'order-1' });
+
+    renderOrdersPage();
+
+    expect(await screen.findByText('ORD-100')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+    expect(await screen.findByText('Editing ORD-100')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Blue Fin')).toBeInTheDocument();
+    fireEvent.change(screen.getByDisplayValue('Call on arrival'), { target: { value: 'Leave at front desk' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Update Order' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith(
+        '/api/orders/order-1',
+        'PATCH',
+        expect.objectContaining({
+          customerName: 'Blue Fin',
+          notes: 'Leave at front desk',
+          items: [expect.objectContaining({ name: 'Atlantic Salmon' })],
+        })
+      );
+    });
+    expect(await screen.findByText('Order updated.')).toBeInTheDocument();
+  });
+
+  it('shows catch-weight actions and saves actual weights for admin users', async () => {
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/orders')) {
+        return [
+          {
+            id: 'order-cw',
+            order_number: 'ORD-CW',
+            customer_name: 'Harbor Cafe',
+            status: 'in_process',
+            items: [
+              {
+                name: 'Yellowfin Tuna',
+                is_catch_weight: true,
+                estimated_weight: 10,
+                price_per_lb: 14.5,
+              },
+            ],
+          },
+        ];
+      }
+      if (url === '/api/inventory') return [];
+      if (url === '/api/customers') return [];
+      return [];
+    });
+    sendWithAuthMock.mockResolvedValueOnce({
+      id: 'order-cw',
+      order_number: 'ORD-CW',
+      customer_name: 'Harbor Cafe',
+      status: 'in_process',
+      items: [
+        {
+          name: 'Yellowfin Tuna',
+          is_catch_weight: true,
+          estimated_weight: 10,
+          actual_weight: 10.25,
+          price_per_lb: 14.5,
+        },
+      ],
+    });
+
+    renderOrdersPage();
+
+    expect(await screen.findByText('ORD-CW')).toBeInTheDocument();
+    expect(screen.getByText((content) => content.includes('Weight Pending'))).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Weights' }));
+    expect(await screen.findByText(/Capture Actual Weights/)).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('0.000'), { target: { value: '10.250' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith(
+        '/api/orders/order-cw/items/0/actual-weight',
+        'PATCH',
+        { actual_weight: 10.25 }
+      );
+    });
+    expect(await screen.findByText('Actual weight saved. Order total recalculated.')).toBeInTheDocument();
+  });
 });

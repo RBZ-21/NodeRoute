@@ -4,6 +4,8 @@
   "scripts": {
     "start": "node backend/server.js",
     "build:dashboard-v2": "npm --prefix frontend-v2 run build",
+    "build:landing-v2": "npm --prefix landing-v2 run build",
+    "build": "npm run build:dashboard-v2 && npm run build:landing-v2",
     "test": "npm --prefix backend test && npm --prefix frontend-v2 test",
     "postinstall": "cd backend && npm install"
   },

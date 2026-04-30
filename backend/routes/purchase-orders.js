@@ -4,6 +4,11 @@ const { supabase }                  = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { parsePurchaseOrderImage }   = require('../services/ai');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
+const {
+  buildScopeFields,
+  filterRowsByContext,
+  insertRecordWithOptionalScope,
+} = require('../services/operating-context');
 
 const router = express.Router();
 const upload = multer({
@@ -63,11 +68,11 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), asyn
   // Fetch all current inventory for matching by description
   const { data: inventory, error: invErr } = await supabase
     .from('seafood_inventory')
-    .select('item_number, description, on_hand_qty, cost, unit, is_ftl_product');
+    .select('item_number, description, on_hand_qty, cost, unit, is_ftl_product, company_id, location_id');
   if (invErr) return res.status(500).json({ error: invErr.message });
 
   const invMap = {};
-  (inventory || []).forEach(row => {
+  filterRowsByContext(inventory || [], req.context).forEach(row => {
     invMap[row.description.toLowerCase().trim()] = row;
   });
 
@@ -112,7 +117,7 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), asyn
       const itemNumber = 'PO-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
       resolvedItemNumber = itemNumber;
 
-      const { data: inserted, error: insErr } = await supabase.from('seafood_inventory').insert([{
+      const inventoryInsert = await insertRecordWithOptionalScope(supabase, 'seafood_inventory', {
         item_number:    itemNumber,
         description:    desc,
         category:       item.category || 'Other',
@@ -122,7 +127,9 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), asyn
         on_hand_weight: 0,
         lot_item:       LOT_REQUIRED.test(desc) ? 'Y' : 'N',
         is_ftl_product: false,
-      }]).select().single();
+      }, req.context);
+      const inserted = inventoryInsert.data;
+      const insErr = inventoryInsert.error;
 
       if (insErr) {
         errors.push(`${desc}: ${insErr.message}`);
@@ -191,14 +198,17 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), asyn
   const computedTotal = parseFloat(total_cost) ||
     parseFloat(items.reduce((s, i) => s + (parseFloat(i.total) || 0), 0).toFixed(2));
 
-  const { data: po } = await supabase.from('purchase_orders').insert([{
+  const poInsert = await insertRecordWithOptionalScope(supabase, 'purchase_orders', {
     po_number:    po_number || null,
     vendor:       vendor    || null,
     items:        savedItems.length ? savedItems : items,
     total_cost:   computedTotal,
     notes:        notes || null,
     confirmed_by: req.user.name || req.user.email,
-  }]).select().single();
+    ...buildScopeFields(req.context),
+  }, req.context);
+  if (poInsert.error) return res.status(500).json({ error: poInsert.error.message });
+  const po = poInsert.data;
 
   res.json({
     success: true,
@@ -214,11 +224,11 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), asyn
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { data, error } = await supabase
     .from('purchase_orders')
-    .select('id, po_number, vendor, total_cost, items, confirmed_by, created_at')
+    .select('id, po_number, vendor, total_cost, items, confirmed_by, created_at, company_id, location_id')
     .order('created_at', { ascending: false })
     .limit(100);
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data || []);
+  res.json(filterRowsByContext(data || [], req.context));
 });
 
 module.exports = router;

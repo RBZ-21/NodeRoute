@@ -6,9 +6,9 @@ NodeRoute is a Node/Express delivery operations platform with a React v2 dashboa
 
 ```
 backend/          Express API, middleware, services, and tests
-frontend/         Static HTML pages (legacy dashboard, driver app, customer portal)
+frontend/         Static HTML pages retained for legacy reference only
 frontend-v2/      React + Vite + Tailwind dashboard (v2 — served at /dashboard-v2 and spa routes)
-landing-v2/       React + Vite landing page (replaces landing.html when built)
+landing-v2/       React + Vite landing page served at / and /landing
 supabase/         Migrations and SQL helpers
 ```
 
@@ -55,16 +55,19 @@ supabase/         Migrations and SQL helpers
 
 - Backend entrypoint: `backend/server.js`
 - Start: `npm start` (runs the backend)
-- The live dashboard is the React v2 app in `frontend-v2/`. Build it with:
+- Build all required frontend artifacts before starting the backend:
+  ```
+  npm run build
+  ```
+- This runs:
   ```
   npm --prefix frontend-v2 run build
-  ```
-  Once built, `/dashboard-v2` and all SPA routes (`/orders`, `/deliveries`, `/inventory`, etc.) are served from it. Without a build, those routes fall back to the legacy `frontend/index.html`.
-- The landing page is the React v2 app in `landing-v2/`. Build it with:
-  ```
   npm --prefix landing-v2 run build
   ```
-  Without a build, `/landing` falls back to the static `frontend/landing.html`.
+- `frontend-v2/dist/index.html` and `landing-v2/dist/index.html` are mandatory deploy artifacts. The server fails fast at boot if either build output is missing.
+- `/dashboard`, `/dashboard-v2`, and all dashboard SPA routes (`/orders`, `/deliveries`, `/inventory`, etc.) are served from `frontend-v2/dist`.
+- `/` and `/landing` are served from `landing-v2/dist`.
+- Legacy HTML in `frontend/` is no longer used as a production fallback.
 
 ## Environment Variables
 

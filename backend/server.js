@@ -84,24 +84,26 @@ app.use((req, res, next) => {
   next();
 });
 
-const frontendDir = path.join(__dirname, '../frontend');
 const frontendV2DistDir = path.join(__dirname, '../frontend-v2/dist');
 const landingV2DistDir = path.join(__dirname, '../landing-v2/dist');
-const hasFrontendV2Build = fs.existsSync(path.join(frontendV2DistDir, 'index.html'));
-const hasLandingV2Build = fs.existsSync(path.join(landingV2DistDir, 'index.html'));
-const featureUiV2Setting = String(process.env.FEATURE_UI_V2_DEFAULT || '').trim();
-const featureUiV2Default = hasFrontendV2Build && !/^(0|false|no)$/i.test(featureUiV2Setting);
-app.use(express.static(frontendDir, { index: false }));
-if (hasFrontendV2Build) {
-  app.use('/dashboard-v2', express.static(frontendV2DistDir, { index: false }));
-} else {
-  logger.info('frontend-v2 build not found — run `npm --prefix frontend-v2 run build` to enable /dashboard-v2');
+const frontendV2Entry = path.join(frontendV2DistDir, 'index.html');
+const landingV2Entry = path.join(landingV2DistDir, 'index.html');
+
+function requireBuildArtifact(buildName, entryPath, buildCommand) {
+  if (!fs.existsSync(entryPath)) {
+    throw new Error(
+      `${buildName} build artifact is required before starting the server. ` +
+      `Expected ${path.relative(path.join(__dirname, '..'), entryPath)}. ` +
+      `Run \`${buildCommand}\`.`
+    );
+  }
 }
-if (hasLandingV2Build) {
-  app.use(express.static(landingV2DistDir, { index: false }));
-} else {
-  logger.info('landing-v2 build not found — run `npm --prefix landing-v2 run build` to serve the new landing page');
-}
+
+requireBuildArtifact('frontend-v2', frontendV2Entry, 'npm --prefix frontend-v2 run build');
+requireBuildArtifact('landing-v2', landingV2Entry, 'npm --prefix landing-v2 run build');
+
+app.use('/dashboard-v2', express.static(frontendV2DistDir, { index: false }));
+app.use(express.static(landingV2DistDir, { index: false }));
 
 const ADMIN_EMAIL = config.ADMIN_EMAIL;
 const ADMIN_PASSWORD = config.ADMIN_PASSWORD;
@@ -197,36 +199,19 @@ app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager
 
 // ── PAGES ─────────────────────────────────────────────────────────────────────
 app.get('/', (req, res) => {
-  if (hasLandingV2Build) return res.sendFile(path.join(landingV2DistDir, 'index.html'));
-  return res.sendFile(path.join(frontendDir, 'landing.html'));
+  return res.sendFile(landingV2Entry);
 });
 app.get('/login', (req, res) => {
-  if (hasFrontendV2Build) {
-    return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
-  }
-  return res.sendFile(path.join(frontendDir, 'login.html'));
+  return res.sendFile(frontendV2Entry);
 });
 app.get('/dashboard', (req, res) => {
-  const requestedUi = String(req.query.ui || '').toLowerCase();
-  const v2Requested = requestedUi === 'v2' || requestedUi === 'new';
-  const legacyRequested = requestedUi === 'legacy' || requestedUi === 'old';
-  if (hasFrontendV2Build && !legacyRequested && (featureUiV2Default || v2Requested)) {
-    return res.redirect('/dashboard-v2');
-  }
-  return res.sendFile(path.join(frontendDir, 'index.html'));
+  return res.redirect('/dashboard-v2');
 });
-app.get('/dashboard-legacy', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
 app.get('/dashboard-v2', (req, res) => {
-  if (!hasFrontendV2Build) {
-    return res.status(503).json({ error: 'Dashboard v2 is not built yet. Run `npm --prefix frontend-v2 run build`.' });
-  }
-  return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
+  return res.sendFile(frontendV2Entry);
 });
 app.get(/^\/dashboard-v2\/.*/, (req, res) => {
-  if (!hasFrontendV2Build) {
-    return res.status(503).json({ error: 'Dashboard v2 is not built yet. Run `npm --prefix frontend-v2 run build`.' });
-  }
-  return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
+  return res.sendFile(frontendV2Entry);
 });
 const frontendV2Routes = [
   '/orders',
@@ -252,41 +237,26 @@ const frontendV2Routes = [
   '/admin/traceability',
 ];
 app.get(frontendV2Routes, (req, res) => {
-  if (!hasFrontendV2Build) {
-    return res.status(503).json({ error: 'Dashboard v2 is not built yet. Run `npm --prefix frontend-v2 run build`.' });
-  }
-  return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
+  return res.sendFile(frontendV2Entry);
 });
 app.get('/landing', (req, res) => {
-  if (hasLandingV2Build) return res.sendFile(path.join(landingV2DistDir, 'index.html'));
-  return res.sendFile(path.join(frontendDir, 'landing.html'));
+  return res.sendFile(landingV2Entry);
 });
 app.get('/driver', (req, res) => {
-  if (hasFrontendV2Build) {
-    return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
-  }
-  return res.sendFile(path.join(frontendDir, 'driver.html'));
+  return res.sendFile(frontendV2Entry);
 });
 app.get('/portal', (req, res) => {
-  if (hasFrontendV2Build) {
-    return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
-  }
-  return res.sendFile(path.join(frontendDir, 'customer-portal.html'));
+  return res.sendFile(frontendV2Entry);
 });
 app.get('/customer-portal', (req, res) => {
-  if (hasFrontendV2Build) {
-    return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
-  }
-  return res.sendFile(path.join(frontendDir, 'customer-portal.html'));
+  return res.sendFile(frontendV2Entry);
 });
 app.get('/track', (req, res) => {
-  if (hasFrontendV2Build) return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
-  return res.sendFile(path.join(frontendDir, 'track.html'));
+  return res.sendFile(frontendV2Entry);
 });
 app.get('/track/:token', (req, res) => res.redirect(`/track?t=${encodeURIComponent(req.params.token)}`));
 app.get('/setup-password', (req, res) => {
-  if (hasFrontendV2Build) return res.sendFile(path.join(frontendV2DistDir, 'index.html'));
-  return res.sendFile(path.join(frontendDir, 'setup-password.html'));
+  return res.sendFile(frontendV2Entry);
 });
 
 // ── 404 for unknown API routes (must be before the global error handler) ──────
