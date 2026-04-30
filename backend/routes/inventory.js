@@ -32,6 +32,58 @@ const inventoryCreateBodySchema = z.object({
   lot_item: z.string().optional(),
   notes: z.any().optional(),
 }).passthrough();
+const inventoryLotCreateBodySchema = z.object({
+  item_number: z.string().trim().min(1),
+  lot_number: z.string().trim().min(1),
+  qty_received: z.coerce.number().positive('qty_received must be > 0'),
+  batch_number: z.string().optional(),
+  supplier_name: z.string().optional(),
+  country_of_origin: z.string().optional(),
+  certifications: z.string().optional(),
+  storage_temp: z.string().optional(),
+  received_date: z.string().optional(),
+  expiry_date: z.string().optional(),
+  best_before_date: z.string().optional(),
+  cost_per_unit: z.union([z.number(), z.string()]).optional(),
+  status: z.string().optional(),
+  notes: z.string().optional(),
+}).passthrough();
+const inventoryLotDepleteBodySchema = z.object({
+  qty: z.coerce.number().positive('qty must be > 0'),
+  change_type: z.string().optional(),
+  notes: z.string().optional(),
+}).passthrough();
+const inventoryRestockBodySchema = z.object({
+  qty: z.coerce.number().positive('qty must be > 0'),
+  notes: z.string().optional(),
+}).passthrough();
+const inventoryAdjustBodySchema = z.object({
+  delta: z.coerce.number(),
+  change_type: z.string().optional(),
+  notes: z.string().optional(),
+}).passthrough();
+const inventoryPickBodySchema = z.object({
+  qty: z.coerce.number().positive('qty must be > 0'),
+  order_id: z.string().optional(),
+  order_number: z.string().optional(),
+  notes: z.string().optional(),
+}).passthrough();
+const inventorySpoilageBodySchema = z.object({
+  qty: z.coerce.number().positive('qty must be > 0'),
+  reason: z.string().optional(),
+  notes: z.string().optional(),
+}).passthrough();
+const inventoryTransferBodySchema = z.object({
+  from_item_number: z.string().trim().min(1),
+  to_item_number: z.string().trim().min(1),
+  qty: z.coerce.number().positive('qty must be > 0'),
+  notes: z.string().optional(),
+}).passthrough();
+const inventoryYieldBodySchema = z.object({
+  raw_weight: z.coerce.number().positive('raw_weight must be > 0'),
+  yield_weight: z.coerce.number().positive('yield_weight must be > 0'),
+  notes: z.string().optional(),
+}).passthrough();
 
 // ── SEAFOOD INVENTORY (Supabase table: seafood_inventory) ────────────────────
 // Column names (updated to match current database):
@@ -267,16 +319,13 @@ router.get('/lots', authenticateToken, async (req, res) => {
 });
 
 // POST /api/inventory/lots — create a new lot and optionally bump product on_hand_qty
-router.post('/lots', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/lots', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryLotCreateBodySchema), async (req, res) => {
   const {
     item_number, lot_number, batch_number, supplier_name, country_of_origin,
     certifications, storage_temp, received_date, expiry_date, best_before_date,
     qty_received, cost_per_unit, status, notes,
-  } = req.body;
-  if (!item_number) return res.status(400).json({ error: 'item_number required' });
-  if (!lot_number)  return res.status(400).json({ error: 'lot_number required' });
-  const qty = parseFloat(qty_received) || 0;
-  if (qty <= 0) return res.status(400).json({ error: 'qty_received must be > 0' });
+  } = req.validated.body;
+  const qty = qty_received;
 
   const { data, error } = await supabase.from('inventory_lots').insert([{
     item_number,
@@ -351,10 +400,8 @@ router.patch('/lots/:lotId', authenticateToken, requireRole('admin', 'manager'),
 });
 
 // POST /api/inventory/lots/:lotId/deplete — remove qty from a specific lot
-router.post('/lots/:lotId/deplete', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { qty, change_type, notes } = req.body;
-  const removeQty = parseFloat(qty);
-  if (!removeQty || removeQty <= 0) return res.status(400).json({ error: 'qty must be > 0' });
+router.post('/lots/:lotId/deplete', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryLotDepleteBodySchema), async (req, res) => {
+  const { qty: removeQty, change_type, notes } = req.validated.body;
 
   const { data: lot, error: lotErr } = await supabase.from('inventory_lots').select('*').eq('id', req.params.lotId).single();
   if (lotErr || !lot) return res.status(404).json({ error: 'Lot not found' });
@@ -448,10 +495,8 @@ router.post('/count', authenticateToken, requireRole('admin', 'manager'), async 
 });
 
 // POST /api/inventory/:id/restock — add stock and log history
-router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { qty, notes } = req.body;
-  const addQty = parseFloat(qty);
-  if (!addQty || addQty <= 0) return res.status(400).json({ error: 'qty must be > 0' });
+router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryRestockBodySchema), async (req, res) => {
+  const { qty: addQty, notes } = req.validated.body;
 
   const { data: item, error: fetchErr } = await supabase
     .from('seafood_inventory').select('*').eq('item_number', req.params.id).single();
@@ -479,10 +524,8 @@ router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager'), 
 });
 
 // POST /api/inventory/:id/adjust — manual depletion, waste, or correction
-router.post('/:id/adjust', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { delta, change_type, notes } = req.body;
-  const d = parseFloat(delta);
-  if (d == null || isNaN(d)) return res.status(400).json({ error: 'delta (number) required' });
+router.post('/:id/adjust', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryAdjustBodySchema), async (req, res) => {
+  const { delta: d, change_type, notes } = req.validated.body;
   const type = change_type || (d < 0 ? 'depletion' : 'adjustment');
 
   try {
@@ -502,18 +545,17 @@ router.post('/:id/adjust', authenticateToken, requireRole('admin', 'manager'), a
 });
 
 // POST /api/inventory/:id/pick — pick stock for an order or outbound workflow
-router.post('/:id/pick', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const qty = parseFloat(req.body.qty);
-  if (!qty || qty <= 0) return res.status(400).json({ error: 'qty must be > 0' });
-  const orderRef = String(req.body.order_id || req.body.order_number || '').trim();
-  const notes = String(req.body.notes || '').trim();
+router.post('/:id/pick', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryPickBodySchema), async (req, res) => {
+  const { qty, order_id, order_number, notes } = req.validated.body;
+  const orderRef = String(order_id || order_number || '').trim();
+  const trimmedNotes = String(notes || '').trim();
 
   try {
     const ledger = await applyInventoryLedgerEntry({
       itemNumber: req.params.id,
       deltaQty: -qty,
       changeType: 'pick',
-      notes: notes || (orderRef ? `Order pick ${orderRef}` : 'Order pick'),
+      notes: trimmedNotes || (orderRef ? `Order pick ${orderRef}` : 'Order pick'),
       createdBy: req.user.name || req.user.email,
     });
     res.json(ledger.item_after);
@@ -525,18 +567,17 @@ router.post('/:id/pick', authenticateToken, requireRole('admin', 'manager'), asy
 });
 
 // POST /api/inventory/:id/spoilage — record spoiled/wasted inventory
-router.post('/:id/spoilage', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const qty = parseFloat(req.body.qty);
-  if (!qty || qty <= 0) return res.status(400).json({ error: 'qty must be > 0' });
-  const reason = String(req.body.reason || '').trim();
-  const notes = String(req.body.notes || '').trim();
+router.post('/:id/spoilage', authenticateToken, requireRole('admin', 'manager'), validateBody(inventorySpoilageBodySchema), async (req, res) => {
+  const { qty, reason, notes } = req.validated.body;
+  const trimmedReason = String(reason || '').trim();
+  const trimmedNotes = String(notes || '').trim();
 
   try {
     const ledger = await applyInventoryLedgerEntry({
       itemNumber: req.params.id,
       deltaQty: -qty,
       changeType: 'spoilage',
-      notes: [reason ? `Reason: ${reason}` : null, notes || null].filter(Boolean).join(' | ') || 'Spoilage',
+      notes: [trimmedReason ? `Reason: ${trimmedReason}` : null, trimmedNotes || null].filter(Boolean).join(' | ') || 'Spoilage',
       createdBy: req.user.name || req.user.email,
     });
     res.json(ledger.item_after);
@@ -548,22 +589,16 @@ router.post('/:id/spoilage', authenticateToken, requireRole('admin', 'manager'),
 });
 
 // POST /api/inventory/transfer — move stock from one item to another item
-router.post('/transfer', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const fromItemNumber = String(req.body.from_item_number || '').trim();
-  const toItemNumber = String(req.body.to_item_number || '').trim();
-  const qty = parseFloat(req.body.qty);
-  const notes = String(req.body.notes || '').trim();
-  if (!fromItemNumber || !toItemNumber) {
-    return res.status(400).json({ error: 'from_item_number and to_item_number are required' });
-  }
-  if (!qty || qty <= 0) return res.status(400).json({ error: 'qty must be > 0' });
+router.post('/transfer', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryTransferBodySchema), async (req, res) => {
+  const { from_item_number: fromItemNumber, to_item_number: toItemNumber, qty, notes } = req.validated.body;
+  const trimmedNotes = String(notes || '').trim();
 
   try {
     const result = await transferInventoryLedgerEntry({
       fromItemNumber,
       toItemNumber,
       qty,
-      notes,
+      notes: trimmedNotes,
       createdBy: req.user.name || req.user.email,
     });
     res.json(result);
@@ -620,12 +655,8 @@ router.get('/:id/history', authenticateToken, async (req, res) => {
 });
 
 // POST /api/inventory/:id/yield — log a cutting session, update running average
-router.post('/:id/yield', authenticateToken, async (req, res) => {
-  const { raw_weight, yield_weight, notes } = req.body;
-  const raw     = parseFloat(raw_weight);
-  const yielded = parseFloat(yield_weight);
-  if (!raw || raw <= 0)         return res.status(400).json({ error: 'raw_weight must be > 0' });
-  if (!yielded || yielded <= 0) return res.status(400).json({ error: 'yield_weight must be > 0' });
+router.post('/:id/yield', authenticateToken, validateBody(inventoryYieldBodySchema), async (req, res) => {
+  const { raw_weight: raw, yield_weight: yielded, notes } = req.validated.body;
   if (yielded > raw)            return res.status(400).json({ error: 'yield_weight cannot exceed raw_weight' });
 
   const yield_pct = parseFloat(((yielded / raw) * 100).toFixed(2));
