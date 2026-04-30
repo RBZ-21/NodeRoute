@@ -82,10 +82,6 @@ export function DeliveriesPage() {
       const data = await fetchWithAuth<Delivery[]>('/api/deliveries');
       const rows = Array.isArray(data) ? data : [];
       setDeliveries(rows);
-
-      const today = toDateKey(new Date().toISOString());
-      if (!startDate) setStartDate(today);
-      if (!endDate) setEndDate(today);
     } catch (err) {
       setError(String((err as Error).message || 'Could not load deliveries'));
     } finally {
@@ -270,4 +266,3 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
     </Card>
   );
 }
-

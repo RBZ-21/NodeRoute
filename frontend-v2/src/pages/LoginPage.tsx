@@ -1,5 +1,6 @@
 import { LayoutDashboard, ShieldCheck } from 'lucide-react';
 import { useEffect, useMemo, useState } from 'react';
+import * as Sentry from '@sentry/react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
@@ -32,6 +33,10 @@ export function LoginPage() {
   const [error, setError] = useState('');
 
   const next = useMemo(() => nextDestination(window.location.search), []);
+  const showSentryTestButton = useMemo(
+    () => import.meta.env.DEV || new URLSearchParams(window.location.search).has('sentry-test'),
+    []
+  );
 
   useEffect(() => {
     const authError = readAndClearAuthError();
@@ -163,11 +168,34 @@ export function LoginPage() {
                 <Button className="w-full" type="submit" disabled={submitting}>
                   {submitting ? 'Signing In...' : 'Sign In'}
                 </Button>
+                {showSentryTestButton ? <SentryTestButton /> : null}
               </form>
             </CardContent>
           </Card>
         </div>
       </div>
     </div>
+  );
+}
+
+function SentryTestButton() {
+  return (
+    <Button
+      className="w-full"
+      variant="outline"
+      type="button"
+      onClick={() => {
+        const error = new Error('This is your first error!');
+        const eventId = Sentry.captureException(error);
+        void Sentry.flush(2000).then((sent) => {
+          console.info('[Sentry login test] event', eventId, sent ? 'flushed' : 'not flushed');
+        });
+        window.setTimeout(() => {
+          throw error;
+        }, 0);
+      }}
+    >
+      Break the world
+    </Button>
   );
 }

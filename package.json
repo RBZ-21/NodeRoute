@@ -4,7 +4,11 @@
   "scripts": {
     "start": "node backend/server.js",
     "build:dashboard-v2": "npm --prefix frontend-v2 run build",
-    "test": "npm --prefix backend test",
+    "test": "npm --prefix backend test && npm --prefix frontend-v2 test",
     "postinstall": "cd backend && npm install"
+  },
+  "dependencies": {
+    "@sentry/node": "^10.51.0",
+    "@sentry/react": "^10.51.0"
   }
 }

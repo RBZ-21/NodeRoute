@@ -1,39 +1,51 @@
 import { ChevronDown, LayoutDashboard, LogOut, Moon, Sun } from 'lucide-react';
 import type { ReactElement } from 'react';
-import { useEffect, useMemo, useState } from 'react';
+import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
+import * as Sentry from '@sentry/react';
 import { Button } from './components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu';
 import { clearSession, fetchCurrentUser, getUserRole, redirectToLogin, requireAuthToken } from './lib/api';
 import { cn } from './lib/utils';
-import { AIHelpPage } from './pages/AIHelpPage';
-import { AnalyticsPage } from './pages/AnalyticsPage';
-import { DriverPage } from './pages/DriverPage';
-import { CustomersPage } from './pages/CustomersPage';
-import { DashboardPage } from './pages/DashboardPage';
-import { DeliveriesPage } from './pages/DeliveriesPage';
-import { DriversPage } from './pages/DriversPage';
-import { ForecastingPage } from './pages/ForecastingPage';
-import { FinancialsPage } from './pages/FinancialsPage';
-import { IntegrationsPage } from './pages/IntegrationsPage';
-import { InventoryPage } from './pages/InventoryPage';
-import { InvoicesPage } from './pages/InvoicesPage';
-import { OrdersPage } from './pages/OrdersPage';
-import { PlanningPage } from './pages/PlanningPage';
-import { PurchasingPage } from './pages/PurchasingPage';
-import { RoutesPage } from './pages/RoutesPage';
-import { SettingsPage } from './pages/SettingsPage';
-import { StopsPage } from './pages/StopsPage';
-import { CustomerPortalPage } from './pages/CustomerPortalPage';
-import { UsersPage } from './pages/UsersPage';
-import { VendorsPage } from './pages/VendorsPage';
-import { MapPage } from './pages/MapPage';
-import { WarehousePage } from './pages/WarehousePage';
-import { LoginPage } from './pages/LoginPage';
-import { TraceabilityPage } from './pages/TraceabilityPage';
-import { TrackPage } from './pages/TrackPage';
-import { SetupPasswordPage } from './pages/SetupPasswordPage';
+
+function lazyNamed<TModule, TKey extends keyof TModule>(
+  loader: () => Promise<TModule>,
+  key: TKey,
+) {
+  return lazy(async () => {
+    const mod = await loader();
+    return { default: mod[key] as React.ComponentType };
+  });
+}
+
+const AIHelpPage = lazyNamed(() => import('./pages/AIHelpPage'), 'AIHelpPage');
+const AnalyticsPage = lazyNamed(() => import('./pages/AnalyticsPage'), 'AnalyticsPage');
+const CustomerPortalPage = lazyNamed(() => import('./pages/CustomerPortalPage'), 'CustomerPortalPage');
+const CustomersPage = lazyNamed(() => import('./pages/CustomersPage'), 'CustomersPage');
+const DashboardPage = lazyNamed(() => import('./pages/DashboardPage'), 'DashboardPage');
+const DeliveriesPage = lazyNamed(() => import('./pages/DeliveriesPage'), 'DeliveriesPage');
+const DriverPage = lazyNamed(() => import('./pages/DriverPage'), 'DriverPage');
+const DriversPage = lazyNamed(() => import('./pages/DriversPage'), 'DriversPage');
+const FinancialsPage = lazyNamed(() => import('./pages/FinancialsPage'), 'FinancialsPage');
+const ForecastingPage = lazyNamed(() => import('./pages/ForecastingPage'), 'ForecastingPage');
+const IntegrationsPage = lazyNamed(() => import('./pages/IntegrationsPage'), 'IntegrationsPage');
+const InventoryPage = lazyNamed(() => import('./pages/InventoryPage'), 'InventoryPage');
+const InvoicesPage = lazyNamed(() => import('./pages/InvoicesPage'), 'InvoicesPage');
+const LoginPage = lazyNamed(() => import('./pages/LoginPage'), 'LoginPage');
+const MapPage = lazyNamed(() => import('./pages/MapPage'), 'MapPage');
+const OrdersPage = lazyNamed(() => import('./pages/OrdersPage'), 'OrdersPage');
+const PlanningPage = lazyNamed(() => import('./pages/PlanningPage'), 'PlanningPage');
+const PurchasingPage = lazyNamed(() => import('./pages/PurchasingPage'), 'PurchasingPage');
+const RoutesPage = lazyNamed(() => import('./pages/RoutesPage'), 'RoutesPage');
+const SettingsPage = lazyNamed(() => import('./pages/SettingsPage'), 'SettingsPage');
+const SetupPasswordPage = lazyNamed(() => import('./pages/SetupPasswordPage'), 'SetupPasswordPage');
+const StopsPage = lazyNamed(() => import('./pages/StopsPage'), 'StopsPage');
+const TraceabilityPage = lazyNamed(() => import('./pages/TraceabilityPage'), 'TraceabilityPage');
+const TrackPage = lazyNamed(() => import('./pages/TrackPage'), 'TrackPage');
+const UsersPage = lazyNamed(() => import('./pages/UsersPage'), 'UsersPage');
+const VendorsPage = lazyNamed(() => import('./pages/VendorsPage'), 'VendorsPage');
+const WarehousePage = lazyNamed(() => import('./pages/WarehousePage'), 'WarehousePage');
 
 type TabId =
   | 'dashboard'
@@ -138,6 +150,28 @@ const navGroups: NavGroup[] = [
 
 const defaultPath = '/dashboard';
 const allNavItems = navGroups.flatMap((group) => group.items);
+const showSentryTestButton =
+  import.meta.env.DEV || new URLSearchParams(window.location.search).has('sentry-test');
+
+function PageFallback({ label = 'page' }: { label?: string }) {
+  return (
+    <div className="min-h-screen bg-enterprise-gradient">
+      <div className="mx-auto flex min-h-screen max-w-[1420px] items-center justify-center p-4 md:p-6">
+        <Card className="w-full max-w-md">
+          <CardHeader>
+            <CardTitle>Loading {label}</CardTitle>
+            <CardDescription>Preparing the next workspace view.</CardDescription>
+          </CardHeader>
+          <CardContent className="text-sm text-muted-foreground">Please wait a moment.</CardContent>
+        </Card>
+      </div>
+    </div>
+  );
+}
+
+function SuspendedPage({ label, children }: { label?: string; children: ReactElement }) {
+  return <Suspense fallback={<PageFallback label={label} />}>{children}</Suspense>;
+}
 
 export function App() {
   const location = useLocation();
@@ -180,19 +214,19 @@ export function App() {
   }, [isLoginRoute, isPortalRoute, isTrackRoute, isSetupPasswordRoute]);
 
   if (isLoginRoute) {
-    return <LoginPage />;
+    return <SuspendedPage label="sign-in"><LoginPage /></SuspendedPage>;
   }
 
   if (isPortalRoute) {
-    return <CustomerPortalPage />;
+    return <SuspendedPage label="customer portal"><CustomerPortalPage /></SuspendedPage>;
   }
 
   if (isTrackRoute) {
-    return <TrackPage />;
+    return <SuspendedPage label="tracking"><TrackPage /></SuspendedPage>;
   }
 
   if (isSetupPasswordRoute) {
-    return <SetupPasswordPage />;
+    return <SuspendedPage label="password setup"><SetupPasswordPage /></SuspendedPage>;
   }
 
   if (sessionState === 'checking') {
@@ -216,7 +250,7 @@ export function App() {
       window.location.href = '/dashboard-v2';
       return null;
     }
-    return <DriverPage />;
+    return <SuspendedPage label="driver workspace"><DriverPage /></SuspendedPage>;
   }
 
   return <AppShell />;
@@ -270,6 +304,7 @@ function AppShell() {
               </p>
             </div>
             <div className="flex flex-wrap gap-2">
+              {showSentryTestButton ? <ErrorButton /> : null}
               <a href="/dashboard-legacy" className={cn('inline-flex', role === 'unknown' && 'pointer-events-none opacity-50')}>
                 <Button variant="outline">Legacy Dashboard</Button>
               </a>
@@ -364,52 +399,73 @@ function PlaceholderPage({ item, role }: { item: NavItem; role: Role }) {
   );
 }
 
+function ErrorButton() {
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={() => {
+        const error = new Error('This is your first error!');
+        const eventId = Sentry.captureException(error);
+        void Sentry.flush(2000).then((sent) => {
+          console.info('[Sentry test] event', eventId, sent ? 'flushed' : 'not flushed');
+        });
+        window.setTimeout(() => {
+          throw error;
+        }, 0);
+      }}
+    >
+      Break the world
+    </Button>
+  );
+}
+
 function pageElement(item: NavItem, role: Role) {
   switch (item.id) {
     case 'dashboard':
-      return <DashboardPage />;
+      return <SuspendedPage label="dashboard"><DashboardPage /></SuspendedPage>;
     case 'analytics':
-      return <AnalyticsPage />;
+      return <SuspendedPage label="analytics"><AnalyticsPage /></SuspendedPage>;
     case 'financials':
-      return <FinancialsPage />;
+      return <SuspendedPage label="financial overview"><FinancialsPage /></SuspendedPage>;
     case 'inventory':
-      return <InventoryPage />;
+      return <SuspendedPage label="inventory"><InventoryPage /></SuspendedPage>;
     case 'orders':
-      return <OrdersPage />;
+      return <SuspendedPage label="orders"><OrdersPage /></SuspendedPage>;
     case 'settings':
-      return <SettingsPage />;
+      return <SuspendedPage label="settings"><SettingsPage /></SuspendedPage>;
     case 'deliveries':
-      return <DeliveriesPage />;
+      return <SuspendedPage label="deliveries"><DeliveriesPage /></SuspendedPage>;
     case 'drivers':
-      return <DriversPage />;
+      return <SuspendedPage label="drivers"><DriversPage /></SuspendedPage>;
     case 'routes':
-      return <RoutesPage />;
+      return <SuspendedPage label="routes"><RoutesPage /></SuspendedPage>;
     case 'stops':
-      return <StopsPage />;
+      return <SuspendedPage label="stops"><StopsPage /></SuspendedPage>;
     case 'customers':
-      return <CustomersPage />;
+      return <SuspendedPage label="customers"><CustomersPage /></SuspendedPage>;
     case 'users':
-      return <UsersPage />;
+      return <SuspendedPage label="users"><UsersPage /></SuspendedPage>;
     case 'invoices':
-      return <InvoicesPage />;
+      return <SuspendedPage label="invoices"><InvoicesPage /></SuspendedPage>;
     case 'forecast':
-      return <ForecastingPage />;
+      return <SuspendedPage label="forecasting"><ForecastingPage /></SuspendedPage>;
     case 'purchasing':
-      return <PurchasingPage />;
+      return <SuspendedPage label="purchasing"><PurchasingPage /></SuspendedPage>;
     case 'traceability':
-      return <TraceabilityPage />;
+      return <SuspendedPage label="traceability"><TraceabilityPage /></SuspendedPage>;
     case 'vendors':
-      return <VendorsPage />;
+      return <SuspendedPage label="vendors"><VendorsPage /></SuspendedPage>;
     case 'warehouse':
-      return <WarehousePage />;
+      return <SuspendedPage label="warehouse"><WarehousePage /></SuspendedPage>;
     case 'planning':
-      return <PlanningPage />;
+      return <SuspendedPage label="planning"><PlanningPage /></SuspendedPage>;
     case 'integrations':
-      return <IntegrationsPage />;
+      return <SuspendedPage label="integrations"><IntegrationsPage /></SuspendedPage>;
     case 'aihelp':
-      return <AIHelpPage />;
+      return <SuspendedPage label="walkthroughs"><AIHelpPage /></SuspendedPage>;
     case 'map':
-      return <MapPage />;
+      return <SuspendedPage label="live map"><MapPage /></SuspendedPage>;
     default:
       return <PlaceholderPage item={item} role={role} />;
   }

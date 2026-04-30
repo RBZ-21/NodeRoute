@@ -1,5 +1,7 @@
+require('./instrument.js');
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 
+const Sentry = require('@sentry/node');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -45,7 +47,7 @@ app.use((req, res, next) => {
 app.use((req, res, next) => {
   res.setHeader('Access-Control-Allow-Origin', process.env.CORS_ORIGIN || '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,sentry-trace,baggage');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
@@ -158,6 +160,10 @@ app.get('/api/config/maps-key', authenticateToken, (req, res) => {
 
 app.get('/healthz', (req, res) => {
   res.json({ ok: true });
+});
+
+app.get('/debug-sentry', function mainHandler(req, res) {
+  throw new Error('My first Sentry error!');
 });
 
 // Dwell records (top-level path, reads from Supabase)
@@ -277,11 +283,18 @@ app.use('/api', (req, res) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
 });
 
+// Register Sentry's Express error handler after all controllers and before
+// the app's own fallback error middleware.
+Sentry.setupExpressErrorHandler(app);
+
 // ── Global error handler — returns JSON instead of Express's default HTML ─────
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   console.error('Unhandled server error:', err.message, err.stack);
-  res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+  res.status(err.status || 500).json({
+    error: err.message || 'Internal server error',
+    sentry: res.sentry || undefined,
+  });
 });
 
 app.listen(PORT, '0.0.0.0', () => console.log(`Server ${process.pid} listening on http://0.0.0.0:${PORT}`));
