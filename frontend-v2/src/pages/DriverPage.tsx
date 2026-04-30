@@ -19,7 +19,7 @@ import { useSignatureCapture } from '../hooks/useSignatureCapture';
 import { DriverRouteTab } from './DriverRouteTab';
 import { SignatureModal } from './SignatureModal';
 import { asDriverNumber, dwellForStop, formatDateTime, formatMoney, greeting, routeProgress, stopStatus } from './driver.types';
-import type { DriverRoute, DriverTab } from './driver.types';
+import type { DriverRoute, DriverTab, DwellRecord } from './driver.types';
 
 export function DriverPage() {
   const ws = useDriverWorkspace();
@@ -75,7 +75,7 @@ export function DriverPage() {
     if (!activeRoute) return;
     setBusyStopId(stopId);
     try {
-      const record = await sendWithAuth(`/api/stops/${stopId}/arrive`, 'POST', { routeId: activeRoute.id } as never);
+      const record = await sendWithAuth<DwellRecord>(`/api/stops/${stopId}/arrive`, 'POST', { routeId: activeRoute.id } as never);
       ws.applyDwell(record);
     } catch (err) {
       ws.setError(String((err as Error).message || 'Could not mark arrival.'));
@@ -97,7 +97,7 @@ export function DriverPage() {
     }
     setBusyStopId(stopId);
     try {
-      const record = await sendWithAuth(`/api/stops/${stopId}/depart`, 'POST', { routeId: activeRoute.id } as never);
+      const record = await sendWithAuth<DwellRecord>(`/api/stops/${stopId}/depart`, 'POST', { routeId: activeRoute.id } as never);
       ws.applyDwell(record);
     } catch (err) {
       ws.setError(String((err as Error).message || 'Could not complete this stop.'));

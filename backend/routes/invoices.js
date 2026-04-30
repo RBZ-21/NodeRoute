@@ -1,10 +1,11 @@
 const express = require('express');
+const { z } = require('zod');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
-const { required, maxLen, isArray, maxItems, compose } = require('../lib/validate');
 const { createMailer } = require('../services/email');
 const { buildInvoicePDF } = require('../services/pdf');
 const { loadDriverInvoiceScope } = require('../services/driver-invoice-access');
+const { validateBody } = require('../lib/zod-validate');
 const {
   buildScopeFields,
   filterRowsByContext,
@@ -15,6 +16,34 @@ const {
 const router = express.Router();
 
 const DEFAULT_TAX_RATE = 0.09;
+const MAX_INVOICE_ITEMS = 200;
+
+const invoiceBodySchema = z.object({
+  customer_name: z.string().trim().min(1, 'customer_name is required').max(200).optional(),
+  customerName: z.string().trim().min(1, 'customer_name is required').max(200).optional(),
+  customer_email: z.string().max(200).optional().nullable(),
+  customerEmail: z.string().max(200).optional().nullable(),
+  customer_address: z.string().max(500).optional().nullable(),
+  customerAddress: z.string().max(500).optional().nullable(),
+  deliveryAddress: z.string().max(500).optional().nullable(),
+  notes: z.string().max(2000).optional().nullable(),
+  items: z.array(z.any(), { error: 'items must be an array' }).min(1, 'items is required').max(MAX_INVOICE_ITEMS, `items may contain at most ${MAX_INVOICE_ITEMS} items`),
+  subtotal: z.union([z.number(), z.string()]).optional(),
+  total: z.union([z.number(), z.string()]).optional(),
+}).passthrough().superRefine((body, ctx) => {
+  const customerName = invoiceBodyValue(body, 'customer_name', 'customerName');
+  if (!customerName || !String(customerName).trim()) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'customer_name is required' });
+  }
+
+  if (body.subtotal !== undefined && !Number.isFinite(Number(body.subtotal))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'subtotal must be a number' });
+  }
+
+  if (body.total !== undefined && !Number.isFinite(Number(body.total))) {
+    ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'total must be a number' });
+  }
+});
 
 function parseBoolean(value) {
   return value === true || value === 'true' || value === 1 || value === '1' || value === 'on';
@@ -115,50 +144,40 @@ router.get('/', authenticateToken, async (req, res) => {
   res.json(filterRowsByContext(data, req.context));
 });
 
-router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const customer_name = invoiceBodyValue(req.body, 'customer_name', 'customerName');
-  const valErr = compose(
-    required(customer_name, 'customer_name'),
-    maxLen(customer_name, 'customer_name', 200),
-    maxLen(invoiceBodyValue(req.body, 'customer_email', 'customerEmail'), 'customer_email', 200),
-    maxLen(invoiceBodyValue(req.body, 'customer_address', 'customerAddress', 'deliveryAddress'), 'customer_address', 500),
-    maxLen(req.body.notes, 'notes', 2000),
-    req.body.items !== undefined ? isArray(req.body.items, 'items') : null,
-    req.body.items !== undefined ? maxItems(req.body.items, 'items', 200) : null,
-  );
-  if (valErr) return res.status(400).json({ error: valErr });
-
-  const items = normalizeInvoiceItems(req.body.items);
-  const subtotal = req.body.subtotal !== undefined
-    ? asMoney(req.body.subtotal)
+router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBody(invoiceBodySchema), async (req, res) => {
+  const body = req.validated.body;
+  const customer_name = invoiceBodyValue(body, 'customer_name', 'customerName');
+  const items = normalizeInvoiceItems(body.items);
+  const subtotal = body.subtotal !== undefined
+    ? asMoney(body.subtotal)
     : asMoney(items.reduce((sum, item) => sum + item.total, 0));
-  const taxEnabled = parseBoolean(req.body.tax_enabled ?? req.body.taxEnabled);
-  const taxRate = parseFloat(req.body.tax_rate ?? req.body.taxRate);
+  const taxEnabled = parseBoolean(body.tax_enabled ?? body.taxEnabled);
+  const taxRate = parseFloat(body.tax_rate ?? body.taxRate);
   const normalizedTaxRate = Number.isFinite(taxRate) && taxRate >= 0 ? taxRate : DEFAULT_TAX_RATE;
-  const tax = req.body.tax !== undefined ? asMoney(req.body.tax) : (taxEnabled ? asMoney(subtotal * normalizedTaxRate) : 0);
-  const total = req.body.total !== undefined ? asMoney(req.body.total) : asMoney(subtotal + tax);
+  const tax = body.tax !== undefined ? asMoney(body.tax) : (taxEnabled ? asMoney(subtotal * normalizedTaxRate) : 0);
+  const total = body.total !== undefined ? asMoney(body.total) : asMoney(subtotal + tax);
   const insertResult = await insertRecordWithOptionalScope(supabase, 'invoices', {
-    invoice_number: invoiceBodyValue(req.body, 'invoice_number', 'invoiceNumber') || `INV-${Date.now().toString().slice(-6)}`,
+    invoice_number: invoiceBodyValue(body, 'invoice_number', 'invoiceNumber') || `INV-${Date.now().toString().slice(-6)}`,
     customer_name,
-    customer_email: invoiceBodyValue(req.body, 'customer_email', 'customerEmail') || null,
-    customer_address: invoiceBodyValue(req.body, 'customer_address', 'customerAddress', 'deliveryAddress') || null,
-    billing_name: invoiceBodyValue(req.body, 'billing_name', 'billingName') || null,
-    billing_contact: invoiceBodyValue(req.body, 'billing_contact', 'billingContact') || null,
-    billing_email: invoiceBodyValue(req.body, 'billing_email', 'billingEmail') || null,
-    billing_phone: invoiceBodyValue(req.body, 'billing_phone', 'billingPhone') || null,
-    billing_address: invoiceBodyValue(req.body, 'billing_address', 'billingAddress') || null,
+    customer_email: invoiceBodyValue(body, 'customer_email', 'customerEmail') || null,
+    customer_address: invoiceBodyValue(body, 'customer_address', 'customerAddress', 'deliveryAddress') || null,
+    billing_name: invoiceBodyValue(body, 'billing_name', 'billingName') || null,
+    billing_contact: invoiceBodyValue(body, 'billing_contact', 'billingContact') || null,
+    billing_email: invoiceBodyValue(body, 'billing_email', 'billingEmail') || null,
+    billing_phone: invoiceBodyValue(body, 'billing_phone', 'billingPhone') || null,
+    billing_address: invoiceBodyValue(body, 'billing_address', 'billingAddress') || null,
     items,
     subtotal,
     tax,
     total,
     tax_enabled: taxEnabled,
     tax_rate: normalizedTaxRate,
-    order_id: invoiceBodyValue(req.body, 'order_id', 'orderId'),
+    order_id: invoiceBodyValue(body, 'order_id', 'orderId'),
     status: 'pending',
-    driver_name: invoiceBodyValue(req.body, 'driver_name', 'driverName'),
-    driver_id: invoiceBodyValue(req.body, 'driver_id', 'driverId'),
-    notes: req.body.notes || null,
-    entree_invoice_id: req.body.entree_invoice_id || null,
+    driver_name: invoiceBodyValue(body, 'driver_name', 'driverName'),
+    driver_id: invoiceBodyValue(body, 'driver_id', 'driverId'),
+    notes: body.notes || null,
+    entree_invoice_id: body.entree_invoice_id || null,
   }, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;

@@ -100,6 +100,27 @@ test('temperature logs routes use shared Zod validation for body and query paylo
   assert.ok(source.includes('Date must be in YYYY-MM-DD format'), 'temperature logs query should validate date formatting');
 });
 
+test('invoice, inventory, and purchase-order routes enforce shared Zod validation for high-risk inputs', () => {
+  const invoices = routeSource('invoices');
+  const inventory = routeSource('inventory');
+  const purchaseOrders = routeSource('purchase-orders');
+
+  assert.ok(invoices.includes('validateBody(invoiceBodySchema)'), 'invoices should use shared body validation');
+  assert.ok(invoices.includes('customer_name is required'), 'invoices should require customer_name');
+  assert.ok(invoices.includes('items is required'), 'invoices should require items');
+  assert.ok(invoices.includes('subtotal must be a number'), 'invoices should validate subtotal');
+  assert.ok(invoices.includes('total must be a number'), 'invoices should validate total');
+
+  assert.ok(inventory.includes('validateBody(inventoryCreateBodySchema)'), 'inventory should use shared body validation');
+  assert.ok(inventory.includes('item_number required'), 'inventory should require item_number');
+  assert.ok(inventory.includes('on_hand_qty must be a finite number ≥ 0'), 'inventory should validate non-negative on_hand_qty');
+
+  assert.ok(purchaseOrders.includes('validateBody(purchaseOrderConfirmSchema)'), 'purchase orders should use shared body validation');
+  assert.ok(purchaseOrders.includes('vendor is required'), 'purchase orders should require vendor');
+  assert.ok(purchaseOrders.includes('items is required'), 'purchase orders should require items');
+  assert.ok(purchaseOrders.includes('quantity must be a positive number'), 'purchase orders should validate item quantity');
+});
+
 test('ai routes protect order-intake automation behind auth and manager/admin checks', () => {
   const source = routeSource('ai');
   assert.ok(source.includes("router.post('/order-intake', authenticateToken, requireRole('admin', 'manager')"), 'order-intake route should require manager/admin auth');

@@ -1,8 +1,10 @@
 const express = require('express');
+const { z } = require('zod');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createMailer } = require('../services/email');
 const { analyzeInventory, generateReorderAlert } = require('../services/ai');
+const { validateBody } = require('../lib/zod-validate');
 const {
   applyInventoryLedgerEntry,
   transferInventoryLedgerEntry,
@@ -19,6 +21,17 @@ const router = express.Router();
 // Products whose names match this pattern require a lot number on every receipt.
 const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
 const needsLot = desc => LOT_REQUIRED.test(desc || '');
+const inventoryCreateBodySchema = z.object({
+  description: z.string().trim().min(1, 'Product description required'),
+  item_number: z.string().trim().min(1, 'item_number required'),
+  category: z.string().optional(),
+  unit: z.string().optional(),
+  cost: z.union([z.number(), z.string()]).optional(),
+  on_hand_qty: z.coerce.number().finite().min(0, 'on_hand_qty must be a finite number ≥ 0'),
+  on_hand_weight: z.union([z.number(), z.string()]).optional(),
+  lot_item: z.string().optional(),
+  notes: z.any().optional(),
+}).passthrough();
 
 // ── SEAFOOD INVENTORY (Supabase table: seafood_inventory) ────────────────────
 // Column names (updated to match current database):
@@ -35,16 +48,15 @@ router.get('/', authenticateToken, async (req, res) => {
   res.json(filterRowsByContext(data, req.context));
 });
 
-router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { description, category, item_number, unit, cost, on_hand_qty, on_hand_weight, lot_item, notes } = req.body;
-  if (!description) return res.status(400).json({ error: 'Product description required' });
+router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryCreateBodySchema), async (req, res) => {
+  const { description, category, item_number, unit, cost, on_hand_qty, on_hand_weight, lot_item, notes } = req.validated.body;
   const insertResult = await insertRecordWithOptionalScope(supabase, 'seafood_inventory', {
     description,
     category:       category       || 'Other',
-    item_number:    item_number    || '',
+    item_number,
     unit:           unit           || 'lb',
     cost:           parseFloat(cost)           || 0,
-    on_hand_qty:    parseFloat(on_hand_qty)    || 0,
+    on_hand_qty,
     on_hand_weight: parseFloat(on_hand_weight) || 0,
     lot_item:       needsLot(description) ? 'Y' : (lot_item || 'N'),
     notes:          notes || null,

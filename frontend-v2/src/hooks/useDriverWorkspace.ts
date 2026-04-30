@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { fetchWithAuth } from '../lib/api';
-import type { CompanySettings, DeliverySummary, DriverInvoice, DriverRoute, DwellRecord } from '../pages/driver.types';
+import type { CompanySettings, DeliverySummary, DriverInvoice, DriverRoute, DriverStop, DwellRecord } from '../pages/driver.types';
 import { upsertDwell } from '../pages/driver.types';
 
 export function useDriverWorkspace() {
@@ -46,7 +46,7 @@ export function useDriverWorkspace() {
     setDwellRecords((current) => upsertDwell(current, record));
   }
 
-  function updateStopInvoice(stopId: string, patch: Partial<DriverRoute['stops'] extends (infer S)[] ? S : never>) {
+  function updateStopInvoice(stopId: string, patch: Partial<DriverStop>) {
     setRoutes((current) =>
       current.map((route) => ({
         ...route,

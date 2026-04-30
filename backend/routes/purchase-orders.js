@@ -1,9 +1,11 @@
 const express  = require('express');
 const multer   = require('multer');
+const { z } = require('zod');
 const { supabase }                  = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { parsePurchaseOrderImage }   = require('../services/ai');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
+const { validateBody } = require('../lib/zod-validate');
 const {
   buildScopeFields,
   filterRowsByContext,
@@ -21,6 +23,25 @@ const upload = multer({
 });
 
 const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
+const purchaseOrderConfirmSchema = z.object({
+  vendor: z.string().trim().min(1, 'vendor is required'),
+  po_number: z.any().optional(),
+  date: z.any().optional(),
+  total_cost: z.any().optional(),
+  notes: z.any().optional(),
+  items: z.array(z.any(), { error: 'items must be an array' }).min(1, 'items is required'),
+}).passthrough().superRefine((body, ctx) => {
+  (body.items || []).forEach((item, index) => {
+    const quantity = Number(item?.quantity);
+    if (!Number.isFinite(quantity) || quantity <= 0) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'quantity must be a positive number',
+        path: ['items', index, 'quantity'],
+      });
+    }
+  });
+});
 
 // ── POST /api/purchase-orders/scan ─────────────────────────────────────────
 // Accept an image upload, run GPT-4o vision, return parsed PO items for review.
@@ -59,11 +80,8 @@ router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
 // ── POST /api/purchase-orders/confirm ──────────────────────────────────────
 // User has reviewed and confirmed the AI-extracted items.
 // Upsert inventory, log stock history, create lot_codes records, save the PO.
-router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { vendor, po_number, date, items, total_cost, notes } = req.body;
-  if (!Array.isArray(items) || !items.length) {
-    return res.status(400).json({ error: 'No items to save' });
-  }
+router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), validateBody(purchaseOrderConfirmSchema), async (req, res) => {
+  const { vendor, po_number, date, items, total_cost, notes } = req.validated.body;
 
   // Fetch all current inventory for matching by description
   const { data: inventory, error: invErr } = await supabase

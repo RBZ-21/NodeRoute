@@ -1,7 +1,7 @@
 import { Button } from '../components/ui/button';
 
 type Props = {
-  canvasRef: React.RefObject<HTMLCanvasElement | null>;
+  canvasRef: React.RefObject<HTMLCanvasElement>;
   signatureSaving: boolean;
   onBegin: (event: React.PointerEvent<HTMLCanvasElement>) => void;
   onMove: (event: React.PointerEvent<HTMLCanvasElement>) => void;
