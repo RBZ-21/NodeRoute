@@ -2,11 +2,16 @@ require('./instrument.js');
 require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 
 const Sentry = require('@sentry/node');
+const logger = require('./services/logger');
+const config = require('./lib/config');
+config.validate(logger);
 const express = require('express');
+const pinoHttp = require('pino-http');
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const { supabase } = require('./services/supabase');
+const { globalLimiter, authLimiter, aiLimiter } = require('./middleware/rateLimiter');
 
 // Route modules
 const authRouter = require('./routes/auth');
@@ -32,10 +37,10 @@ const lotsRouter = require('./routes/lots');
 const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
 
 const app = express();
-const PORT = process.env.PORT || 3001;
+const PORT = config.PORT;
 
 app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhookHandler);
-app.use(express.json({ limit: process.env.JSON_BODY_LIMIT || '1mb' }));
+app.use(express.json({ limit: config.JSON_BODY_LIMIT }));
 app.disable('x-powered-by');
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -43,9 +48,36 @@ app.use((req, res, next) => {
   next();
 });
 
-// CORS
+// Structured request logging — skips health checks to avoid log noise
+app.use(pinoHttp({
+  logger,
+  autoLogging: { ignore: (req) => req.url === '/healthz' },
+  customLogLevel: (_req, res) => res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info',
+  serializers: {
+    req(req) { return { method: req.method, url: req.url, id: req.id }; },
+    res(res) { return { statusCode: res.statusCode }; },
+  },
+}));
+
+// Global rate limiter — applied before any route (no-ops outside production)
+app.use(globalLimiter);
+
+// CORS — exact-origin allowlist in production; '*' in development
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', process.env.CORS_ORIGIN || '*');
+  const origin = req.headers.origin || '';
+  const allowedOrigins = config.CORS_ORIGINS;
+
+  if (allowedOrigins.length > 0) {
+    if (allowedOrigins.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    }
+    // Origins not in the list receive no Access-Control-Allow-Origin header,
+    // which causes browsers to block the request.
+  } else {
+    // No list configured — allow all (safe for local dev, warned at boot in prod)
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,sentry-trace,baggage');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
@@ -63,16 +95,16 @@ app.use(express.static(frontendDir, { index: false }));
 if (hasFrontendV2Build) {
   app.use('/dashboard-v2', express.static(frontendV2DistDir, { index: false }));
 } else {
-  console.warn('INFO: frontend-v2 build not found. Build it with `npm --prefix frontend-v2 run build` to enable /dashboard-v2.');
+  logger.info('frontend-v2 build not found — run `npm --prefix frontend-v2 run build` to enable /dashboard-v2');
 }
 if (hasLandingV2Build) {
   app.use(express.static(landingV2DistDir, { index: false }));
 } else {
-  console.warn('INFO: landing-v2 build not found. Build it with `npm --prefix landing-v2 run build` to serve the new landing page.');
+  logger.info('landing-v2 build not found — run `npm --prefix landing-v2 run build` to serve the new landing page');
 }
 
-const ADMIN_EMAIL = process.env.ADMIN_EMAIL || 'admin@noderoutesystems.com';
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@123';
+const ADMIN_EMAIL = config.ADMIN_EMAIL;
+const ADMIN_PASSWORD = config.ADMIN_PASSWORD;
 
 function extractRows(result) {
   if (Array.isArray(result)) return result;
@@ -85,7 +117,7 @@ async function ensureAdminExists() {
   const result = await supabase.from('users').select('*');
   const users = extractRows(result);
   const error = result?.error || null;
-  if (error) { console.error('Could not check users table:', error.message); return; }
+  if (error) { logger.error({ err: error }, 'Could not check users table'); return; }
   if (users.length === 0) {
     const passwordHash = bcrypt.hashSync(ADMIN_PASSWORD, 10);
     const insertResult = await supabase.from('users').insert([{
@@ -100,38 +132,15 @@ async function ensureAdminExists() {
       created_at: new Date().toISOString()
     }]);
     const insertErr = insertResult?.error || null;
-    if (insertErr) console.error('Failed to create admin user:', insertErr.message);
-    else console.log('Admin user created:', ADMIN_EMAIL);
+    if (insertErr) logger.error({ err: insertErr }, 'Failed to create admin user');
+    else logger.info({ email: ADMIN_EMAIL }, 'Admin user created');
   }
 }
 
-ensureAdminExists().catch(err => console.error('ensureAdminExists failed:', err.message));
-
-if (!process.env.BASE_URL) {
-  console.warn('WARNING: BASE_URL is not set — invite links will use http://localhost and will NOT work in production. Set BASE_URL to your public domain (e.g. https://yourapp.railway.app).');
-}
-const hasResend = !!process.env.RESEND_API_KEY;
-const hasSmtp = !!(process.env.SMTP_HOST && process.env.SMTP_PORT && process.env.SMTP_USER && process.env.SMTP_PASS);
-if (!hasResend && !hasSmtp) {
-  console.warn('WARNING: No email provider is configured — invite emails will not be sent. Set RESEND_API_KEY or the SMTP_* variables.');
-}
-if (hasResend && hasSmtp && String(process.env.EMAIL_PROVIDER || 'auto').toLowerCase() === 'auto') {
-  console.warn('INFO: Both Resend and SMTP are configured. EMAIL_PROVIDER=auto will try Resend first, then SMTP fallback.');
-}
-if (!process.env.OPENAI_API_KEY) {
-  console.warn('WARNING: OPENAI_API_KEY is not set — AI walkthroughs, PO scanning, inventory analysis, reorder drafting, and demand forecasting will use fallbacks or be unavailable.');
-}
-if (process.env.NODE_ENV === 'production') {
-  if (!process.env.JWT_SECRET || process.env.JWT_SECRET === 'noderoute-dev-secret-change-in-production') {
-    console.warn('SECURITY WARNING: Set JWT_SECRET in production. The development fallback secret is not safe.');
-  }
-  if (ADMIN_PASSWORD === 'Admin@123') {
-    console.warn('SECURITY WARNING: Set ADMIN_PASSWORD in production before first boot.');
-  }
-}
+ensureAdminExists().catch(err => logger.error({ err }, 'ensureAdminExists failed'));
 
 // Mount routers
-app.use('/auth', authRouter);
+app.use('/auth', authLimiter, authRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/invoices', invoicesRouter);
@@ -141,7 +150,7 @@ app.use('/api/stops', stopsRouter);
 app.use('/api/routes', routesRouter);
 app.use('/api/customers', customersRouter);
 app.use('/api/forecast', forecastRouter);
-app.use('/api/ai', aiRouter);
+app.use('/api/ai', aiLimiter, aiRouter);
 app.use('/api/portal', portalRouter);
 app.use('/api/driver', driverRouter);
 app.use('/api/purchase-orders', purchaseOrdersRouter);
@@ -155,16 +164,18 @@ app.use('/api/lots', lotsRouter);
 
 const { authenticateToken, requireRole } = require('./middleware/auth');
 app.get('/api/config/maps-key', authenticateToken, (req, res) => {
-  res.json({ key: process.env.GOOGLE_MAPS_KEY || '' });
+  res.json({ key: config.GOOGLE_MAPS_KEY });
 });
 
 app.get('/healthz', (req, res) => {
   res.json({ ok: true });
 });
 
-app.get('/debug-sentry', function mainHandler(req, res) {
-  throw new Error('My first Sentry error!');
-});
+if (config.NODE_ENV !== 'production') {
+  app.get('/debug-sentry', function mainHandler(_req, _res) {
+    throw new Error('My first Sentry error!');
+  });
+}
 
 // Dwell records (top-level path, reads from Supabase)
 app.get('/api/dwell', authenticateToken, async (req, res) => {
@@ -283,18 +294,19 @@ app.use('/api', (req, res) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
 });
 
-// Register Sentry's Express error handler after all controllers and before
-// the app's own fallback error middleware.
+// Register Sentry's Express error handler before the app's own fallback.
 Sentry.setupExpressErrorHandler(app);
 
-// ── Global error handler — returns JSON instead of Express's default HTML ─────
+// ── Global error handler ───────────────────────────────────────────────────────
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
-  console.error('Unhandled server error:', err.message, err.stack);
+  logger.error({ err, method: req.method, url: req.url }, 'Unhandled server error');
   res.status(err.status || 500).json({
     error: err.message || 'Internal server error',
     sentry: res.sentry || undefined,
   });
 });
 
-app.listen(PORT, '0.0.0.0', () => console.log(`Server ${process.pid} listening on http://0.0.0.0:${PORT}`));
+app.listen(PORT, '0.0.0.0', () => {
+  logger.info({ port: PORT, pid: process.pid, env: config.NODE_ENV }, 'Server listening');
+});
