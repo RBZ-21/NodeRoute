@@ -2,7 +2,7 @@ import { ChevronDown, LayoutDashboard, LogOut, Moon, Sun } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import * as Sentry from '@sentry/react';
+import { captureException, flush } from '@sentry/react';
 import { Button } from './components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu';
@@ -406,8 +406,8 @@ function ErrorButton() {
       size="sm"
       onClick={() => {
         const error = new Error('This is your first error!');
-        const eventId = Sentry.captureException(error);
-        void Sentry.flush(2000).then((sent) => {
+        const eventId = captureException(error);
+        void flush(2000).then((sent) => {
           console.info('[Sentry test] event', eventId, sent ? 'flushed' : 'not flushed');
         });
         window.setTimeout(() => {

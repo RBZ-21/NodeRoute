@@ -1,5 +1,10 @@
 import * as React from 'react';
-import * as Sentry from '@sentry/react';
+import {
+  addIntegration,
+  init,
+  lazyLoadIntegration,
+  reactRouterV6BrowserTracingIntegration,
+} from '@sentry/react';
 import {
   createRoutesFromChildren,
   matchRoutes,
@@ -16,8 +21,8 @@ function loadReplayIntegration() {
 
   replayLoaded = true;
 
-  void import('@sentry/react')
-    .then(({ addIntegration, replayIntegration }) => {
+  void lazyLoadIntegration('replayIntegration')
+    .then((replayIntegration) => {
       addIntegration(
         replayIntegration({
           maskAllText: true,
@@ -51,7 +56,7 @@ function scheduleReplayIntegration() {
   }, 0);
 }
 
-Sentry.init({
+init({
   dsn: 'https://e41c57859bf084be8bccc53816fcc3bf@o4511304951791616.ingest.us.sentry.io/4511305050423296',
   environment: import.meta.env.MODE,
   release: import.meta.env.VITE_APP_VERSION,
@@ -59,7 +64,7 @@ Sentry.init({
   sampleRate: 1.0,
   debug: import.meta.env.DEV,
   integrations: [
-    Sentry.reactRouterV6BrowserTracingIntegration({
+    reactRouterV6BrowserTracingIntegration({
       useEffect: React.useEffect,
       useLocation,
       useNavigationType,
