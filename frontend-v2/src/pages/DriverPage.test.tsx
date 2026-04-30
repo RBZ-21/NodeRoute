@@ -114,7 +114,7 @@ describe('DriverPage', () => {
       return 42;
     });
     clearWatchMock = vi.fn();
-    Object.defineProperty(global.navigator, 'geolocation', {
+    Object.defineProperty(globalThis.navigator, 'geolocation', {
       configurable: true,
       value: {
         watchPosition: watchPositionMock,
