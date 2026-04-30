@@ -2,6 +2,7 @@ const express = require('express');
 const crypto = require('crypto');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { required, maxLen, isArray, maxItems, compose } = require('../lib/validate');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 const {
   executeWithOptionalScope,
@@ -343,6 +344,19 @@ router.get('/', authenticateToken, async (req, res) => {
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { customerName, customerEmail, customerAddress, items, charges, notes } = req.body;
 
+  const valErr = compose(
+    required(customerName, 'customerName'),
+    maxLen(customerName, 'customerName', 200),
+    maxLen(customerEmail, 'customerEmail', 200),
+    maxLen(customerAddress, 'customerAddress', 500),
+    maxLen(notes, 'notes', 2000),
+    items !== undefined ? isArray(items, 'items') : null,
+    items !== undefined ? maxItems(items, 'items', 200) : null,
+    charges !== undefined ? isArray(charges, 'charges') : null,
+    charges !== undefined ? maxItems(charges, 'charges', 20) : null,
+  );
+  if (valErr) return res.status(400).json({ error: valErr });
+
   // Block orders for customers on credit hold
   if (customerName) {
     const { data: heldCustomer } = await supabase
@@ -443,6 +457,18 @@ router.patch('/:id/items/:itemIndex/actual-weight', authenticateToken, requireRo
 });
 
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const valErr = compose(
+    maxLen(req.body.customerName, 'customerName', 200),
+    maxLen(req.body.customerEmail, 'customerEmail', 200),
+    maxLen(req.body.customerAddress, 'customerAddress', 500),
+    maxLen(req.body.notes, 'notes', 2000),
+    req.body.items !== undefined ? isArray(req.body.items, 'items') : null,
+    req.body.items !== undefined ? maxItems(req.body.items, 'items', 200) : null,
+    req.body.charges !== undefined ? isArray(req.body.charges, 'charges') : null,
+    req.body.charges !== undefined ? maxItems(req.body.charges, 'charges', 20) : null,
+  );
+  if (valErr) return res.status(400).json({ error: valErr });
+
   const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });

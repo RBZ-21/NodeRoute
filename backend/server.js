@@ -11,6 +11,7 @@ const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 const { supabase } = require('./services/supabase');
+const { globalLimiter, authLimiter, aiLimiter } = require('./middleware/rateLimiter');
 
 // Route modules
 const authRouter = require('./routes/auth');
@@ -58,9 +59,25 @@ app.use(pinoHttp({
   },
 }));
 
-// CORS
+// Global rate limiter — applied before any route (no-ops outside production)
+app.use(globalLimiter);
+
+// CORS — exact-origin allowlist in production; '*' in development
 app.use((req, res, next) => {
-  res.setHeader('Access-Control-Allow-Origin', process.env.CORS_ORIGIN || '*');
+  const origin = req.headers.origin || '';
+  const allowedOrigins = config.CORS_ORIGINS;
+
+  if (allowedOrigins.length > 0) {
+    if (allowedOrigins.includes(origin)) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+      res.setHeader('Vary', 'Origin');
+    }
+    // Origins not in the list receive no Access-Control-Allow-Origin header,
+    // which causes browsers to block the request.
+  } else {
+    // No list configured — allow all (safe for local dev, warned at boot in prod)
+    res.setHeader('Access-Control-Allow-Origin', '*');
+  }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,sentry-trace,baggage');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
@@ -123,7 +140,7 @@ async function ensureAdminExists() {
 ensureAdminExists().catch(err => logger.error({ err }, 'ensureAdminExists failed'));
 
 // Mount routers
-app.use('/auth', authRouter);
+app.use('/auth', authLimiter, authRouter);
 app.use('/api/users', usersRouter);
 app.use('/api/orders', ordersRouter);
 app.use('/api/invoices', invoicesRouter);
@@ -133,7 +150,7 @@ app.use('/api/stops', stopsRouter);
 app.use('/api/routes', routesRouter);
 app.use('/api/customers', customersRouter);
 app.use('/api/forecast', forecastRouter);
-app.use('/api/ai', aiRouter);
+app.use('/api/ai', aiLimiter, aiRouter);
 app.use('/api/portal', portalRouter);
 app.use('/api/driver', driverRouter);
 app.use('/api/purchase-orders', purchaseOrdersRouter);

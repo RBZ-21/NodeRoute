@@ -1,6 +1,7 @@
 const express = require('express');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { required, maxLen, isArray, maxItems, compose } = require('../lib/validate');
 const { createMailer } = require('../services/email');
 const { buildInvoicePDF } = require('../services/pdf');
 const { loadDriverInvoiceScope } = require('../services/driver-invoice-access');
@@ -116,7 +117,16 @@ router.get('/', authenticateToken, async (req, res) => {
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const customer_name = invoiceBodyValue(req.body, 'customer_name', 'customerName');
-  if (!customer_name) return res.status(400).json({ error: 'Customer name required' });
+  const valErr = compose(
+    required(customer_name, 'customer_name'),
+    maxLen(customer_name, 'customer_name', 200),
+    maxLen(invoiceBodyValue(req.body, 'customer_email', 'customerEmail'), 'customer_email', 200),
+    maxLen(invoiceBodyValue(req.body, 'customer_address', 'customerAddress', 'deliveryAddress'), 'customer_address', 500),
+    maxLen(req.body.notes, 'notes', 2000),
+    req.body.items !== undefined ? isArray(req.body.items, 'items') : null,
+    req.body.items !== undefined ? maxItems(req.body.items, 'items', 200) : null,
+  );
+  if (valErr) return res.status(400).json({ error: valErr });
 
   const items = normalizeInvoiceItems(req.body.items);
   const subtotal = req.body.subtotal !== undefined
@@ -158,7 +168,14 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
 
 // Entree import — accepts one or many invoices in Entree's export format
 router.post('/import', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  if (!Array.isArray(req.body) && (typeof req.body !== 'object' || req.body === null)) {
+    return res.status(400).json({ error: 'Request body must be an invoice object or an array of invoices' });
+  }
   const raw = Array.isArray(req.body) ? req.body : [req.body];
+  if (raw.length === 0) return res.status(400).json({ error: 'At least one invoice is required' });
+  if (raw.length > 500) return res.status(400).json({ error: 'Batch size limit is 500 invoices per request' });
+  const missingIdx = raw.findIndex((e) => !((e.CustomerName || e.customer_name || e.BillTo || '').trim()));
+  if (missingIdx >= 0) return res.status(400).json({ error: `Invoice at index ${missingIdx} is missing customer_name` });
   const mapped = raw.map(e => ({
     invoice_number:   e.InvoiceNumber || e.invoice_number || null,
     customer_name:    e.CustomerName  || e.customer_name  || e.BillTo || '',

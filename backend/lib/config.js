@@ -33,6 +33,12 @@ const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'Admin@123';
 
 const GOOGLE_MAPS_KEY = process.env.GOOGLE_MAPS_KEY || '';
 
+// CORS: accept a comma-separated list of exact allowed origins.
+// Falls back to a single CORS_ORIGIN value, then to '*' in dev.
+// In production with no explicit list, '*' is NOT used — all origins are blocked.
+const _corsRaw = process.env.CORS_ORIGINS || process.env.CORS_ORIGIN || '';
+const CORS_ORIGINS = _corsRaw.split(',').map((s) => s.trim()).filter(Boolean);
+
 // Normalize boolean-like env var — catches "True", "TRUE", "1", "yes"
 const _rawPaymentEnabled = String(process.env.PORTAL_PAYMENT_ENABLED || 'false');
 const PORTAL_PAYMENT_ENABLED = _rawPaymentEnabled.toLowerCase() === 'true';
@@ -80,6 +86,11 @@ function validate(logger) {
     warns.push('OPENAI_API_KEY not set — AI walkthroughs, PO scanning, inventory analysis, reorder drafting, and demand forecasting will use fallbacks or be unavailable.');
   }
 
+  // CORS origins
+  if (isProduction && CORS_ORIGINS.length === 0) {
+    warns.push('CORS_ORIGINS is not set — all browser cross-origin requests will be blocked in production. Set CORS_ORIGINS=https://yourdomain.com');
+  }
+
   // Catch common PORTAL_PAYMENT_ENABLED formatting mistakes
   if (process.env.PORTAL_PAYMENT_ENABLED &&
       !['true', 'false'].includes(_rawPaymentEnabled.toLowerCase())) {
@@ -114,4 +125,5 @@ module.exports = {
   GOOGLE_MAPS_KEY,
   PORTAL_PAYMENT_ENABLED,
   PORTAL_PAYMENT_PROVIDER,
+  CORS_ORIGINS,
 };
