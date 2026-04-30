@@ -3,6 +3,11 @@ const crypto = require('crypto');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { required, maxLen, isArray, maxItems, compose } = require('../lib/validate');
+const { validate } = require('../lib/zodValidate');
+const {
+  orderCreateSchema, orderUpdateSchema, orderActualWeightSchema,
+  orderSendSchema, orderFulfillSchema,
+} = require('../lib/schemas');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 const { sendInvoiceEmail } = require('../services/invoice-email');
 const {
@@ -481,22 +486,9 @@ router.get('/', authenticateToken, async (req, res) => {
   res.json(filterRowsByContext(data || [], req.context));
 });
 
-router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/', validate(orderCreateSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { customerName, customerEmail, customerAddress, items, charges, notes } = req.body;
   const fulfillmentType = normalizeFulfillmentType(req.body.fulfillmentType ?? req.body.fulfillment_type);
-
-  const valErr = compose(
-    required(customerName, 'customerName'),
-    maxLen(customerName, 'customerName', 200),
-    maxLen(customerEmail, 'customerEmail', 200),
-    maxLen(customerAddress, 'customerAddress', 500),
-    maxLen(notes, 'notes', 2000),
-    items !== undefined ? isArray(items, 'items') : null,
-    items !== undefined ? maxItems(items, 'items', 200) : null,
-    charges !== undefined ? isArray(charges, 'charges') : null,
-    charges !== undefined ? maxItems(charges, 'charges', 20) : null,
-  );
-  if (valErr) return res.status(400).json({ error: valErr });
 
   // Block orders for customers on credit hold
   if (customerName) {
@@ -567,7 +559,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
 // Capture actual weight for a single catch-weight line item.
 // Recalculates line total and returns the updated order.
-router.patch('/:id/items/:itemIndex/actual-weight', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.patch('/:id/items/:itemIndex/actual-weight', validate(orderActualWeightSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const order = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!order) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
@@ -620,18 +612,7 @@ router.patch('/:id/items/:itemIndex/actual-weight', authenticateToken, requireRo
   res.json(enrichOrderResponse({ ...orderWithInvoice, items: updatedItems, invoice_id: invoice.id }));
 });
 
-router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const valErr = compose(
-    maxLen(req.body.customerName, 'customerName', 200),
-    maxLen(req.body.customerEmail, 'customerEmail', 200),
-    maxLen(req.body.customerAddress, 'customerAddress', 500),
-    maxLen(req.body.notes, 'notes', 2000),
-    req.body.items !== undefined ? isArray(req.body.items, 'items') : null,
-    req.body.items !== undefined ? maxItems(req.body.items, 'items', 200) : null,
-    req.body.charges !== undefined ? isArray(req.body.charges, 'charges') : null,
-    req.body.charges !== undefined ? maxItems(req.body.charges, 'charges', 20) : null,
-  );
-  if (valErr) return res.status(400).json({ error: valErr });
+router.patch('/:id', validate(orderUpdateSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
 
   const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
@@ -704,7 +685,7 @@ router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async 
 });
 
 // Send order to processing: creates/updates the pending invoice draft and marks the order ready for weights.
-router.post('/:id/send', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/:id/send', validate(orderSendSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
@@ -735,7 +716,7 @@ router.post('/:id/send', authenticateToken, requireRole('admin', 'manager'), asy
 });
 
 // Fulfill order: enter actual weights → generate invoice
-router.post('/:id/fulfill', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/:id/fulfill', validate(orderFulfillSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { items, driverName, routeId } = req.body;
   const order = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!order) return;
