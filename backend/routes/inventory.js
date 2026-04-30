@@ -6,6 +6,11 @@ const { createMailer } = require('../services/email');
 const { analyzeInventory, generateReorderAlert } = require('../services/ai');
 const { validateBody } = require('../lib/zod-validate');
 const {
+  inventoryCountBodySchema,
+  inventoryLotPatchBodySchema,
+  inventoryProductPatchBodySchema,
+} = require('../lib/inventory-write-schemas');
+const {
   applyInventoryLedgerEntry,
   transferInventoryLedgerEntry,
   toNumber,
@@ -385,14 +390,8 @@ router.get('/lots/expiring', authenticateToken, async (req, res) => {
 });
 
 // PATCH /api/inventory/lots/:lotId — update lot fields
-router.patch('/lots/:lotId', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const allowed = [
-    'lot_number','batch_number','supplier_name','country_of_origin','certifications',
-    'storage_temp','received_date','expiry_date','best_before_date',
-    'qty_on_hand','cost_per_unit','status','notes',
-  ];
-  const fields = {};
-  allowed.forEach(k => { if (req.body[k] !== undefined) fields[k] = req.body[k]; });
+router.patch('/lots/:lotId', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryLotPatchBodySchema), async (req, res) => {
+  const fields = req.validated.body;
   const { data, error } = await supabase.from('inventory_lots').update(fields).eq('id', req.params.lotId).select().single();
   if (error) return res.status(500).json({ error: error.message });
   const { data: prod } = await supabase.from('seafood_inventory').select('description').eq('item_number', data.item_number).single();
@@ -450,17 +449,9 @@ router.delete('/lots/:lotId', authenticateToken, requireRole('admin', 'manager')
 // ─────────────────────────────────────────────────────────────────────────────
 
 // POST /api/inventory/count — replace product stock quantities after a physical count
-router.post('/count', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const entries = Array.isArray(req.body.items) ? req.body.items : [];
-  const countNotes = req.body.notes || 'Physical inventory count';
-  const normalized = entries
-    .map(entry => ({
-      item_number: String(entry.item_number || '').trim(),
-      counted_qty: parseFloat(entry.counted_qty),
-    }))
-    .filter(entry => entry.item_number && Number.isFinite(entry.counted_qty) && entry.counted_qty >= 0);
-
-  if (!normalized.length) return res.status(400).json({ error: 'At least one counted item is required' });
+router.post('/count', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryCountBodySchema), async (req, res) => {
+  const countNotes = req.validated.body.notes || 'Physical inventory count';
+  const normalized = req.validated.body.items;
 
   const itemNumbers = normalized.map(entry => entry.item_number);
   const { data: existing, error: fetchErr } = await supabase
@@ -762,13 +753,11 @@ router.post('/:id/reorder-alert', authenticateToken, requireRole('admin', 'manag
 
 // ── EXISTING CRUD (must come after named sub-routes) ─────────────────────────
 
-router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryProductPatchBodySchema), async (req, res) => {
   const existing = await dbQuery(supabase.from('seafood_inventory').select('*').eq('item_number', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Product not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
-  const allowed = ['description','category','item_number','unit','cost','on_hand_qty','on_hand_weight','lot_item','notes','is_catch_weight','default_price_per_lb'];
-  const fields = {};
-  allowed.forEach(k => { if (req.body[k] !== undefined) fields[k] = req.body[k]; });
+  const fields = req.validated.body;
   // Auto-enforce lot requirement when description is updated
   if (fields.description && needsLot(fields.description)) fields.lot_item = 'Y';
   const data = await dbQuery(supabase.from('seafood_inventory').update(fields).eq('item_number', req.params.id).select().single(), res);

@@ -4,6 +4,7 @@ const path = require('node:path');
 
 const configModulePath = path.join(__dirname, '..', 'lib', 'config.js');
 const authSchemasModulePath = path.join(__dirname, '..', 'lib', 'auth-schemas.js');
+const inventoryWriteSchemasModulePath = path.join(__dirname, '..', 'lib', 'inventory-write-schemas.js');
 const zodValidateModulePath = path.join(__dirname, '..', 'lib', 'zod-validate.js');
 
 function withEnv(overrides, fn) {
@@ -165,4 +166,69 @@ test('shared validate helpers return the first Zod issue as a 400 error', async 
 
   assert.equal(statusCode, 400);
   assert.deepEqual(payload, { error: 'Too big: expected number to be <=90' });
+});
+
+test('inventory count schema coerces string quantities and rejects invalid entries', () => {
+  const { inventoryCountBodySchema } = require(inventoryWriteSchemasModulePath);
+
+  const parsed = inventoryCountBodySchema.parse({
+    notes: ' Cycle count ',
+    items: [
+      { item_number: ' FSH-001 ', counted_qty: '12.5' },
+      { item_number: 42, counted_qty: 0 },
+    ],
+  });
+
+  assert.equal(parsed.notes, 'Cycle count');
+  assert.deepEqual(parsed.items, [
+    { item_number: 'FSH-001', counted_qty: 12.5 },
+    { item_number: '42', counted_qty: 0 },
+  ]);
+  assert.throws(() => inventoryCountBodySchema.parse({ items: [] }));
+  assert.throws(() => inventoryCountBodySchema.parse({ items: [{ item_number: '', counted_qty: '1' }] }));
+  assert.throws(() => inventoryCountBodySchema.parse({ items: [{ item_number: 'FSH-001', counted_qty: '' }] }));
+  assert.throws(() => inventoryCountBodySchema.parse({ items: [{ item_number: 'FSH-001', counted_qty: '-1' }] }));
+  assert.throws(() => inventoryCountBodySchema.parse({ items: [{ item_number: 'FSH-001', counted_qty: 'not-a-number' }] }));
+});
+
+test('inventory lot patch schema coerces numeric strings and strips missing optionals', () => {
+  const { inventoryLotPatchBodySchema } = require(inventoryWriteSchemasModulePath);
+
+  assert.deepEqual(inventoryLotPatchBodySchema.parse({
+    qty_on_hand: '8.25',
+    cost_per_unit: '3.50',
+    supplier_name: ' Dock A ',
+  }), {
+    qty_on_hand: 8.25,
+    cost_per_unit: 3.5,
+    supplier_name: 'Dock A',
+  });
+  assert.deepEqual(inventoryLotPatchBodySchema.parse({ notes: '' }), { notes: null });
+  assert.deepEqual(inventoryLotPatchBodySchema.parse({ qty_on_hand: '1', notes: undefined }), { qty_on_hand: 1 });
+  assert.throws(() => inventoryLotPatchBodySchema.parse({}));
+  assert.throws(() => inventoryLotPatchBodySchema.parse({ qty_on_hand: 'bad' }));
+  assert.throws(() => inventoryLotPatchBodySchema.parse({ qty_on_hand: '1', unexpected: true }));
+});
+
+test('inventory product patch schema coerces number and boolean strings', () => {
+  const { inventoryProductPatchBodySchema } = require(inventoryWriteSchemasModulePath);
+
+  assert.deepEqual(inventoryProductPatchBodySchema.parse({
+    description: ' Blue Mussels ',
+    cost: '4.75',
+    on_hand_qty: '11',
+    default_price_per_lb: '',
+    is_catch_weight: 'yes',
+  }), {
+    description: 'Blue Mussels',
+    cost: 4.75,
+    on_hand_qty: 11,
+    is_catch_weight: true,
+  });
+  assert.deepEqual(inventoryProductPatchBodySchema.parse({ notes: null }), { notes: null });
+  assert.deepEqual(inventoryProductPatchBodySchema.parse({ notes: '' }), { notes: null });
+  assert.throws(() => inventoryProductPatchBodySchema.parse({}));
+  assert.throws(() => inventoryProductPatchBodySchema.parse({ cost: 'bad' }));
+  assert.throws(() => inventoryProductPatchBodySchema.parse({ is_catch_weight: 'maybe' }));
+  assert.throws(() => inventoryProductPatchBodySchema.parse({ cost: '1', unknown_field: 'x' }));
 });
