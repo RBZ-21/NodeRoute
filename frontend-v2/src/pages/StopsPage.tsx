@@ -185,12 +185,6 @@ export function StopsPage() {
       {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading stops...</div> : null}
       {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
-      {routeIdParam ? (
-        <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700">
-          Filtered by route from Routes page: <strong>{routeIdParam}</strong>
-        </div>
-      ) : null}
-
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard label="Pending" value={summary.pending.toLocaleString()} />
         <SummaryCard label="Arrived" value={summary.arrived.toLocaleString()} />
