@@ -4,7 +4,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { asMoney, calcOrderTotal, normalizedStatus, orderCustomerId, statusVariant } from './orders.types';
+import { asMoney, calcOrderTotal, hasPendingWeight, isWeightManagedItem, normalizedStatus, orderCustomerId, statusVariant } from './orders.types';
 import type { Order, OrderStatus } from './orders.types';
 
 type Props = {
@@ -25,7 +25,7 @@ type Props = {
 };
 
 function hasCatchWeightPending(order: Order): boolean {
-  return (order.items || []).some((it) => it.is_catch_weight && !(Number(it.actual_weight) > 0));
+  return (order.items || []).some((it) => hasPendingWeight(it));
 }
 
 export function OrdersWorkbench({
@@ -123,7 +123,7 @@ export function OrdersWorkbench({
                           {parsedStatus === 'in_process' ? (
                             <Button variant="secondary" size="sm" onClick={() => onFulfill(order)}>Fulfill</Button>
                           ) : null}
-                          {(order.items || []).some((it) => it.is_catch_weight) && (role === 'admin' || role === 'manager') ? (
+                          {(order.items || []).some((it) => isWeightManagedItem(it)) && (role === 'admin' || role === 'manager') ? (
                             <Button
                               variant={weightCaptureOrderId === order.id ? 'secondary' : 'outline'}
                               size="sm"

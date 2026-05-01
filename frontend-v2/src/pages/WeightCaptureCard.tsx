@@ -2,7 +2,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { asMoney, asNumber } from './orders.types';
+import { asMoney, asNumber, hasPendingWeight, isWeightManagedItem } from './orders.types';
 import type { Order } from './orders.types';
 
 type Props = {
@@ -24,7 +24,7 @@ export function WeightCaptureCard({
       <CardHeader>
         <CardTitle>Capture Actual Weights — {order.order_number || order.id.slice(0, 8)}</CardTitle>
         <CardDescription>
-          Enter the actual measured weight for each catch weight item. Line totals recalculate on save.
+          Enter the actual measured weight for each pound-based item. Line totals recalculate on save.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -42,11 +42,13 @@ export function WeightCaptureCard({
           </TableHeader>
           <TableBody>
             {(order.items || []).map((item, idx) => {
-              if (!item.is_catch_weight) return null;
+              if (!isWeightManagedItem(item)) return null;
               const key = `${order.id}:${idx}`;
-              const est = asNumber(item.estimated_weight);
+              const est = item.is_catch_weight
+                ? asNumber(item.estimated_weight)
+                : asNumber(item.requested_weight ?? item.quantity);
               const act = asNumber(item.actual_weight);
-              const ppl = asNumber(item.price_per_lb);
+              const ppl = item.is_catch_weight ? asNumber(item.price_per_lb) : asNumber(item.unit_price);
               const confirmed = act > 0;
               const variance = confirmed ? parseFloat((act - est).toFixed(3)) : null;
               const within10Pct = variance !== null && est > 0 && Math.abs(variance / est) <= 0.1;
@@ -57,7 +59,7 @@ export function WeightCaptureCard({
                   <TableCell>
                     {confirmed
                       ? <span className="font-semibold">{act.toFixed(3)} lbs</span>
-                      : <span className="text-muted-foreground text-xs">Not captured</span>}
+                      : <span className="text-muted-foreground text-xs">{hasPendingWeight(item) ? 'Not captured' : '—'}</span>}
                   </TableCell>
                   <TableCell>${ppl.toFixed(4)}/lb</TableCell>
                   <TableCell>

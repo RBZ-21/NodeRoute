@@ -115,6 +115,9 @@ export function RoutesPage() {
   // Add stops from orders
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [addingStops, setAddingStops] = useState(false);
+  const [existingStopSearch, setExistingStopSearch] = useState('');
+  const [selectedExistingStopId, setSelectedExistingStopId] = useState('');
+  const [addingExistingStop, setAddingExistingStop] = useState(false);
   const [customerSearch, setCustomerSearch] = useState('');
   const [selectedCustomerId, setSelectedCustomerId] = useState('');
   const [addingCustomerStop, setAddingCustomerStop] = useState(false);
@@ -195,6 +198,8 @@ export function RoutesPage() {
     setEditDriver(route.driver || '');
     setEditNotes(route.notes || '');
     setSelectedOrderIds(new Set());
+    setExistingStopSearch('');
+    setSelectedExistingStopId('');
     setCustomerSearch('');
     setSelectedCustomerId('');
   }
@@ -202,6 +207,8 @@ export function RoutesPage() {
   function closeEdit() {
     setEditRoute(null);
     setSelectedOrderIds(new Set());
+    setExistingStopSearch('');
+    setSelectedExistingStopId('');
     setCustomerSearch('');
     setSelectedCustomerId('');
   }
@@ -295,6 +302,20 @@ export function RoutesPage() {
     [editRoute],
   );
 
+  const availableStops = useMemo(
+    () => allStops.filter((stop) => !routeStopIds.includes(stop.id)),
+    [allStops, routeStopIds],
+  );
+
+  const availableStopOptions = useMemo(
+    () => availableStops.map((stop) => ({
+      value: stop.id,
+      label: stop.name || stop.address || stop.id,
+      sublabel: stop.address || stop.notes || stop.id,
+    })),
+    [availableStops],
+  );
+
   const customerOptions = useMemo(
     () =>
       customers
@@ -340,6 +361,23 @@ export function RoutesPage() {
       setError(String((err as Error).message || 'Could not add customer stop to route'));
     } finally {
       setAddingCustomerStop(false);
+    }
+  }
+
+  async function addExistingStop() {
+    if (!editRoute || !selectedExistingStopId) return;
+    setAddingExistingStop(true); setError(''); setNotice('');
+    try {
+      const stop = availableStops.find((item) => item.id === selectedExistingStopId);
+      await patchRouteStops([...routeStopIds, selectedExistingStopId]);
+      setExistingStopSearch('');
+      setSelectedExistingStopId('');
+      setNotice(`Stop "${stop?.name || stop?.address || selectedExistingStopId}" added to route.`);
+      await load();
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not add existing stop to route'));
+    } finally {
+      setAddingExistingStop(false);
     }
   }
 
@@ -475,6 +513,33 @@ export function RoutesPage() {
                 </div>
               </div>
             )}
+
+            {/* Add existing stop */}
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-muted-foreground">Add Existing Stop</p>
+              <p className="text-xs text-muted-foreground">Search saved stops and attach one directly to this route.</p>
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                <Combobox
+                  value={existingStopSearch}
+                  onChange={(value) => {
+                    setExistingStopSearch(value);
+                    setSelectedExistingStopId('');
+                  }}
+                  onSelect={(opt) => {
+                    setExistingStopSearch(opt.label);
+                    setSelectedExistingStopId(opt.value);
+                  }}
+                  options={availableStopOptions}
+                  placeholder={availableStops.length ? 'Search saved stops by name or address' : 'No additional saved stops'}
+                />
+                <Button
+                  onClick={addExistingStop}
+                  disabled={!selectedExistingStopId || addingExistingStop}
+                >
+                  {addingExistingStop ? 'Adding…' : 'Add Existing Stop'}
+                </Button>
+              </div>
+            </div>
 
             {/* Add stop from existing customer */}
             <div className="space-y-2">

@@ -6,6 +6,8 @@ import { Input } from '../components/ui/input';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import type { Order as PendingWeightOrder } from './orders.types';
+import { calcOrderTotal, hasPendingWeight } from './orders.types';
 
 type InvoiceStatus = 'paid' | 'pending' | 'overdue' | 'void' | 'other';
 
@@ -13,6 +15,7 @@ type Invoice = {
   id?: string;
   invoiceNumber?: string;
   invoice_number?: string;
+  order_id?: string;
   customer?: string;
   customerName?: string;
   customer_name?: string;
@@ -32,7 +35,10 @@ type Invoice = {
   pdfUrl?: string;
   pdf_url?: string;
   estimated_weight_pending?: boolean;
+  source?: 'invoice' | 'order-draft';
 };
+
+type OrderDraft = PendingWeightOrder;
 
 type InvoicePdfResponse = {
   url?: string;
@@ -136,6 +142,7 @@ export function InvoicesPage() {
   const customerIdParam = String(searchParams.get('customerId') || '').trim();
 
   const [invoices, setInvoices] = useState<Invoice[]>([]);
+  const [ordersAwaitingWeights, setOrdersAwaitingWeights] = useState<OrderDraft[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -150,8 +157,12 @@ export function InvoicesPage() {
     setError('');
     try {
       const query = customerIdParam ? `?customerId=${encodeURIComponent(customerIdParam)}` : '';
-      const data = await fetchWithAuth<Invoice[]>(`/api/invoices${query}`);
-      setInvoices(Array.isArray(data) ? data : []);
+      const [invoiceData, orderData] = await Promise.all([
+        fetchWithAuth<Invoice[]>(`/api/invoices${query}`),
+        fetchWithAuth<OrderDraft[]>('/api/orders'),
+      ]);
+      setInvoices(Array.isArray(invoiceData) ? invoiceData : []);
+      setOrdersAwaitingWeights(Array.isArray(orderData) ? orderData : []);
     } catch (err) {
       setError(String((err as Error).message || 'Could not load invoices'));
     } finally {
@@ -173,15 +184,52 @@ export function InvoicesPage() {
       const id = customerId(invoice);
       if (id) unique.add(id);
     }
+    for (const order of ordersAwaitingWeights) {
+      const id = String(order.customer_id || '').trim();
+      if (id) unique.add(id);
+    }
     return Array.from(unique).sort((a, b) => a.localeCompare(b));
-  }, [invoices]);
+  }, [invoices, ordersAwaitingWeights]);
+
+  const syntheticInvoices = useMemo(() => {
+    const persistedOrderIds = new Set(
+      invoices
+        .map((invoice) => String(invoice.order_id || '').trim())
+        .filter(Boolean),
+    );
+
+    return ordersAwaitingWeights
+      .filter((order) => {
+        if (persistedOrderIds.has(order.id)) return false;
+        return (order.items || []).some((item) => hasPendingWeight(item));
+      })
+      .map<Invoice>((order) => ({
+        id: `draft-${order.id}`,
+        order_id: order.id,
+        invoice_number: `DRAFT-${order.order_number || order.id.slice(0, 8)}`,
+        customer_name: order.customer_name || '',
+        customer_id: order.customer_id || '',
+        order_number: order.order_number || '',
+        issue_date: order.created_at || '',
+        amount: calcOrderTotal(order),
+        total: calcOrderTotal(order),
+        status: 'pending',
+        estimated_weight_pending: true,
+        source: 'order-draft',
+      }));
+  }, [invoices, ordersAwaitingWeights]);
+
+  const visibleInvoices = useMemo(
+    () => [...syntheticInvoices, ...invoices.map((invoice) => ({ ...invoice, source: invoice.source || 'invoice' as const }))],
+    [syntheticInvoices, invoices],
+  );
 
   function effectiveStatus(invoice: Invoice, index: number): InvoiceStatus {
     return normalizeStatus(invoice.status);
   }
 
   const filtered = useMemo(() => {
-    return invoices.filter((invoice, index) => {
+    return visibleInvoices.filter((invoice, index) => {
       const status = effectiveStatus(invoice, index);
       if (statusFilter !== 'all' && status !== statusFilter) return false;
 
@@ -194,23 +242,23 @@ export function InvoicesPage() {
 
       return true;
     });
-  }, [invoices, statusFilter, customerFilter, startDate, endDate]);
+  }, [visibleInvoices, statusFilter, customerFilter, startDate, endDate]);
 
   const summary = useMemo(() => {
-    const outstanding = invoices.reduce((sum, invoice, index) => {
+    const outstanding = visibleInvoices.reduce((sum, invoice, index) => {
       const status = effectiveStatus(invoice, index);
       if (status === 'paid' || status === 'void') return sum;
       return sum + amount(invoice);
     }, 0);
 
-    const overdue = invoices.reduce((sum, invoice, index) => {
+    const overdue = visibleInvoices.reduce((sum, invoice, index) => {
       const status = effectiveStatus(invoice, index);
       if (status === 'void' || status === 'paid') return sum;
       if (status === 'overdue' || isOverdueByDate(invoice)) return sum + amount(invoice);
       return sum;
     }, 0);
 
-    const paidThisMonth = invoices.reduce((sum, invoice, index) => {
+    const paidThisMonth = visibleInvoices.reduce((sum, invoice, index) => {
       const status = effectiveStatus(invoice, index);
       if (status !== 'paid') return sum;
       const whenPaid = paidDate(invoice) || issueDate(invoice);
@@ -218,7 +266,7 @@ export function InvoicesPage() {
     }, 0);
 
     return { outstanding, overdue, paidThisMonth };
-  }, [invoices]);
+  }, [visibleInvoices]);
 
   function setActionPending(id: string, action: string | null) {
     setPendingActionById((current) => {
@@ -433,18 +481,35 @@ export function InvoicesPage() {
                       </TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
+                          {invoice.source === 'order-draft' ? (
+                            <Button
+                              variant="secondary"
+                              size="sm"
+                              onClick={() => navigate(`/orders?orderId=${encodeURIComponent(String(invoice.order_id || ''))}&action=weights`)}
+                            >
+                              Enter Weights
+                            </Button>
+                          ) : null}
+                          {invoice.source !== 'order-draft' ? (
                           <Button variant="ghost" size="sm" onClick={() => viewPdf(invoice, index)} disabled={!!pendingAction}>
                             View PDF
                           </Button>
+                          ) : null}
+                          {invoice.source !== 'order-draft' ? (
                           <Button variant="secondary" size="sm" onClick={() => sendReminder(invoice, index)} disabled={!!pendingAction}>
                             Send Reminder
                           </Button>
+                          ) : null}
+                          {invoice.source !== 'order-draft' ? (
                           <Button size="sm" onClick={() => markPaid(invoice, index)} disabled={!!pendingAction || status === 'paid' || status === 'void'}>
                             Mark Paid
                           </Button>
+                          ) : null}
+                          {invoice.source !== 'order-draft' ? (
                           <Button variant="ghost" size="sm" onClick={() => voidInvoice(invoice, index)} disabled={!!pendingAction || status === 'void'}>
                             Void Invoice
                           </Button>
+                          ) : null}
                         </div>
                       </TableCell>
                     </TableRow>

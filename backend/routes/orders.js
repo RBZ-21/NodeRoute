@@ -158,6 +158,14 @@ function itemQuantity(item) {
   return parseFloat(item?.requested_qty || item?.quantity || 0) || 0;
 }
 
+function isWeightManagedItem(item) {
+  return !!item?.is_catch_weight || String(item?.unit || '').toLowerCase() === 'lb' || item?.requested_weight !== undefined;
+}
+
+function itemNeedsActualWeight(item) {
+  return isWeightManagedItem(item) && !(parseFloat(item?.actual_weight) > 0);
+}
+
 async function findInventoryMatchForFulfillment(item) {
   const explicitItemNumber = String(item?.item_number || '').trim();
   if (explicitItemNumber) {
@@ -264,9 +272,7 @@ function invoicePayloadForOrder(order, fulfilledItems = null, overrides = {}) {
   const taxEnabled = parseBoolean(order.tax_enabled);
   const taxRate = normalizeTaxRate(order.tax_rate);
   const sourceItems = Array.isArray(fulfilledItems) ? fulfilledItems : (order.items || []);
-  const estimatedWeightPending = sourceItems.some(
-    (it) => it.is_catch_weight && !(parseFloat(it.actual_weight) > 0)
-  );
+  const estimatedWeightPending = sourceItems.some((it) => itemNeedsActualWeight(it));
   const items = invoiceItemsFromOrder(order, fulfilledItems);
   const totals = totalsForItems(items, taxEnabled, taxRate);
   return {
@@ -522,8 +528,8 @@ router.patch('/:id/items/:itemIndex/actual-weight', authenticateToken, requireRo
   }
 
   const item = items[idx];
-  if (!item.is_catch_weight) {
-    return res.status(400).json({ error: 'Item at this index is not a catch weight item' });
+  if (!isWeightManagedItem(item)) {
+    return res.status(400).json({ error: 'Item at this index does not require weight capture' });
   }
 
   const actualWeight = parseFloat(req.body.actual_weight);
@@ -531,15 +537,19 @@ router.patch('/:id/items/:itemIndex/actual-weight', authenticateToken, requireRo
     return res.status(400).json({ error: 'actual_weight must be a positive number greater than 0' });
   }
   const rounded = parseFloat(actualWeight.toFixed(3));
-  const pricePerLb = parseFloat(item.price_per_lb) || 0;
+  const pricePerLb = item.is_catch_weight ? (parseFloat(item.price_per_lb) || 0) : (parseFloat(item.unit_price) || 0);
 
   const updatedItems = items.map((it, i) => {
     if (i !== idx) return it;
-    return { ...it, actual_weight: rounded, total: asMoney(rounded * pricePerLb) };
+    const updatedItem = { ...it, actual_weight: rounded, total: asMoney(rounded * pricePerLb) };
+    if (!it.is_catch_weight) {
+      updatedItem.quantity = rounded;
+    }
+    return updatedItem;
   });
 
   // eslint-disable-next-line no-console
-  console.log(`[catch-weight] order=${order.id} item=${idx} actual_weight=${rounded} user=${req.user?.id || req.user?.email} ts=${new Date().toISOString()}`);
+  console.log(`[weight-capture] order=${order.id} item=${idx} actual_weight=${rounded} user=${req.user?.id || req.user?.email} ts=${new Date().toISOString()}`);
 
   const updated = await updateRecord('orders', req.params.id, { items: updatedItems }, res);
   if (!updated) return;

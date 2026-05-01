@@ -113,9 +113,19 @@ export function orderItemQty(item: OrderItem): number {
     return aw > 0 ? aw : asNumber(item.estimated_weight);
   }
   if (String(item.unit || '').toLowerCase() === 'lb') {
-    return asNumber(item.requested_weight ?? item.actual_weight ?? item.quantity ?? 0);
+    const aw = asNumber(item.actual_weight);
+    return aw > 0 ? aw : asNumber(item.requested_weight ?? item.quantity ?? 0);
   }
   return asNumber(item.requested_qty ?? item.quantity ?? item.requested_weight ?? 0);
+}
+
+export function isWeightManagedItem(item: OrderItem): boolean {
+  return !!item.is_catch_weight || String(item.unit || '').toLowerCase() === 'lb' || item.requested_weight !== undefined;
+}
+
+export function hasPendingWeight(item: OrderItem): boolean {
+  if (!isWeightManagedItem(item)) return false;
+  return !(asNumber(item.actual_weight) > 0);
 }
 
 export function calcOrderTotal(order: Order): number {
