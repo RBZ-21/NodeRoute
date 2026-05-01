@@ -197,6 +197,136 @@ function computeRollups({ orders, invoices, routes, inventory, startDate, endDat
   };
 }
 
+function startOfDay(date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function endOfDay(date) {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
+
+function startOfWeek(date) {
+  const next = startOfDay(date);
+  const day = next.getDay();
+  const diff = (day + 6) % 7;
+  next.setDate(next.getDate() - diff);
+  return next;
+}
+
+function startOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function startOfYear(date) {
+  return new Date(date.getFullYear(), 0, 1);
+}
+
+function dateRangeForPreset(preset, now = new Date()) {
+  const end = endOfDay(now);
+  if (preset === 'daily') return { start: startOfDay(now), end };
+  if (preset === 'weekly') return { start: startOfWeek(now), end };
+  if (preset === 'monthly') return { start: startOfMonth(now), end };
+  if (preset === 'yearly') return { start: startOfYear(now), end };
+  return { start: null, end: null };
+}
+
+function itemLabelFromLine(line) {
+  return String(line.item_number || line.description || line.name || 'Unknown Item').trim() || 'Unknown Item';
+}
+
+function normalizeFulfillment(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === 'pickup' ? 'pickup' : normalized === 'delivery' ? 'delivery' : 'unknown';
+}
+
+function computeSalesSummary({ orders, invoices, startDate, endDate, itemQuery = '' }) {
+  const filteredOrders = (orders || []).filter((order) => inDateRange(order.created_at, startDate, endDate));
+  const filteredInvoices = (invoices || []).filter((invoice) => inDateRange(invoice.created_at, startDate, endDate));
+  const orderMap = new Map((orders || []).map((order) => [String(order.id), order]));
+  const query = normalize(itemQuery);
+  const itemRows = new Map();
+
+  let totalSales = 0;
+  let deliverySales = 0;
+  let pickupSales = 0;
+  let unknownSales = 0;
+
+  for (const invoice of filteredInvoices) {
+    const order = invoice.order_id ? orderMap.get(String(invoice.order_id)) : null;
+    const channel = normalizeFulfillment(order?.fulfillment_type);
+    const total = round2(toNumber(invoice.total, 0));
+    totalSales += total;
+    if (channel === 'delivery') deliverySales += total;
+    else if (channel === 'pickup') pickupSales += total;
+    else unknownSales += total;
+
+    for (const line of parseInvoiceItems(invoice)) {
+      const label = itemLabelFromLine(line);
+      const itemNumber = String(line.item_number || '').trim();
+      const key = normalize(itemNumber || label) || `item:${invoice.id}:${label}`;
+      const qty = round2(toNumber(line.quantity ?? line.qty, 0));
+      const revenue = lineRevenue(line);
+      const haystack = `${normalize(itemNumber)} ${normalize(label)}`;
+      if (query && !haystack.includes(query)) continue;
+
+      const row = itemRows.get(key) || {
+        key,
+        label,
+        item_number: itemNumber || null,
+        qty: 0,
+        revenue: 0,
+        invoice_count: 0,
+        delivery_revenue: 0,
+        pickup_revenue: 0,
+      };
+      row.qty += qty;
+      row.revenue += revenue;
+      row.invoice_count += 1;
+      if (channel === 'delivery') row.delivery_revenue += revenue;
+      if (channel === 'pickup') row.pickup_revenue += revenue;
+      itemRows.set(key, row);
+    }
+  }
+
+  const items = [...itemRows.values()]
+    .map((row) => ({
+      ...row,
+      qty: round2(row.qty),
+      revenue: round2(row.revenue),
+      delivery_revenue: round2(row.delivery_revenue),
+      pickup_revenue: round2(row.pickup_revenue),
+    }))
+    .sort((a, b) => b.revenue - a.revenue || b.qty - a.qty || a.label.localeCompare(b.label));
+
+  const availableItems = [...new Map(
+    filteredInvoices.flatMap((invoice) => parseInvoiceItems(invoice).map((line) => {
+      const label = itemLabelFromLine(line);
+      const itemNumber = String(line.item_number || '').trim();
+      const key = normalize(itemNumber || label);
+      return [key, { key, label, item_number: itemNumber || null }];
+    }))
+  ).values()].sort((a, b) => a.label.localeCompare(b.label));
+
+  return {
+    overview: {
+      total_sales: round2(totalSales),
+      delivery_sales: round2(deliverySales),
+      pickup_sales: round2(pickupSales),
+      unknown_sales: round2(unknownSales),
+      invoice_count: filteredInvoices.length,
+      order_count: filteredOrders.length,
+      average_invoice: filteredInvoices.length ? round2(totalSales / filteredInvoices.length) : 0,
+      item_count: items.length,
+    },
+    items,
+    available_items: availableItems,
+  };
+}
+
 router.get('/rollups', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const startDate = toDateOrNull(req.query.start);
   const endDate = toDateOrNull(req.query.end);
@@ -241,4 +371,44 @@ router.get('/rollups', authenticateToken, requireRole('admin', 'manager'), async
   }
 });
 
-module.exports = { router, computeRollups };
+router.get('/sales-summary', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const preset = String(req.query.preset || 'range').trim().toLowerCase();
+  const presetRange = dateRangeForPreset(preset);
+  const startDate = preset === 'range' ? toDateOrNull(req.query.start) : presetRange.start;
+  const endDate = preset === 'range' ? toDateOrNull(req.query.end) : presetRange.end;
+  const itemQuery = String(req.query.item || '').trim();
+
+  try {
+    const [ordersResult, invoicesResult] = await Promise.all([
+      supabase.from('orders').select('*'),
+      supabase.from('invoices').select('*'),
+    ]);
+
+    const ordersMissing = isMissingTableError(ordersResult.error);
+    const error = (!ordersMissing && ordersResult.error) || invoicesResult.error;
+    if (error) return res.status(500).json({ error: error.message });
+
+    const payload = computeSalesSummary({
+      orders: filterRowsByContext((ordersMissing ? [] : (ordersResult.data || [])), req.context),
+      invoices: filterRowsByContext(invoicesResult.data || [], req.context),
+      startDate,
+      endDate,
+      itemQuery,
+    });
+
+    res.json({
+      generated_at: new Date().toISOString(),
+      filters: {
+        preset,
+        start: startDate ? startDate.toISOString() : null,
+        end: endDate ? endDate.toISOString() : null,
+        item: itemQuery || null,
+      },
+      ...payload,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Could not build sales summary' });
+  }
+});
+
+module.exports = { router, computeRollups, computeSalesSummary };

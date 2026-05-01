@@ -3,7 +3,7 @@ const path = require('path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { computeRollups } = require('../routes/reporting');
+const { computeRollups, computeSalesSummary } = require('../routes/reporting');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const reportingRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'reporting.js'), 'utf8');
@@ -16,6 +16,7 @@ function byLabel(rows, label) {
 
 test('reporting route is mounted with auth + manager/admin role guard', () => {
   assert.ok(reportingRouteSource.includes("router.get('/rollups', authenticateToken, requireRole('admin', 'manager')"));
+  assert.ok(reportingRouteSource.includes("router.get('/sales-summary', authenticateToken, requireRole('admin', 'manager')"));
   assert.ok(reportingRouteSource.includes("const limit = Math.max(1, Math.min(parseInt(req.query.limit || '100', 10), 500));"));
   assert.ok(serverSource.includes("const reportingRouter = require('./routes/reporting').router;"));
   assert.ok(serverSource.includes("app.use('/api/reporting', reportingRouter);"));
@@ -131,4 +132,53 @@ test('computeRollups honors date range filters for both orders and invoices', ()
   assert.equal(data.overview.order_count, 0);
   assert.equal(data.overview.invoice_count, 0);
   assert.equal(data.overview.revenue, 0);
+});
+
+test('computeSalesSummary splits delivery and pickup revenue and filters items', () => {
+  const data = computeSalesSummary({
+    orders: [
+      { id: 'o-1', created_at: '2026-04-20T08:00:00.000Z', fulfillment_type: 'delivery' },
+      { id: 'o-2', created_at: '2026-04-20T09:00:00.000Z', fulfillment_type: 'pickup' },
+    ],
+    invoices: [
+      {
+        id: 'inv-1',
+        order_id: 'o-1',
+        created_at: '2026-04-20T10:00:00.000Z',
+        total: 300,
+        items: [
+          { item_number: 'LOB-001', description: 'Lobster', quantity: 10, unit_price: 20, total: 200 },
+          { item_number: 'SAL-001', description: 'Atlantic Salmon', quantity: 5, unit_price: 20, total: 100 },
+        ],
+      },
+      {
+        id: 'inv-2',
+        order_id: 'o-2',
+        created_at: '2026-04-20T11:00:00.000Z',
+        total: 180,
+        items: [{ item_number: 'LOB-001', description: 'Lobster', quantity: 6, unit_price: 30, total: 180 }],
+      },
+    ],
+    startDate: new Date('2026-04-20T00:00:00.000Z'),
+    endDate: new Date('2026-04-20T23:59:59.000Z'),
+    itemQuery: 'lob',
+  });
+
+  assert.equal(data.overview.total_sales, 480);
+  assert.equal(data.overview.delivery_sales, 300);
+  assert.equal(data.overview.pickup_sales, 180);
+  assert.equal(data.overview.invoice_count, 2);
+  assert.equal(data.overview.item_count, 1);
+  assert.ok(data.available_items.some((row) => row.label === 'Lobster'));
+  assert.ok(data.available_items.some((row) => row.label === 'Atlantic Salmon'));
+  assert.deepEqual(data.items[0], {
+    key: 'lob-001',
+    label: 'Lobster',
+    item_number: 'LOB-001',
+    qty: 16,
+    revenue: 380,
+    invoice_count: 2,
+    delivery_revenue: 200,
+    pickup_revenue: 180,
+  });
 });
