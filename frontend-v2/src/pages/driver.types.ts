@@ -12,6 +12,8 @@ export type DriverStop = {
   invoice_status?: string | null;
   invoice_signed_at?: string | null;
   invoice_has_signature?: boolean;
+  invoice_has_proof_of_delivery?: boolean;
+  invoice_proof_of_delivery_uploaded_at?: string | null;
 };
 
 export type DriverRoute = {
@@ -53,6 +55,7 @@ export type DriverInvoice = {
 
 export type CompanySettings = {
   forceDriverSignature?: boolean;
+  forceDriverProofOfDelivery?: boolean;
 };
 
 export type LocationStatusTone = 'neutral' | 'success' | 'warning' | 'error';

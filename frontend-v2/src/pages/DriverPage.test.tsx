@@ -259,6 +259,35 @@ describe('DriverPage', () => {
     expect(sendWithAuthMock).not.toHaveBeenCalledWith('/api/stops/stop-1/depart', 'POST', expect.anything());
   });
 
+  it('requires proof of delivery before departure when company settings enforce it', async () => {
+    const inputClickMock = vi.spyOn(HTMLInputElement.prototype, 'click').mockImplementation(() => {});
+
+    mockDriverWorkspace({
+      dwell: [
+        {
+          id: 'dwell-1',
+          stopId: 'stop-1',
+          routeId: 'route-1',
+          arrivedAt: '2026-04-03T12:00:00Z',
+        },
+      ],
+      settings: { forceDriverProofOfDelivery: true },
+    });
+
+    render(<DriverPage />);
+
+    expect(await screen.findByText('North Route')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Depart' }));
+
+    await waitFor(() => {
+      expect(inputClickMock).toHaveBeenCalled();
+    });
+    expect(sendWithAuthMock).not.toHaveBeenCalledWith('/api/stops/stop-1/depart', 'POST', expect.anything());
+    expect(screen.getByText('A delivery photo is required before the driver can move to the next stop.')).toBeInTheDocument();
+
+    inputClickMock.mockRestore();
+  });
+
   it('surfaces workspace loading errors from failed API calls', async () => {
     fetchWithAuthMock.mockImplementation(async (url: string) => {
       if (url === '/api/driver/routes') throw new Error('Routes service unavailable');

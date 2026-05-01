@@ -18,6 +18,7 @@ const router = express.Router();
 
 const DEFAULT_TAX_RATE = 0.09;
 const MAX_INVOICE_ITEMS = 200;
+const MAX_PROOF_OF_DELIVERY_DATA_URL_LENGTH = 4_000_000;
 
 const invoiceBodySchema = z.object({
   customer_name: z.string().trim().min(1, 'customer_name is required').max(200).optional(),
@@ -74,6 +75,11 @@ function normalizeInvoiceItems(items = []) {
       total: asMoney(item.total || quantity * unitPrice),
     };
   });
+}
+
+function isMissingProofOfDeliveryColumns(error) {
+  const message = String(error?.message || '');
+  return /proof_of_delivery_(image_data|uploaded_at).*does not exist|schema cache/i.test(message);
 }
 
 async function canDriverAccessInvoice(req, invoice) {
@@ -282,6 +288,46 @@ router.post('/:id/sign', authenticateToken, async (req, res) => {
   }
 
   res.json({ ...updated, status: emailSent ? 'sent' : 'signed', emailSent });
+});
+
+router.post('/:id/proof-of-delivery', authenticateToken, requireRole('driver', 'admin', 'manager'), async (req, res) => {
+  const proofImageData = req.body?.proof_image_data || req.body?.proofImageData || req.body?.image;
+  const normalizedProofImageData = String(proofImageData || '').trim();
+  if (!normalizedProofImageData) return res.status(400).json({ error: 'Proof of delivery image is required' });
+  if (!/^data:image\/(png|jpeg|jpg);base64,/i.test(normalizedProofImageData)) {
+    return res.status(400).json({ error: 'Proof of delivery image must be a PNG or JPG image' });
+  }
+  if (normalizedProofImageData.length > MAX_PROOF_OF_DELIVERY_DATA_URL_LENGTH) {
+    return res.status(400).json({ error: 'Proof of delivery image is too large' });
+  }
+
+  const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
+  if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!(await canAccessInvoice(req, inv))) return res.status(403).json({ error: 'Forbidden' });
+
+  const proofUploadedAt = new Date().toISOString();
+  const { data, error } = await supabase
+    .from('invoices')
+    .update({
+      proof_of_delivery_image_data: normalizedProofImageData,
+      proof_of_delivery_uploaded_at: proofUploadedAt,
+    })
+    .eq('id', req.params.id)
+    .select()
+    .single();
+
+  if (error) {
+    if (isMissingProofOfDeliveryColumns(error)) {
+      return res.status(500).json({ error: 'Proof of delivery columns are missing. Run the proof-of-delivery invoice migration first.' });
+    }
+    return res.status(500).json({ error: error.message });
+  }
+
+  res.json({
+    ...data,
+    proof_of_delivery_uploaded_at: data?.proof_of_delivery_uploaded_at || proofUploadedAt,
+    invoice_has_proof_of_delivery: !!data?.proof_of_delivery_image_data,
+  });
 });
 
 router.post('/:id/email', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {

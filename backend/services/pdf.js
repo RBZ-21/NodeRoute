@@ -125,8 +125,24 @@ async function buildInvoicePDF(inv) {
           doc.fillColor(MUTED).font('Helvetica').fontSize(9).text(`Signed electronically on ${signedAt}`, 50, y + 86);
         }
 
+        if (inv.proof_of_delivery_image_data) {
+          y += inv.signature_data ? 118 : 12;
+          doc.moveTo(50, y).lineTo(doc.page.width - 50, y).strokeColor('#dddddd').stroke();
+          y += 14;
+          doc.fillColor('#111').font('Helvetica-Bold').fontSize(10).text('PROOF OF DELIVERY PHOTO', 50, y);
+          y += 12;
+          try {
+            const proofData = inv.proof_of_delivery_image_data.replace(/^data:image\/\w+;base64,/, '');
+            doc.image(Buffer.from(proofData, 'base64'), 50, y, { fit: [220, 160], align: 'left', valign: 'top' });
+          } catch (e) {}
+          const proofLabel = inv.proof_of_delivery_uploaded_at
+            ? new Date(inv.proof_of_delivery_uploaded_at).toLocaleString()
+            : signedAt;
+          doc.fillColor(MUTED).font('Helvetica').fontSize(9).text(`Uploaded on ${proofLabel}`, 50, y + 166);
+        }
+
         if (inv.notes) {
-          y += 110;
+          y += inv.proof_of_delivery_image_data ? 196 : 110;
           doc.fillColor(MUTED).font('Helvetica').fontSize(9).text(`Notes: ${inv.notes}`, 50, y);
         }
 

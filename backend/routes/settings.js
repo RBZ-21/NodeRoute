@@ -47,6 +47,7 @@ router.patch('/company', authenticateToken, requireRole('admin', 'manager'), asy
   const mergedSettings = {
     ...(company?.settings && typeof company.settings === 'object' ? company.settings : {}),
     force_driver_signature: !!req.body?.forceDriverSignature,
+    force_driver_proof_of_delivery: !!req.body?.forceDriverProofOfDelivery,
     business_name: businessName || req.context.companyName || '',
     invoice_logo_data_url: normalizedLogo,
   };

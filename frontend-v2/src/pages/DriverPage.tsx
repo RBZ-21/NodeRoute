@@ -1,4 +1,5 @@
 import {
+  Camera,
   CheckCircle2,
   Gauge,
   Loader2,
@@ -8,7 +9,7 @@ import {
   Route as RouteIcon,
   Satellite,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -29,6 +30,9 @@ export function DriverPage() {
   const [busyStopId, setBusyStopId]       = useState('');
   const [signatureStopId, setSignatureStopId] = useState('');
   const [signatureSaving, setSignatureSaving] = useState(false);
+  const [proofUploadStopId, setProofUploadStopId] = useState('');
+  const [proofUploadSaving, setProofUploadSaving] = useState(false);
+  const proofInputRef = useRef<HTMLInputElement | null>(null);
 
   const sig = useSignatureCapture(signatureStopId);
 
@@ -91,8 +95,17 @@ export function DriverPage() {
       setSignatureStopId(stopId);
       return;
     }
+    if (ws.companySettings.forceDriverProofOfDelivery && stop?.invoice_id && !stop.invoice_has_proof_of_delivery) {
+      setProofUploadStopId(stopId);
+      window.setTimeout(() => proofInputRef.current?.click(), 0);
+      return;
+    }
     if (ws.companySettings.forceDriverSignature && !stop?.invoice_id) {
       ws.setError('Signature is required, but this stop has no invoice attached yet.');
+      return;
+    }
+    if (ws.companySettings.forceDriverProofOfDelivery && !stop?.invoice_id) {
+      ws.setError('Proof of delivery is required, but this stop has no invoice attached yet.');
       return;
     }
     setBusyStopId(stopId);
@@ -153,6 +166,53 @@ export function DriverPage() {
       ws.setError(String((err as Error).message || 'Could not save the signature.'));
     } finally {
       setSignatureSaving(false);
+    }
+  }
+
+  function promptForProofOfDelivery(stopId: string) {
+    setProofUploadStopId(stopId);
+    proofInputRef.current?.click();
+  }
+
+  async function handleProofOfDeliverySelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    const stop = activeStops.find((s) => s.id === proofUploadStopId) || null;
+    if (!file || !stop?.invoice_id) return;
+    if (!/^image\/(png|jpeg|jpg)$/i.test(file.type)) {
+      ws.setError('Proof of delivery must be a PNG or JPG image.');
+      return;
+    }
+    if (file.size > 3_000_000) {
+      ws.setError('Proof of delivery image must be under 3 MB.');
+      return;
+    }
+
+    setProofUploadSaving(true);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+        reader.onerror = () => reject(new Error('Could not read the selected image.'));
+        reader.readAsDataURL(file);
+      });
+
+      const payload = await sendWithAuth<{ proof_of_delivery_uploaded_at?: string }>(
+        `/api/invoices/${stop.invoice_id}/proof-of-delivery`,
+        'POST',
+        { proofImageData: dataUrl } as never,
+      );
+
+      ws.updateStopInvoice(stop.id, {
+        invoice_has_proof_of_delivery: true,
+        invoice_proof_of_delivery_uploaded_at: payload.proof_of_delivery_uploaded_at || new Date().toISOString(),
+      });
+      setProofUploadStopId('');
+      ws.setError('');
+    } catch (err) {
+      ws.setError(String((err as Error).message || 'Could not upload proof of delivery.'));
+    } finally {
+      setProofUploadSaving(false);
     }
   }
 
@@ -233,6 +293,14 @@ export function DriverPage() {
         ) : null}
 
         <main className="mt-4 space-y-4">
+          <input
+            ref={proofInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/jpg"
+            capture="environment"
+            className="hidden"
+            onChange={(event) => void handleProofOfDeliverySelected(event)}
+          />
           {!activeRoute ? (
             <Card>
               <CardContent className="p-10 text-center">
@@ -251,6 +319,7 @@ export function DriverPage() {
               onArrive={(id) => void markArrive(id)}
               onDepart={(id) => void markDepart(id)}
               onOpenSignature={setSignatureStopId}
+              onUploadProofOfDelivery={promptForProofOfDelivery}
               onDownloadInvoice={(id) => void downloadInvoice(id)}
             />
           ) : null}
@@ -313,7 +382,24 @@ export function DriverPage() {
                           Capture Signature
                         </Button>
                       ) : null}
+                      {currentStop.invoice_id ? (
+                        <Button variant="outline" onClick={() => promptForProofOfDelivery(currentStop.id)} disabled={proofUploadSaving && proofUploadStopId === currentStop.id}>
+                          <Camera className="mr-2 h-4 w-4" />
+                          {proofUploadSaving && proofUploadStopId === currentStop.id
+                            ? 'Uploading Photo...'
+                            : currentStop.invoice_has_proof_of_delivery
+                              ? 'Replace Delivery Photo'
+                              : 'Upload Delivery Photo'}
+                        </Button>
+                      ) : null}
                     </div>
+                    {ws.companySettings.forceDriverProofOfDelivery ? (
+                      <div className={`rounded-md px-3 py-2 text-xs ${currentStop.invoice_has_proof_of_delivery ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                        {currentStop.invoice_has_proof_of_delivery
+                          ? 'Proof-of-delivery photo uploaded for this stop.'
+                          : 'Proof-of-delivery photo is required before departure.'}
+                      </div>
+                    ) : null}
                   </>
                 ) : (
                   <div className="text-sm text-muted-foreground">

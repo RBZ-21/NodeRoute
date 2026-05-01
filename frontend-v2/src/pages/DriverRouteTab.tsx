@@ -1,4 +1,4 @@
-import { CheckCircle2, ClipboardList, FileSignature, MapPin } from 'lucide-react';
+import { Camera, CheckCircle2, ClipboardList, FileSignature, MapPin } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -13,12 +13,13 @@ type Props = {
   onArrive: (stopId: string) => void;
   onDepart: (stopId: string) => void;
   onOpenSignature: (stopId: string) => void;
+  onUploadProofOfDelivery: (stopId: string) => void;
   onDownloadInvoice: (invoiceId: string) => void;
 };
 
 export function DriverRouteTab({
   activeRoute, dwellRecords, busyStopId, companySettings,
-  onArrive, onDepart, onOpenSignature, onDownloadInvoice,
+  onArrive, onDepart, onOpenSignature, onUploadProofOfDelivery, onDownloadInvoice,
 }: Props) {
   const stops = activeRoute.stops || [];
   const progress = routeProgress(stops, dwellRecords, activeRoute.id);
@@ -83,6 +84,13 @@ export function DriverRouteTab({
                         : 'Signature is required before the driver can move to the next field.'}
                     </div>
                   ) : null}
+                  {companySettings.forceDriverProofOfDelivery ? (
+                    <div className={`rounded-md px-3 py-2 text-xs ${stop.invoice_has_proof_of_delivery ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                      {stop.invoice_has_proof_of_delivery
+                        ? 'Proof-of-delivery photo uploaded.'
+                        : 'A delivery photo is required before the driver can move to the next stop.'}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="flex w-full flex-col gap-2 md:w-56">
@@ -98,6 +106,12 @@ export function DriverRouteTab({
                         <Button variant="outline" disabled={isBusy} onClick={() => onOpenSignature(stop.id)}>
                           <FileSignature className="mr-2 h-4 w-4" />
                           {stop.invoice_has_signature ? 'View Signature Flow' : 'Capture Signature'}
+                        </Button>
+                      ) : null}
+                      {stop.invoice_id ? (
+                        <Button variant="outline" disabled={isBusy} onClick={() => onUploadProofOfDelivery(stop.id)}>
+                          <Camera className="mr-2 h-4 w-4" />
+                          {stop.invoice_has_proof_of_delivery ? 'Replace Delivery Photo' : 'Upload Delivery Photo'}
                         </Button>
                       ) : null}
                       <Button disabled={isBusy} onClick={() => onDepart(stop.id)}>

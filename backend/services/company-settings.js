@@ -27,6 +27,7 @@ function normalizeCompanySettings(settings, fallbackBusinessName = '') {
 
   return {
     forceDriverSignature: !!(source.force_driver_signature || source.forceDriverSignature),
+    forceDriverProofOfDelivery: !!(source.force_driver_proof_of_delivery || source.forceDriverProofOfDelivery),
     businessName,
     invoiceLogoDataUrl: normalizeLogoDataUrl(
       source.invoice_logo_data_url

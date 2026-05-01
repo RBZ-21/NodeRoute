@@ -18,6 +18,7 @@ type CurrentUser = {
 
 type CompanySettings = {
   forceDriverSignature?: boolean;
+  forceDriverProofOfDelivery?: boolean;
   businessName?: string;
   invoiceLogoDataUrl?: string | null;
 };
@@ -68,6 +69,8 @@ export function SettingsPage() {
 
   const [forceDriverSignature, setForceDriverSignature] = useState(false);
   const [initialForceDriverSignature, setInitialForceDriverSignature] = useState(false);
+  const [forceDriverProofOfDelivery, setForceDriverProofOfDelivery] = useState(false);
+  const [initialForceDriverProofOfDelivery, setInitialForceDriverProofOfDelivery] = useState(false);
   const [businessName, setBusinessName] = useState('');
   const [initialBusinessName, setInitialBusinessName] = useState('');
   const [invoiceLogoDataUrl, setInvoiceLogoDataUrl] = useState<string | null>(null);
@@ -77,6 +80,7 @@ export function SettingsPage() {
 
   const companySettingsDirty =
     forceDriverSignature !== initialForceDriverSignature
+    || forceDriverProofOfDelivery !== initialForceDriverProofOfDelivery
     || businessName !== initialBusinessName
     || invoiceLogoDataUrl !== initialInvoiceLogoDataUrl;
 
@@ -103,10 +107,13 @@ export function SettingsPage() {
 
     if (companyResult.status === 'fulfilled') {
       const nextValue = !!companyResult.value.forceDriverSignature;
+      const nextProofValue = !!companyResult.value.forceDriverProofOfDelivery;
       const nextBusinessName = String(companyResult.value.businessName || userCompanyName || '');
       const nextInvoiceLogo = companyResult.value.invoiceLogoDataUrl || null;
       setForceDriverSignature(nextValue);
       setInitialForceDriverSignature(nextValue);
+      setForceDriverProofOfDelivery(nextProofValue);
+      setInitialForceDriverProofOfDelivery(nextProofValue);
       setBusinessName(nextBusinessName);
       setInitialBusinessName(nextBusinessName);
       setInvoiceLogoDataUrl(nextInvoiceLogo);
@@ -196,14 +203,18 @@ export function SettingsPage() {
     try {
       const response = await sendWithAuth<CompanySettings>('/api/settings/company', 'PATCH', {
         forceDriverSignature,
+        forceDriverProofOfDelivery,
         businessName: businessName.trim(),
         invoiceLogoDataUrl,
       });
       const nextValue = !!response.forceDriverSignature;
+      const nextProofValue = !!response.forceDriverProofOfDelivery;
       const nextBusinessName = String(response.businessName || businessName || user.companyName || '');
       const nextInvoiceLogo = response.invoiceLogoDataUrl || null;
       setForceDriverSignature(nextValue);
       setInitialForceDriverSignature(nextValue);
+      setForceDriverProofOfDelivery(nextProofValue);
+      setInitialForceDriverProofOfDelivery(nextProofValue);
       setBusinessName(nextBusinessName);
       setInitialBusinessName(nextBusinessName);
       setInvoiceLogoDataUrl(nextInvoiceLogo);
@@ -375,6 +386,25 @@ export function SettingsPage() {
                 className="h-4 w-4 rounded border-input"
                 checked={forceDriverSignature}
                 onChange={(event) => setForceDriverSignature(event.target.checked)}
+                disabled={!canManageCompanySettings || companySettingsLoading || savingCompanySettings}
+              />
+              <span className="text-xs font-medium text-muted-foreground">On</span>
+            </label>
+          </div>
+          <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 p-4">
+            <div>
+              <div className="text-sm font-semibold text-foreground">Proof Of Delivery Photo</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Require drivers to capture and upload a delivery photo from their mobile device before completing the stop.
+              </div>
+            </div>
+            <label className="inline-flex cursor-pointer items-center gap-2">
+              <span className="text-xs font-medium text-muted-foreground">Off</span>
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-input"
+                checked={forceDriverProofOfDelivery}
+                onChange={(event) => setForceDriverProofOfDelivery(event.target.checked)}
                 disabled={!canManageCompanySettings || companySettingsLoading || savingCompanySettings}
               />
               <span className="text-xs font-medium text-muted-foreground">On</span>
