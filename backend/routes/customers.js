@@ -85,14 +85,40 @@ function customerPayload(source) {
 }
 
 async function fetchAllCustomers(res) {
-  return dbQuery(
-    supabase
-      .from('Customers')
-      .select('*')
-      .order('customer_number', { ascending: true })
-      .limit(10000),
-    res
-  );
+  const pageSize = 1000;
+  const rows = [];
+  let nextId = 0;
+
+  while (true) {
+    const page = await dbQuery(
+      supabase
+        .from('Customers')
+        .select('*')
+        .order('id', { ascending: true })
+        .gte('id', nextId)
+        .limit(pageSize),
+      res
+    );
+    if (!page) return null;
+    if (!page.length) break;
+
+    rows.push(...page);
+
+    const lastId = Number(page[page.length - 1]?.id);
+    if (!Number.isFinite(lastId)) break;
+    if (page.length < pageSize) break;
+
+    nextId = lastId + 1;
+  }
+
+  return rows.sort((a, b) => {
+    const av = a?.customer_number;
+    const bv = b?.customer_number;
+    if (av === bv) return 0;
+    if (av == null) return 1;
+    if (bv == null) return -1;
+    return String(av).localeCompare(String(bv));
+  });
 }
 
 // ── CUSTOMERS (Supabase: "Customers") ─────────────
