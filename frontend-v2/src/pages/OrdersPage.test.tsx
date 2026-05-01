@@ -266,6 +266,72 @@ describe('OrdersPage', () => {
     expect(await screen.findByText('Order updated.')).toBeInTheDocument();
   });
 
+  it('updates an in-process order to pound-based items and keeps it in the weight flow', async () => {
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/orders')) {
+        return [
+          {
+            id: 'order-2',
+            order_number: 'ORD-200',
+            customer_name: 'Blue Fin',
+            customer_email: 'buyer@bluefin.test',
+            customer_address: '1 Harbor Way',
+            notes: '',
+            tax_enabled: false,
+            tax_rate: 0.09,
+            status: 'in_process',
+            invoice_id: 'inv-200',
+            items: [{ name: 'Lobsters', item_number: 'LOB-1', quantity: 6, unit_price: 18, unit: 'each' }],
+          },
+        ];
+      }
+      if (url === '/api/inventory') return [{ item_number: 'LOB-1', description: 'Lobsters', cost: 18, unit: 'lb' }];
+      if (url === '/api/customers') return [];
+      return [];
+    });
+    sendWithAuthMock.mockResolvedValueOnce({
+      id: 'order-2',
+      order_number: 'ORD-200',
+      customer_name: 'Blue Fin',
+      status: 'in_process',
+      invoice_id: 'inv-200',
+      items: [{ name: 'Lobsters', item_number: 'LOB-1', requested_qty: 6, requested_weight: 24.5, unit_price: 18, unit: 'lb' }],
+    });
+
+    renderOrdersPage();
+
+    expect(await screen.findByText('ORD-200')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+    const row = screen.getByDisplayValue('Lobsters').closest('tr');
+    if (!row) throw new Error('Expected lobster row');
+    fireEvent.change(within(row).getByDisplayValue('each'), { target: { value: 'lb' } });
+    const inputs = within(row).getAllByRole('spinbutton');
+    fireEvent.change(inputs[0], { target: { value: '6' } });
+    fireEvent.change(inputs[1], { target: { value: '24.5' } });
+    fireEvent.change(inputs[2], { target: { value: '18' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Update Order' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith(
+        '/api/orders/order-2',
+        'PATCH',
+        expect.objectContaining({
+          items: [
+            expect.objectContaining({
+              name: 'Lobsters',
+              unit: 'lb',
+              requested_qty: 6,
+              requested_weight: 24.5,
+              unit_price: 18,
+            }),
+          ],
+        })
+      );
+    });
+  });
+
   it('shows catch-weight actions and saves actual weights for admin users', async () => {
     fetchWithAuthMock.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/orders')) {

@@ -144,6 +144,10 @@ function normalizeFulfillmentType(value) {
   return String(value || '').trim().toLowerCase() === 'pickup' ? 'pickup' : 'delivery';
 }
 
+function normalizeOrderStatus(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
 function asMoney(value) {
   return parseFloat((parseFloat(value || 0) || 0).toFixed(2));
 }
@@ -194,6 +198,25 @@ async function findInventoryMatchForFulfillment(item) {
     .limit(1);
   if (byName.error || !Array.isArray(byName.data) || !byName.data.length) return null;
   return byName.data[0];
+}
+
+async function billingOverridesForOrderCustomer(customerName) {
+  if (!customerName) return {};
+  const { data: customer } = await supabase
+    .from('Customers')
+    .select('billing_name,billing_contact,billing_email,billing_phone,billing_address,phone_number,contact_name,address')
+    .eq('company_name', customerName)
+    .limit(1)
+    .single();
+  if (!customer) return {};
+
+  const billingOverrides = {};
+  if (customer.billing_name) billingOverrides.billing_name = customer.billing_name;
+  if (customer.billing_contact || customer.contact_name) billingOverrides.billing_contact = customer.billing_contact || customer.contact_name;
+  if (customer.billing_email) billingOverrides.billing_email = customer.billing_email;
+  if (customer.billing_phone || customer.phone_number) billingOverrides.billing_phone = customer.billing_phone || customer.phone_number;
+  if (customer.billing_address || customer.address) billingOverrides.billing_address = customer.billing_address || customer.address;
+  return billingOverrides;
 }
 
 // Compute catch weight display fields — appended to items in GET responses.
@@ -619,11 +642,37 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   }
   const data = await updateRecord('orders', req.params.id, updates, res);
   if (!data) return;
+  const mergedOrder = { ...existing, ...data, ...updates, fulfillment_type: fulfillmentType };
   try {
-    await syncOrderStop({ ...existing, ...data, ...updates, fulfillment_type: fulfillmentType }, req);
+    await syncOrderStop(mergedOrder, req);
   } catch (stopErr) {
     return res.status(500).json({ error: stopErr.message || 'Could not sync delivery stop' });
   }
+
+  const shouldSyncInvoice =
+    !!mergedOrder.invoice_id
+    || normalizeOrderStatus(mergedOrder.status) === 'in_process'
+    || normalizeOrderStatus(existing.status) === 'in_process';
+
+  if (shouldSyncInvoice) {
+    const billingOverrides = await billingOverridesForOrderCustomer(mergedOrder.customer_name);
+    const invoice = await createOrUpdateProcessingInvoice(
+      mergedOrder,
+      mergedOrder.items || [],
+      { notes: mergedOrder.notes || 'Awaiting final weights', ...billingOverrides },
+      req,
+      res
+    );
+    if (!invoice) return;
+
+    const refreshed = await updateRecord('orders', req.params.id, {
+      invoice_id: invoice.id,
+      status: 'in_process',
+    }, res);
+    if (!refreshed) return;
+    return res.json(enrichOrderResponse({ ...mergedOrder, ...refreshed, items: mergedOrder.items || [], invoice_id: invoice.id }));
+  }
+
   res.json(data);
 });
 
@@ -677,22 +726,7 @@ router.post('/:id/fulfill', authenticateToken, requireRole('admin', 'manager'), 
   const fulfilledItems = Array.isArray(items) ? items : (order.items || []);
 
   // Enrich invoice with billing data from Customers table
-  const billingOverrides = {};
-  if (order.customer_name) {
-    const { data: customer } = await supabase
-      .from('Customers')
-      .select('billing_name,billing_contact,billing_email,billing_phone,billing_address,phone_number,contact_name,address')
-      .eq('company_name', order.customer_name)
-      .limit(1)
-      .single();
-    if (customer) {
-      if (customer.billing_name) billingOverrides.billing_name = customer.billing_name;
-      if (customer.billing_contact || customer.contact_name) billingOverrides.billing_contact = customer.billing_contact || customer.contact_name;
-      if (customer.billing_email) billingOverrides.billing_email = customer.billing_email;
-      if (customer.billing_phone || customer.phone_number) billingOverrides.billing_phone = customer.billing_phone || customer.phone_number;
-      if (customer.billing_address || customer.address) billingOverrides.billing_address = customer.billing_address || customer.address;
-    }
-  }
+  const billingOverrides = await billingOverridesForOrderCustomer(order.customer_name);
 
   const invoice = await createOrUpdateProcessingInvoice(
     order,
