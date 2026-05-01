@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Input } from './input';
 
 export type ComboboxOption = {
@@ -20,6 +21,8 @@ export function Combobox({ value, onChange, onSelect, options, placeholder, maxR
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const [menuStyle, setMenuStyle] = useState<{ top: number; left: number; width: number }>({ top: 0, left: 0, width: 0 });
 
   const filtered =
     value.trim().length > 0
@@ -38,13 +41,38 @@ export function Combobox({ value, onChange, onSelect, options, placeholder, maxR
 
   useEffect(() => {
     function handleClickOutside(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      const target = e.target as Node;
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(target) &&
+        !(menuRef.current && menuRef.current.contains(target))
+      ) {
         setOpen(false);
       }
     }
     document.addEventListener('mousedown', handleClickOutside);
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
+
+  useEffect(() => {
+    if (!open) return;
+    function updateMenuPosition() {
+      const rect = containerRef.current?.getBoundingClientRect();
+      if (!rect) return;
+      setMenuStyle({
+        top: rect.bottom + 4,
+        left: rect.left,
+        width: rect.width,
+      });
+    }
+    updateMenuPosition();
+    window.addEventListener('resize', updateMenuPosition);
+    window.addEventListener('scroll', updateMenuPosition, true);
+    return () => {
+      window.removeEventListener('resize', updateMenuPosition);
+      window.removeEventListener('scroll', updateMenuPosition, true);
+    };
+  }, [open, value, filtered.length]);
 
   function handleKeyDown(e: React.KeyboardEvent) {
     if (!open || !filtered.length) return;
@@ -75,8 +103,12 @@ export function Combobox({ value, onChange, onSelect, options, placeholder, maxR
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
       />
-      {open && filtered.length > 0 && (
-        <div className="absolute z-50 mt-1 w-full min-w-[220px] rounded-md border border-border bg-background shadow-lg">
+      {open && filtered.length > 0 && typeof document !== 'undefined' && createPortal(
+        <div
+          ref={menuRef}
+          className="fixed z-[9999] min-w-[220px] rounded-md border border-border bg-background shadow-lg"
+          style={{ top: menuStyle.top, left: menuStyle.left, width: menuStyle.width, maxHeight: 'min(320px, calc(100vh - 24px))', overflowY: 'auto' }}
+        >
           {filtered.map((opt, i) => (
             <div
               key={opt.value}
@@ -93,7 +125,8 @@ export function Combobox({ value, onChange, onSelect, options, placeholder, maxR
               {opt.sublabel && <div className="text-xs text-muted-foreground">{opt.sublabel}</div>}
             </div>
           ))}
-        </div>
+        </div>,
+        document.body
       )}
     </div>
   );

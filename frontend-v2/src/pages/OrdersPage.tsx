@@ -6,8 +6,72 @@ import { useOrdersData } from '../hooks/useOrdersData';
 import { OrderFormCard } from './OrderFormCard';
 import { OrdersWorkbench } from './OrdersWorkbench';
 import { WeightCaptureCard } from './WeightCaptureCard';
-import { asMoney, asNumber, calcOrderTotal, normalizedStatus } from './orders.types';
+import { asMoney, asNumber, calcOrderTotal, normalizedStatus, orderItemQty } from './orders.types';
 import type { Order, OrderStatus } from './orders.types';
+
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function openPrintWindow(): Window | null {
+  const popup = window.open('', '_blank', 'width=960,height=720');
+  if (popup) {
+    popup.document.write('<!DOCTYPE html><html><head><title>Preparing order...</title></head><body style="font-family:Arial,sans-serif;padding:24px">Preparing order for print...</body></html>');
+    popup.document.close();
+  }
+  return popup;
+}
+
+function printOrderSlip(order: Order, popup: Window | null) {
+  if (!popup) return;
+  const rows = (order.items || []).map((item) => {
+    const qty = orderItemQty(item);
+    const unit = item.is_catch_weight ? 'lb' : String(item.unit || '').toLowerCase() === 'lb' ? 'lb' : 'ea';
+    const price = item.is_catch_weight ? asNumber(item.price_per_lb) : asNumber(item.unit_price);
+    return `<tr>
+      <td>${escapeHtml(item.name || item.description || item.item_number || '—')}</td>
+      <td>${escapeHtml(item.notes || '')}</td>
+      <td>${escapeHtml(qty.toFixed(unit === 'lb' ? 2 : 0))} ${unit}</td>
+      <td>$${price.toFixed(2)}</td>
+    </tr>`;
+  }).join('');
+  const orderNumber = order.order_number || order.id.slice(0, 8);
+  popup.document.open();
+  popup.document.write(`<!DOCTYPE html>
+<html>
+<head>
+  <title>Order ${escapeHtml(orderNumber)}</title>
+  <style>
+    body{font-family:Arial,sans-serif;padding:24px;color:#111}
+    h1{font-size:20px;margin-bottom:4px}
+    .muted{color:#666;margin-bottom:16px}
+    table{width:100%;border-collapse:collapse}
+    th{background:#f5f5f5;padding:8px 12px;text-align:left;font-size:12px;text-transform:uppercase;color:#666}
+    td{padding:8px 12px;border-bottom:1px solid #e6e6e6;vertical-align:top}
+    .print-actions{display:flex;justify-content:flex-end;margin-bottom:16px}
+    .print-btn{background:#3dba7f;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-size:14px}
+    @media print {.print-actions{display:none} body{padding:0.4in}}
+  </style>
+</head>
+<body>
+  <div class="print-actions"><button class="print-btn" onclick="window.print()">Print</button></div>
+  <h1>Order ${escapeHtml(orderNumber)}</h1>
+  <div class="muted">${escapeHtml(order.customer_name || 'No customer')} · ${escapeHtml(order.customer_address || '')}</div>
+  <table>
+    <thead><tr><th>Item</th><th>Notes</th><th>Quantity</th><th>Price</th></tr></thead>
+    <tbody>${rows || '<tr><td colspan="4" style="text-align:center">No line items</td></tr>'}</tbody>
+  </table>
+</body>
+</html>`);
+  popup.document.close();
+  popup.focus();
+  popup.setTimeout(() => popup.print(), 300);
+}
 
 export function OrdersPage() {
   const { orders, setOrders, customers, products, lotsCache, loading, error, setError, load, loadLotsForProduct, customerIdParam } = useOrdersData();
@@ -42,6 +106,7 @@ export function OrdersPage() {
     if (!payload.customerName) { setError('Customer name is required.'); return; }
     if (!payload.items.length) { setError('Add at least one order item.'); return; }
 
+    const printPopup = sendToProcessing ? openPrintWindow() : null;
     setSubmitting(true); setError(''); setNotice('');
     try {
       let order: Order;
@@ -50,8 +115,11 @@ export function OrdersPage() {
       } else {
         order = await sendWithAuth<Order>('/api/orders', 'POST', payload);
       }
+      let printableOrder = order;
       if (sendToProcessing) {
-        await sendWithAuth(`/api/orders/${order.id}/send`, 'POST', { taxEnabled: payload.taxEnabled, taxRate: payload.taxRate });
+        const sentOrder = await sendWithAuth<Order>(`/api/orders/${order.id}/send`, 'POST', { taxEnabled: payload.taxEnabled, taxRate: payload.taxRate });
+        printableOrder = { ...order, ...sentOrder, items: sentOrder.items || order.items };
+        printOrderSlip(printableOrder, printPopup);
       }
       setNotice(
         form.editingOrderId
@@ -61,6 +129,7 @@ export function OrdersPage() {
       form.reset();
       await load();
     } catch (err) {
+      printPopup?.close();
       setError(String((err as Error).message || 'Could not save order'));
     } finally {
       setSubmitting(false);
@@ -79,11 +148,14 @@ export function OrdersPage() {
   }
 
   async function sendOrder(order: Order) {
+    const printPopup = openPrintWindow();
     try {
-      await sendWithAuth(`/api/orders/${order.id}/send`, 'POST', { taxEnabled: !!order.tax_enabled, taxRate: asNumber(order.tax_rate) || 0.09 });
+      const sentOrder = await sendWithAuth<Order>(`/api/orders/${order.id}/send`, 'POST', { taxEnabled: !!order.tax_enabled, taxRate: asNumber(order.tax_rate) || 0.09 });
+      printOrderSlip({ ...order, ...sentOrder, items: sentOrder.items || order.items }, printPopup);
       setNotice(`Order ${order.order_number || order.id.slice(0, 8)} sent to processing.`);
       await load();
     } catch (err) {
+      printPopup?.close();
       setError(String((err as Error).message || 'Could not send order to processing'));
     }
   }

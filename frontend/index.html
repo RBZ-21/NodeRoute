@@ -104,6 +104,13 @@ body.light img.logo-for-light{display:inline}
 .order-items-table{width:100%;border-collapse:collapse;margin:12px 0}
 .order-items-table th{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;padding:8px 6px;border-bottom:1px solid var(--border);text-align:left}
 .order-items-table td{padding:5px 4px;vertical-align:middle}
+.order-items-table,
+.order-items-table tbody,
+.order-items-table tr,
+.order-items-table td{overflow:visible}
+.order-item-picker-cell{position:relative;z-index:1}
+.order-item-picker-cell:focus-within{z-index:320}
+.prod-ac-drop{top:calc(100% + 4px);left:0;right:0;z-index:350;max-height:260px}
 .order-item-input{width:100%;padding:7px 8px;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);font-size:13px;font-family:'Inter',sans-serif;outline:none;transition:var(--trans)}
 .order-item-input:focus{border-color:var(--accent)}
 .unit-toggle{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;width:80px}
@@ -3063,7 +3070,7 @@ function addOrderRow(name='', unit='lb', amount='', price='', notes='', itemNumb
   tr.dataset.idx = idx;
   tr.dataset.itemNumber = itemNumber || '';
   tr.innerHTML = `
-    <td>
+    <td class="order-item-picker-cell">
       <div style="position:relative">
         <input class="order-item-input" placeholder="Product name" value="${escHtml(name)}"
           onchange="recalcOrder()" oninput="suggestProduct(this)"

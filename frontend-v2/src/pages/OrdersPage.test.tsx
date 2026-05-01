@@ -28,6 +28,17 @@ describe('OrdersPage', () => {
     getUserRoleMock.mockReturnValue('admin');
     fetchWithAuthMock.mockReset();
     sendWithAuthMock.mockReset();
+    window.open = vi.fn(() => ({
+      document: {
+        write: vi.fn(),
+        close: vi.fn(),
+        open: vi.fn(),
+      },
+      focus: vi.fn(),
+      print: vi.fn(),
+      close: vi.fn(),
+      setTimeout: (fn: () => void) => { fn(); return 0; },
+    } as unknown as Window));
     fetchWithAuthMock.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/orders')) return [];
       if (url === '/api/inventory') return [];
@@ -222,5 +233,49 @@ describe('OrdersPage', () => {
       );
     });
     expect(await screen.findByText('Actual weight saved. Order total recalculated.')).toBeInTheDocument();
+  });
+
+  it('sends a pending order to processing and opens a print window', async () => {
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/orders')) {
+        return [
+          {
+            id: 'order-send',
+            order_number: 'ORD-SEND',
+            customer_name: 'Cash Customer',
+            customer_address: '1 Dock St',
+            status: 'pending',
+            tax_enabled: false,
+            tax_rate: 0.09,
+            items: [{ name: 'Atlantic Salmon', quantity: 1, unit_price: 12, unit: 'each' }],
+          },
+        ];
+      }
+      if (url === '/api/inventory' || url === '/api/customers') return [];
+      return [];
+    });
+    sendWithAuthMock.mockResolvedValueOnce({
+      id: 'order-send',
+      order_number: 'ORD-SEND',
+      customer_name: 'Cash Customer',
+      customer_address: '1 Dock St',
+      status: 'in_process',
+      items: [{ name: 'Atlantic Salmon', quantity: 1, unit_price: 12, unit: 'each' }],
+    });
+
+    renderOrdersPage();
+
+    expect(await screen.findByText('ORD-SEND')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith(
+        '/api/orders/order-send/send',
+        'POST',
+        { taxEnabled: false, taxRate: 0.09 }
+      );
+    });
+    expect(window.open).toHaveBeenCalled();
+    expect(await screen.findByText('Order ORD-SEND sent to processing.')).toBeInTheDocument();
   });
 });
