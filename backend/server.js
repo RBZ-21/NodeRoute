@@ -39,6 +39,8 @@ const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
 const app = express();
 const PORT = config.PORT;
 
+app.set('trust proxy', 1);
+
 app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhookHandler);
 app.use(express.json({ limit: config.JSON_BODY_LIMIT }));
 app.disable('x-powered-by');
