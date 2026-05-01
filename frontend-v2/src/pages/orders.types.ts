@@ -88,6 +88,7 @@ export type OrderLineDraft = {
   itemNumber: string;
   unit: 'lb' | 'each';
   quantity: string;
+  requestedWeight: string;
   unitPrice: string;
   notes: string;
   lotId: string;
@@ -99,7 +100,7 @@ export type OrderLineDraft = {
 // ── Pure helpers ──────────────────────────────────────────────────────────────
 
 export function emptyLine(): OrderLineDraft {
-  return { name: '', itemNumber: '', unit: 'lb', quantity: '', unitPrice: '', notes: '', lotId: '', isCatchWeight: false, estimatedWeight: '', pricePerLb: '' };
+  return { name: '', itemNumber: '', unit: 'lb', quantity: '', requestedWeight: '', unitPrice: '', notes: '', lotId: '', isCatchWeight: false, estimatedWeight: '', pricePerLb: '' };
 }
 
 export function asNumber(value: unknown): number {
@@ -157,7 +158,8 @@ export function statusVariant(status: OrderStatus): 'warning' | 'secondary' | 's
 export function draftSubtotal(lines: OrderLineDraft[]): number {
   return lines.reduce((sum, line) => {
     if (line.isCatchWeight) return sum + asNumber(line.estimatedWeight) * asNumber(line.pricePerLb);
-    return sum + asNumber(line.quantity) * asNumber(line.unitPrice);
+    const basis = line.unit === 'lb' ? asNumber(line.requestedWeight) : asNumber(line.quantity);
+    return sum + basis * asNumber(line.unitPrice);
   }, 0);
 }
 

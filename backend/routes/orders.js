@@ -158,6 +158,10 @@ function itemQuantity(item) {
   return parseFloat(item?.requested_qty || item?.quantity || 0) || 0;
 }
 
+function itemCount(item) {
+  return parseFloat(item?.requested_qty || item?.quantity || 0) || 0;
+}
+
 function isWeightManagedItem(item) {
   return !!item?.is_catch_weight || String(item?.unit || '').toLowerCase() === 'lb' || item?.requested_weight !== undefined;
 }
@@ -239,8 +243,11 @@ function invoiceItemsFromOrder(order, fulfilledItems) {
     const unitPrice = parseFloat(it.unit_price || it.unitPrice || 0) || 0;
     return {
       description: it.name || it.description || '',
-      notes: it.notes || null,
+      notes:
+        it.notes
+        || (String(it.unit || '').toLowerCase() === 'lb' && itemCount(it) > 0 ? `Ordered Qty: ${itemCount(it)}` : null),
       quantity: qty,
+      requested_qty: it.requested_qty || null,
       requested_weight: it.requested_weight || null,
       actual_weight: it.actual_weight || null,
       unit: it.unit || (it.requested_weight ? 'lb' : 'each'),
@@ -546,9 +553,6 @@ router.patch('/:id/items/:itemIndex/actual-weight', authenticateToken, requireRo
   const updatedItems = items.map((it, i) => {
     if (i !== idx) return it;
     const updatedItem = { ...it, actual_weight: rounded, total: asMoney(rounded * pricePerLb) };
-    if (!it.is_catch_weight) {
-      updatedItem.quantity = rounded;
-    }
     return updatedItem;
   });
 

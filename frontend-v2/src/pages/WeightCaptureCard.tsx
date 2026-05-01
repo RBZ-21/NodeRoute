@@ -54,7 +54,12 @@ export function WeightCaptureCard({
               const within10Pct = variance !== null && est > 0 && Math.abs(variance / est) <= 0.1;
               return (
                 <TableRow key={idx}>
-                  <TableCell className="font-medium">{item.name || item.description || `Item ${idx + 1}`}</TableCell>
+                  <TableCell className="font-medium">
+                    <div>{item.name || item.description || `Item ${idx + 1}`}</div>
+                    {String(item.unit || '').toLowerCase() === 'lb' && !item.is_catch_weight && asNumber(item.requested_qty) > 0 ? (
+                      <div className="text-xs text-muted-foreground">Ordered qty: {asNumber(item.requested_qty)}</div>
+                    ) : null}
+                  </TableCell>
                   <TableCell>{est.toFixed(3)} lbs</TableCell>
                   <TableCell>
                     {confirmed

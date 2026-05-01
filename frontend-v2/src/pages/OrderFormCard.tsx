@@ -226,7 +226,7 @@ export function OrderFormCard({
                 const needsLot = isFtl && !line.lotId;
                 const lineTotal = isCw
                   ? asMoney(asNumber(line.estimatedWeight) * asNumber(line.pricePerLb))
-                  : asMoney(asNumber(line.quantity) * asNumber(line.unitPrice));
+                  : asMoney((line.unit === 'lb' ? asNumber(line.requestedWeight) : asNumber(line.quantity)) * asNumber(line.unitPrice));
                 return (
                   <TableRow key={index} className={needsLot ? 'bg-amber-50/50' : ''}>
                     <TableCell>
@@ -284,6 +284,26 @@ export function OrderFormCard({
                           <Input type="number" min="0" step="0.001" value={line.estimatedWeight}
                             onChange={(e) => updateLine(index, 'estimatedWeight', e.target.value)} placeholder="0.000 lbs" />
                           <p className="text-xs text-muted-foreground">Est. weight (lbs)</p>
+                        </div>
+                      ) : line.unit === 'lb' ? (
+                        <div className="space-y-1">
+                          <Input
+                            type="number"
+                            min="0"
+                            step="1"
+                            value={line.quantity}
+                            onChange={(e) => updateLine(index, 'quantity', e.target.value)}
+                            placeholder="Qty"
+                          />
+                          <Input
+                            type="number"
+                            min="0"
+                            step="0.001"
+                            value={line.requestedWeight}
+                            onChange={(e) => updateLine(index, 'requestedWeight', e.target.value)}
+                            placeholder="Est. lbs"
+                          />
+                          <p className="text-xs text-muted-foreground">Ordered qty and estimated total lbs</p>
                         </div>
                       ) : (
                         <Input type="number" min="0" step="0.01" value={line.quantity} onChange={(e) => updateLine(index, 'quantity', e.target.value)} />

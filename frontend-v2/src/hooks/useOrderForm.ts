@@ -73,6 +73,7 @@ export function useOrderForm({
         estimatedWeight: newCw ? line.estimatedWeight : '',
         pricePerLb: newCw ? line.pricePerLb : '',
         quantity: newCw ? '' : line.quantity,
+        requestedWeight: newCw ? '' : line.requestedWeight,
         unitPrice: newCw ? '' : line.unitPrice,
       };
     }));
@@ -111,7 +112,8 @@ export function useOrderForm({
       name:            String(item.name || item.description || ''),
       itemNumber:      String(item.item_number || ''),
       unit:            item.is_catch_weight ? 'lb' : (String(item.unit || '').toLowerCase() === 'lb' ? 'lb' : 'each'),
-      quantity:        item.is_catch_weight ? '' : String(orderItemQty(item) || ''),
+      quantity:        item.is_catch_weight ? '' : String(item.requested_qty ?? (String(item.unit || '').toLowerCase() === 'lb' ? '' : orderItemQty(item)) || ''),
+      requestedWeight: item.is_catch_weight ? '' : (String(item.unit || '').toLowerCase() === 'lb' ? String(asNumber(item.requested_weight) || '') : ''),
       unitPrice:       item.is_catch_weight ? '' : String(asNumber(item.unit_price) || ''),
       notes:           String(item.notes || ''),
       lotId:           String(item.lot_id || ''),
@@ -125,7 +127,9 @@ export function useOrderForm({
   function buildPayload() {
     const validLines = lines.filter((line) => {
       if (!line.name.trim()) return false;
-      return line.isCatchWeight ? asNumber(line.estimatedWeight) > 0 : asNumber(line.quantity) > 0;
+      if (line.isCatchWeight) return asNumber(line.estimatedWeight) > 0;
+      if (line.unit === 'lb') return asNumber(line.requestedWeight) > 0;
+      return asNumber(line.quantity) > 0;
     });
 
     const items = validLines.map((line) => {
@@ -152,7 +156,7 @@ export function useOrderForm({
         lot_id:      line.lotId ? parseInt(line.lotId, 10) : undefined,
       };
       return line.unit === 'lb'
-        ? { ...base, requested_weight: qty }
+        ? { ...base, requested_qty: qty || undefined, requested_weight: asNumber(line.requestedWeight) }
         : { ...base, requested_qty: qty };
     });
 

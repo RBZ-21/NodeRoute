@@ -161,6 +161,50 @@ describe('OrdersPage', () => {
     });
   });
 
+  it('submits pound-based items with both ordered quantity and estimated weight', async () => {
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/orders')) return [];
+      if (url === '/api/inventory') return [{ item_number: 'LOB-1', description: 'Live Lobster', cost: 18, unit: 'lb' }];
+      if (url === '/api/customers') return [{ id: 'cust-1', company_name: 'Oceanview Market', billing_email: 'buyer@oceanview.test', address: '123 Harbor St' }];
+      return [];
+    });
+    sendWithAuthMock.mockResolvedValueOnce({ id: 'lobster-order-id' });
+
+    renderOrdersPage();
+    await screen.findByRole('button', { name: 'Create Order' });
+
+    fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview Market' } });
+    fireEvent.change(screen.getByPlaceholderText('Atlantic Salmon'), { target: { value: 'Live Lobster' } });
+    fireEvent.mouseDown(await screen.findByText('Live Lobster'));
+
+    const row = screen.getByDisplayValue('Live Lobster').closest('tr');
+    if (!row) throw new Error('Expected lobster row');
+    const inputs = within(row).getAllByRole('spinbutton');
+    fireEvent.change(inputs[0], { target: { value: '6' } });
+    fireEvent.change(inputs[1], { target: { value: '24.5' } });
+    fireEvent.change(inputs[2], { target: { value: '18' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Order' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith(
+        '/api/orders',
+        'POST',
+        expect.objectContaining({
+          items: [
+            expect.objectContaining({
+              name: 'Live Lobster',
+              unit: 'lb',
+              requested_qty: 6,
+              requested_weight: 24.5,
+              unit_price: 18,
+            }),
+          ],
+        })
+      );
+    });
+  });
+
   it('surfaces failed API calls while loading orders', async () => {
     fetchWithAuthMock.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/orders')) throw new Error('Orders API down');
