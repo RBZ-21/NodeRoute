@@ -140,6 +140,10 @@ function parseBoolean(value) {
   return value === true || value === 'true' || value === 1 || value === '1' || value === 'on';
 }
 
+function normalizeFulfillmentType(value) {
+  return String(value || '').trim().toLowerCase() === 'pickup' ? 'pickup' : 'delivery';
+}
+
 function asMoney(value) {
   return parseFloat((parseFloat(value || 0) || 0).toFixed(2));
 }
@@ -309,6 +313,53 @@ async function updateRecord(table, id, payload, res) {
   return updateResult.data;
 }
 
+async function findOrderStop(order) {
+  const orderNumber = String(order?.order_number || '').trim();
+  if (!orderNumber) return null;
+  const { data, error } = await supabase
+    .from('stops')
+    .select('*')
+    .ilike('notes', `Order ${orderNumber}`)
+    .limit(1);
+  if (error || !Array.isArray(data) || !data.length) return null;
+  return data[0];
+}
+
+async function syncOrderStop(order, req, removeOnly = false) {
+  const fulfillmentType = normalizeFulfillmentType(order?.fulfillment_type);
+  const name = String(order?.customer_name || '').trim();
+  const address = String(order?.customer_address || '').trim();
+  const stopNotes = `Order ${order.order_number || order.id}`;
+  const existingStop = await findOrderStop(order);
+
+  if (removeOnly || fulfillmentType === 'pickup' || !name || !address) {
+    if (existingStop?.id) {
+      await supabase.from('stops').delete().eq('id', existingStop.id);
+    }
+    return null;
+  }
+
+  const payload = {
+    name,
+    address,
+    lat: parseFloat(order?.customer_lat) || 0,
+    lng: parseFloat(order?.customer_lng) || 0,
+    notes: stopNotes,
+  };
+
+  if (existingStop?.id) {
+    await executeWithOptionalScope(
+      (candidate) => supabase.from('stops').update(candidate).eq('id', existingStop.id).select().single(),
+      payload
+    );
+    return existingStop.id;
+  }
+
+  const insertResult = await insertRecordWithOptionalScope(supabase, 'stops', payload, req.context);
+  if (insertResult.error) throw insertResult.error;
+  return insertResult.data?.id || null;
+}
+
 async function findInvoiceForOrder(order) {
   if (order.invoice_id) {
     const byId = await supabase.from('invoices').select('*').eq('id', order.invoice_id).single();
@@ -375,6 +426,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { customerName, customerEmail, customerAddress, items, charges, notes } = req.body;
+  const fulfillmentType = normalizeFulfillmentType(req.body.fulfillmentType ?? req.body.fulfillment_type);
 
   const valErr = compose(
     required(customerName, 'customerName'),
@@ -423,7 +475,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
     order_number: orderNumber,
     customer_name: customerName,
     customer_email: customerEmail || null,
-    customer_address: customerAddress || null,
+    customer_address: fulfillmentType === 'delivery' ? customerAddress || null : null,
     items: enrichedItems || [],
     charges: Array.isArray(charges) ? charges : [],
     status: 'pending',
@@ -438,6 +490,11 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
   if (!data) return;
+  try {
+    await syncOrderStop({ ...data, fulfillment_type: fulfillmentType }, req);
+  } catch (stopErr) {
+    return res.status(500).json({ error: stopErr.message || 'Could not create delivery stop' });
+  }
   res.json({
     ...data,
     tracking_url: data.tracking_token ? buildTrackingUrl(req, data.tracking_token) : null,
@@ -505,10 +562,11 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
+  const fulfillmentType = normalizeFulfillmentType(req.body.fulfillmentType ?? req.body.fulfillment_type ?? existing.fulfillment_type);
   const updates = {};
   if (req.body.customerName !== undefined) updates.customer_name = req.body.customerName;
   if (req.body.customerEmail !== undefined) updates.customer_email = req.body.customerEmail || null;
-  if (req.body.customerAddress !== undefined) updates.customer_address = req.body.customerAddress || null;
+  if (req.body.customerAddress !== undefined) updates.customer_address = fulfillmentType === 'delivery' ? (req.body.customerAddress || null) : null;
   if (req.body.items !== undefined) {
     const ftlError = await validateFtlLots(req.body.items);
     if (ftlError) return res.status(422).json({ error: ftlError, code: 'FTL_LOT_REQUIRED' });
@@ -527,6 +585,11 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   }
   const data = await updateRecord('orders', req.params.id, updates, res);
   if (!data) return;
+  try {
+    await syncOrderStop({ ...existing, ...data, ...updates, fulfillment_type: fulfillmentType }, req);
+  } catch (stopErr) {
+    return res.status(500).json({ error: stopErr.message || 'Could not sync delivery stop' });
+  }
   res.json(data);
 });
 
@@ -534,6 +597,7 @@ router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async 
   const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
+  await syncOrderStop(existing, req, true);
   const data = await dbQuery(supabase.from('orders').delete().eq('id', req.params.id), res);
   if (data === null) return;
   res.json({ message: 'Order deleted' });

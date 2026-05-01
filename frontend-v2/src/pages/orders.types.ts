@@ -41,6 +41,7 @@ export type Order = {
   customer_name?: string;
   customer_email?: string;
   customer_address?: string;
+  fulfillment_type?: 'delivery' | 'pickup' | string;
   status?: string;
   notes?: string;
   tax_enabled?: boolean;

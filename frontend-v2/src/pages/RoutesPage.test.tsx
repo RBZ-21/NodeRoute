@@ -50,22 +50,30 @@ const baseDrivers = [
   { id: 'driver-2', name: 'Jamie Driver', email: 'jamie@example.com' },
 ];
 
+const baseCustomers = [
+  { id: 'cust-1', company_name: 'Blue Fin', address: '1 Dock St' },
+  { id: 'cust-2', company_name: 'Harbor Wholesale', address: '77 Pier Ave' },
+];
+
 function mockRoutesApi({
   routes = baseRoutes,
   stops = baseStops,
   orders = baseOrders,
   drivers = baseDrivers,
+  customers = baseCustomers,
 }: {
   routes?: unknown[];
   stops?: unknown[];
   orders?: unknown[];
   drivers?: unknown[];
+  customers?: unknown[];
 } = {}) {
   fetchWithAuthMock.mockImplementation(async (url: string) => {
     if (url === '/api/routes') return routes;
     if (url === '/api/stops') return stops;
     if (url === '/api/orders?status=pending') return orders;
     if (url === '/api/users') return drivers;
+    if (url === '/api/customers') return customers;
     return [];
   });
 }
@@ -113,11 +121,11 @@ describe('RoutesPage', () => {
     expect(await screen.findByText('Route "South Route" created.')).toBeInTheDocument();
   });
 
-  it('opens the edit panel, saves changes, adds an existing stop, and adds stops from pending orders', async () => {
+  it('opens the edit panel, saves changes, adds a stop from a customer, and adds stops from pending orders', async () => {
     sendWithAuthMock
       .mockResolvedValueOnce({})
-      .mockResolvedValueOnce({})
       .mockResolvedValueOnce({ id: 'stop-3' })
+      .mockResolvedValueOnce({ id: 'stop-4' })
       .mockResolvedValueOnce({});
 
     renderRoutesPage();
@@ -142,17 +150,24 @@ describe('RoutesPage', () => {
     });
     expect(await screen.findByText('Route updated.')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText('Search stops by name or address'), { target: { value: 'Harbor' } });
+    fireEvent.change(screen.getByPlaceholderText('Search customers by name or address'), { target: { value: 'Harbor' } });
     fireEvent.mouseDown(await screen.findByText('Harbor Wholesale'));
-    fireEvent.click(screen.getByRole('button', { name: 'Add Existing Stop' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add Customer Stop' }));
 
     await waitFor(() => {
-      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-1', 'PATCH', {
-        stopIds: ['stop-1', 'stop-2'],
-        activeStopIds: ['stop-1', 'stop-2'],
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/stops', 'POST', {
+        name: 'Harbor Wholesale',
+        address: '77 Pier Ave',
+        notes: 'Customer route stop',
       });
     });
-    expect(await screen.findByText('Stop "Harbor Wholesale" added to route.')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-1', 'PATCH', {
+        stopIds: ['stop-1', 'stop-3'],
+        activeStopIds: ['stop-1', 'stop-3'],
+      });
+    });
+    expect(await screen.findByText('Customer "Harbor Wholesale" added to route.')).toBeInTheDocument();
 
     const pendingOrdersSection = screen.getByText('Add Stops from Pending Orders').closest('div');
     if (!pendingOrdersSection) throw new Error('Expected pending orders section');
@@ -168,8 +183,8 @@ describe('RoutesPage', () => {
     });
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-1', 'PATCH', {
-        stopIds: ['stop-1', 'stop-2', 'stop-3'],
-        activeStopIds: ['stop-1', 'stop-2', 'stop-3'],
+        stopIds: ['stop-1', 'stop-3', 'stop-4'],
+        activeStopIds: ['stop-1', 'stop-3', 'stop-4'],
       });
     });
     expect(await screen.findByText('1 stop added to route.')).toBeInTheDocument();

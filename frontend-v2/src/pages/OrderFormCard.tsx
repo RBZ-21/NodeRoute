@@ -13,6 +13,7 @@ type Props = {
   customerName: string; setCustomerName: (v: string) => void;
   customerEmail: string; setCustomerEmail: (v: string) => void;
   customerAddress: string; setCustomerAddress: (v: string) => void;
+  fulfillmentType: 'delivery' | 'pickup'; setFulfillmentType: (v: 'delivery' | 'pickup') => void;
   customers: Customer[];
   // order fields
   notes: string; setNotes: (v: string) => void;
@@ -46,6 +47,7 @@ export function OrderFormCard({
   customerName, setCustomerName,
   customerEmail, setCustomerEmail,
   customerAddress, setCustomerAddress,
+  fulfillmentType, setFulfillmentType,
   customers,
   notes, setNotes,
   taxEnabled, setTaxEnabled,
@@ -85,7 +87,7 @@ export function OrderFormCard({
         </CardDescription>
       </CardHeader>
       <CardContent className="space-y-3">
-        <div className="grid gap-3 md:grid-cols-3">
+        <div className="grid gap-3 md:grid-cols-4">
           <label className="space-y-1 text-sm">
             <span className="font-semibold text-muted-foreground">Customer Name</span>
             <Combobox
@@ -103,14 +105,36 @@ export function OrderFormCard({
             />
           </label>
           <label className="space-y-1 text-sm">
+            <span className="font-semibold text-muted-foreground">Delivery Type</span>
+            <select
+              value={fulfillmentType}
+              onChange={(e) => setFulfillmentType(e.target.value === 'pickup' ? 'pickup' : 'delivery')}
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="delivery">Delivery</option>
+              <option value="pickup">Pickup</option>
+            </select>
+          </label>
+          <label className="space-y-1 text-sm">
             <span className="font-semibold text-muted-foreground">Customer Email</span>
             <Input value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="buyer@customer.com" />
           </label>
           <label className="space-y-1 text-sm">
             <span className="font-semibold text-muted-foreground">Customer Address</span>
-            <Input value={customerAddress} onChange={(e) => setCustomerAddress(e.target.value)} placeholder="123 Harbor St" />
+            <Input
+              value={customerAddress}
+              onChange={(e) => setCustomerAddress(e.target.value)}
+              placeholder={fulfillmentType === 'delivery' ? '123 Harbor St' : 'Pickup order'}
+              disabled={fulfillmentType === 'pickup'}
+            />
           </label>
         </div>
+
+        {fulfillmentType === 'delivery' ? (
+          <p className="text-xs text-muted-foreground">Delivery orders keep the customer address and create a pending stop automatically.</p>
+        ) : (
+          <p className="text-xs text-muted-foreground">Pickup orders do not create route stops.</p>
+        )}
 
         <label className="space-y-1 text-sm">
           <span className="font-semibold text-muted-foreground">Notes</span>

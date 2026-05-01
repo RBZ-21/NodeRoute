@@ -42,7 +42,7 @@ describe('OrdersPage', () => {
     fetchWithAuthMock.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/orders')) return [];
       if (url === '/api/inventory') return [];
-      if (url === '/api/customers') return [];
+      if (url === '/api/customers') return [{ id: 'cust-1', company_name: 'Oceanview Market', billing_email: 'buyer@oceanview.test', address: '123 Harbor St' }];
       return [];
     });
   });
@@ -79,7 +79,7 @@ describe('OrdersPage', () => {
     expect(await screen.findByText('No orders match the current filters.')).toBeInTheDocument();
   });
 
-  it('validates the add/edit order form and submits a happy-path create request', async () => {
+  it('autofills customer delivery details and submits a delivery order', async () => {
     sendWithAuthMock.mockResolvedValueOnce({ id: 'new-order-id' });
 
     renderOrdersPage();
@@ -88,7 +88,11 @@ describe('OrdersPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create Order' }));
     expect(await screen.findByText('Customer name is required.')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview Market' } });
+    fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview' } });
+    fireEvent.mouseDown(await screen.findByText('Oceanview Market'));
+    expect(screen.getByDisplayValue('buyer@oceanview.test')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('123 Harbor St')).toBeInTheDocument();
+
     fireEvent.click(screen.getByRole('button', { name: 'Create Order' }));
     expect(await screen.findByText('Add at least one order item.')).toBeInTheDocument();
 
@@ -106,11 +110,45 @@ describe('OrdersPage', () => {
         'POST',
         expect.objectContaining({
           customerName: 'Oceanview Market',
+          customerEmail: 'buyer@oceanview.test',
+          customerAddress: '123 Harbor St',
+          fulfillmentType: 'delivery',
           items: [expect.objectContaining({ name: 'Atlantic Salmon' })],
         })
       );
     });
     expect(await screen.findByText('Order created.')).toBeInTheDocument();
+  });
+
+  it('submits pickup orders without a delivery address', async () => {
+    sendWithAuthMock.mockResolvedValueOnce({ id: 'pickup-order-id' });
+
+    renderOrdersPage();
+    await screen.findByRole('button', { name: 'Create Order' });
+
+    fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview' } });
+    fireEvent.mouseDown(await screen.findByText('Oceanview Market'));
+    fireEvent.change(screen.getByDisplayValue('Delivery'), { target: { value: 'pickup' } });
+
+    const productInput = screen.getByPlaceholderText('Atlantic Salmon');
+    fireEvent.change(productInput, { target: { value: 'Atlantic Salmon' } });
+    const lineRow = productInput.closest('tr');
+    if (!lineRow) throw new Error('Expected order line row');
+    fireEvent.change(within(lineRow).getAllByRole('spinbutton')[0], { target: { value: '2' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Order' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith(
+        '/api/orders',
+        'POST',
+        expect.objectContaining({
+          customerName: 'Oceanview Market',
+          customerAddress: '',
+          fulfillmentType: 'pickup',
+        })
+      );
+    });
   });
 
   it('surfaces failed API calls while loading orders', async () => {

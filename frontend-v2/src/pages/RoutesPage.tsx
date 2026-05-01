@@ -48,6 +48,18 @@ type Driver = {
   email?: string;
 };
 
+type Customer = {
+  id?: string | number;
+  customerId?: string;
+  customer_id?: string;
+  name?: string;
+  customerName?: string;
+  customer_name?: string;
+  company_name?: string;
+  address?: string;
+  billing_address?: string;
+};
+
 const statusColors = {
   active: 'green',
   pending: 'yellow',
@@ -79,6 +91,7 @@ export function RoutesPage() {
   const [allStops, setAllStops] = useState<StopRecord[]>([]);
   const [pendingOrders, setPendingOrders] = useState<PendingOrder[]>([]);
   const [drivers, setDrivers] = useState<Driver[]>([]);
+  const [customers, setCustomers] = useState<Customer[]>([]);
 
   // Create route form
   const [newName, setNewName] = useState('');
@@ -96,9 +109,9 @@ export function RoutesPage() {
   // Add stops from orders
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [addingStops, setAddingStops] = useState(false);
-  const [existingStopSearch, setExistingStopSearch] = useState('');
-  const [selectedExistingStopId, setSelectedExistingStopId] = useState('');
-  const [addingExistingStop, setAddingExistingStop] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [selectedCustomerId, setSelectedCustomerId] = useState('');
+  const [addingCustomerStop, setAddingCustomerStop] = useState(false);
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<'all' | RouteStatus>('all');
@@ -107,11 +120,12 @@ export function RoutesPage() {
     setLoading(true);
     setError('');
     try {
-      const [routeData, stopData, orderData, driverData] = await Promise.all([
+      const [routeData, stopData, orderData, driverData, customerData] = await Promise.all([
         fetchWithAuth<RouteRecord[]>('/api/routes'),
         fetchWithAuth<StopRecord[]>('/api/stops'),
         fetchWithAuth<PendingOrder[]>('/api/orders?status=pending'),
         fetchWithAuth<Driver[]>('/api/users').catch(() => [] as Driver[]),
+        fetchWithAuth<Customer[]>('/api/customers').catch(() => [] as Customer[]),
       ]);
       setRoutes(Array.isArray(routeData) ? routeData : []);
       setAllStops(Array.isArray(stopData) ? stopData : []);
@@ -119,6 +133,7 @@ export function RoutesPage() {
         (o) => String(o.status || '').toLowerCase() === 'pending',
       ));
       setDrivers(Array.isArray(driverData) ? driverData : []);
+      setCustomers(Array.isArray(customerData) ? customerData : []);
     } catch (err) {
       setError(String((err as Error).message || 'Could not load routes'));
     } finally {
@@ -174,15 +189,15 @@ export function RoutesPage() {
     setEditDriver(route.driver || '');
     setEditNotes(route.notes || '');
     setSelectedOrderIds(new Set());
-    setExistingStopSearch('');
-    setSelectedExistingStopId('');
+    setCustomerSearch('');
+    setSelectedCustomerId('');
   }
 
   function closeEdit() {
     setEditRoute(null);
     setSelectedOrderIds(new Set());
-    setExistingStopSearch('');
-    setSelectedExistingStopId('');
+    setCustomerSearch('');
+    setSelectedCustomerId('');
   }
 
   async function saveEdit() {
@@ -274,18 +289,19 @@ export function RoutesPage() {
     [editRoute],
   );
 
-  const availableStops = useMemo(
-    () => allStops.filter((stop) => !routeStopIds.includes(stop.id)),
-    [allStops, routeStopIds],
-  );
-
-  const availableStopOptions = useMemo(
-    () => availableStops.map((stop) => ({
-      value: stop.id,
-      label: stop.name || stop.address || stop.id,
-      sublabel: stop.address || stop.notes || stop.id,
-    })),
-    [availableStops],
+  const customerOptions = useMemo(
+    () =>
+      customers
+        .filter((customer) => {
+          const address = customer.address || customer.billing_address || '';
+          return !!String(address).trim();
+        })
+        .map((customer, index) => ({
+          value: String(customer.id || customer.customerId || customer.customer_id || `customer-${index + 1}`),
+          label: String(customer.company_name || customer.name || customer.customerName || customer.customer_name || '-'),
+          sublabel: String(customer.address || customer.billing_address || ''),
+        })),
+    [customers],
   );
 
   async function patchRouteStops(nextIds: string[]) {
@@ -298,20 +314,26 @@ export function RoutesPage() {
     setEditRoute((prev) => prev ? { ...prev, active_stop_ids: dedupedIds, stop_ids: dedupedIds } : null);
   }
 
-  async function addExistingStop() {
-    if (!editRoute || !selectedExistingStopId) return;
-    setAddingExistingStop(true); setError(''); setNotice('');
+  async function addCustomerStop() {
+    if (!editRoute || !selectedCustomerId) return;
+    setAddingCustomerStop(true); setError(''); setNotice('');
     try {
-      const stop = availableStops.find((item) => item.id === selectedExistingStopId);
-      await patchRouteStops([...routeStopIds, selectedExistingStopId]);
-      setExistingStopSearch('');
-      setSelectedExistingStopId('');
-      setNotice(`Stop "${stop?.name || stop?.address || selectedExistingStopId}" added to route.`);
+      const customer = customerOptions.find((item) => item.value === selectedCustomerId);
+      const newStop = await sendWithAuth<StopRecord>('/api/stops', 'POST', {
+        name: customer?.label || customerSearch.trim(),
+        address: customer?.sublabel || '',
+        notes: 'Customer route stop',
+      });
+      if (!newStop?.id) throw new Error('Stop could not be created from customer');
+      await patchRouteStops([...routeStopIds, newStop.id]);
+      setCustomerSearch('');
+      setSelectedCustomerId('');
+      setNotice(`Customer "${customer?.label || selectedCustomerId}" added to route.`);
       await load();
     } catch (err) {
-      setError(String((err as Error).message || 'Could not add stop to route'));
+      setError(String((err as Error).message || 'Could not add customer stop to route'));
     } finally {
-      setAddingExistingStop(false);
+      setAddingCustomerStop(false);
     }
   }
 
@@ -448,29 +470,29 @@ export function RoutesPage() {
               </div>
             )}
 
-            {/* Add existing stop */}
+            {/* Add stop from existing customer */}
             <div className="space-y-2">
-              <p className="text-sm font-semibold text-muted-foreground">Add Existing Stop</p>
-              <p className="text-xs text-muted-foreground">Search saved stops and attach one directly to this route.</p>
+              <p className="text-sm font-semibold text-muted-foreground">Add Stop from Customer</p>
+              <p className="text-xs text-muted-foreground">Search existing customers and create a route stop from the saved customer address.</p>
               <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
                 <Combobox
-                  value={existingStopSearch}
+                  value={customerSearch}
                   onChange={(value) => {
-                    setExistingStopSearch(value);
-                    setSelectedExistingStopId('');
+                    setCustomerSearch(value);
+                    setSelectedCustomerId('');
                   }}
                   onSelect={(opt) => {
-                    setExistingStopSearch(opt.label);
-                    setSelectedExistingStopId(opt.value);
+                    setCustomerSearch(opt.label);
+                    setSelectedCustomerId(opt.value);
                   }}
-                  options={availableStopOptions}
-                  placeholder={availableStops.length ? 'Search stops by name or address' : 'No additional stops available'}
+                  options={customerOptions}
+                  placeholder={customerOptions.length ? 'Search customers by name or address' : 'No customers with saved addresses'}
                 />
                 <Button
-                  onClick={addExistingStop}
-                  disabled={!selectedExistingStopId || addingExistingStop}
+                  onClick={addCustomerStop}
+                  disabled={!selectedCustomerId || addingCustomerStop}
                 >
-                  {addingExistingStop ? 'Adding…' : 'Add Existing Stop'}
+                  {addingCustomerStop ? 'Adding…' : 'Add Customer Stop'}
                 </Button>
               </div>
             </div>

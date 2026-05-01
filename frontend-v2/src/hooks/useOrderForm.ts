@@ -13,6 +13,7 @@ export function useOrderForm({
   const [customerName, setCustomerName]       = useState('');
   const [customerEmail, setCustomerEmail]     = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
+  const [fulfillmentType, setFulfillmentType] = useState<'delivery' | 'pickup'>('delivery');
   const [notes, setNotes]                     = useState('');
   const [taxEnabled, setTaxEnabled]           = useState(false);
   const [taxRate, setTaxRate]                 = useState('0.09');
@@ -83,6 +84,7 @@ export function useOrderForm({
   function reset() {
     setEditingOrderId(null);
     setCustomerName(''); setCustomerEmail(''); setCustomerAddress('');
+    setFulfillmentType('delivery');
     setNotes(''); setTaxEnabled(false); setTaxRate('0.09');
     setFuelPercent(''); setServicePercent(''); setMinimumFlat('');
     setLines([emptyLine()]);
@@ -93,6 +95,7 @@ export function useOrderForm({
     setCustomerName(order.customer_name || '');
     setCustomerEmail(order.customer_email || '');
     setCustomerAddress(order.customer_address || '');
+    setFulfillmentType(String(order.fulfillment_type || '').toLowerCase() === 'pickup' ? 'pickup' : 'delivery');
     setNotes(order.notes || '');
     setTaxEnabled(!!order.tax_enabled);
     setTaxRate(String(order.tax_rate ?? 0.09));
@@ -156,7 +159,8 @@ export function useOrderForm({
     return {
       customerName:    customerName.trim(),
       customerEmail:   customerEmail.trim()   || '',
-      customerAddress: customerAddress.trim() || '',
+      customerAddress: fulfillmentType === 'delivery' ? customerAddress.trim() || '' : '',
+      fulfillmentType,
       notes:           notes.trim() || '',
       taxEnabled,
       taxRate: asNumber(taxRate) || 0.09,
@@ -191,6 +195,7 @@ export function useOrderForm({
     customerName, setCustomerName,
     customerEmail, setCustomerEmail,
     customerAddress, setCustomerAddress,
+    fulfillmentType, setFulfillmentType,
     notes, setNotes,
     taxEnabled, setTaxEnabled,
     taxRate, setTaxRate,
