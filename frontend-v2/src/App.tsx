@@ -1,4 +1,4 @@
-import { ChevronDown, LogOut, Moon, Sun } from 'lucide-react';
+import { ChevronDown, LogOut, Moon, Settings, Sun } from 'lucide-react';
 import type { ReactElement } from 'react';
 import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
 import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
@@ -287,6 +287,17 @@ function AppShell() {
   );
 
   const currentItem = useMemo(() => findNavItem(location.pathname) || findNavItem(defaultPath), [location.pathname]);
+  const coreItems = useMemo(
+    () => availableGroups.find((group) => group.id === 'core')?.items || [],
+    [availableGroups]
+  );
+  const nonCoreGroups = useMemo(
+    () => availableGroups.filter((group) => group.id !== 'core'),
+    [availableGroups]
+  );
+  const dashboardItem = coreItems.find((item) => item.id === 'dashboard') || null;
+  const ordersItem = coreItems.find((item) => item.id === 'orders') || null;
+  const settingsItem = coreItems.find((item) => item.id === 'settings') || null;
 
   return (
     <div className="min-h-screen bg-enterprise-gradient">
@@ -315,7 +326,25 @@ function AppShell() {
           </div>
 
           <nav className="flex flex-wrap items-center gap-2 p-4">
-            {availableGroups.map((group) => (
+            {dashboardItem ? (
+              <Button
+                variant={currentItem?.id === dashboardItem.id ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => navigate(dashboardItem.path)}
+              >
+                {dashboardItem.label}
+              </Button>
+            ) : null}
+            {ordersItem ? (
+              <Button
+                variant={currentItem?.id === ordersItem.id ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => navigate(ordersItem.path)}
+              >
+                {ordersItem.label}
+              </Button>
+            ) : null}
+            {nonCoreGroups.map((group) => (
               <DropdownMenu key={group.id}>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="gap-2">
@@ -336,6 +365,18 @@ function AppShell() {
                 </DropdownMenuContent>
               </DropdownMenu>
             ))}
+            {settingsItem ? (
+              <Button
+                variant={currentItem?.id === settingsItem.id ? 'default' : 'ghost'}
+                size="sm"
+                className="ml-auto"
+                onClick={() => navigate(settingsItem.path)}
+                title={settingsItem.label}
+              >
+                <Settings className="h-4 w-4" />
+                <span className="sr-only">{settingsItem.label}</span>
+              </Button>
+            ) : null}
           </nav>
         </header>
 
