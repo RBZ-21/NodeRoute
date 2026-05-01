@@ -85,27 +85,14 @@ function customerPayload(source) {
 }
 
 async function fetchAllCustomers(res) {
-  const pageSize = 1000;
-  const rows = [];
-  let from = 0;
-
-  while (true) {
-    const page = await dbQuery(
-      supabase
-        .from('Customers')
-        .select('*')
-        .order('customer_number', { ascending: true })
-        .range(from, from + pageSize - 1),
-      res
-    );
-    if (!page) return null;
-
-    rows.push(...page);
-    if (page.length < pageSize) break;
-    from += pageSize;
-  }
-
-  return rows;
+  return dbQuery(
+    supabase
+      .from('Customers')
+      .select('*')
+      .order('customer_number', { ascending: true })
+      .limit(10000),
+    res
+  );
 }
 
 // ── CUSTOMERS (Supabase: "Customers") ─────────────
