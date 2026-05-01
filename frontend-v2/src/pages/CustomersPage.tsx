@@ -19,6 +19,8 @@ type Customer = {
   company_name?: string;
   email?: string;
   phone?: string;
+  phone_number?: string;
+  billing_email?: string;
   address?: string;
   totalOrders?: number | string;
   total_orders?: number | string;
@@ -29,6 +31,24 @@ type Customer = {
   credit_hold?: boolean;
   credit_hold_reason?: string | null;
   credit_hold_placed_at?: string | null;
+};
+
+type CreateCustomerForm = {
+  company_name: string;
+  contact_name: string;
+  email: string;
+  phone: string;
+  address: string;
+  payment_terms: string;
+};
+
+const emptyCreateCustomerForm: CreateCustomerForm = {
+  company_name: '',
+  contact_name: '',
+  email: '',
+  phone: '',
+  address: '',
+  payment_terms: '',
 };
 
 const statusColors = {
@@ -66,6 +86,14 @@ function customerName(customer: Customer): string {
   return String(customer.company_name || customer.name || customer.customerName || customer.customer_name || '-');
 }
 
+function customerEmail(customer: Customer): string {
+  return String(customer.email || customer.billing_email || '-');
+}
+
+function customerPhone(customer: Customer): string {
+  return String(customer.phone || customer.phone_number || '-');
+}
+
 function totalOrders(customer: Customer): number {
   return toNumber(customer.totalOrders ?? customer.total_orders);
 }
@@ -84,6 +112,9 @@ export function CustomersPage() {
   const [notice, setNotice] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | CustomerStatus>('all');
   const [search, setSearch] = useState('');
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [createForm, setCreateForm] = useState<CreateCustomerForm>(emptyCreateCustomerForm);
+  const [createSubmitting, setCreateSubmitting] = useState(false);
 
   // Hold dialog state
   const [holdDialog, setHoldDialog] = useState<HoldDialogState>(null);
@@ -115,9 +146,7 @@ export function CustomersPage() {
       if (!needle) return true;
       return (
         customerName(customer).toLowerCase().includes(needle) ||
-        String(customer.email || '')
-          .toLowerCase()
-          .includes(needle)
+        customerEmail(customer).toLowerCase().includes(needle)
       );
     });
   }, [customers, statusFilter, search]);
@@ -135,6 +164,49 @@ export function CustomersPage() {
 
   function viewInvoices(customer: Customer, index: number) {
     navigate(`/invoices?customerId=${encodeURIComponent(customerId(customer, index))}`);
+  }
+
+  function openCreateDialog() {
+    setCreateForm(emptyCreateCustomerForm);
+    setCreateDialogOpen(true);
+  }
+
+  function closeCreateDialog() {
+    setCreateDialogOpen(false);
+    setCreateForm(emptyCreateCustomerForm);
+  }
+
+  function updateCreateForm<K extends keyof CreateCustomerForm>(key: K, value: CreateCustomerForm[K]) {
+    setCreateForm((current) => ({ ...current, [key]: value }));
+  }
+
+  async function createCustomer() {
+    const companyName = createForm.company_name.trim();
+    if (!companyName) {
+      setError('Company name is required.');
+      return;
+    }
+
+    setCreateSubmitting(true);
+    setError('');
+    try {
+      await sendWithAuth('/api/customers', 'POST', {
+        company_name: companyName,
+        contact_name: createForm.contact_name.trim() || undefined,
+        email: createForm.email.trim() || undefined,
+        phone: createForm.phone.trim() || undefined,
+        address: createForm.address.trim() || undefined,
+        payment_terms: createForm.payment_terms.trim() || undefined,
+        status: 'active',
+      });
+      setNotice(`Customer ${companyName} added.`);
+      closeCreateDialog();
+      await load();
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not add customer'));
+    } finally {
+      setCreateSubmitting(false);
+    }
   }
 
   function openHoldDialog(customer: Customer, index: number) {
@@ -183,6 +255,52 @@ export function CustomersPage() {
       {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
+      {createDialogOpen ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
+          <div className="w-full max-w-2xl rounded-lg border border-border bg-background p-6 shadow-xl space-y-4">
+            <h2 className="text-lg font-semibold">Add Customer</h2>
+            <p className="text-sm text-muted-foreground">Create a new customer directly from the customer dashboard.</p>
+            <div className="grid gap-3 md:grid-cols-2">
+              <label className="space-y-1 text-sm block">
+                <span className="font-semibold text-muted-foreground">Company Name</span>
+                <Input value={createForm.company_name} onChange={(e) => updateCreateForm('company_name', e.target.value)} placeholder="Blue Fin Seafood" autoFocus />
+              </label>
+              <label className="space-y-1 text-sm block">
+                <span className="font-semibold text-muted-foreground">Contact Name</span>
+                <Input value={createForm.contact_name} onChange={(e) => updateCreateForm('contact_name', e.target.value)} placeholder="Receiving Manager" />
+              </label>
+              <label className="space-y-1 text-sm block">
+                <span className="font-semibold text-muted-foreground">Email</span>
+                <Input value={createForm.email} onChange={(e) => updateCreateForm('email', e.target.value)} placeholder="ops@example.com" />
+              </label>
+              <label className="space-y-1 text-sm block">
+                <span className="font-semibold text-muted-foreground">Phone</span>
+                <Input value={createForm.phone} onChange={(e) => updateCreateForm('phone', e.target.value)} placeholder="555-0103" />
+              </label>
+              <label className="space-y-1 text-sm block md:col-span-2">
+                <span className="font-semibold text-muted-foreground">Address</span>
+                <Input value={createForm.address} onChange={(e) => updateCreateForm('address', e.target.value)} placeholder="123 Dock Street" />
+              </label>
+              <label className="space-y-1 text-sm block">
+                <span className="font-semibold text-muted-foreground">Payment Terms</span>
+                <Input
+                  value={createForm.payment_terms}
+                  onChange={(e) => updateCreateForm('payment_terms', e.target.value)}
+                  placeholder="Net 30"
+                  onKeyDown={(e) => { if (e.key === 'Enter') createCustomer(); if (e.key === 'Escape') closeCreateDialog(); }}
+                />
+              </label>
+            </div>
+            <div className="flex justify-end gap-2">
+              <Button variant="ghost" onClick={closeCreateDialog} disabled={createSubmitting}>Cancel</Button>
+              <Button onClick={createCustomer} disabled={createSubmitting}>
+                {createSubmitting ? 'Adding Customer…' : 'Add Customer'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {/* Credit Hold Dialog */}
       {holdDialog ? (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50">
@@ -225,6 +343,9 @@ export function CustomersPage() {
             <CardDescription>Manage customer accounts and credit holds.</CardDescription>
           </div>
           <div className="flex flex-wrap items-end gap-2">
+            <Button onClick={openCreateDialog}>
+              Add Customer
+            </Button>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
               <select
@@ -277,8 +398,8 @@ export function CustomersPage() {
                           <p className="text-xs text-yellow-700 mt-0.5">{customer.credit_hold_reason}</p>
                         ) : null}
                       </TableCell>
-                      <TableCell>{customer.email || '-'}</TableCell>
-                      <TableCell>{customer.phone || '-'}</TableCell>
+                      <TableCell>{customerEmail(customer)}</TableCell>
+                      <TableCell>{customerPhone(customer)}</TableCell>
                       <TableCell>{customer.address || '-'}</TableCell>
                       <TableCell>{totalOrders(customer).toLocaleString()}</TableCell>
                       <TableCell>{asMoney(outstandingBalance(customer))}</TableCell>

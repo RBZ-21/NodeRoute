@@ -12,7 +12,10 @@ const router = express.Router();
 const CUSTOMER_FIELDS = [
   'customer_number',
   'company_name',
+  'email',
+  'status',
   'phone_number',
+  'phone',
   'fax_number',
   'contact_name',
   'payment_terms',
@@ -73,6 +76,7 @@ function customerPayload(source) {
   CUSTOMER_FIELDS.forEach(field => {
     if (source[field] !== undefined) payload[field] = source[field] || null;
   });
+  if (source.phone !== undefined && source.phone_number === undefined) payload.phone_number = source.phone || null;
   const taxValue = source.tax_enabled ?? source.taxEnabled;
   if (taxValue !== undefined) payload.tax_enabled = parseBoolean(taxValue);
   const holdValue = source.credit_hold ?? source.creditHold;
