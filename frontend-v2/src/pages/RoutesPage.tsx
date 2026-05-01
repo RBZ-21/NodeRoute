@@ -33,6 +33,12 @@ type StopRecord = {
   lng?: number;
 };
 
+function resolvedStopIds(route: RouteRecord, allStops: StopRecord[]) {
+  const stopMap = new Set(allStops.map((stop) => String(stop.id)));
+  const savedIds = route.active_stop_ids || route.stop_ids || [];
+  return savedIds.filter((id) => stopMap.has(String(id)));
+}
+
 type PendingOrder = {
   id: string;
   order_number?: string;
@@ -404,7 +410,7 @@ export function RoutesPage() {
           <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
             <div className="space-y-1">
               <CardTitle>Editing: {editRoute.name || editRoute.id}</CardTitle>
-              <CardDescription>{(editRoute.active_stop_ids || editRoute.stop_ids || []).length} stop(s) on this route</CardDescription>
+              <CardDescription>{editRouteStops.length} stop(s) on this route</CardDescription>
             </div>
             <Button variant="ghost" size="sm" onClick={closeEdit}>Close</Button>
           </CardHeader>
@@ -593,7 +599,7 @@ export function RoutesPage() {
             <TableBody>
               {filtered.length ? filtered.map((route) => {
                 const status = normalizeStatus(route.status);
-                const stopCount = (route.active_stop_ids || route.stop_ids || []).length;
+                const stopCount = resolvedStopIds(route, allStops).length;
                 const isEditing = editRoute?.id === route.id;
                 return (
                   <TableRow key={route.id} className={isEditing ? 'bg-primary/5' : ''}>

@@ -6,6 +6,7 @@ import type { Customer, InventoryProduct, LotCode, Order } from '../pages/orders
 export function useOrdersData() {
   const [searchParams] = useSearchParams();
   const customerIdParam = String(searchParams.get('customerId') || '').trim();
+  const orderIdParam = String(searchParams.get('orderId') || '').trim();
 
   const [orders, setOrders] = useState<Order[]>([]);
   const [customers, setCustomers] = useState<Customer[]>([]);
@@ -67,5 +68,6 @@ export function useOrdersData() {
     load,
     loadLotsForProduct,
     customerIdParam,
+    orderIdParam,
   };
 }

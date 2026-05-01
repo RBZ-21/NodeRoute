@@ -89,7 +89,15 @@ describe('DashboardPage', () => {
       }
       if (url === '/api/orders') {
         return [
-          { id: 'o1', order_number: 'ORD-200', customer_name: 'Blue Fin', status: 'pending', created_at: '2026-04-11T00:00:00Z' },
+          {
+            id: 'o1',
+            order_number: 'ORD-200',
+            customer_name: 'Blue Fin',
+            customer_id: 'cust-1',
+            status: 'pending',
+            created_at: '2026-04-11T00:00:00Z',
+            items: [{ is_catch_weight: true, actual_weight: null }],
+          },
         ];
       }
       if (url === '/api/ops/vendor-purchase-orders') {
@@ -115,6 +123,9 @@ describe('DashboardPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Orders Queue' }));
     expect(navigateMock).toHaveBeenCalledWith('/orders');
+
+    fireEvent.click(screen.getByRole('button', { name: /ORD-200/ }));
+    expect(navigateMock).toHaveBeenCalledWith('/orders?orderId=o1&action=weights');
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Purchasing Workspace' }));
     expect(navigateMock).toHaveBeenCalledWith('/purchasing');

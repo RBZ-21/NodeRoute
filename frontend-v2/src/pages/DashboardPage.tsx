@@ -98,12 +98,15 @@ type RouteRecord = {
 
 type OrderRecord = {
   id: string;
+  customer_id?: string;
+  customerId?: string;
   order_number?: string;
   customer_name?: string;
   customer_email?: string;
   customer_address?: string;
   status?: string;
   created_at?: string;
+  items?: Array<{ is_catch_weight?: boolean; actual_weight?: number | string }>;
 };
 
 type VendorPurchaseOrder = {
@@ -173,6 +176,14 @@ function orderBadgeVariant(status: string): 'warning' | 'secondary' | 'success' 
   if (normalized === 'in_process' || normalized === 'processed') return 'secondary';
   if (normalized === 'invoiced' || normalized === 'delivered' || normalized === 'sent') return 'success';
   return 'neutral';
+}
+
+function orderHasPendingWeights(order: OrderRecord): boolean {
+  return (order.items || []).some((item) => item.is_catch_weight && !(Number(item.actual_weight) > 0));
+}
+
+function orderCustomerId(order: OrderRecord): string {
+  return String(order.customer_id || order.customerId || '').trim();
 }
 
 function driverBadgeVariant(status: string | undefined): 'success' | 'neutral' {
@@ -481,14 +492,42 @@ export function DashboardPage() {
           <CardContent className="space-y-3">
             {recentOrders.length ? (
               recentOrders.map((order) => (
-                <div key={order.id} className="rounded-lg border border-border bg-muted/20 p-3">
+                <div
+                  key={order.id}
+                  onClick={() => navigate(`/orders?orderId=${encodeURIComponent(order.id)}&action=${orderHasPendingWeights(order) ? 'weights' : 'edit'}`)}
+                  className="w-full cursor-pointer rounded-lg border border-border bg-muted/20 p-3 text-left transition-colors hover:bg-muted/35"
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' || event.key === ' ') {
+                      event.preventDefault();
+                      navigate(`/orders?orderId=${encodeURIComponent(order.id)}&action=${orderHasPendingWeights(order) ? 'weights' : 'edit'}`);
+                    }
+                  }}
+                >
                   <div className="flex items-start justify-between gap-3">
                     <div>
                       <div className="text-sm font-semibold text-foreground">{order.order_number || order.id.slice(0, 8)}</div>
                       <div className="mt-1 text-xs text-muted-foreground">{order.customer_name || order.customer_email || 'Unnamed customer'}</div>
                       <div className="mt-1 text-xs text-muted-foreground">{formatDateTime(order.created_at)}</div>
+                      {orderHasPendingWeights(order) ? <div className="mt-1 text-xs font-medium text-amber-600">Weight input needed</div> : null}
                     </div>
-                    <Badge variant={orderBadgeVariant(order.status || '')}>{String(order.status || 'unknown').replace('_', ' ')}</Badge>
+                    <div className="flex flex-col items-end gap-2">
+                      <Badge variant={orderBadgeVariant(order.status || '')}>{String(order.status || 'unknown').replace('_', ' ')}</Badge>
+                      {String(order.status || '').toLowerCase() === 'invoiced' && orderCustomerId(order) ? (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            navigate(`/invoices?customerId=${encodeURIComponent(orderCustomerId(order))}`);
+                          }}
+                        >
+                          Invoices
+                        </Button>
+                      ) : null}
+                    </div>
                   </div>
                 </div>
               ))

@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { Card, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { getUserRole, sendWithAuth } from '../lib/api';
 import { useOrderForm } from '../hooks/useOrderForm';
@@ -74,8 +75,9 @@ function printOrderSlip(order: Order, popup: Window | null) {
 }
 
 export function OrdersPage() {
-  const { orders, setOrders, customers, products, lotsCache, loading, error, setError, load, loadLotsForProduct, customerIdParam } = useOrdersData();
+  const { orders, setOrders, customers, products, lotsCache, loading, error, setError, load, loadLotsForProduct, customerIdParam, orderIdParam } = useOrdersData();
   const form = useOrderForm({ products, lotsCache });
+  const [searchParams, setSearchParams] = useSearchParams();
 
   const [notice, setNotice]   = useState('');
   const [search, setSearch]   = useState('');
@@ -84,6 +86,7 @@ export function OrdersPage() {
   const [weightCaptureOrder, setWeightCaptureOrder] = useState<Order | null>(null);
   const [weightInputs, setWeightInputs]             = useState<Record<string, string>>({});
   const [savingWeight, setSavingWeight]             = useState<Record<string, boolean>>({});
+  const openedOrderIdRef = useRef<string | null>(null);
 
   const role = getUserRole();
 
@@ -93,6 +96,26 @@ export function OrdersPage() {
       if (num) void loadLotsForProduct(num);
     }
   }, [form.lines.map((l) => l.itemNumber).join(',')]);
+
+  useEffect(() => {
+    if (!orderIdParam || !orders.length || openedOrderIdRef.current === orderIdParam) return;
+    const order = orders.find((item) => item.id === orderIdParam);
+    if (!order) return;
+
+    const requestedAction = String(searchParams.get('action') || '').trim().toLowerCase();
+    if (requestedAction === 'weights') {
+      setWeightCaptureOrder(order);
+      setNotice(`Opened weights for ${order.order_number || order.id.slice(0, 8)}.`);
+    } else {
+      handleEditOrder(order);
+    }
+
+    openedOrderIdRef.current = orderIdParam;
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('orderId');
+    nextParams.delete('action');
+    setSearchParams(nextParams, { replace: true });
+  }, [orderIdParam, orders, searchParams, setSearchParams]);
 
   const summary = useMemo(() => ({
     pending:    orders.filter((o) => normalizedStatus(o.status) === 'pending').length,
