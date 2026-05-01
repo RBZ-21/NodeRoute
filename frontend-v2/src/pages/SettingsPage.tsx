@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -18,6 +18,8 @@ type CurrentUser = {
 
 type CompanySettings = {
   forceDriverSignature?: boolean;
+  businessName?: string;
+  invoiceLogoDataUrl?: string | null;
 };
 
 type MutationResult = {
@@ -66,10 +68,17 @@ export function SettingsPage() {
 
   const [forceDriverSignature, setForceDriverSignature] = useState(false);
   const [initialForceDriverSignature, setInitialForceDriverSignature] = useState(false);
+  const [businessName, setBusinessName] = useState('');
+  const [initialBusinessName, setInitialBusinessName] = useState('');
+  const [invoiceLogoDataUrl, setInvoiceLogoDataUrl] = useState<string | null>(null);
+  const [initialInvoiceLogoDataUrl, setInitialInvoiceLogoDataUrl] = useState<string | null>(null);
   const [companySettingsLoading, setCompanySettingsLoading] = useState(false);
   const [savingCompanySettings, setSavingCompanySettings] = useState(false);
 
-  const companySettingsDirty = forceDriverSignature !== initialForceDriverSignature;
+  const companySettingsDirty =
+    forceDriverSignature !== initialForceDriverSignature
+    || businessName !== initialBusinessName
+    || invoiceLogoDataUrl !== initialInvoiceLogoDataUrl;
 
   async function fetchCompanySettings(): Promise<CompanySettings> {
     return fetchWithAuth<CompanySettings>('/api/settings/company');
@@ -82,6 +91,7 @@ export function SettingsPage() {
     setCompanySettingsLoading(true);
 
     const [userResult, companyResult] = await Promise.allSettled([fetchCurrentUser<CurrentUser>(), fetchCompanySettings()]);
+    const userCompanyName = userResult.status === 'fulfilled' ? String(userResult.value?.companyName || '') : '';
 
     if (userResult.status === 'fulfilled') {
       const me = userResult.value || {};
@@ -93,8 +103,14 @@ export function SettingsPage() {
 
     if (companyResult.status === 'fulfilled') {
       const nextValue = !!companyResult.value.forceDriverSignature;
+      const nextBusinessName = String(companyResult.value.businessName || userCompanyName || '');
+      const nextInvoiceLogo = companyResult.value.invoiceLogoDataUrl || null;
       setForceDriverSignature(nextValue);
       setInitialForceDriverSignature(nextValue);
+      setBusinessName(nextBusinessName);
+      setInitialBusinessName(nextBusinessName);
+      setInvoiceLogoDataUrl(nextInvoiceLogo);
+      setInitialInvoiceLogoDataUrl(nextInvoiceLogo);
     } else {
       const message = String(companyResult.reason?.message || 'Could not load company settings');
       setError((prev) => prev || message);
@@ -180,16 +196,48 @@ export function SettingsPage() {
     try {
       const response = await sendWithAuth<CompanySettings>('/api/settings/company', 'PATCH', {
         forceDriverSignature,
+        businessName: businessName.trim(),
+        invoiceLogoDataUrl,
       });
       const nextValue = !!response.forceDriverSignature;
+      const nextBusinessName = String(response.businessName || businessName || user.companyName || '');
+      const nextInvoiceLogo = response.invoiceLogoDataUrl || null;
       setForceDriverSignature(nextValue);
       setInitialForceDriverSignature(nextValue);
+      setBusinessName(nextBusinessName);
+      setInitialBusinessName(nextBusinessName);
+      setInvoiceLogoDataUrl(nextInvoiceLogo);
+      setInitialInvoiceLogoDataUrl(nextInvoiceLogo);
       setNotice('Company settings saved.');
     } catch (err) {
       setError(String((err as Error).message || 'Failed to save company settings'));
     } finally {
       setSavingCompanySettings(false);
     }
+  }
+
+  async function handleLogoUpload(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file) return;
+    if (!['image/png', 'image/jpeg'].includes(file.type)) {
+      setError('Invoice logo must be a PNG or JPG image.');
+      return;
+    }
+    if (file.size > 1_000_000) {
+      setError('Invoice logo must be under 1 MB.');
+      return;
+    }
+
+    setError('');
+    const reader = new FileReader();
+    reader.onload = () => {
+      setInvoiceLogoDataUrl(typeof reader.result === 'string' ? reader.result : null);
+    };
+    reader.onerror = () => {
+      setError('Could not read the selected logo file.');
+    };
+    reader.readAsDataURL(file);
   }
 
   return (
@@ -272,6 +320,47 @@ export function SettingsPage() {
           <CardDescription>Operational policy controls aligned with dispatch and delivery compliance.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          <label className="space-y-1 text-sm block">
+            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Business Name</span>
+            <Input
+              value={businessName}
+              onChange={(event) => setBusinessName(event.target.value)}
+              placeholder="Your business name"
+              disabled={!canManageCompanySettings || companySettingsLoading || savingCompanySettings}
+            />
+            <div className="text-xs text-muted-foreground">Shown at the top of invoices and invoice emails.</div>
+          </label>
+          <div className="space-y-2">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Invoice Logo</div>
+            <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/20 p-4">
+              {invoiceLogoDataUrl ? (
+                <img src={invoiceLogoDataUrl} alt="Invoice logo preview" className="h-16 max-w-[220px] rounded border border-border bg-white object-contain p-2" />
+              ) : (
+                <div className="flex h-16 w-40 items-center justify-center rounded border border-dashed border-border text-xs text-muted-foreground">
+                  No logo uploaded
+                </div>
+              )}
+              <div className="space-y-2">
+                <Input
+                  type="file"
+                  accept="image/png,image/jpeg"
+                  onChange={handleLogoUpload}
+                  disabled={!canManageCompanySettings || companySettingsLoading || savingCompanySettings}
+                />
+                <div className="text-xs text-muted-foreground">PNG or JPG only, up to 1 MB.</div>
+                {invoiceLogoDataUrl ? (
+                  <Button
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => setInvoiceLogoDataUrl(null)}
+                    disabled={!canManageCompanySettings || companySettingsLoading || savingCompanySettings}
+                  >
+                    Remove Logo
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          </div>
           <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 p-4">
             <div>
               <div className="text-sm font-semibold text-foreground">Force Driver Signature</div>

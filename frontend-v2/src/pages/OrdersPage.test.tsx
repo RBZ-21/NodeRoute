@@ -120,6 +120,16 @@ describe('OrdersPage', () => {
     expect(await screen.findByText('Order created.')).toBeInTheDocument();
   });
 
+  it('hydrates address and email when the typed customer name exactly matches a saved customer', async () => {
+    renderOrdersPage();
+    await screen.findByRole('button', { name: 'Create Order' });
+
+    fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview Market' } });
+
+    expect(screen.getByDisplayValue('buyer@oceanview.test')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('123 Harbor St')).toBeInTheDocument();
+  });
+
   it('submits pickup orders without a delivery address', async () => {
     sendWithAuthMock.mockResolvedValueOnce({ id: 'pickup-order-id' });
 

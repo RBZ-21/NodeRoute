@@ -57,6 +57,10 @@ export type Customer = {
   billing_email?: string;
   address?: string;
   billing_address?: string;
+  customer_address?: string;
+  delivery_address?: string;
+  shipping_address?: string;
+  ship_to_address?: string;
   phone_number?: string;
 };
 

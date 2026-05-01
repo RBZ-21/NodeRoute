@@ -4,6 +4,7 @@ const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createMailer } = require('../services/email');
 const { buildInvoicePDF } = require('../services/pdf');
+const { loadCompanySettings } = require('../services/company-settings');
 const { loadDriverInvoiceScope } = require('../services/driver-invoice-access');
 const { validateBody } = require('../lib/zod-validate');
 const {
@@ -98,16 +99,18 @@ async function sendInvoiceEmail(inv, subjectPrefix = 'Your Invoice') {
     return { sent: false, error: 'Email not configured on server' };
   }
 
+  const companySettings = await loadCompanySettings(inv.company_id, inv.company_name);
+  const businessName = companySettings.businessName || 'NodeRoute Systems';
   const pdfBuffer = await buildInvoicePDF(inv);
   const invoiceLabel = inv.invoice_number || inv.id.slice(0, 8).toUpperCase();
 
   await mailer.sendMail({
     from: process.env.EMAIL_FROM,
     to: recipient,
-    subject: `${subjectPrefix} ${invoiceLabel} from NodeRoute`,
+    subject: `${subjectPrefix} ${invoiceLabel} from ${businessName}`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px">
-        <h2 style="color:#ff6b35">NodeRoute Systems</h2>
+        <h2 style="color:#ff6b35">${businessName}</h2>
         <p>Hi ${inv.customer_name || 'there'},</p>
         <p>Please find your invoice attached.</p>
         <table style="width:100%;border-collapse:collapse;margin:16px 0">

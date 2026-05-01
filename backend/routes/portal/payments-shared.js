@@ -124,7 +124,7 @@ function isStripeProviderEnabled() {
 }
 
 function openInvoiceStatuses() {
-  return new Set(['pending', 'signed', 'sent']);
+  return new Set(['pending', 'signed', 'sent', 'overdue']);
 }
 
 function invoiceIsOpen(invoice) {

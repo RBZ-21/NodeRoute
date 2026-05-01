@@ -60,6 +60,37 @@ export function OrderFormCard({
   updateLine, toggleLineCatchWeight, addLine, removeLine,
   onSubmit, onCancel, submitting,
 }: Props) {
+  function normalizedCustomerName(value: string) {
+    return value.trim().toLowerCase();
+  }
+
+  function customerAddressValue(customer: Customer) {
+    return String(
+      customer.address
+      || customer.billing_address
+      || customer.customer_address
+      || customer.delivery_address
+      || customer.shipping_address
+      || customer.ship_to_address
+      || ''
+    ).trim();
+  }
+
+  function hydrateCustomerDetails(customer: Customer) {
+    setCustomerName(customer.company_name || '');
+    setCustomerEmail(customer.billing_email || '');
+    setCustomerAddress(customerAddressValue(customer));
+  }
+
+  function hydrateCustomerByName(nextName: string) {
+    const normalized = normalizedCustomerName(nextName);
+    if (!normalized) return false;
+    const match = customers.find((customer) => normalizedCustomerName(customer.company_name || '') === normalized);
+    if (!match) return false;
+    hydrateCustomerDetails(match);
+    return true;
+  }
+
   const customerOptions = useMemo(
     () => customers.map((c) => ({
       label: c.company_name || '',
@@ -92,13 +123,14 @@ export function OrderFormCard({
             <span className="font-semibold text-muted-foreground">Customer Name</span>
             <Combobox
               value={customerName}
-              onChange={setCustomerName}
+              onChange={(nextValue) => {
+                setCustomerName(nextValue);
+                hydrateCustomerByName(nextValue);
+              }}
               onSelect={(opt) => {
                 const c = customers.find((x) => x.id === opt.value);
                 if (!c) return;
-                setCustomerName(c.company_name || '');
-                setCustomerEmail(c.billing_email || '');
-                setCustomerAddress(c.billing_address || c.address || '');
+                hydrateCustomerDetails(c);
               }}
               options={customerOptions}
               placeholder="Oceanview Market"
