@@ -37,6 +37,7 @@ const baseRoutes = [
 
 const baseStops = [
   { id: 'stop-1', name: 'Blue Fin', address: '1 Dock St', notes: 'Order ORD-100' },
+  { id: 'stop-2', name: 'Harbor Wholesale', address: '77 Pier Ave', notes: 'Will call' },
 ];
 
 const baseOrders = [
@@ -112,10 +113,11 @@ describe('RoutesPage', () => {
     expect(await screen.findByText('Route "South Route" created.')).toBeInTheDocument();
   });
 
-  it('opens the edit panel, saves changes, and adds stops from pending orders', async () => {
+  it('opens the edit panel, saves changes, adds an existing stop, and adds stops from pending orders', async () => {
     sendWithAuthMock
       .mockResolvedValueOnce({})
-      .mockResolvedValueOnce({ id: 'stop-2' })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ id: 'stop-3' })
       .mockResolvedValueOnce({});
 
     renderRoutesPage();
@@ -140,6 +142,18 @@ describe('RoutesPage', () => {
     });
     expect(await screen.findByText('Route updated.')).toBeInTheDocument();
 
+    fireEvent.change(screen.getByPlaceholderText('Search stops by name or address'), { target: { value: 'Harbor' } });
+    fireEvent.mouseDown(await screen.findByText('Harbor Wholesale'));
+    fireEvent.click(screen.getByRole('button', { name: 'Add Existing Stop' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-1', 'PATCH', {
+        stopIds: ['stop-1', 'stop-2'],
+        activeStopIds: ['stop-1', 'stop-2'],
+      });
+    });
+    expect(await screen.findByText('Stop "Harbor Wholesale" added to route.')).toBeInTheDocument();
+
     const pendingOrdersSection = screen.getByText('Add Stops from Pending Orders').closest('div');
     if (!pendingOrdersSection) throw new Error('Expected pending orders section');
     fireEvent.click(within(pendingOrdersSection).getAllByRole('checkbox')[0]);
@@ -154,8 +168,8 @@ describe('RoutesPage', () => {
     });
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-1', 'PATCH', {
-        stopIds: ['stop-1', 'stop-2'],
-        activeStopIds: ['stop-1', 'stop-2'],
+        stopIds: ['stop-1', 'stop-2', 'stop-3'],
+        activeStopIds: ['stop-1', 'stop-2', 'stop-3'],
       });
     });
     expect(await screen.findByText('1 stop added to route.')).toBeInTheDocument();

@@ -96,6 +96,9 @@ export function RoutesPage() {
   // Add stops from orders
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [addingStops, setAddingStops] = useState(false);
+  const [existingStopSearch, setExistingStopSearch] = useState('');
+  const [selectedExistingStopId, setSelectedExistingStopId] = useState('');
+  const [addingExistingStop, setAddingExistingStop] = useState(false);
 
   // Filters
   const [statusFilter, setStatusFilter] = useState<'all' | RouteStatus>('all');
@@ -171,11 +174,15 @@ export function RoutesPage() {
     setEditDriver(route.driver || '');
     setEditNotes(route.notes || '');
     setSelectedOrderIds(new Set());
+    setExistingStopSearch('');
+    setSelectedExistingStopId('');
   }
 
   function closeEdit() {
     setEditRoute(null);
     setSelectedOrderIds(new Set());
+    setExistingStopSearch('');
+    setSelectedExistingStopId('');
   }
 
   async function saveEdit() {
@@ -240,13 +247,7 @@ export function RoutesPage() {
       }
 
       if (newStopIds.length) {
-        const existingIds = editRoute.active_stop_ids || editRoute.stop_ids || [];
-        const merged = [...existingIds, ...newStopIds];
-        await sendWithAuth(`/api/routes/${editRoute.id}`, 'PATCH', {
-          stopIds: merged,
-          activeStopIds: merged,
-        });
-        setEditRoute((prev) => prev ? { ...prev, active_stop_ids: merged, stop_ids: merged } : null);
+        await patchRouteStops([...routeStopIds, ...newStopIds]);
         setNotice(`${newStopIds.length} stop${newStopIds.length > 1 ? 's' : ''} added to route.`);
         setSelectedOrderIds(new Set());
         await load();
@@ -268,12 +269,57 @@ export function RoutesPage() {
     return ids.map((id) => allStops.find((s) => s.id === id)).filter(Boolean) as StopRecord[];
   }, [editRoute, allStops]);
 
+  const routeStopIds = useMemo(
+    () => editRoute?.active_stop_ids || editRoute?.stop_ids || [],
+    [editRoute],
+  );
+
+  const availableStops = useMemo(
+    () => allStops.filter((stop) => !routeStopIds.includes(stop.id)),
+    [allStops, routeStopIds],
+  );
+
+  const availableStopOptions = useMemo(
+    () => availableStops.map((stop) => ({
+      value: stop.id,
+      label: stop.name || stop.address || stop.id,
+      sublabel: stop.address || stop.notes || stop.id,
+    })),
+    [availableStops],
+  );
+
+  async function patchRouteStops(nextIds: string[]) {
+    if (!editRoute) return;
+    const dedupedIds = Array.from(new Set(nextIds));
+    await sendWithAuth(`/api/routes/${editRoute.id}`, 'PATCH', {
+      stopIds: dedupedIds,
+      activeStopIds: dedupedIds,
+    });
+    setEditRoute((prev) => prev ? { ...prev, active_stop_ids: dedupedIds, stop_ids: dedupedIds } : null);
+  }
+
+  async function addExistingStop() {
+    if (!editRoute || !selectedExistingStopId) return;
+    setAddingExistingStop(true); setError(''); setNotice('');
+    try {
+      const stop = availableStops.find((item) => item.id === selectedExistingStopId);
+      await patchRouteStops([...routeStopIds, selectedExistingStopId]);
+      setExistingStopSearch('');
+      setSelectedExistingStopId('');
+      setNotice(`Stop "${stop?.name || stop?.address || selectedExistingStopId}" added to route.`);
+      await load();
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not add stop to route'));
+    } finally {
+      setAddingExistingStop(false);
+    }
+  }
+
   async function removeStop(stopId: string) {
     if (!editRoute) return;
-    const ids = (editRoute.active_stop_ids || editRoute.stop_ids || []).filter((id) => id !== stopId);
+    const ids = routeStopIds.filter((id) => id !== stopId);
     try {
-      await sendWithAuth(`/api/routes/${editRoute.id}`, 'PATCH', { stopIds: ids, activeStopIds: ids });
-      setEditRoute((prev) => prev ? { ...prev, active_stop_ids: ids, stop_ids: ids } : null);
+      await patchRouteStops(ids);
       await load();
     } catch (err) {
       setError(String((err as Error).message || 'Could not remove stop'));
@@ -401,6 +447,33 @@ export function RoutesPage() {
                 </div>
               </div>
             )}
+
+            {/* Add existing stop */}
+            <div className="space-y-2">
+              <p className="text-sm font-semibold text-muted-foreground">Add Existing Stop</p>
+              <p className="text-xs text-muted-foreground">Search saved stops and attach one directly to this route.</p>
+              <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_auto]">
+                <Combobox
+                  value={existingStopSearch}
+                  onChange={(value) => {
+                    setExistingStopSearch(value);
+                    setSelectedExistingStopId('');
+                  }}
+                  onSelect={(opt) => {
+                    setExistingStopSearch(opt.label);
+                    setSelectedExistingStopId(opt.value);
+                  }}
+                  options={availableStopOptions}
+                  placeholder={availableStops.length ? 'Search stops by name or address' : 'No additional stops available'}
+                />
+                <Button
+                  onClick={addExistingStop}
+                  disabled={!selectedExistingStopId || addingExistingStop}
+                >
+                  {addingExistingStop ? 'Adding…' : 'Add Existing Stop'}
+                </Button>
+              </div>
+            </div>
 
             {/* Add from pending orders */}
             {pendingOrders.length > 0 && (
