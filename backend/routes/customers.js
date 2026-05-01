@@ -84,9 +84,33 @@ function customerPayload(source) {
   return payload;
 }
 
+async function fetchAllCustomers(res) {
+  const pageSize = 1000;
+  const rows = [];
+  let from = 0;
+
+  while (true) {
+    const page = await dbQuery(
+      supabase
+        .from('Customers')
+        .select('*')
+        .order('customer_number', { ascending: true })
+        .range(from, from + pageSize - 1),
+      res
+    );
+    if (!page) return null;
+
+    rows.push(...page);
+    if (page.length < pageSize) break;
+    from += pageSize;
+  }
+
+  return rows;
+}
+
 // ── CUSTOMERS (Supabase: "Customers") ─────────────
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const data = await dbQuery(supabase.from('Customers').select('*').order('customer_number', { ascending: true }), res);
+  const data = await fetchAllCustomers(res);
   if (!data) return;
   const scopedCustomers = filterRowsByContext(data, req.context);
   const stopsResult = await supabase.from('stops').select('name,address');
