@@ -112,7 +112,13 @@ export function useOrderForm({
       name:            String(item.name || item.description || ''),
       itemNumber:      String(item.item_number || ''),
       unit:            item.is_catch_weight ? 'lb' : (String(item.unit || '').toLowerCase() === 'lb' ? 'lb' : 'each'),
-      quantity:        item.is_catch_weight ? '' : String(item.requested_qty ?? (String(item.unit || '').toLowerCase() === 'lb' ? '' : orderItemQty(item)) || ''),
+      quantity:        item.is_catch_weight
+        ? ''
+        : String(
+          item.requested_qty
+          ?? (String(item.unit || '').toLowerCase() === 'lb' ? '' : orderItemQty(item))
+          ?? ''
+        ),
       requestedWeight: item.is_catch_weight ? '' : (String(item.unit || '').toLowerCase() === 'lb' ? String(asNumber(item.requested_weight) || '') : ''),
       unitPrice:       item.is_catch_weight ? '' : String(asNumber(item.unit_price) || ''),
       notes:           String(item.notes || ''),
