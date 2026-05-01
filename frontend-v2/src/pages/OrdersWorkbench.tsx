@@ -98,12 +98,16 @@ export function OrdersWorkbench({
                   return (
                     <TableRow key={order.id}>
                       <TableCell className="font-medium">
-                        <div className="space-y-0.5">
-                          <span>{order.order_number || order.id.slice(0, 8)}</span>
+                        <button
+                          type="button"
+                          className="space-y-0.5 text-left"
+                          onClick={() => pendingWeights ? onToggleWeightCapture(order) : onEdit(order)}
+                        >
+                          <span className="hover:underline">{order.order_number || order.id.slice(0, 8)}</span>
                           {pendingWeights && (
                             <div className="text-xs font-medium text-amber-600">⚠️ Weight Pending</div>
                           )}
-                        </div>
+                        </button>
                       </TableCell>
                       <TableCell>{order.customer_name || '-'}</TableCell>
                       <TableCell>

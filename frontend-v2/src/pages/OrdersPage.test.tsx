@@ -273,6 +273,39 @@ describe('OrdersPage', () => {
     expect(await screen.findByText('Actual weight saved. Order total recalculated.')).toBeInTheDocument();
   });
 
+  it('opens weight capture when clicking the order number for a pending-weight order', async () => {
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/orders')) {
+        return [
+          {
+            id: 'order-lb',
+            order_number: 'ORD-LB',
+            customer_name: 'Harbor Cafe',
+            status: 'pending',
+            items: [
+              {
+                name: 'Yellowfin Tuna',
+                unit: 'lb',
+                requested_weight: 12,
+                unit_price: 14.5,
+              },
+            ],
+          },
+        ];
+      }
+      if (url === '/api/inventory') return [];
+      if (url === '/api/customers') return [];
+      return [];
+    });
+
+    renderOrdersPage();
+
+    expect(await screen.findByText('ORD-LB')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /ORD-LB/ }));
+
+    expect(await screen.findByText(/Capture Actual Weights/)).toBeInTheDocument();
+  });
+
   it('sends a pending order to processing and opens a print window', async () => {
     fetchWithAuthMock.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/orders')) {
