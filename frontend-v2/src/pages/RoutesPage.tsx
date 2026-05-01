@@ -66,6 +66,10 @@ type Customer = {
   billing_address?: string;
 };
 
+type ResolvedOrderStop =
+  | { kind: 'existing'; stop: StopRecord }
+  | { kind: 'create'; name: string; address: string; notes: string };
+
 const statusColors = {
   active: 'green',
   pending: 'yellow',
@@ -80,6 +84,15 @@ function normalizeStatus(value: string | undefined): RouteStatus {
   if (s === 'completed') return 'completed';
   if (s === 'cancelled') return 'cancelled';
   return 'other';
+}
+
+function normalizeLookup(value: string | undefined): string {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\b(restaurant|rest\.?|grill|cafe|bar|kitchen|steakhouse|customer|with|and|tax)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
@@ -263,24 +276,35 @@ export function RoutesPage() {
     try {
       const orders = pendingOrders.filter((o) => selectedOrderIds.has(o.id));
       const newStopIds: string[] = [];
+      const unresolvedOrders: string[] = [];
 
       for (const order of orders) {
-        if (!order.customer_address) continue;
+        const resolved = resolveOrderStop(order);
+        if (!resolved) {
+          unresolvedOrders.push(order.customer_name || order.order_number || order.id);
+          continue;
+        }
+
+        if (resolved.kind === 'existing') {
+          newStopIds.push(resolved.stop.id);
+          continue;
+        }
+
         const stop = await sendWithAuth<StopRecord>('/api/stops', 'POST', {
-          name: order.customer_name || order.order_number || order.id,
-          address: order.customer_address,
-          notes: `Order ${order.order_number || order.id}`,
+          name: resolved.name,
+          address: resolved.address,
+          notes: resolved.notes,
         });
         if (stop?.id) newStopIds.push(stop.id);
       }
 
       if (newStopIds.length) {
         await patchRouteStops([...routeStopIds, ...newStopIds]);
-        setNotice(`${newStopIds.length} stop${newStopIds.length > 1 ? 's' : ''} added to route.`);
+        setNotice(`${newStopIds.length} stop${newStopIds.length > 1 ? 's' : ''} added to route.${unresolvedOrders.length ? ` Could not resolve: ${unresolvedOrders.join(', ')}.` : ''}`);
         setSelectedOrderIds(new Set());
         await load();
       } else {
-        setError('No stops were created — make sure selected orders have a customer address.');
+        setError(`No stops were added. Missing address or saved stop match for: ${unresolvedOrders.join(', ')}`);
       }
     } catch (err) {
       setError(String((err as Error).message || 'Could not add stops'));
@@ -379,6 +403,28 @@ export function RoutesPage() {
     } finally {
       setAddingExistingStop(false);
     }
+  }
+
+  function resolveOrderStop(order: PendingOrder): ResolvedOrderStop | null {
+    if (order.customer_address) {
+      return {
+        kind: 'create',
+        name: order.customer_name || order.order_number || order.id,
+        address: order.customer_address,
+        notes: `Order ${order.order_number || order.id}`,
+      };
+    }
+
+    const orderName = normalizeLookup(order.customer_name || '');
+    if (!orderName) return null;
+
+    const matchedStop = allStops.find((stop) => {
+      const stopName = normalizeLookup(stop.name || '');
+      return !!stopName && (orderName.includes(stopName) || stopName.includes(orderName));
+    });
+
+    if (!matchedStop) return null;
+    return { kind: 'existing', stop: matchedStop };
   }
 
   async function removeStop(stopId: string) {
