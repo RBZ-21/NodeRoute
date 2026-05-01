@@ -239,4 +239,43 @@ describe('InventoryPage', () => {
     });
     expect(await screen.findByRole('button', { name: '$14.5000' })).toBeInTheDocument();
   });
+
+  it('builds category-based inventory count reports for printing', async () => {
+    const printMock = vi.fn();
+    const focusMock = vi.fn();
+    const writeMock = vi.fn();
+    const closeMock = vi.fn();
+    const openMock = vi.spyOn(window, 'open').mockReturnValue({
+      document: {
+        write: writeMock,
+        close: closeMock,
+      },
+      focus: focusMock,
+      print: printMock,
+    } as unknown as Window);
+
+    render(<InventoryPage />);
+
+    expect(await screen.findByText('Fresh Salmon')).toBeInTheDocument();
+
+    const reportCard = screen.getByRole('heading', { name: 'Inventory Count Reports' }).closest('div.rounded-lg') as HTMLElement | null;
+    if (!reportCard) throw new Error('Expected inventory count reports card');
+
+    fireEvent.change(within(reportCard).getByLabelText('Category Scope'), { target: { value: 'Packaging' } });
+    fireEvent.click(within(reportCard).getByLabelText('Include zero-stock items'));
+    fireEvent.click(within(reportCard).getByRole('button', { name: 'Print Count Sheet' }));
+
+    expect(openMock).toHaveBeenCalled();
+    expect(writeMock).toHaveBeenCalled();
+    const printedHtml = String(writeMock.mock.calls[0]?.[0] || '');
+    expect(printedHtml).toContain('Inventory Count Sheet');
+    expect(printedHtml).toContain('Packaging');
+    expect(printedHtml).toContain('Shipping Box');
+    expect(printedHtml).not.toContain('Fresh Salmon');
+    expect(printedHtml).toContain('Physical Count');
+    expect(focusMock).toHaveBeenCalled();
+    expect(printMock).toHaveBeenCalled();
+
+    openMock.mockRestore();
+  });
 });

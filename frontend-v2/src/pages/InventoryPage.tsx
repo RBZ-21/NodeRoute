@@ -19,6 +19,15 @@ type InventoryItem = {
   default_price_per_lb?: number | string;
 };
 
+type CountSheetRow = {
+  id: string;
+  item_number: string;
+  description: string;
+  category: string;
+  on_hand_qty: number;
+  unit: string;
+};
+
 type LedgerSummary = {
   count: number;
   total_delta: number;
@@ -50,6 +59,30 @@ function money(value: number): string {
   return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
 
+function csvEscape(value: string): string {
+  return `"${String(value).replace(/"/g, '""')}"`;
+}
+
+function downloadCsv(filename: string, rows: string[][]) {
+  const csv = rows.map((row) => row.map(csvEscape).join(',')).join('\n');
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const href = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = href;
+  link.download = filename;
+  link.click();
+  URL.revokeObjectURL(href);
+}
+
+function sanitizeHtml(value: string): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 export function InventoryPage() {
   const [items, setItems] = useState<InventoryItem[]>([]);
   const [loading, setLoading] = useState(true);
@@ -73,6 +106,8 @@ export function InventoryPage() {
 
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
+  const [countCategoryFilter, setCountCategoryFilter] = useState('all');
+  const [includeZeroStockInCounts, setIncludeZeroStockInCounts] = useState(true);
 
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerSummary, setLedgerSummary] = useState<LedgerSummary | null>(null);
@@ -142,6 +177,38 @@ export function InventoryPage() {
   }, [items]);
 
   const selectedItem = useMemo(() => items.find((item) => item.item_number === selectedItemNumber) || null, [items, selectedItemNumber]);
+  const countSheetRows = useMemo(() => {
+    const rows = items
+      .map((item) => ({
+        id: item.id,
+        item_number: String(item.item_number || '').trim(),
+        description: String(item.description || '').trim() || 'Unnamed item',
+        category: String(item.category || 'Uncategorized').trim() || 'Uncategorized',
+        on_hand_qty: asNumber(item.on_hand_qty),
+        unit: String(item.unit || '').trim(),
+      }))
+      .filter((item) => item.item_number || item.description);
+
+    return rows
+      .filter((item) => (countCategoryFilter === 'all' ? true : item.category === countCategoryFilter))
+      .filter((item) => (includeZeroStockInCounts ? true : item.on_hand_qty > 0))
+      .sort((a, b) => itemCategoryCompare(a, b) || a.description.localeCompare(b.description) || a.item_number.localeCompare(b.item_number));
+  }, [items, countCategoryFilter, includeZeroStockInCounts]);
+  const countCategories = useMemo(
+    () =>
+      [...new Set(items.map((item) => String(item.category || 'Uncategorized').trim() || 'Uncategorized'))]
+        .sort((a, b) => a.localeCompare(b)),
+    [items]
+  );
+  const countSheetGroups = useMemo(() => {
+    const groups = new Map<string, CountSheetRow[]>();
+    for (const row of countSheetRows) {
+      const list = groups.get(row.category) || [];
+      list.push(row);
+      groups.set(row.category, list);
+    }
+    return [...groups.entries()].map(([category, rows]) => ({ category, rows }));
+  }, [countSheetRows]);
 
   async function refreshAll() {
     await loadInventory();
@@ -268,6 +335,101 @@ export function InventoryPage() {
     }
   }
 
+  function buildCountSheetTitle() {
+    return countCategoryFilter === 'all' ? 'All Categories' : countCategoryFilter;
+  }
+
+  function exportCountSheetCsv() {
+    const rows = [
+      ['Category', 'Item #', 'Description', 'Current On Hand', 'Unit', 'Physical Count'],
+      ...countSheetRows.map((item) => [
+        item.category,
+        item.item_number,
+        item.description,
+        item.on_hand_qty.toLocaleString(),
+        item.unit,
+        '',
+      ]),
+    ];
+    const scope = countCategoryFilter === 'all' ? 'all-categories' : countCategoryFilter.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+    downloadCsv(`inventory-count-sheet-${scope}.csv`, rows);
+  }
+
+  function printCountSheet() {
+    const popup = window.open('', '_blank', 'noopener,noreferrer');
+    if (!popup) {
+      setError('Could not open the print view. Please allow pop-ups and try again.');
+      return;
+    }
+
+    const generatedAt = new Date().toLocaleString();
+    const sections = countSheetGroups
+      .map(
+        (group) => `
+          <section class="category-block">
+            <h2>${sanitizeHtml(group.category)}</h2>
+            <table>
+              <thead>
+                <tr>
+                  <th>Item #</th>
+                  <th>Description</th>
+                  <th>Current On Hand</th>
+                  <th>Unit</th>
+                  <th>Physical Count</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${group.rows
+                  .map(
+                    (item) => `
+                      <tr>
+                        <td>${sanitizeHtml(item.item_number || '-')}</td>
+                        <td>${sanitizeHtml(item.description)}</td>
+                        <td>${sanitizeHtml(item.on_hand_qty.toLocaleString())}</td>
+                        <td>${sanitizeHtml(item.unit || '-')}</td>
+                        <td class="blank-cell"></td>
+                      </tr>
+                    `
+                  )
+                  .join('')}
+              </tbody>
+            </table>
+          </section>
+        `
+      )
+      .join('');
+
+    popup.document.write(`<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Inventory Count Sheet</title>
+    <style>
+      body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
+      h1 { margin: 0 0 6px; font-size: 24px; }
+      .meta { margin-bottom: 18px; color: #4b5563; font-size: 12px; }
+      .category-block { margin-bottom: 28px; page-break-inside: avoid; }
+      h2 { margin: 0 0 10px; font-size: 18px; border-bottom: 1px solid #d1d5db; padding-bottom: 4px; }
+      table { width: 100%; border-collapse: collapse; }
+      th, td { border: 1px solid #d1d5db; padding: 8px 10px; font-size: 12px; text-align: left; }
+      th { background: #f3f4f6; }
+      .blank-cell { min-width: 140px; height: 28px; }
+      @media print {
+        body { margin: 12px; }
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Inventory Count Sheet</h1>
+    <div class="meta">Category scope: ${sanitizeHtml(buildCountSheetTitle())} · Generated ${sanitizeHtml(generatedAt)}</div>
+    ${sections || '<p>No inventory rows match the selected count-sheet filters.</p>'}
+  </body>
+</html>`);
+    popup.document.close();
+    popup.focus();
+    popup.print();
+  }
+
   return (
     <div className="space-y-5">
       {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading inventory...</div> : null}
@@ -331,6 +493,52 @@ export function InventoryPage() {
       </Card>
 
       <div className="grid gap-4 lg:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Inventory Count Reports</CardTitle>
+            <CardDescription>Print or export count sheets grouped by category with current on-hand quantities and a blank space for the physical count.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-3">
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold text-muted-foreground">Category Scope</span>
+                <select
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  value={countCategoryFilter}
+                  onChange={(event) => setCountCategoryFilter(event.target.value)}
+                >
+                  <option value="all">All Categories</option>
+                  {countCategories.map((category) => (
+                    <option key={category} value={category}>
+                      {category}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-end gap-2 rounded-md border border-border bg-muted/20 px-3 py-2 text-sm">
+                <input
+                  type="checkbox"
+                  checked={includeZeroStockInCounts}
+                  onChange={(event) => setIncludeZeroStockInCounts(event.target.checked)}
+                />
+                <span>Include zero-stock items</span>
+              </label>
+              <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm">
+                <div className="font-semibold text-muted-foreground">Rows In Sheet</div>
+                <div className="mt-1 text-lg font-semibold">{countSheetRows.length.toLocaleString()}</div>
+              </div>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button onClick={printCountSheet} disabled={!countSheetRows.length}>
+                Print Count Sheet
+              </Button>
+              <Button variant="outline" onClick={exportCountSheetCsv} disabled={!countSheetRows.length}>
+                Export Count Sheet CSV
+              </Button>
+            </div>
+          </CardContent>
+        </Card>
+
         <Card>
           <CardHeader>
             <CardTitle>Transfer Inventory</CardTitle>
@@ -599,6 +807,10 @@ export function InventoryPage() {
       </Card>
     </div>
   );
+}
+
+function itemCategoryCompare(a: CountSheetRow, b: CountSheetRow) {
+  return a.category.localeCompare(b.category);
 }
 
 function SummaryCard({ label, value }: { label: string; value: string }) {
