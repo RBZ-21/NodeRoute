@@ -59,6 +59,50 @@ async function authorizeDwellEvent(req, res) {
 }
 
 router.get('/',authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const requestedRouteId = String(req.query?.routeId || '').trim();
+
+  if (requestedRouteId) {
+    const route = await dbQuery(supabase.from('routes').select('*').eq('id', requestedRouteId).single(), res);
+    if (!route) return res.status(404).json({ error: 'Route not found' });
+    if (!rowMatchesContext(route, req.context)) return res.status(403).json({ error: 'Forbidden' });
+
+    const routeStopIds = Array.isArray(route.active_stop_ids) && route.active_stop_ids.length
+      ? route.active_stop_ids
+      : Array.isArray(route.stop_ids)
+        ? route.stop_ids
+        : [];
+
+    if (!routeStopIds.length) {
+      return res.json([]);
+    }
+
+    const stops = await dbQuery(
+      supabase
+        .from('stops')
+        .select('*')
+        .in('id', routeStopIds)
+        .order('created_at', { ascending: true }),
+      res
+    );
+    if (!stops) return;
+
+    const filteredStops = filterRowsByContext(stops, req.context);
+    const stopMap = new Map(filteredStops.map((stop) => [String(stop.id), stop]));
+    const orderedStops = routeStopIds
+      .map((id, index) => {
+        const stop = stopMap.get(String(id));
+        if (!stop) return null;
+        return {
+          ...stop,
+          route_id: requestedRouteId,
+          stop_number: index + 1,
+        };
+      })
+      .filter(Boolean);
+
+    return res.json(orderedStops);
+  }
+
   const data = await dbQuery(supabase.from('stops').select('*').order('created_at', { ascending: true }), res);
   if (!data) return;
   res.json(filterRowsByContext(data, req.context));
