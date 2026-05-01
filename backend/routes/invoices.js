@@ -222,6 +222,35 @@ router.post('/import', authenticateToken, requireRole('admin', 'manager'), async
   res.json({ imported: data.length, invoices: data });
 });
 
+router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
+  if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!rowMatchesContext(inv, req.context)) return res.status(403).json({ error: 'Forbidden' });
+
+  const updates = {};
+  if (req.body.status !== undefined) {
+    const nextStatus = String(req.body.status || '').trim().toLowerCase();
+    if (!['pending', 'paid', 'overdue', 'void', 'signed', 'sent'].includes(nextStatus)) {
+      return res.status(400).json({ error: 'Invalid invoice status' });
+    }
+    updates.status = nextStatus;
+    if (nextStatus === 'paid') {
+      updates.paid_date = new Date().toISOString();
+    }
+  }
+  if (req.body.notes !== undefined) updates.notes = req.body.notes || null;
+  if (!Object.keys(updates).length) {
+    return res.status(400).json({ error: 'No valid invoice fields provided' });
+  }
+
+  const data = await dbQuery(
+    supabase.from('invoices').update(updates).eq('id', req.params.id).select().single(),
+    res
+  );
+  if (!data) return;
+  res.json(data);
+});
+
 // Save signature → generate PDF → email customer
 router.post('/:id/sign', authenticateToken, async (req, res) => {
   const signature_data = req.body?.signature_data || req.body?.signature; // base64 PNG from canvas
