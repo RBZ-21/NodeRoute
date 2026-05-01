@@ -25,6 +25,45 @@ const CUSTOMER_FIELDS = [
   'credit_hold_reason',
 ];
 
+function normalizeLookup(value) {
+  return String(value || '')
+    .toLowerCase()
+    .replace(/&/g, ' and ')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .replace(/\b(restaurant|rest|llc|inc|co|company)\b/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+function scoreStopMatch(customerName, stopName) {
+  const customerNorm = normalizeLookup(customerName);
+  const stopNorm = normalizeLookup(stopName);
+  if (!customerNorm || !stopNorm) return 0;
+  if (customerNorm === stopNorm) return 3;
+  if (customerNorm.includes(stopNorm) || stopNorm.includes(customerNorm)) return 2;
+  const customerTokens = new Set(customerNorm.split(' ').filter(Boolean));
+  const stopTokens = stopNorm.split(' ').filter(Boolean);
+  const overlap = stopTokens.filter((token) => customerTokens.has(token)).length;
+  return overlap >= Math.min(2, stopTokens.length) ? 1 : 0;
+}
+
+function enrichCustomersWithStopAddresses(customers, stops) {
+  if (!Array.isArray(customers) || !Array.isArray(stops) || !stops.length) return customers;
+  return customers.map((customer) => {
+    if (customer?.address || customer?.billing_address) return customer;
+    const match = (stops || [])
+      .map((stop) => ({ stop, score: scoreStopMatch(customer?.company_name, stop?.name) }))
+      .filter((entry) => entry.score > 0 && entry.stop?.address)
+      .sort((a, b) => b.score - a.score)[0];
+    if (!match) return customer;
+    return {
+      ...customer,
+      address: customer.address || match.stop.address || null,
+      billing_address: customer.billing_address || match.stop.address || null,
+    };
+  });
+}
+
 function parseBoolean(value) {
   return value === true || value === 'true' || value === 1 || value === '1' || value === 'on';
 }
@@ -45,7 +84,10 @@ function customerPayload(source) {
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const data = await dbQuery(supabase.from('Customers').select('*').order('customer_number', { ascending: true }), res);
   if (!data) return;
-  res.json(filterRowsByContext(data, req.context));
+  const scopedCustomers = filterRowsByContext(data, req.context);
+  const stopsResult = await supabase.from('stops').select('name,address');
+  const scopedStops = stopsResult.error ? [] : filterRowsByContext(stopsResult.data || [], req.context);
+  res.json(enrichCustomersWithStopAddresses(scopedCustomers, scopedStops));
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
