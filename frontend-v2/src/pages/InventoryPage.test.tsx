@@ -72,6 +72,31 @@ function mockInventoryApi() {
   fetchWithAuthMock.mockImplementation(async (url: string) => {
     if (url === '/api/inventory') return inventoryItems;
     if (url.startsWith('/api/inventory/ledger?')) return ledgerResponse;
+    if (url === '/api/reporting/recent-sold-items?days=30') {
+      return {
+        item_count: 1,
+        items: [{ key: 'box-1', item_number: 'BOX-1', label: 'Shipping Box', invoice_count: 1, qty: 4 }],
+      };
+    }
+    if (url === '/api/reporting/recent-sold-items?days=60') {
+      return {
+        item_count: 2,
+        items: [
+          { key: 'sal-1', item_number: 'SAL-1', label: 'Fresh Salmon', invoice_count: 2, qty: 10 },
+          { key: 'box-1', item_number: 'BOX-1', label: 'Shipping Box', invoice_count: 1, qty: 4 },
+        ],
+      };
+    }
+    if (url === '/api/reporting/recent-sold-items?days=90') {
+      return {
+        item_count: 3,
+        items: [
+          { key: 'sal-1', item_number: 'SAL-1', label: 'Fresh Salmon', invoice_count: 2, qty: 10 },
+          { key: 'tun-1', item_number: 'TUN-1', label: 'Tuna Steaks', invoice_count: 1, qty: 2 },
+          { key: 'box-1', item_number: 'BOX-1', label: 'Shipping Box', invoice_count: 1, qty: 4 },
+        ],
+      };
+    }
     return null;
   });
 }
@@ -275,6 +300,43 @@ describe('InventoryPage', () => {
     expect(printedHtml).toContain('Physical Count');
     expect(focusMock).toHaveBeenCalled();
     expect(printMock).toHaveBeenCalled();
+
+    openMock.mockRestore();
+  });
+
+  it('excludes items not sold in the selected recent-sales window from count sheets', async () => {
+    const printMock = vi.fn();
+    const focusMock = vi.fn();
+    const writeMock = vi.fn();
+    const closeMock = vi.fn();
+    const openMock = vi.spyOn(window, 'open').mockReturnValue({
+      document: {
+        write: writeMock,
+        close: closeMock,
+      },
+      focus: focusMock,
+      print: printMock,
+    } as unknown as Window);
+
+    render(<InventoryPage />);
+
+    expect(await screen.findByText('Fresh Salmon')).toBeInTheDocument();
+
+    const reportCard = screen.getByRole('heading', { name: 'Inventory Count Reports' }).closest('div.rounded-lg') as HTMLElement | null;
+    if (!reportCard) throw new Error('Expected inventory count reports card');
+
+    fireEvent.change(within(reportCard).getByLabelText('Recent Sales Filter'), { target: { value: '30' } });
+
+    await waitFor(() => {
+      expect(fetchWithAuthMock).toHaveBeenCalledWith('/api/reporting/recent-sold-items?days=30');
+    });
+
+    fireEvent.click(within(reportCard).getByRole('button', { name: 'Print Count Sheet' }));
+
+    const printedHtml = String(writeMock.mock.calls[0]?.[0] || '');
+    expect(printedHtml).toContain('Shipping Box');
+    expect(printedHtml).not.toContain('Fresh Salmon');
+    expect(printedHtml).not.toContain('Tuna Steaks');
 
     openMock.mockRestore();
   });

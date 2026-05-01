@@ -28,6 +28,17 @@ type CountSheetRow = {
   unit: string;
 };
 
+type RecentSoldItemsResponse = {
+  item_count?: number;
+  items?: Array<{
+    key: string;
+    item_number?: string | null;
+    label?: string | null;
+    invoice_count?: number;
+    qty?: number;
+  }>;
+};
+
 type LedgerSummary = {
   count: number;
   total_delta: number;
@@ -108,6 +119,9 @@ export function InventoryPage() {
   const [search, setSearch] = useState('');
   const [countCategoryFilter, setCountCategoryFilter] = useState('all');
   const [includeZeroStockInCounts, setIncludeZeroStockInCounts] = useState(true);
+  const [recentSalesExclusionWindow, setRecentSalesExclusionWindow] = useState('all');
+  const [recentSoldItemKeys, setRecentSoldItemKeys] = useState<Set<string> | null>(null);
+  const [recentSoldLoading, setRecentSoldLoading] = useState(false);
 
   const [ledgerLoading, setLedgerLoading] = useState(false);
   const [ledgerSummary, setLedgerSummary] = useState<LedgerSummary | null>(null);
@@ -151,12 +165,37 @@ export function InventoryPage() {
     }
   }
 
+  async function loadRecentSoldItems(days: '30' | '60' | '90') {
+    setRecentSoldLoading(true);
+    try {
+      const data = await fetchWithAuth<RecentSoldItemsResponse>(`/api/reporting/recent-sold-items?days=${days}`);
+      const keys = new Set(
+        (Array.isArray(data.items) ? data.items : [])
+          .map((item) => String(item.key || '').trim().toLowerCase())
+          .filter(Boolean)
+      );
+      setRecentSoldItemKeys(keys);
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not load recent sold items'));
+    } finally {
+      setRecentSoldLoading(false);
+    }
+  }
+
   useEffect(() => {
     (async () => {
       await loadInventory();
       await loadLedger();
     })();
   }, []);
+
+  useEffect(() => {
+    if (recentSalesExclusionWindow === 'all') {
+      setRecentSoldItemKeys(null);
+      return;
+    }
+    void loadRecentSoldItems(recentSalesExclusionWindow as '30' | '60' | '90');
+  }, [recentSalesExclusionWindow]);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -192,8 +231,15 @@ export function InventoryPage() {
     return rows
       .filter((item) => (countCategoryFilter === 'all' ? true : item.category === countCategoryFilter))
       .filter((item) => (includeZeroStockInCounts ? true : item.on_hand_qty > 0))
+      .filter((item) => {
+        if (recentSalesExclusionWindow === 'all') return true;
+        if (!recentSoldItemKeys) return true;
+        const keyByNumber = item.item_number.trim().toLowerCase();
+        const keyByLabel = item.description.trim().toLowerCase();
+        return recentSoldItemKeys.has(keyByNumber || keyByLabel) || recentSoldItemKeys.has(keyByLabel);
+      })
       .sort((a, b) => itemCategoryCompare(a, b) || a.description.localeCompare(b.description) || a.item_number.localeCompare(b.item_number));
-  }, [items, countCategoryFilter, includeZeroStockInCounts]);
+  }, [items, countCategoryFilter, includeZeroStockInCounts, recentSalesExclusionWindow, recentSoldItemKeys]);
   const countCategories = useMemo(
     () =>
       [...new Set(items.map((item) => String(item.category || 'Uncategorized').trim() || 'Uncategorized'))]
@@ -515,6 +561,19 @@ export function InventoryPage() {
                   ))}
                 </select>
               </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold text-muted-foreground">Recent Sales Filter</span>
+                <select
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  value={recentSalesExclusionWindow}
+                  onChange={(event) => setRecentSalesExclusionWindow(event.target.value)}
+                >
+                  <option value="all">Include all items</option>
+                  <option value="30">Exclude items not sold in 30 days</option>
+                  <option value="60">Exclude items not sold in 60 days</option>
+                  <option value="90">Exclude items not sold in 90 days</option>
+                </select>
+              </label>
               <label className="flex items-end gap-2 rounded-md border border-border bg-muted/20 px-3 py-2 text-sm">
                 <input
                   type="checkbox"
@@ -528,11 +587,18 @@ export function InventoryPage() {
                 <div className="mt-1 text-lg font-semibold">{countSheetRows.length.toLocaleString()}</div>
               </div>
             </div>
+            {recentSalesExclusionWindow !== 'all' ? (
+              <div className="text-sm text-muted-foreground">
+                {recentSoldLoading
+                  ? `Checking sold items from the last ${recentSalesExclusionWindow} days...`
+                  : `Count sheets now exclude inventory items not sold in the last ${recentSalesExclusionWindow} days.`}
+              </div>
+            ) : null}
             <div className="flex flex-wrap gap-2">
-              <Button onClick={printCountSheet} disabled={!countSheetRows.length}>
+              <Button onClick={printCountSheet} disabled={!countSheetRows.length || recentSoldLoading}>
                 Print Count Sheet
               </Button>
-              <Button variant="outline" onClick={exportCountSheetCsv} disabled={!countSheetRows.length}>
+              <Button variant="outline" onClick={exportCountSheetCsv} disabled={!countSheetRows.length || recentSoldLoading}>
                 Export Count Sheet CSV
               </Button>
             </div>

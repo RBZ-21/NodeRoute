@@ -3,7 +3,7 @@ const path = require('path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { computeRollups, computeSalesSummary } = require('../routes/reporting');
+const { computeRollups, computeSalesSummary, computeRecentSoldItems } = require('../routes/reporting');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const reportingRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'reporting.js'), 'utf8');
@@ -17,6 +17,7 @@ function byLabel(rows, label) {
 test('reporting route is mounted with auth + manager/admin role guard', () => {
   assert.ok(reportingRouteSource.includes("router.get('/rollups', authenticateToken, requireRole('admin', 'manager')"));
   assert.ok(reportingRouteSource.includes("router.get('/sales-summary', authenticateToken, requireRole('admin', 'manager')"));
+  assert.ok(reportingRouteSource.includes("router.get('/recent-sold-items', authenticateToken, requireRole('admin', 'manager')"));
   assert.ok(reportingRouteSource.includes("const limit = Math.max(1, Math.min(parseInt(req.query.limit || '100', 10), 500));"));
   assert.ok(serverSource.includes("const reportingRouter = require('./routes/reporting').router;"));
   assert.ok(serverSource.includes("app.use('/api/reporting', reportingRouter);"));
@@ -180,5 +181,48 @@ test('computeSalesSummary splits delivery and pickup revenue and filters items',
     invoice_count: 2,
     delivery_revenue: 200,
     pickup_revenue: 180,
+  });
+});
+
+test('computeRecentSoldItems returns sold sku keys within the requested window', () => {
+  const rows = computeRecentSoldItems({
+    invoices: [
+      {
+        id: 'inv-1',
+        created_at: '2026-04-20T10:00:00.000Z',
+        items: [
+          { item_number: 'LOB-001', description: 'Lobster', quantity: 10 },
+          { item_number: 'SAL-001', description: 'Atlantic Salmon', quantity: 5 },
+        ],
+      },
+      {
+        id: 'inv-2',
+        created_at: '2026-04-25T10:00:00.000Z',
+        items: [{ item_number: 'LOB-001', description: 'Lobster', quantity: 3 }],
+      },
+      {
+        id: 'inv-3',
+        created_at: '2026-03-01T10:00:00.000Z',
+        items: [{ item_number: 'TUN-001', description: 'Tuna', quantity: 7 }],
+      },
+    ],
+    startDate: new Date('2026-04-01T00:00:00.000Z'),
+    endDate: new Date('2026-04-30T23:59:59.000Z'),
+  });
+
+  assert.equal(rows.length, 2);
+  assert.deepEqual(rows[0], {
+    key: 'sal-001',
+    item_number: 'SAL-001',
+    label: 'Atlantic Salmon',
+    invoice_count: 1,
+    qty: 5,
+  });
+  assert.deepEqual(rows[1], {
+    key: 'lob-001',
+    item_number: 'LOB-001',
+    label: 'Lobster',
+    invoice_count: 2,
+    qty: 13,
   });
 });

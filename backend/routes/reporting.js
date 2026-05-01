@@ -327,6 +327,39 @@ function computeSalesSummary({ orders, invoices, startDate, endDate, itemQuery =
   };
 }
 
+function computeRecentSoldItems({ invoices, startDate, endDate }) {
+  const filteredInvoices = (invoices || []).filter((invoice) => inDateRange(invoice.created_at, startDate, endDate));
+  const soldByKey = new Map();
+
+  for (const invoice of filteredInvoices) {
+    for (const line of parseInvoiceItems(invoice)) {
+      const label = itemLabelFromLine(line);
+      const itemNumber = String(line.item_number || '').trim();
+      const key = normalize(itemNumber || label);
+      if (!key) continue;
+      if (!soldByKey.has(key)) {
+        soldByKey.set(key, {
+          key,
+          item_number: itemNumber || null,
+          label,
+          invoice_count: 0,
+          qty: 0,
+        });
+      }
+      const row = soldByKey.get(key);
+      row.invoice_count += 1;
+      row.qty += toNumber(line.quantity ?? line.qty, 0);
+    }
+  }
+
+  return [...soldByKey.values()]
+    .map((row) => ({
+      ...row,
+      qty: round2(row.qty),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
 router.get('/rollups', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const startDate = toDateOrNull(req.query.start);
   const endDate = toDateOrNull(req.query.end);
@@ -411,4 +444,34 @@ router.get('/sales-summary', authenticateToken, requireRole('admin', 'manager'),
   }
 });
 
-module.exports = { router, computeRollups, computeSalesSummary };
+router.get('/recent-sold-items', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const days = Math.max(1, Math.min(parseInt(req.query.days || '30', 10), 365));
+  const endDate = endOfDay(new Date());
+  const startDate = startOfDay(new Date(endDate.getTime() - (days - 1) * 86400000));
+
+  try {
+    const invoicesResult = await supabase.from('invoices').select('*');
+    if (invoicesResult.error) return res.status(500).json({ error: invoicesResult.error.message });
+
+    const items = computeRecentSoldItems({
+      invoices: filterRowsByContext(invoicesResult.data || [], req.context),
+      startDate,
+      endDate,
+    });
+
+    res.json({
+      generated_at: new Date().toISOString(),
+      filters: {
+        days,
+        start: startDate.toISOString(),
+        end: endDate.toISOString(),
+      },
+      item_count: items.length,
+      items,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Could not build recent sold items report' });
+  }
+});
+
+module.exports = { router, computeRollups, computeSalesSummary, computeRecentSoldItems };
