@@ -64,11 +64,12 @@ router.get('/:lotNumber/trace', authenticateToken, requireRole('admin'), async (
   const lotNumber = req.params.lotNumber;
 
   // 1. Fetch the lot record
-  const { data: lot, error: lotErr } = await supabase
+  const { data: lotRows, error: lotErr } = await supabase
     .from('lot_codes')
     .select('id, lot_number, product_id, vendor_id, quantity_received, unit_of_measure, received_date, received_by, expiration_date, notes, created_at')
     .eq('lot_number', lotNumber)
-    .maybeSingle();
+    .limit(1);
+  const lot = lotRows?.[0] || null;
 
   if (lotErr) return res.status(500).json({ error: lotErr.message });
   if (!lot) return res.status(404).json({ error: `Lot "${lotNumber}" not found` });
@@ -86,12 +87,14 @@ router.get('/:lotNumber/trace', authenticateToken, requireRole('admin'), async (
       .contains('shipped_lots', JSON.stringify([{ lot_number: lotNumber }])),
 
     lot.product_id
-      ? supabase.from('seafood_inventory').select('item_number, description, category, unit').eq('item_number', lot.product_id).maybeSingle()
+      ? supabase.from('seafood_inventory').select('item_number, description, category, unit').eq('item_number', lot.product_id).limit(1)
       : Promise.resolve({ data: null, error: null }),
   ]);
 
   if (ordersResult.error) return res.status(500).json({ error: ordersResult.error.message });
   if (stopsResult.error)  return res.status(500).json({ error: stopsResult.error.message });
+  if (productResult.error) return res.status(500).json({ error: productResult.error.message });
+  const product = productResult.data?.[0] || null;
 
   // Extract per-order lot quantity from items JSONB
   const orders = (ordersResult.data || []).map((order) => {
@@ -128,7 +131,7 @@ router.get('/:lotNumber/trace', authenticateToken, requireRole('admin'), async (
     lot: {
       lot_number:        lot.lot_number,
       product_id:        lot.product_id,
-      product:           productResult.data?.description || lot.product_id || null,
+      product:           product?.description || lot.product_id || null,
       vendor:            lot.vendor_id,
       received_date:     lot.received_date,
       received_by:       lot.received_by,

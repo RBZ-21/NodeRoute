@@ -359,13 +359,14 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
 
   // Block orders for customers on credit hold
   if (customerName) {
-    const { data: heldCustomer } = await supabase
+    const { data: heldCustomers, error: heldCustomerErr } = await supabase
       .from('Customers')
       .select('id, company_name, credit_hold, credit_hold_reason')
       .ilike('company_name', customerName.trim())
       .eq('credit_hold', true)
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
+    if (heldCustomerErr) return res.status(500).json({ error: heldCustomerErr.message });
+    const heldCustomer = heldCustomers?.[0] || null;
     if (heldCustomer) {
       const reason = heldCustomer.credit_hold_reason ? ` Reason: ${heldCustomer.credit_hold_reason}` : '';
       return res.status(422).json({

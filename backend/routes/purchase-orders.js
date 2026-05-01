@@ -174,11 +174,13 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
     let lotId = null;
     if (item.lot_number && item.lot_number.trim()) {
       const lotNumber = item.lot_number.trim(); // stored verbatim — never normalised
-      const { data: existingLot } = await supabase
+      const { data: existingLots, error: existingLotErr } = await supabase
         .from('lot_codes')
         .select('id')
         .eq('lot_number', lotNumber)
-        .maybeSingle();
+        .limit(1);
+      if (existingLotErr) throw new Error(existingLotErr.message);
+      const existingLot = existingLots?.[0] || null;
 
       if (existingLot) {
         lotId = existingLot.id;
