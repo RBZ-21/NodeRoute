@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { clearSession, fetchWithAuth, redirectToLogin, sendWithAuth } from '../lib/api';
 import type { Order as PendingWeightOrder } from './orders.types';
 import { calcOrderTotal, hasPendingWeight } from './orders.types';
 
@@ -39,12 +39,6 @@ type Invoice = {
 };
 
 type OrderDraft = PendingWeightOrder;
-
-type InvoicePdfResponse = {
-  url?: string;
-  pdfUrl?: string;
-  pdf_url?: string;
-};
 
 const statusColors = {
   paid: 'green',
@@ -346,11 +340,21 @@ export function InvoicesPage() {
     setNotice('');
     setActionPending(id, 'pdf');
     try {
-      const response = await fetchWithAuth<InvoicePdfResponse>(`/api/invoices/${encodeURIComponent(id)}/pdf`);
-      const pdfUrl = String(response.url || response.pdfUrl || response.pdf_url || '').trim();
-      if (!pdfUrl) {
-        throw new Error('No PDF URL returned by invoice service');
+      const token = localStorage.getItem('nr_token');
+      const response = await fetch(`/api/invoices/${encodeURIComponent(id)}/pdf`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (response.status === 401) {
+        clearSession();
+        redirectToLogin('Your session could not be verified. Please sign in again.');
+        throw new Error('Unauthorized');
       }
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        throw new Error(String(payload?.error || 'Could not open invoice PDF'));
+      }
+      const pdfBlob = await response.blob();
+      const pdfUrl = URL.createObjectURL(pdfBlob);
       window.open(pdfUrl, '_blank', 'noopener,noreferrer');
       setNotice(`Opened PDF for invoice ${invoiceNumber(invoice, index)}.`);
     } catch (err) {

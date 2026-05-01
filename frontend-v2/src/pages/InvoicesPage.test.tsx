@@ -50,7 +50,6 @@ const baseInvoices = [
 
 function mockInvoicesApi() {
   fetchWithAuthMock.mockImplementation(async (url: string) => {
-    if (url.startsWith('/api/invoices/inv-1/pdf')) return { url: 'https://example.com/inv-1.pdf' };
     if (url.startsWith('/api/invoices')) return baseInvoices;
     return [];
   });
@@ -63,6 +62,24 @@ describe('InvoicesPage', () => {
     navigateMock.mockReset();
     vi.stubGlobal('confirm', vi.fn(() => true));
     vi.stubGlobal('open', vi.fn());
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      if (String(url).startsWith('/api/invoices/inv-1/pdf')) {
+        return {
+          ok: true,
+          status: 200,
+          blob: async () => new Blob(['pdf-bytes'], { type: 'application/pdf' }),
+        } as Response;
+      }
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({}),
+      } as Response;
+    }));
+    vi.stubGlobal('URL', {
+      createObjectURL: vi.fn(() => 'blob:invoice-pdf'),
+      revokeObjectURL: vi.fn(),
+    } as unknown as typeof URL);
     mockInvoicesApi();
   });
 
@@ -104,9 +121,9 @@ describe('InvoicesPage', () => {
 
     fireEvent.click(screen.getAllByRole('button', { name: 'View PDF' })[0]);
     await waitFor(() => {
-      expect(fetchWithAuthMock).toHaveBeenCalledWith('/api/invoices/inv-1/pdf');
+      expect(fetch).toHaveBeenCalledWith('/api/invoices/inv-1/pdf', expect.any(Object));
     });
-    expect(window.open).toHaveBeenCalledWith('https://example.com/inv-1.pdf', '_blank', 'noopener,noreferrer');
+    expect(window.open).toHaveBeenCalledWith('blob:invoice-pdf', '_blank', 'noopener,noreferrer');
 
     fireEvent.click(screen.getAllByRole('button', { name: 'Send Reminder' })[0]);
     await waitFor(() => {
