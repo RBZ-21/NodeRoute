@@ -287,6 +287,16 @@ function invoicePayloadForOrder(order, fulfilledItems = null, overrides = {}) {
   };
 }
 
+function isMissingEstimatedWeightPendingError(error) {
+  return !!error?.message && error.message.includes("estimated_weight_pending");
+}
+
+function withoutEstimatedWeightPending(payload) {
+  const next = { ...payload };
+  delete next.estimated_weight_pending;
+  return next;
+}
+
 async function updateRecord(table, id, payload, res) {
   const updateResult = await executeWithOptionalScope(
     (candidate) => supabase.from(table).update(candidate).eq('id', id).select().single(),
@@ -328,10 +338,27 @@ async function createOrUpdateProcessingInvoice(order, fulfilledItems, overrides,
   );
 
   if (existingInvoice?.id) {
-    return updateRecord('invoices', existingInvoice.id, payload, res);
+    let updateResult = await executeWithOptionalScope(
+      (candidate) => supabase.from('invoices').update(candidate).eq('id', existingInvoice.id).select().single(),
+      payload
+    );
+    if (isMissingEstimatedWeightPendingError(updateResult.error)) {
+      updateResult = await executeWithOptionalScope(
+        (candidate) => supabase.from('invoices').update(candidate).eq('id', existingInvoice.id).select().single(),
+        withoutEstimatedWeightPending(payload)
+      );
+    }
+    if (updateResult.error) {
+      if (res) res.status(500).json({ error: updateResult.error.message });
+      return null;
+    }
+    return updateResult.data;
   }
 
-  const invoiceInsert = await insertRecordWithOptionalScope(supabase, 'invoices', payload, req.context);
+  let invoiceInsert = await insertRecordWithOptionalScope(supabase, 'invoices', payload, req.context);
+  if (isMissingEstimatedWeightPendingError(invoiceInsert.error)) {
+    invoiceInsert = await insertRecordWithOptionalScope(supabase, 'invoices', withoutEstimatedWeightPending(payload), req.context);
+  }
   if (invoiceInsert.error) {
     if (res) res.status(500).json({ error: invoiceInsert.error.message });
     return null;

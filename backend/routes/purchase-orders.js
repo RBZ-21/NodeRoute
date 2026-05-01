@@ -8,6 +8,7 @@ const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 const { validateBody } = require('../lib/zod-validate');
 const {
   buildScopeFields,
+  executeWithOptionalScope,
   filterRowsByContext,
   insertRecordWithOptionalScope,
 } = require('../services/operating-context');
@@ -251,13 +252,26 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
 
 // ── GET /api/purchase-orders ──────────────────────────────────────────────
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { data, error } = await supabase
-    .from('purchase_orders')
-    .select('id, po_number, vendor, total_cost, items, confirmed_by, created_at, company_id, location_id')
-    .order('created_at', { ascending: false })
-    .limit(100);
-  if (error) return res.status(500).json({ error: error.message });
-  res.json(filterRowsByContext(data || [], req.context));
+  let result = await executeWithOptionalScope(
+    (candidate) => supabase
+      .from('purchase_orders')
+      .select(candidate.select)
+      .order('created_at', { ascending: false })
+      .limit(100),
+    { select: 'id, po_number, vendor, total_cost, items, confirmed_by, created_at, company_id, location_id' }
+  );
+  if (result.error && String(result.error.message || '').includes('purchase_orders.company_id')) {
+    result = await executeWithOptionalScope(
+      (candidate) => supabase
+        .from('purchase_orders')
+        .select(candidate.select)
+        .order('created_at', { ascending: false })
+        .limit(100),
+      { select: 'id, po_number, vendor, total_cost, items, confirmed_by, created_at, location_id' }
+    );
+  }
+  if (result.error) return res.status(500).json({ error: result.error.message });
+  res.json(filterRowsByContext(result.data || [], req.context));
 });
 
 module.exports = router;
