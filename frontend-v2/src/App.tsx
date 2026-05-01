@@ -37,6 +37,7 @@ const MapPage = lazyNamed(() => import('./pages/MapPage'), 'MapPage');
 const OrdersPage = lazyNamed(() => import('./pages/OrdersPage'), 'OrdersPage');
 const PlanningPage = lazyNamed(() => import('./pages/PlanningPage'), 'PlanningPage');
 const PurchasingPage = lazyNamed(() => import('./pages/PurchasingPage'), 'PurchasingPage');
+const ReportsPage = lazyNamed(() => import('./pages/ReportsPage'), 'ReportsPage');
 const RoutesPage = lazyNamed(() => import('./pages/RoutesPage'), 'RoutesPage');
 const SettingsPage = lazyNamed(() => import('./pages/SettingsPage'), 'SettingsPage');
 const SetupPasswordPage = lazyNamed(() => import('./pages/SetupPasswordPage'), 'SetupPasswordPage');
@@ -51,6 +52,7 @@ type TabId =
   | 'dashboard'
   | 'orders'
   | 'deliveries'
+  | 'reports'
   | 'map'
   | 'drivers'
   | 'routes'
@@ -71,7 +73,7 @@ type TabId =
   | 'settings'
   | 'traceability';
 
-type GroupId = 'core' | 'logistics' | 'people' | 'financials' | 'operations' | 'ai';
+type GroupId = 'core' | 'logistics' | 'people' | 'financials' | 'operations' | 'reports' | 'ai';
 type Role = 'admin' | 'manager' | 'driver' | 'unknown';
 
 type NavItem = {
@@ -140,6 +142,11 @@ const navGroups: NavGroup[] = [
       { id: 'planning', label: 'Planning & Rules', path: '/planning', adminOnly: true },
       { id: 'integrations', label: 'Integrations', path: '/integrations', adminOnly: true },
     ],
+  },
+  {
+    id: 'reports',
+    label: 'Reports',
+    items: [{ id: 'reports', label: 'Reports', path: '/reports' }],
   },
   {
     id: 'ai',
@@ -291,13 +298,21 @@ function AppShell() {
     () => availableGroups.find((group) => group.id === 'core')?.items || [],
     [availableGroups]
   );
-  const nonCoreGroups = useMemo(
-    () => availableGroups.filter((group) => group.id !== 'core'),
+  const navDropdownGroups = useMemo(
+    () => availableGroups.filter((group) => group.id !== 'core' && group.id !== 'reports' && group.id !== 'ai'),
+    [availableGroups]
+  );
+  const aiGroup = useMemo(
+    () => availableGroups.find((group) => group.id === 'ai') || null,
     [availableGroups]
   );
   const dashboardItem = coreItems.find((item) => item.id === 'dashboard') || null;
   const ordersItem = coreItems.find((item) => item.id === 'orders') || null;
   const settingsItem = coreItems.find((item) => item.id === 'settings') || null;
+  const reportsItem = useMemo(
+    () => availableGroups.find((group) => group.id === 'reports')?.items[0] || null,
+    [availableGroups]
+  );
 
   return (
     <div className="min-h-screen bg-enterprise-gradient">
@@ -344,7 +359,7 @@ function AppShell() {
                 {ordersItem.label}
               </Button>
             ) : null}
-            {nonCoreGroups.map((group) => (
+            {navDropdownGroups.map((group) => (
               <DropdownMenu key={group.id}>
                 <DropdownMenuTrigger asChild>
                   <Button variant="outline" size="sm" className="gap-2">
@@ -365,6 +380,36 @@ function AppShell() {
                 </DropdownMenuContent>
               </DropdownMenu>
             ))}
+            {reportsItem ? (
+              <Button
+                variant={currentItem?.id === reportsItem.id ? 'default' : 'outline'}
+                size="sm"
+                onClick={() => navigate(reportsItem.path)}
+              >
+                {reportsItem.label}
+              </Button>
+            ) : null}
+            {aiGroup ? (
+              <DropdownMenu key={aiGroup.id}>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="outline" size="sm" className="gap-2">
+                    {aiGroup.label}
+                    <ChevronDown className="h-3.5 w-3.5" />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start">
+                  {aiGroup.items.map((item) => (
+                    <DropdownMenuItem
+                      key={item.id}
+                      onSelect={() => navigate(item.path)}
+                      className={cn(currentItem?.id === item.id && 'bg-accent')}
+                    >
+                      {item.label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            ) : null}
             {settingsItem ? (
               <Button
                 variant={currentItem?.id === settingsItem.id ? 'default' : 'ghost'}
@@ -469,6 +514,8 @@ function pageElement(item: NavItem, role: Role) {
       return <SuspendedPage label="inventory"><InventoryPage /></SuspendedPage>;
     case 'orders':
       return <SuspendedPage label="orders"><OrdersPage /></SuspendedPage>;
+    case 'reports':
+      return <SuspendedPage label="reports"><ReportsPage /></SuspendedPage>;
     case 'settings':
       return <SuspendedPage label="settings"><SettingsPage /></SuspendedPage>;
     case 'deliveries':
