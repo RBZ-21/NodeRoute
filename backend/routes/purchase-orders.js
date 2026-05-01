@@ -12,6 +12,10 @@ const {
   insertRecordWithOptionalScope,
 } = require('../services/operating-context');
 
+function isMissingFtlColumnError(error) {
+  return !!error?.message && error.message.includes('seafood_inventory.is_ftl_product does not exist');
+}
+
 const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -84,9 +88,14 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
   const { vendor, po_number, date, items, total_cost, notes } = req.validated.body;
 
   // Fetch all current inventory for matching by description
-  const { data: inventory, error: invErr } = await supabase
+  let { data: inventory, error: invErr } = await supabase
     .from('seafood_inventory')
     .select('item_number, description, on_hand_qty, cost, unit, is_ftl_product, company_id, location_id');
+  if (isMissingFtlColumnError(invErr)) {
+    ({ data: inventory, error: invErr } = await supabase
+      .from('seafood_inventory')
+      .select('item_number, description, on_hand_qty, cost, unit, company_id, location_id'));
+  }
   if (invErr) return res.status(500).json({ error: invErr.message });
 
   const invMap = {};

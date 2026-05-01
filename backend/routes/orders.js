@@ -11,6 +11,10 @@ const {
   rowMatchesContext,
 } = require('../services/operating-context');
 
+function isMissingFtlColumnError(error) {
+  return !!error?.message && error.message.includes('seafood_inventory.is_ftl_product does not exist');
+}
+
 // ── FSMA 204 lot validation ────────────────────────────────────────────────────
 // For each item that references an FTL-flagged product, lot_id is required.
 // Returns null on success, or an error string on validation failure.
@@ -30,6 +34,7 @@ async function validateFtlLots(items) {
     .select('item_number, description, is_ftl_product')
     .in('item_number', itemNumbers);
 
+  if (isMissingFtlColumnError(prodErr)) return null;
   if (prodErr) return `Could not verify FTL product status: ${prodErr.message}`;
 
   const ftlSet = new Set(
