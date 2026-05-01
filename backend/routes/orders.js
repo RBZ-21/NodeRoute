@@ -166,6 +166,10 @@ function itemNeedsActualWeight(item) {
   return isWeightManagedItem(item) && !(parseFloat(item?.actual_weight) > 0);
 }
 
+function allWeightsCaptured(items) {
+  return Array.isArray(items) && items.length > 0 && items.every((item) => !itemNeedsActualWeight(item));
+}
+
 async function findInventoryMatchForFulfillment(item) {
   const explicitItemNumber = String(item?.item_number || '').trim();
   if (explicitItemNumber) {
@@ -553,7 +557,23 @@ router.patch('/:id/items/:itemIndex/actual-weight', authenticateToken, requireRo
 
   const updated = await updateRecord('orders', req.params.id, { items: updatedItems }, res);
   if (!updated) return;
-  res.json(enrichOrderResponse(updated));
+  const invoice = await createOrUpdateProcessingInvoice(
+    { ...order, ...updated, items: updatedItems },
+    updatedItems,
+    { notes: order.notes || 'Awaiting final weights' },
+    req,
+    res
+  );
+  if (!invoice) return;
+
+  const orderStatus = allWeightsCaptured(updatedItems) ? 'in_process' : 'in_process';
+  const orderWithInvoice = await updateRecord('orders', req.params.id, {
+    invoice_id: invoice.id,
+    status: orderStatus,
+  }, res);
+  if (!orderWithInvoice) return;
+
+  res.json(enrichOrderResponse({ ...orderWithInvoice, items: updatedItems, invoice_id: invoice.id }));
 });
 
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
