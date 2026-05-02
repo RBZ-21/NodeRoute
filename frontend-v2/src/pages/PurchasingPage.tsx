@@ -89,11 +89,9 @@ export function PurchasingPage() {
   const [lines, setLines] = useState<PurchaseItemDraft[]>([emptyLine()]);
   const [vendorFilter, setVendorFilter] = useState<'all' | string>('all');
 
-  // AI PO Scan state
   const [scanLoading, setScanLoading] = useState(false);
   const [scanError, setScanError] = useState('');
   const [scanResult, setScanResult] = useState<PoScanResult | null>(null);
-  // Two separate refs: one for file upload, one for camera capture
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
@@ -118,9 +116,7 @@ export function PurchasingPage() {
       .catch(() => {});
   }, [vendorParam]);
 
-  useEffect(() => {
-    setVendorFilter(vendorParam || 'all');
-  }, [vendorParam]);
+  useEffect(() => { setVendorFilter(vendorParam || 'all'); }, [vendorParam]);
 
   const summary = useMemo(() => ({
     count: orders.length,
@@ -279,7 +275,7 @@ export function PurchasingPage() {
         <StatCard label="Active Vendors"  value={summary.vendors.toLocaleString()} />
       </div>
 
-      {/* ── AI PO Scanner ─────────────────────────────────────────────── */}
+      {/* ── AI PO Scanner ── */}
       <Card>
         <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
@@ -290,7 +286,6 @@ export function PurchasingPage() {
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {/* Hidden input — file picker (desktop + photo library on mobile) */}
             <input
               ref={fileInputRef}
               type="file"
@@ -298,7 +293,6 @@ export function PurchasingPage() {
               className="hidden"
               onChange={(e) => handleFileInputChange(e, fileInputRef)}
             />
-            {/* Hidden input — direct camera capture (mobile rear camera) */}
             <input
               ref={cameraInputRef}
               type="file"
@@ -307,18 +301,10 @@ export function PurchasingPage() {
               className="hidden"
               onChange={(e) => handleFileInputChange(e, cameraInputRef)}
             />
-            <Button
-              variant="outline"
-              onClick={() => fileInputRef.current?.click()}
-              disabled={scanLoading}
-            >
+            <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={scanLoading}>
               {scanLoading ? 'Scanning…' : '📁 Upload Image'}
             </Button>
-            <Button
-              variant="outline"
-              onClick={() => cameraInputRef.current?.click()}
-              disabled={scanLoading}
-            >
+            <Button variant="outline" onClick={() => cameraInputRef.current?.click()} disabled={scanLoading}>
               {scanLoading ? 'Scanning…' : '📷 Take Photo'}
             </Button>
           </div>
@@ -342,7 +328,7 @@ export function PurchasingPage() {
         )}
       </Card>
 
-      {/* ── Confirm PO Form ───────────────────────────────────────────── */}
+      {/* ── Confirm PO Form ── */}
       <Card>
         <CardHeader>
           <CardTitle>Confirm Purchase Order</CardTitle>
@@ -373,7 +359,8 @@ export function PurchasingPage() {
             </label>
           </div>
 
-          <div className="overflow-visible overflow-x-auto rounded-lg border border-border">
+          {/* table-scroll-container gives mobile users the right-edge fade hint */}
+          <div className="table-scroll-container overflow-x-auto rounded-lg border border-border">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -441,7 +428,7 @@ export function PurchasingPage() {
         </CardContent>
       </Card>
 
-      {/* ── Historical POs ────────────────────────────────────────────── */}
+      {/* ── Historical POs ── */}
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>

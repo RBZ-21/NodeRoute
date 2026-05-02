@@ -9,30 +9,25 @@ import type { Customer, InventoryProduct, LotCode, OrderCharge, OrderLineDraft }
 
 type Props = {
   editingOrderId: string | null;
-  // customer fields
   customerName: string; setCustomerName: (v: string) => void;
   customerEmail: string; setCustomerEmail: (v: string) => void;
   customerAddress: string; setCustomerAddress: (v: string) => void;
   fulfillmentType: 'delivery' | 'pickup'; setFulfillmentType: (v: 'delivery' | 'pickup') => void;
   customers: Customer[];
-  // order fields
   notes: string; setNotes: (v: string) => void;
   taxEnabled: boolean; setTaxEnabled: (v: boolean) => void;
   taxRate: string; setTaxRate: (v: string) => void;
   fuelPercent: string; setFuelPercent: (v: string) => void;
   servicePercent: string; setServicePercent: (v: string) => void;
   minimumFlat: string; setMinimumFlat: (v: string) => void;
-  // line items
   lines: OrderLineDraft[];
   products: InventoryProduct[];
   lotsCache: Record<string, LotCode[]>;
   ftlSet: Set<string>;
   catchWeightSet: Set<string>;
-  // derived totals
   subtotal: number;
   charges: OrderCharge[];
   draftTotal: number;
-  // actions
   updateLine: (index: number, key: keyof OrderLineDraft, value: string) => void;
   toggleLineCatchWeight: (index: number) => void;
   addLine: () => void;
@@ -199,7 +194,8 @@ export function OrderFormCard({
           </label>
         </div>
 
-        <div className="overflow-visible rounded-lg border border-border overflow-x-auto">
+        {/* table-scroll-container gives mobile users the right-edge fade hint */}
+        <div className="table-scroll-container overflow-x-auto rounded-lg border border-border">
           <Table>
             <TableHeader>
               <TableRow>
@@ -287,22 +283,10 @@ export function OrderFormCard({
                         </div>
                       ) : line.unit === 'lb' ? (
                         <div className="space-y-1">
-                          <Input
-                            type="number"
-                            min="0"
-                            step="1"
-                            value={line.quantity}
-                            onChange={(e) => updateLine(index, 'quantity', e.target.value)}
-                            placeholder="Qty"
-                          />
-                          <Input
-                            type="number"
-                            min="0"
-                            step="0.001"
-                            value={line.requestedWeight}
-                            onChange={(e) => updateLine(index, 'requestedWeight', e.target.value)}
-                            placeholder="Est. lbs"
-                          />
+                          <Input type="number" min="0" step="1" value={line.quantity}
+                            onChange={(e) => updateLine(index, 'quantity', e.target.value)} placeholder="Qty" />
+                          <Input type="number" min="0" step="0.001" value={line.requestedWeight}
+                            onChange={(e) => updateLine(index, 'requestedWeight', e.target.value)} placeholder="Est. lbs" />
                           <p className="text-xs text-muted-foreground">Ordered qty and estimated total lbs</p>
                         </div>
                       ) : (
