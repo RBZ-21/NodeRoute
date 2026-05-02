@@ -26,6 +26,9 @@ const CUSTOMER_FIELDS = [
   'billing_phone',
   'billing_address',
   'credit_hold_reason',
+  'delivery_notes',
+  'preferred_delivery_window',
+  'preferred_door',
 ];
 
 function normalizeLookup(value) {
