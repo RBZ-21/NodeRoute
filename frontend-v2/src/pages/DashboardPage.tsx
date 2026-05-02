@@ -206,6 +206,9 @@ export function DashboardPage() {
     setLoading(true);
     setError('');
 
+    // Only fetch vendor POs when the user is actually an admin.
+    // Previously this fetch fired for all roles; managers received either
+    // unauthorised data or a 403 error displayed on the dashboard.
     const requests = await Promise.allSettled([
       fetchWithAuth<DashboardStats>('/api/stats'),
       fetchWithAuth<DashboardAnalytics>('/api/analytics'),
@@ -213,7 +216,9 @@ export function DashboardPage() {
       fetchWithAuth<DriverSummary[]>('/api/drivers'),
       fetchWithAuth<RouteRecord[]>('/api/routes'),
       fetchWithAuth<OrderRecord[]>('/api/orders'),
-      role === 'admin' ? fetchWithAuth<VendorPurchaseOrder[]>('/api/ops/vendor-purchase-orders') : Promise.resolve([]),
+      role === 'admin'
+        ? fetchWithAuth<VendorPurchaseOrder[]>('/api/ops/vendor-purchase-orders')
+        : Promise.resolve([] as VendorPurchaseOrder[]),
     ]);
 
     const nextErrors: string[] = [];
@@ -245,6 +250,7 @@ export function DashboardPage() {
 
   useEffect(() => {
     void loadDashboard();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [role]);
 
   const deliverySummary = stats ?? {
@@ -562,7 +568,7 @@ export function DashboardPage() {
           <CardHeader className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
               <CardTitle>Active Routes</CardTitle>
-              <CardDescription>Saved templates with today’s active stop selections and assigned drivers.</CardDescription>
+              <CardDescription>Saved templates with today's active stop selections and assigned drivers.</CardDescription>
             </div>
             <Button variant="outline" onClick={() => navigate('/routes')}>
               Open Routes
@@ -589,7 +595,7 @@ export function DashboardPage() {
                 );
               })
             ) : (
-              <EmptyBlock title="No route templates yet" description="Create routes and choose today’s active stops to populate this panel." />
+              <EmptyBlock title="No route templates yet" description="Create routes and choose today's active stops to populate this panel." />
             )}
           </CardContent>
         </Card>

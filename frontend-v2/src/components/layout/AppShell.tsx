@@ -28,6 +28,7 @@ export function AppShell() {
     try { localStorage.setItem('nr_theme', dark ? 'dark' : 'light'); } catch {}
   }, [dark]);
 
+  // Items visible in the sidebar (adminOnly items hidden from non-admins)
   const availableItems = allNavItems.filter(
     (item) => !item.adminOnly || role === 'admin'
   );
@@ -77,7 +78,18 @@ export function AppShell() {
           <main className="flex-1 overflow-y-auto p-4 md:p-6">
             <Routes>
               <Route index element={<Navigate to={defaultPath} replace />} />
-              {availableItems.map((item) => {
+              {allNavItems.map((item) => {
+                // Route-level guard: redirect non-admins away from adminOnly pages
+                // even if they navigate directly by URL (sidebar filter alone is not enough).
+                if (item.adminOnly && role !== 'admin') {
+                  return (
+                    <Route
+                      key={item.id}
+                      path={routePath(item.path)}
+                      element={<Navigate to={defaultPath} replace />}
+                    />
+                  );
+                }
                 const Page = item.component;
                 return (
                   <Route

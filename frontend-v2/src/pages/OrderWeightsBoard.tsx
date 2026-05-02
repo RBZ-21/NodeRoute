@@ -18,7 +18,9 @@ type StopRow = {
 };
 
 interface OrderWeightsBoardProps {
-  routeId?: string | number;
+  // routeId is required — rendering this board without a route filter would
+  // expose every stop in the system to the current user.
+  routeId: string | number;
 }
 
 export function OrderWeightsBoard({ routeId }: OrderWeightsBoardProps) {
@@ -31,8 +33,7 @@ export function OrderWeightsBoard({ routeId }: OrderWeightsBoardProps) {
     setLoading(true);
     setError('');
     try {
-      const params = new URLSearchParams();
-      if (routeId) params.set('route_id', String(routeId));
+      const params = new URLSearchParams({ route_id: String(routeId) });
       const data = await fetchWithAuth<StopRow[]>(`/api/stops?${params.toString()}`);
       setStops(Array.isArray(data) ? data : []);
     } catch (err) {
@@ -63,7 +64,7 @@ export function OrderWeightsBoard({ routeId }: OrderWeightsBoardProps) {
       <Card>
         <CardHeader>
           <CardTitle>Order Weights Board</CardTitle>
-          <CardDescription>Capture and review delivery weights per stop{routeId ? ` for route ${routeId}` : ''}.</CardDescription>
+          <CardDescription>Capture and review delivery weights for route {routeId}.</CardDescription>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
           <Table>
@@ -109,7 +110,7 @@ export function OrderWeightsBoard({ routeId }: OrderWeightsBoardProps) {
                 </TableRow>
               )) : (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-muted-foreground">No stops found.</TableCell>
+                  <TableCell colSpan={6} className="text-muted-foreground">No stops found for this route.</TableCell>
                 </TableRow>
               )}
             </TableBody>
