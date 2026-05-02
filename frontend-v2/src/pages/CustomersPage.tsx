@@ -219,7 +219,7 @@ export function CustomersPage() {
                   <TableCell>{phone(c)}</TableCell>
                   <TableCell>{c.email || '-'}</TableCell>
                   <TableCell>
-                    <Badge variant={c.credit_hold ? 'destructive' : customerStatus(c) === 'active' ? 'success' : 'secondary'}>
+                    <Badge variant={c.credit_hold ? 'warning' : customerStatus(c) === 'active' ? 'success' : 'secondary'}>
                       {c.credit_hold ? 'Credit Hold' : c.status || 'Active'}
                     </Badge>
                   </TableCell>
