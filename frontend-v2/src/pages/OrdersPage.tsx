@@ -325,7 +325,7 @@ export function OrdersPage() {
           role={role}
           weightInputs={weightInputs}
           savingWeight={savingWeight}
-          onWeightInputChange={(key, value) => setWeightInputs((current) => ({ ...current, [key]: value }))}
+          onWeightInputChange={(key: string, value: string) => setWeightInputs((current) => ({ ...current, [key]: value }))}
           onSaveWeight={saveActualWeight}
         />
       ) : null}
@@ -336,7 +336,7 @@ export function OrdersPage() {
           weightInputs={weightInputs}
           savingWeight={savingWeight}
           role={role}
-          onWeightInputChange={(key, val) => setWeightInputs((wi) => ({ ...wi, [key]: val }))}
+          onWeightInputChange={(key: string, val: string) => setWeightInputs((wi) => ({ ...wi, [key]: val }))}
           onSaveWeight={saveActualWeight}
         />
       ) : null}
