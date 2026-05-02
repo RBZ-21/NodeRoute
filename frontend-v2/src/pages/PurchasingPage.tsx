@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -37,6 +37,23 @@ type PurchaseItemDraft = {
   expiration_date: string;
 };
 
+// AI PO Scan types
+type ScannedLineItem = {
+  description: string | null;
+  category: string | null;
+  quantity: number | null;
+  unit: string | null;
+  unit_price: number | null;
+  total: number | null;
+};
+type PoScanResult = {
+  vendor: string | null;
+  po_number: string | null;
+  date: string | null;
+  total_cost: number | null;
+  items: ScannedLineItem[];
+};
+
 function money(value: number): string {
   return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
@@ -72,6 +89,12 @@ export function PurchasingPage() {
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<PurchaseItemDraft[]>([emptyLine()]);
   const [vendorFilter, setVendorFilter] = useState<'all' | string>('all');
+
+  // AI PO Scan state
+  const [scanLoading, setScanLoading] = useState(false);
+  const [scanError, setScanError] = useState('');
+  const [scanResult, setScanResult] = useState<PoScanResult | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   async function load() {
     setLoading(true);
@@ -149,6 +172,55 @@ export function PurchasingPage() {
     setLines((current) => (current.length === 1 ? current : current.filter((_, i) => i !== index)));
   }
 
+  // Apply scanned PO results into the draft form
+  function applyScanResult(result: PoScanResult) {
+    if (result.vendor) setVendor(result.vendor);
+    if (result.po_number) setPoNumber(result.po_number);
+    const draftLines: PurchaseItemDraft[] = (result.items || []).map((item) => ({
+      description: item.description ?? '',
+      item_number: '',
+      quantity:    item.quantity != null ? String(item.quantity) : '',
+      unit_price:  item.unit_price != null ? String(item.unit_price) : '',
+      unit:        item.unit ?? 'lb',
+      category:    item.category ?? 'Other',
+      lot_number:  '',
+      expiration_date: '',
+    }));
+    setLines(draftLines.length ? draftLines : [emptyLine()]);
+    setScanResult(result);
+    setNotice('PO scan complete — review and confirm the lines below.');
+  }
+
+  async function handleScanUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!fileInputRef.current) return;
+    fileInputRef.current.value = '';
+    if (!file) return;
+
+    setScanLoading(true); setScanError(''); setScanResult(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      // Use raw fetch with auth token since sendWithAuth sends JSON
+      const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
+      const res = await fetch('/api/ai/scan-po', {
+        method: 'POST',
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        body: formData,
+      });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: res.statusText }));
+        throw new Error(String(err.error || res.statusText));
+      }
+      const result: PoScanResult = await res.json();
+      applyScanResult(result);
+    } catch (err) {
+      setScanError(String((err as Error).message || 'PO scan failed'));
+    } finally {
+      setScanLoading(false);
+    }
+  }
+
   async function submitPurchaseOrder() {
     const items = lines
       .map((line) => ({
@@ -194,10 +266,7 @@ export function PurchasingPage() {
           ? `PO saved with ${response.errors?.length || 0} line errors.${lotsMsg}`
           : `Purchase order confirmed and inventory updated.${lotsMsg}`
       );
-      setVendor('');
-      setPoNumber('');
-      setNotes('');
-      setLines([emptyLine()]);
+      setVendor(''); setPoNumber(''); setNotes(''); setLines([emptyLine()]); setScanResult(null);
       await load();
     } catch (err) {
       setError(String((err as Error).message || 'Failed to confirm purchase order'));
@@ -222,6 +291,51 @@ export function PurchasingPage() {
         <StatCard label="Total Spend"     value={money(summary.spend)} />
         <StatCard label="Active Vendors"  value={summary.vendors.toLocaleString()} />
       </div>
+
+      {/* ── AI PO Scanner ──────────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <CardTitle>AI PO Scanner</CardTitle>
+            <CardDescription>
+              Upload a photo or scan of a vendor invoice / purchase order. AI will extract line items and pre-fill the form below.
+            </CardDescription>
+          </div>
+          <div className="flex items-center gap-2">
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              className="hidden"
+              onChange={handleScanUpload}
+            />
+            <Button
+              variant="outline"
+              onClick={() => fileInputRef.current?.click()}
+              disabled={scanLoading}
+            >
+              {scanLoading ? 'Scanning…' : 'Upload PO Image'}
+            </Button>
+          </div>
+        </CardHeader>
+        {scanError && (
+          <CardContent>
+            <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{scanError}</div>
+          </CardContent>
+        )}
+        {scanResult && (
+          <CardContent>
+            <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 space-y-1">
+              <div className="font-semibold">Scan Summary</div>
+              {scanResult.vendor    && <div>Vendor: <strong>{scanResult.vendor}</strong></div>}
+              {scanResult.po_number && <div>PO #: <strong>{scanResult.po_number}</strong></div>}
+              {scanResult.date      && <div>Date: <strong>{scanResult.date}</strong></div>}
+              {scanResult.total_cost != null && <div>Total: <strong>{money(scanResult.total_cost)}</strong></div>}
+              <div>{scanResult.items.length} line item(s) extracted — review below before confirming.</div>
+            </div>
+          </CardContent>
+        )}
+      </Card>
 
       <Card>
         <CardHeader>
@@ -263,14 +377,8 @@ export function PurchasingPage() {
                   <TableHead>Unit Price</TableHead>
                   <TableHead>Unit</TableHead>
                   <TableHead>Category</TableHead>
-                  <TableHead>
-                    Lot Number
-                    <span className="ml-1 text-xs font-normal text-muted-foreground">(FSMA)</span>
-                  </TableHead>
-                  <TableHead>
-                    Expiration
-                    <span className="ml-1 text-xs font-normal text-muted-foreground">(optional)</span>
-                  </TableHead>
+                  <TableHead>Lot Number <span className="ml-1 text-xs font-normal text-muted-foreground">(FSMA)</span></TableHead>
+                  <TableHead>Expiration <span className="ml-1 text-xs font-normal text-muted-foreground">(optional)</span></TableHead>
                   <TableHead>Total</TableHead>
                   <TableHead />
                 </TableRow>
@@ -287,16 +395,14 @@ export function PurchasingPage() {
                           if (!p) return;
                           setLines((current) =>
                             current.map((l, i) =>
-                              i !== index
-                                ? l
-                                : {
-                                    ...l,
-                                    description: p.description,
-                                    item_number: p.item_number,
-                                    unit: p.unit ?? 'lb',
-                                    unit_price: asNumber(p.cost) > 0 ? String(asNumber(p.cost)) : l.unit_price,
-                                    category: p.category ?? l.category,
-                                  },
+                              i !== index ? l : {
+                                ...l,
+                                description: p.description,
+                                item_number: p.item_number,
+                                unit: p.unit ?? 'lb',
+                                unit_price: asNumber(p.cost) > 0 ? String(asNumber(p.cost)) : l.unit_price,
+                                category: p.category ?? l.category,
+                              },
                             ),
                           );
                         }}
@@ -304,58 +410,15 @@ export function PurchasingPage() {
                         placeholder="Atlantic Salmon"
                       />
                     </TableCell>
-                    <TableCell>
-                      <Input value={line.item_number} onChange={(event) => updateLine(index, 'item_number', event.target.value)} placeholder="SAL-01" />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        type="number" min="0" step="0.01"
-                        value={line.quantity}
-                        onChange={(event) => updateLine(index, 'quantity', event.target.value)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        type="number" min="0" step="0.01"
-                        value={line.unit_price}
-                        onChange={(event) => updateLine(index, 'unit_price', event.target.value)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        value={line.unit}
-                        onChange={(event) => updateLine(index, 'unit', event.target.value)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        value={line.category}
-                        onChange={(event) => updateLine(index, 'category', event.target.value)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        value={line.lot_number}
-                        onChange={(event) => updateLine(index, 'lot_number', event.target.value)}
-                        placeholder="e.g. SAL-2026-001"
-                        className="font-mono text-sm"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <Input
-                        type="date"
-                        value={line.expiration_date}
-                        onChange={(event) => updateLine(index, 'expiration_date', event.target.value)}
-                      />
-                    </TableCell>
-                    <TableCell>
-                      {money(asNumber(line.quantity) * asNumber(line.unit_price))}
-                    </TableCell>
-                    <TableCell>
-                      <Button variant="ghost" size="sm" onClick={() => removeLine(index)}>
-                        Remove
-                      </Button>
-                    </TableCell>
+                    <TableCell><Input value={line.item_number} onChange={(event) => updateLine(index, 'item_number', event.target.value)} placeholder="SAL-01" /></TableCell>
+                    <TableCell><Input type="number" min="0" step="0.01" value={line.quantity} onChange={(event) => updateLine(index, 'quantity', event.target.value)} /></TableCell>
+                    <TableCell><Input type="number" min="0" step="0.01" value={line.unit_price} onChange={(event) => updateLine(index, 'unit_price', event.target.value)} /></TableCell>
+                    <TableCell><Input value={line.unit} onChange={(event) => updateLine(index, 'unit', event.target.value)} /></TableCell>
+                    <TableCell><Input value={line.category} onChange={(event) => updateLine(index, 'category', event.target.value)} /></TableCell>
+                    <TableCell><Input value={line.lot_number} onChange={(event) => updateLine(index, 'lot_number', event.target.value)} placeholder="e.g. SAL-2026-001" className="font-mono text-sm" /></TableCell>
+                    <TableCell><Input type="date" value={line.expiration_date} onChange={(event) => updateLine(index, 'expiration_date', event.target.value)} /></TableCell>
+                    <TableCell>{money(asNumber(line.quantity) * asNumber(line.unit_price))}</TableCell>
+                    <TableCell><Button variant="ghost" size="sm" onClick={() => removeLine(index)}>Remove</Button></TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -363,12 +426,8 @@ export function PurchasingPage() {
           </div>
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button variant="outline" onClick={addLine}>
-              Add Line
-            </Button>
-            <Button onClick={submitPurchaseOrder} disabled={submitting}>
-              Confirm PO
-            </Button>
+            <Button variant="outline" onClick={addLine}>Add Line</Button>
+            <Button onClick={submitPurchaseOrder} disabled={submitting}>Confirm PO</Button>
             <div className="ml-auto rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
               Draft Total: <strong>{money(draftTotal)}</strong>
             </div>
@@ -380,7 +439,7 @@ export function PurchasingPage() {
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
             <CardTitle>Purchasing Orders</CardTitle>
-            <CardDescription>Historical purchase orders from existing backend APIs.</CardDescription>
+            <CardDescription>Historical purchase orders.</CardDescription>
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
@@ -396,9 +455,7 @@ export function PurchasingPage() {
                 ))}
               </select>
             </label>
-            <Button variant="outline" onClick={load}>
-              Refresh
-            </Button>
+            <Button variant="outline" onClick={load}>Refresh</Button>
           </div>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
@@ -427,9 +484,7 @@ export function PurchasingPage() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-muted-foreground">
-                    No purchase orders found for the selected filters.
-                  </TableCell>
+                  <TableCell colSpan={6} className="text-muted-foreground">No purchase orders found for the selected filters.</TableCell>
                 </TableRow>
               )}
             </TableBody>

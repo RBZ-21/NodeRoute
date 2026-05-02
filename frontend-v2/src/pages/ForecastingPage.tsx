@@ -56,15 +56,38 @@ function toRow(raw: unknown): ForecastRow | null {
   if (!raw || typeof raw !== 'object') return null;
   const record = raw as Record<string, unknown>;
 
-  const product = pickString(record, ['product', 'productName', 'product_name', 'item', 'item_name', 'description']);
+  const product = pickString(record, [
+    'product_name', 'product', 'productName', 'item', 'item_name', 'description',
+  ]);
   if (!product) return null;
 
-  const currentStock = pickNumber(record, ['currentStock', 'current_stock', 'stock', 'on_hand_qty', 'inventory']);
-  const avgWeeklyDemand = pickNumber(record, ['avgWeeklyDemand', 'avg_weekly_demand', 'weeklyDemand', 'weekly_demand', 'demand']);
-  const explicitWeeks = pickNumber(record, ['weeksOfSupply', 'weeks_of_supply'], Number.NaN);
-  const weeksOfSupply = Number.isFinite(explicitWeeks) ? explicitWeeks : avgWeeklyDemand > 0 ? currentStock / avgWeeklyDemand : 0;
+  const currentStock = pickNumber(record, [
+    'currentStock', 'current_stock', 'stock', 'on_hand_qty', 'inventory',
+  ]);
 
-  const rawReorder = pickString(record, ['reorderRecommended', 'reorder_recommended', 'reorder', 'recommend_reorder']).toLowerCase();
+  // The AI forecast API returns predicted_demand_units per forecast_period_days (default 14).
+  // Convert to a weekly figure for display consistency.
+  const periodDemand = pickNumber(record, ['predicted_demand_units', 'predictedDemandUnits']);
+  const periodDays   = toNumber(record['forecast_period_days'] ?? record['forecastPeriodDays']) || 14;
+  const inferredWeekly = periodDays > 0 ? (periodDemand / periodDays) * 7 : 0;
+
+  const avgWeeklyDemand = pickNumber(
+    record,
+    ['avgWeeklyDemand', 'avg_weekly_demand', 'weeklyDemand', 'weekly_demand', 'demand'],
+    inferredWeekly,
+  );
+
+  const explicitWeeks = pickNumber(record, ['weeksOfSupply', 'weeks_of_supply'], Number.NaN);
+  const weeksOfSupply = Number.isFinite(explicitWeeks)
+    ? explicitWeeks
+    : avgWeeklyDemand > 0
+      ? currentStock / avgWeeklyDemand
+      : 0;
+
+  const rawReorder = pickString(
+    record,
+    ['reorderRecommended', 'reorder_recommended', 'reorder', 'recommend_reorder'],
+  ).toLowerCase();
   const reorderFromBoolean =
     typeof record.reorderRecommended === 'boolean'
       ? record.reorderRecommended
@@ -101,13 +124,8 @@ function parseRows(data: unknown): ForecastRow[] {
   const record = data as Record<string, unknown>;
 
   const candidates = [
-    record.items,
-    record.rows,
-    record.data,
-    record.forecast,
-    record.products,
-    record.forecastRows,
-    record.forecast_rows,
+    record.items, record.rows, record.data, record.forecast,
+    record.products, record.forecastRows, record.forecast_rows,
     (record.forecast as Record<string, unknown> | undefined)?.items,
     (record.forecast as Record<string, unknown> | undefined)?.rows,
     (record.forecast as Record<string, unknown> | undefined)?.products,
@@ -147,21 +165,18 @@ function parseSummary(data: unknown, rows: ForecastRow[]): ForecastSummary {
     pickNumber(root, ['inventoryRiskItems', 'inventory_risk_items']) ||
     rows.filter((row) => row.reorderRecommended === 'yes').length;
 
-  return {
-    projectedRevenue30d,
-    projectedOrders,
-    topForecastedProduct,
-    inventoryRiskItems,
-  };
+  return { projectedRevenue30d, projectedOrders, topForecastedProduct, inventoryRiskItems };
 }
 
 async function loadForecastData() {
+  // Primary: AI-powered per-product demand forecast (batch, default 14-day window)
   try {
-    const data = await fetchWithAuth<unknown>('/api/forecast');
-    return { endpoint: '/api/forecast', data };
-  } catch (firstError) {
-    const data = await fetchWithAuth<unknown>('/api/analytics/forecast');
-    return { endpoint: '/api/analytics/forecast', data, firstError };
+    const data = await fetchWithAuth<unknown>('/api/forecast/inventory');
+    return { endpoint: '/api/forecast/inventory', data };
+  } catch {
+    // Fallback: legacy forecast endpoint
+    const data = await fetchWithAuth<unknown>('/api/forecast/orders');
+    return { endpoint: '/api/forecast/orders', data };
   }
 }
 
@@ -196,23 +211,17 @@ export function ForecastingPage() {
     }
   }
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
 
   const categoryOptions = useMemo(() => {
     const options = new Set<string>();
-    for (const row of rows) {
-      if (row.category) options.add(row.category);
-    }
+    for (const row of rows) { if (row.category) options.add(row.category); }
     return Array.from(options).sort((a, b) => a.localeCompare(b));
   }, [rows]);
 
   const locationOptions = useMemo(() => {
     const options = new Set<string>();
-    for (const row of rows) {
-      if (row.location) options.add(row.location);
-    }
+    for (const row of rows) { if (row.location) options.add(row.location); }
     return Array.from(options).sort((a, b) => a.localeCompare(b));
   }, [rows]);
 
@@ -241,7 +250,8 @@ export function ForecastingPage() {
           <div className="space-y-1">
             <CardTitle>Forecast Filters</CardTitle>
             <CardDescription>
-              Product forecast from <span className="font-semibold">{sourceEndpoint || '/api/forecast'}</span>.
+              AI demand forecast from{' '}
+              <span className="font-semibold">{sourceEndpoint || '/api/forecast/inventory'}</span>.
             </CardDescription>
           </div>
           <div className="flex flex-wrap items-end gap-2">
@@ -254,9 +264,7 @@ export function ForecastingPage() {
               >
                 <option value="all">All Categories</option>
                 {categoryOptions.map((category) => (
-                  <option key={category} value={category}>
-                    {category}
-                  </option>
+                  <option key={category} value={category}>{category}</option>
                 ))}
               </select>
             </label>
@@ -269,15 +277,11 @@ export function ForecastingPage() {
               >
                 <option value="all">All Locations</option>
                 {locationOptions.map((location) => (
-                  <option key={location} value={location}>
-                    {location}
-                  </option>
+                  <option key={location} value={location}>{location}</option>
                 ))}
               </select>
             </label>
-            <Button variant="outline" onClick={load}>
-              Refresh
-            </Button>
+            <Button variant="outline" onClick={load}>Refresh</Button>
           </div>
         </CardHeader>
       </Card>
@@ -285,7 +289,7 @@ export function ForecastingPage() {
       <Card>
         <CardHeader>
           <CardTitle>Forecast Inventory Table</CardTitle>
-          <CardDescription>Demand-based supply view to guide reorder planning and office ops decisions.</CardDescription>
+          <CardDescription>AI-powered demand forecast to guide reorder planning and ops decisions.</CardDescription>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
           <Table>
@@ -309,10 +313,18 @@ export function ForecastingPage() {
                       </div>
                     </TableCell>
                     <TableCell>{row.currentStock.toLocaleString()}</TableCell>
-                    <TableCell>{row.avgWeeklyDemand.toLocaleString(undefined, { maximumFractionDigits: 2 })}</TableCell>
-                    <TableCell>{row.weeksOfSupply.toLocaleString(undefined, { maximumFractionDigits: 2 })}</TableCell>
                     <TableCell>
-                      <StatusBadge status={row.reorderRecommended} colorMap={reorderColors} labelMap={{ yes: 'Yes', no: 'No' }} />
+                      {row.avgWeeklyDemand.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </TableCell>
+                    <TableCell>
+                      {row.weeksOfSupply.toLocaleString(undefined, { maximumFractionDigits: 2 })}
+                    </TableCell>
+                    <TableCell>
+                      <StatusBadge
+                        status={row.reorderRecommended}
+                        colorMap={reorderColors}
+                        labelMap={{ yes: 'Yes', no: 'No' }}
+                      />
                     </TableCell>
                   </TableRow>
                 ))
