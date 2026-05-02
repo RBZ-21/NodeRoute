@@ -15,10 +15,11 @@ export default {
         },
         line: 'rgba(255,255,255,0.08)',
         'line-strong': 'rgba(255,255,255,0.14)',
+        // Dashboard primary blue: hsl(213 70% 42%) = #2367b5
         teal: {
-          DEFAULT: '#3dba7f',
-          light: '#4dcf91',
-          dim: '#2e8c60',
+          DEFAULT: '#2367b5',
+          light: '#3a7fcc',
+          dim: '#1a4f8a',
         },
         cream: {
           DEFAULT: '#f4f4f0',
@@ -38,7 +39,7 @@ export default {
         'grid-faint':
           "linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px)",
         'radial-teal':
-          'radial-gradient(600px 300px at 50% 0%, rgba(61,186,127,0.18), transparent 60%)',
+          'radial-gradient(600px 300px at 50% 0%, rgba(35,103,181,0.18), transparent 60%)',
       },
       keyframes: {
         fadeUp: {
