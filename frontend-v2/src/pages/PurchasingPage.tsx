@@ -37,7 +37,6 @@ type PurchaseItemDraft = {
   expiration_date: string;
 };
 
-// AI PO Scan types
 type ScannedLineItem = {
   description: string | null;
   category: string | null;
@@ -94,7 +93,9 @@ export function PurchasingPage() {
   const [scanLoading, setScanLoading] = useState(false);
   const [scanError, setScanError] = useState('');
   const [scanResult, setScanResult] = useState<PoScanResult | null>(null);
+  // Two separate refs: one for file upload, one for camera capture
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const cameraInputRef = useRef<HTMLInputElement>(null);
 
   async function load() {
     setLoading(true);
@@ -121,17 +122,15 @@ export function PurchasingPage() {
     setVendorFilter(vendorParam || 'all');
   }, [vendorParam]);
 
-  const summary = useMemo(() => {
-    return {
-      count: orders.length,
-      spend: orders.reduce((sum, order) => sum + asNumber(order.total_cost), 0),
-      vendors: new Set(orders.map((order) => String(order.vendor || '').trim()).filter(Boolean)).size,
-    };
-  }, [orders]);
+  const summary = useMemo(() => ({
+    count: orders.length,
+    spend: orders.reduce((sum, order) => sum + asNumber(order.total_cost), 0),
+    vendors: new Set(orders.map((order) => String(order.vendor || '').trim()).filter(Boolean)).size,
+  }), [orders]);
 
   const draftTotal = useMemo(
     () => lines.reduce((sum, line) => sum + asNumber(line.quantity) * asNumber(line.unit_price), 0),
-    [lines]
+    [lines],
   );
 
   const vendorOptions = useMemo(() => {
@@ -140,18 +139,15 @@ export function PurchasingPage() {
       const name = String(order.vendor || '').trim();
       if (name) unique.add(name);
     }
-    return Array.from(unique)
-      .sort((a, b) => a.localeCompare(b))
-      .map((v) => ({ label: v, value: v }));
+    return Array.from(unique).sort((a, b) => a.localeCompare(b)).map((v) => ({ label: v, value: v }));
   }, [orders]);
 
   const productOptions = useMemo(
-    () =>
-      products.map((p) => ({
-        label: p.description,
-        sublabel: `#${p.item_number} · ${p.unit ?? 'lb'} · $${asNumber(p.cost).toFixed(2)}`,
-        value: p.item_number,
-      })),
+    () => products.map((p) => ({
+      label: p.description,
+      sublabel: `#${p.item_number} · ${p.unit ?? 'lb'} · $${asNumber(p.cost).toFixed(2)}`,
+      value: p.item_number,
+    })),
     [products],
   );
 
@@ -164,26 +160,23 @@ export function PurchasingPage() {
     setLines((current) => current.map((line, i) => (i === index ? { ...line, [key]: value } : line)));
   }
 
-  function addLine() {
-    setLines((current) => [...current, emptyLine()]);
-  }
+  function addLine() { setLines((current) => [...current, emptyLine()]); }
 
   function removeLine(index: number) {
     setLines((current) => (current.length === 1 ? current : current.filter((_, i) => i !== index)));
   }
 
-  // Apply scanned PO results into the draft form
   function applyScanResult(result: PoScanResult) {
     if (result.vendor) setVendor(result.vendor);
     if (result.po_number) setPoNumber(result.po_number);
     const draftLines: PurchaseItemDraft[] = (result.items || []).map((item) => ({
-      description: item.description ?? '',
-      item_number: '',
-      quantity:    item.quantity != null ? String(item.quantity) : '',
-      unit_price:  item.unit_price != null ? String(item.unit_price) : '',
-      unit:        item.unit ?? 'lb',
-      category:    item.category ?? 'Other',
-      lot_number:  '',
+      description:     item.description ?? '',
+      item_number:     '',
+      quantity:        item.quantity != null ? String(item.quantity) : '',
+      unit_price:      item.unit_price != null ? String(item.unit_price) : '',
+      unit:            item.unit ?? 'lb',
+      category:        item.category ?? 'Other',
+      lot_number:      '',
       expiration_date: '',
     }));
     setLines(draftLines.length ? draftLines : [emptyLine()]);
@@ -191,17 +184,13 @@ export function PurchasingPage() {
     setNotice('PO scan complete — review and confirm the lines below.');
   }
 
-  async function handleScanUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    if (!fileInputRef.current) return;
-    fileInputRef.current.value = '';
-    if (!file) return;
-
-    setScanLoading(true); setScanError(''); setScanResult(null);
+  async function handleScanFile(file: File) {
+    setScanLoading(true);
+    setScanError('');
+    setScanResult(null);
     try {
       const formData = new FormData();
       formData.append('file', file);
-      // Use raw fetch with auth token since sendWithAuth sends JSON
       const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
       const res = await fetch('/api/ai/scan-po', {
         method: 'POST',
@@ -221,6 +210,12 @@ export function PurchasingPage() {
     }
   }
 
+  function handleFileInputChange(e: React.ChangeEvent<HTMLInputElement>, ref: React.RefObject<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (ref.current) ref.current.value = '';
+    if (file) handleScanFile(file);
+  }
+
   async function submitPurchaseOrder() {
     const items = lines
       .map((line) => ({
@@ -235,10 +230,7 @@ export function PurchasingPage() {
       }))
       .filter((item) => item.description && item.quantity > 0);
 
-    if (!items.length) {
-      setError('Add at least one line with description and quantity.');
-      return;
-    }
+    if (!items.length) { setError('Add at least one line with description and quantity.'); return; }
 
     setSubmitting(true);
     setError('');
@@ -253,19 +245,14 @@ export function PurchasingPage() {
           po_number: poNumber  || null,
           notes:     notes     || null,
           total_cost,
-          items: items.map((item) => ({
-            ...item,
-            total: parseFloat((item.quantity * item.unit_price).toFixed(2)),
-          })),
+          items: items.map((item) => ({ ...item, total: parseFloat((item.quantity * item.unit_price).toFixed(2)) })),
         },
       );
       const failed = Array.isArray(response.errors) && response.errors.length;
       const lotsMsg = response.lots_created ? ` ${response.lots_created} lot record(s) created.` : '';
-      setNotice(
-        failed
-          ? `PO saved with ${response.errors?.length || 0} line errors.${lotsMsg}`
-          : `Purchase order confirmed and inventory updated.${lotsMsg}`
-      );
+      setNotice(failed
+        ? `PO saved with ${response.errors?.length || 0} line errors.${lotsMsg}`
+        : `Purchase order confirmed and inventory updated.${lotsMsg}`);
       setVendor(''); setPoNumber(''); setNotes(''); setLines([emptyLine()]); setScanResult(null);
       await load();
     } catch (err) {
@@ -292,29 +279,47 @@ export function PurchasingPage() {
         <StatCard label="Active Vendors"  value={summary.vendors.toLocaleString()} />
       </div>
 
-      {/* ── AI PO Scanner ──────────────────────────────────────────────── */}
+      {/* ── AI PO Scanner ─────────────────────────────────────────────── */}
       <Card>
         <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
             <CardTitle>AI PO Scanner</CardTitle>
             <CardDescription>
-              Upload a photo or scan of a vendor invoice / purchase order. AI will extract line items and pre-fill the form below.
+              Snap a photo on your phone or upload an image from your computer.
+              AI extracts the line items and pre-fills the form below.
             </CardDescription>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Hidden input — file picker (desktop + photo library on mobile) */}
             <input
               ref={fileInputRef}
               type="file"
               accept="image/jpeg,image/png,image/webp"
               className="hidden"
-              onChange={handleScanUpload}
+              onChange={(e) => handleFileInputChange(e, fileInputRef)}
+            />
+            {/* Hidden input — direct camera capture (mobile rear camera) */}
+            <input
+              ref={cameraInputRef}
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              capture="environment"
+              className="hidden"
+              onChange={(e) => handleFileInputChange(e, cameraInputRef)}
             />
             <Button
               variant="outline"
               onClick={() => fileInputRef.current?.click()}
               disabled={scanLoading}
             >
-              {scanLoading ? 'Scanning…' : 'Upload PO Image'}
+              {scanLoading ? 'Scanning…' : '📁 Upload Image'}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => cameraInputRef.current?.click()}
+              disabled={scanLoading}
+            >
+              {scanLoading ? 'Scanning…' : '📷 Take Photo'}
             </Button>
           </div>
         </CardHeader>
@@ -337,6 +342,7 @@ export function PurchasingPage() {
         )}
       </Card>
 
+      {/* ── Confirm PO Form ───────────────────────────────────────────── */}
       <Card>
         <CardHeader>
           <CardTitle>Confirm Purchase Order</CardTitle>
@@ -359,11 +365,11 @@ export function PurchasingPage() {
             </label>
             <label className="space-y-1 text-sm">
               <span className="font-semibold text-muted-foreground">PO Number</span>
-              <Input value={poNumber} onChange={(event) => setPoNumber(event.target.value)} placeholder="PO-2026-044" />
+              <Input value={poNumber} onChange={(e) => setPoNumber(e.target.value)} placeholder="PO-2026-044" />
             </label>
             <label className="space-y-1 text-sm">
               <span className="font-semibold text-muted-foreground">Notes</span>
-              <Input value={notes} onChange={(event) => setNotes(event.target.value)} placeholder="Dock B receiving" />
+              <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Dock B receiving" />
             </label>
           </div>
 
@@ -410,13 +416,13 @@ export function PurchasingPage() {
                         placeholder="Atlantic Salmon"
                       />
                     </TableCell>
-                    <TableCell><Input value={line.item_number} onChange={(event) => updateLine(index, 'item_number', event.target.value)} placeholder="SAL-01" /></TableCell>
-                    <TableCell><Input type="number" min="0" step="0.01" value={line.quantity} onChange={(event) => updateLine(index, 'quantity', event.target.value)} /></TableCell>
-                    <TableCell><Input type="number" min="0" step="0.01" value={line.unit_price} onChange={(event) => updateLine(index, 'unit_price', event.target.value)} /></TableCell>
-                    <TableCell><Input value={line.unit} onChange={(event) => updateLine(index, 'unit', event.target.value)} /></TableCell>
-                    <TableCell><Input value={line.category} onChange={(event) => updateLine(index, 'category', event.target.value)} /></TableCell>
-                    <TableCell><Input value={line.lot_number} onChange={(event) => updateLine(index, 'lot_number', event.target.value)} placeholder="e.g. SAL-2026-001" className="font-mono text-sm" /></TableCell>
-                    <TableCell><Input type="date" value={line.expiration_date} onChange={(event) => updateLine(index, 'expiration_date', event.target.value)} /></TableCell>
+                    <TableCell><Input value={line.item_number} onChange={(e) => updateLine(index, 'item_number', e.target.value)} placeholder="SAL-01" /></TableCell>
+                    <TableCell><Input type="number" min="0" step="0.01" value={line.quantity} onChange={(e) => updateLine(index, 'quantity', e.target.value)} /></TableCell>
+                    <TableCell><Input type="number" min="0" step="0.01" value={line.unit_price} onChange={(e) => updateLine(index, 'unit_price', e.target.value)} /></TableCell>
+                    <TableCell><Input value={line.unit} onChange={(e) => updateLine(index, 'unit', e.target.value)} /></TableCell>
+                    <TableCell><Input value={line.category} onChange={(e) => updateLine(index, 'category', e.target.value)} /></TableCell>
+                    <TableCell><Input value={line.lot_number} onChange={(e) => updateLine(index, 'lot_number', e.target.value)} placeholder="e.g. SAL-2026-001" className="font-mono text-sm" /></TableCell>
+                    <TableCell><Input type="date" value={line.expiration_date} onChange={(e) => updateLine(index, 'expiration_date', e.target.value)} /></TableCell>
                     <TableCell>{money(asNumber(line.quantity) * asNumber(line.unit_price))}</TableCell>
                     <TableCell><Button variant="ghost" size="sm" onClick={() => removeLine(index)}>Remove</Button></TableCell>
                   </TableRow>
@@ -435,6 +441,7 @@ export function PurchasingPage() {
         </CardContent>
       </Card>
 
+      {/* ── Historical POs ────────────────────────────────────────────── */}
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
@@ -446,13 +453,11 @@ export function PurchasingPage() {
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Vendor</span>
               <select
                 value={vendorFilter}
-                onChange={(event) => setVendorFilter(event.target.value)}
+                onChange={(e) => setVendorFilter(e.target.value)}
                 className="h-10 rounded-md border border-input bg-background px-3 text-sm"
               >
                 <option value="all">All Vendors</option>
-                {vendorOptions.map((option) => (
-                  <option key={option.value} value={option.value}>{option.label}</option>
-                ))}
+                {vendorOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
               </select>
             </label>
             <Button variant="outline" onClick={load}>Refresh</Button>
@@ -471,21 +476,17 @@ export function PurchasingPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredOrders.length ? (
-                filteredOrders.map((order) => (
-                  <TableRow key={order.id}>
-                    <TableCell className="font-medium">{order.po_number || order.id.slice(0, 8)}</TableCell>
-                    <TableCell>{order.vendor || <Badge variant="neutral">Unspecified</Badge>}</TableCell>
-                    <TableCell>{money(asNumber(order.total_cost))}</TableCell>
-                    <TableCell>{(order.items || []).length.toLocaleString()}</TableCell>
-                    <TableCell>{order.confirmed_by || '-'}</TableCell>
-                    <TableCell>{order.created_at ? new Date(order.created_at).toLocaleDateString() : '-'}</TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-muted-foreground">No purchase orders found for the selected filters.</TableCell>
+              {filteredOrders.length ? filteredOrders.map((order) => (
+                <TableRow key={order.id}>
+                  <TableCell className="font-medium">{order.po_number || order.id.slice(0, 8)}</TableCell>
+                  <TableCell>{order.vendor || <Badge variant="neutral">Unspecified</Badge>}</TableCell>
+                  <TableCell>{money(asNumber(order.total_cost))}</TableCell>
+                  <TableCell>{(order.items || []).length.toLocaleString()}</TableCell>
+                  <TableCell>{order.confirmed_by || '-'}</TableCell>
+                  <TableCell>{order.created_at ? new Date(order.created_at).toLocaleDateString() : '-'}</TableCell>
                 </TableRow>
+              )) : (
+                <TableRow><TableCell colSpan={6} className="text-muted-foreground">No purchase orders found for the selected filters.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
