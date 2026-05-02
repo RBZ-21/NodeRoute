@@ -36,6 +36,8 @@ const temperatureLogsRouter = require('./routes/temperature-logs');
 const opsRouter = require('./routes/ops');
 const reportingRouter = require('./routes/reporting').router;
 const lotsRouter = require('./routes/lots');
+const integrationsRouter = require('./routes/integrations');
+const warehouseRouter = require('./routes/warehouse');
 const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
 
 const app = express();
@@ -165,6 +167,8 @@ app.use('/api/temperature-logs', temperatureLogsRouter);
 app.use('/api/ops', opsRouter);
 app.use('/api/reporting', reportingRouter);
 app.use('/api/lots', lotsRouter);
+app.use('/api/integrations', integrationsRouter);
+app.use('/api/warehouse', warehouseRouter);
 // traceability/report lives under /api/lots prefix as /api/lots/traceability/report
 
 const { authenticateToken, requireRole } = require('./middleware/auth');
