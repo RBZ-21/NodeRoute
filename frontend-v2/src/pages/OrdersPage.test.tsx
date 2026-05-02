@@ -15,9 +15,9 @@ vi.mock('../lib/api', () => ({
   getUserRole: getUserRoleMock,
 }));
 
-function renderOrdersPage() {
+function renderOrdersPage(initialEntry = '/orders') {
   return render(
-    <MemoryRouter>
+    <MemoryRouter initialEntries={[initialEntry]}>
       <OrdersPage />
     </MemoryRouter>
   );
@@ -41,7 +41,7 @@ describe('OrdersPage', () => {
     } as unknown as Window));
     fetchWithAuthMock.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/orders')) return [];
-      if (url === '/api/inventory') return [];
+      if (url === '/api/inventory') return [{ item_number: 'SAL-01', description: 'Atlantic Salmon', cost: 12, unit: 'each' }];
       if (url === '/api/customers') return [{ id: 'cust-1', company_name: 'Oceanview Market', billing_email: 'buyer@oceanview.test', address: '123 Harbor St' }];
       return [];
     });
@@ -98,6 +98,7 @@ describe('OrdersPage', () => {
 
     const productInput = screen.getByPlaceholderText('Atlantic Salmon');
     fireEvent.change(productInput, { target: { value: 'Atlantic Salmon' } });
+    fireEvent.mouseDown(await screen.findByText('Atlantic Salmon'));
     const lineRow = productInput.closest('tr');
     if (!lineRow) throw new Error('Expected order line row');
     fireEvent.change(within(lineRow).getAllByRole('spinbutton')[0], { target: { value: '3' } });
@@ -142,6 +143,7 @@ describe('OrdersPage', () => {
 
     const productInput = screen.getByPlaceholderText('Atlantic Salmon');
     fireEvent.change(productInput, { target: { value: 'Atlantic Salmon' } });
+    fireEvent.mouseDown(await screen.findByText('Atlantic Salmon'));
     const lineRow = productInput.closest('tr');
     if (!lineRow) throw new Error('Expected order line row');
     fireEvent.change(within(lineRow).getAllByRole('spinbutton')[0], { target: { value: '2' } });
@@ -424,6 +426,44 @@ describe('OrdersPage', () => {
     fireEvent.click(screen.getByRole('button', { name: /ORD-LB/ }));
 
     expect(await screen.findByText(/Capture Actual Weights/)).toBeInTheDocument();
+  });
+
+  it('opens the grouped weight board from dashboard-style queue links', async () => {
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/orders')) {
+        return [
+          {
+            id: 'order-a',
+            order_number: 'ORD-A',
+            customer_name: 'Blue Fin',
+            status: 'pending',
+            items: [
+              { name: 'Yellowfin Tuna', unit: 'lb', requested_weight: 12, unit_price: 14.5 },
+              { name: 'Swordfish', unit: 'lb', requested_weight: 9, unit_price: 16 },
+            ],
+          },
+          {
+            id: 'order-b',
+            order_number: 'ORD-B',
+            customer_name: 'Harbor Cafe',
+            status: 'in_process',
+            items: [
+              { name: 'Salmon', is_catch_weight: true, estimated_weight: 10, actual_weight: 10.25, price_per_lb: 13.75 },
+            ],
+          },
+        ];
+      }
+      if (url === '/api/inventory' || url === '/api/customers') return [];
+      return [];
+    });
+
+    renderOrdersPage('/orders?action=weights');
+
+    expect(await screen.findByText('Weight Entry Queue')).toBeInTheDocument();
+    expect(screen.getAllByText('Blue Fin').length).toBeGreaterThan(0);
+    expect(screen.getByText('Yellowfin Tuna')).toBeInTheDocument();
+    expect(screen.getByText('Swordfish')).toBeInTheDocument();
+    expect(screen.queryByText('Salmon')).not.toBeInTheDocument();
   });
 
   it('sends a pending order to processing and opens a print window', async () => {

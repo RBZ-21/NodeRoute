@@ -5,6 +5,7 @@ import {
   Clock3,
   MapPinned,
   RefreshCw,
+  Scale,
   ShoppingCart,
   Truck,
   Users,
@@ -106,7 +107,7 @@ type OrderRecord = {
   customer_address?: string;
   status?: string;
   created_at?: string;
-  items?: Array<{ is_catch_weight?: boolean; actual_weight?: number | string }>;
+  items?: Array<{ is_catch_weight?: boolean; actual_weight?: number | string; unit?: string; requested_weight?: number | string }>;
 };
 
 type VendorPurchaseOrder = {
@@ -128,18 +129,6 @@ function asNumber(value: unknown, fallback = 0): number {
 
 function money(value: number): string {
   return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-}
-
-function formatDate(value?: string | null): string {
-  if (!value) return '—';
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleDateString();
-}
-
-function formatDateTime(value?: string | null): string {
-  if (!value) return '—';
-  const parsed = new Date(value);
-  return Number.isNaN(parsed.getTime()) ? '—' : parsed.toLocaleString();
 }
 
 function activeStopsForRoute(route: RouteRecord): string[] {
@@ -170,20 +159,23 @@ function deliveryBadgeVariant(status: string): 'warning' | 'secondary' | 'succes
   return 'neutral';
 }
 
-function orderBadgeVariant(status: string): 'warning' | 'secondary' | 'success' | 'neutral' {
-  const normalized = String(status || '').toLowerCase();
-  if (normalized === 'pending') return 'warning';
-  if (normalized === 'in_process' || normalized === 'processed') return 'secondary';
-  if (normalized === 'invoiced' || normalized === 'delivered' || normalized === 'sent') return 'success';
-  return 'neutral';
-}
-
 function orderHasPendingWeights(order: OrderRecord): boolean {
-  return (order.items || []).some((item) => item.is_catch_weight && !(Number(item.actual_weight) > 0));
+  return (order.items || []).some((item) => {
+    const isWeightManaged = item.is_catch_weight || String(item.unit || '').toLowerCase() === 'lb' || item.requested_weight !== undefined;
+    return isWeightManaged && !(Number(item.actual_weight) > 0);
+  });
 }
 
-function orderCustomerId(order: OrderRecord): string {
-  return String(order.customer_id || order.customerId || '').trim();
+function orderHasCapturedWeights(order: OrderRecord): boolean {
+  const weightManaged = (order.items || []).filter((item) =>
+    item.is_catch_weight || String(item.unit || '').toLowerCase() === 'lb' || item.requested_weight !== undefined
+  );
+  return weightManaged.length > 0 && weightManaged.every((item) => Number(item.actual_weight) > 0);
+}
+
+function isOpenOrder(order: OrderRecord): boolean {
+  const normalized = String(order.status || '').toLowerCase();
+  return normalized === 'pending' || normalized === 'in_process' || normalized === 'processed';
 }
 
 function driverBadgeVariant(status: string | undefined): 'success' | 'neutral' {
@@ -276,13 +268,13 @@ export function DashboardPage() {
     },
   };
 
-  const recentOrders = useMemo(
-    () =>
-      [...orders]
-        .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
-        .slice(0, 6),
-    [orders]
-  );
+  const weightQueueSummary = useMemo(() => {
+    const openOrders = orders.filter((order) => isOpenOrder(order));
+    return {
+      needsWeights: openOrders.filter((order) => orderHasPendingWeights(order)),
+      weightsEntered: openOrders.filter((order) => orderHasCapturedWeights(order)),
+    };
+  }, [orders]);
 
   const activeRoutes = useMemo(
     () =>
@@ -486,53 +478,31 @@ export function DashboardPage() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Recent Orders</CardTitle>
-            <CardDescription>Latest customer orders entering the operation.</CardDescription>
+            <CardTitle>Weight Entry Queue</CardTitle>
+            <CardDescription>Open orders split between weights still needed and weights already captured.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
-            {recentOrders.length ? (
-              recentOrders.map((order) => (
-                <div
-                  key={order.id}
-                  onClick={() => navigate(`/orders?orderId=${encodeURIComponent(order.id)}&action=${orderHasPendingWeights(order) ? 'weights' : 'edit'}`)}
-                  className="w-full cursor-pointer rounded-lg border border-border bg-muted/20 p-3 text-left transition-colors hover:bg-muted/35"
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(event) => {
-                    if (event.key === 'Enter' || event.key === ' ') {
-                      event.preventDefault();
-                      navigate(`/orders?orderId=${encodeURIComponent(order.id)}&action=${orderHasPendingWeights(order) ? 'weights' : 'edit'}`);
-                    }
-                  }}
-                >
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-foreground">{order.order_number || order.id.slice(0, 8)}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">{order.customer_name || order.customer_email || 'Unnamed customer'}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">{formatDateTime(order.created_at)}</div>
-                      {orderHasPendingWeights(order) ? <div className="mt-1 text-xs font-medium text-amber-600">Weight input needed</div> : null}
-                    </div>
-                    <div className="flex flex-col items-end gap-2">
-                      <Badge variant={orderBadgeVariant(order.status || '')}>{String(order.status || 'unknown').replace('_', ' ')}</Badge>
-                      {String(order.status || '').toLowerCase() === 'invoiced' && orderCustomerId(order) ? (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          onClick={(event) => {
-                            event.stopPropagation();
-                            navigate(`/invoices?customerId=${encodeURIComponent(orderCustomerId(order))}`);
-                          }}
-                        >
-                          Invoices
-                        </Button>
-                      ) : null}
-                    </div>
-                  </div>
-                </div>
-              ))
+            {weightQueueSummary.needsWeights.length || weightQueueSummary.weightsEntered.length ? (
+              <div className="grid gap-3">
+                <QueueCard
+                  icon={Scale}
+                  title="Orders Needing Weights"
+                  count={weightQueueSummary.needsWeights.length}
+                  description="Open the fast-entry list for customers still waiting on actual weights."
+                  tone="amber"
+                  onClick={() => navigate('/orders?action=weights')}
+                />
+                <QueueCard
+                  icon={Scale}
+                  title="Weights Entered"
+                  count={weightQueueSummary.weightsEntered.length}
+                  description="Review open orders whose weight-managed items already have actual weights entered."
+                  tone="emerald"
+                  onClick={() => navigate('/orders?action=weights-entered')}
+                />
+              </div>
             ) : (
-              <EmptyBlock title="No orders yet" description="Recent orders will appear here once the intake queue starts filling." />
+              <EmptyBlock title="No weight queue yet" description="Open weight-managed orders will appear here once processing starts capturing actual weights." />
             )}
           </CardContent>
         </Card>
@@ -718,6 +688,46 @@ function EmptyBlock({ title, description }: { title: string; description: string
       <div className="font-semibold text-foreground">{title}</div>
       <div className="mt-1">{description}</div>
     </div>
+  );
+}
+
+function QueueCard({
+  icon: Icon,
+  title,
+  count,
+  description,
+  tone,
+  onClick,
+}: {
+  icon: typeof Scale;
+  title: string;
+  count: number;
+  description: string;
+  tone: 'emerald' | 'amber';
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="w-full rounded-lg border border-border bg-muted/20 p-4 text-left transition-colors hover:bg-muted/35"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex items-start gap-3">
+          <div className={cn('rounded-md border p-2', tone === 'emerald' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700')}>
+            <Icon className="h-4 w-4" />
+          </div>
+          <div>
+            <div className="text-sm font-semibold text-foreground">{title}</div>
+            <div className="mt-1 text-xs text-muted-foreground">{description}</div>
+          </div>
+        </div>
+        <div className="text-right">
+          <div className={cn('text-2xl font-semibold', tone === 'emerald' ? 'text-emerald-600' : 'text-amber-600')}>{count}</div>
+          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Orders</div>
+        </div>
+      </div>
+    </button>
   );
 }
 

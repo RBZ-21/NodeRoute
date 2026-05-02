@@ -98,6 +98,15 @@ describe('DashboardPage', () => {
             created_at: '2026-04-11T00:00:00Z',
             items: [{ is_catch_weight: true, actual_weight: null }],
           },
+          {
+            id: 'o2',
+            order_number: 'ORD-201',
+            customer_name: 'Harbor Cafe',
+            customer_id: 'cust-2',
+            status: 'in_process',
+            created_at: '2026-04-12T00:00:00Z',
+            items: [{ is_catch_weight: true, actual_weight: 11.2 }],
+          },
         ];
       }
       if (url === '/api/ops/vendor-purchase-orders') {
@@ -117,15 +126,19 @@ describe('DashboardPage', () => {
     expect(screen.getByText('12')).toBeInTheDocument();
     expect(screen.getByText('92%')).toBeInTheDocument();
     expect(screen.getByText('Alex Driver')).toBeInTheDocument();
-    expect(screen.getByText('ORD-200')).toBeInTheDocument();
+    expect(screen.getByText('Orders Needing Weights')).toBeInTheDocument();
+    expect(screen.getByText('Weights Entered')).toBeInTheDocument();
     expect(screen.getByText('North Route')).toBeInTheDocument();
     expect(screen.getByText('$2,000.00')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: 'Orders Queue' }));
     expect(navigateMock).toHaveBeenCalledWith('/orders');
 
-    fireEvent.click(screen.getByRole('button', { name: /ORD-200/ }));
-    expect(navigateMock).toHaveBeenCalledWith('/orders?orderId=o1&action=weights');
+    fireEvent.click(screen.getByRole('button', { name: /Orders Needing Weights/i }));
+    expect(navigateMock).toHaveBeenCalledWith('/orders?action=weights');
+
+    fireEvent.click(screen.getByRole('button', { name: /Weights Entered/i }));
+    expect(navigateMock).toHaveBeenCalledWith('/orders?action=weights-entered');
 
     fireEvent.click(screen.getByRole('button', { name: 'Open Purchasing Workspace' }));
     expect(navigateMock).toHaveBeenCalledWith('/purchasing');

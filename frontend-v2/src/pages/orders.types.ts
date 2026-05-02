@@ -133,6 +133,24 @@ export function hasPendingWeight(item: OrderItem): boolean {
   return !(asNumber(item.actual_weight) > 0);
 }
 
+export function orderWeightManagedItems(order: Order): OrderItem[] {
+  return (order.items || []).filter((item) => isWeightManagedItem(item));
+}
+
+export function orderHasPendingWeights(order: Order): boolean {
+  return orderWeightManagedItems(order).some((item) => hasPendingWeight(item));
+}
+
+export function orderHasCapturedWeights(order: Order): boolean {
+  const managedItems = orderWeightManagedItems(order);
+  return managedItems.length > 0 && managedItems.every((item) => !hasPendingWeight(item));
+}
+
+export function isOpenOrderStatus(status: string | undefined): boolean {
+  const normalized = String(status || '').toLowerCase();
+  return normalized === 'pending' || normalized === 'in_process' || normalized === 'processed';
+}
+
 export function calcOrderTotal(order: Order): number {
   const itemTotal = (order.items || []).reduce((sum, item) => {
     if (item.is_catch_weight) return sum + orderItemQty(item) * asNumber(item.price_per_lb);

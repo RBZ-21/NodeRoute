@@ -4,10 +4,11 @@ import { Card, CardDescription, CardHeader, CardTitle } from '../components/ui/c
 import { getUserRole, sendWithAuth } from '../lib/api';
 import { useOrderForm } from '../hooks/useOrderForm';
 import { useOrdersData } from '../hooks/useOrdersData';
+import { OrderWeightsBoard } from './OrderWeightsBoard';
 import { OrderFormCard } from './OrderFormCard';
 import { OrdersWorkbench } from './OrdersWorkbench';
 import { WeightCaptureCard } from './WeightCaptureCard';
-import { asMoney, asNumber, calcOrderTotal, normalizedStatus, orderItemQty } from './orders.types';
+import { asMoney, asNumber, calcOrderTotal, normalizedStatus, orderHasCapturedWeights, orderHasPendingWeights, orderItemQty } from './orders.types';
 import type { Order, OrderStatus } from './orders.types';
 
 function escapeHtml(value: unknown): string {
@@ -87,6 +88,13 @@ export function OrdersPage() {
   const [weightInputs, setWeightInputs]             = useState<Record<string, string>>({});
   const [savingWeight, setSavingWeight]             = useState<Record<string, boolean>>({});
   const openedOrderIdRef = useRef<string | null>(null);
+  const dashboardAction = String(searchParams.get('action') || '').trim().toLowerCase();
+  const weightBoardFilter: 'needs' | 'captured' | null =
+    !orderIdParam && dashboardAction === 'weights-entered'
+      ? 'captured'
+      : !orderIdParam && dashboardAction === 'weights'
+        ? 'needs'
+        : null;
 
   const role = getUserRole();
 
@@ -103,7 +111,7 @@ export function OrdersPage() {
     if (!order) return;
 
     const requestedAction = String(searchParams.get('action') || '').trim().toLowerCase();
-    if (requestedAction === 'weights') {
+    if (requestedAction === 'weights' && orderIdParam) {
       setWeightCaptureOrder(order);
       setNotice(`Opened weights for ${order.order_number || order.id.slice(0, 8)}.`);
     } else {
@@ -186,8 +194,19 @@ export function OrdersPage() {
   async function quickFulfill(order: Order) {
     if (!confirm(`Quick fulfill ${order.order_number || order.id.slice(0, 8)} and generate invoice?`)) return;
     try {
-      await sendWithAuth(`/api/orders/${order.id}/fulfill`, 'POST', { items: order.items || [], driverName: null, routeId: null });
-      setNotice(`Order ${order.order_number || order.id.slice(0, 8)} fulfilled.`);
+      const result = await sendWithAuth<{ emailSent?: boolean; emailError?: string | null }>(
+        `/api/orders/${order.id}/fulfill`,
+        'POST',
+        { items: order.items || [], driverName: null, routeId: null },
+      );
+      const orderLabel = order.order_number || order.id.slice(0, 8);
+      if (result.emailSent) {
+        setNotice(`Order ${orderLabel} fulfilled and invoice emailed.`);
+      } else if (result.emailError) {
+        setNotice(`Order ${orderLabel} fulfilled. Invoice email skipped: ${result.emailError}`);
+      } else {
+        setNotice(`Order ${orderLabel} fulfilled.`);
+      }
       await load();
     } catch (err) {
       setError(String((err as Error).message || 'Could not fulfill order'));
@@ -222,6 +241,17 @@ export function OrdersPage() {
     setWeightCaptureOrder((prev) => (prev?.id === order.id ? null : order));
     setWeightInputs({});
   }
+
+  const openOrders = orders.filter((order) => {
+    const status = normalizedStatus(order.status);
+    return status === 'pending' || status === 'in_process';
+  });
+
+  const boardOrders = openOrders.filter((order) => {
+    if (weightBoardFilter === 'captured') return orderHasCapturedWeights(order);
+    if (weightBoardFilter === 'needs') return orderHasPendingWeights(order);
+    return false;
+  });
 
   return (
     <div className="space-y-5">
@@ -287,6 +317,18 @@ export function OrdersPage() {
         onToggleWeightCapture={handleToggleWeightCapture}
         onDelete={deleteOrder}
       />
+
+      {weightBoardFilter ? (
+        <OrderWeightsBoard
+          orders={boardOrders}
+          filter={weightBoardFilter}
+          role={role}
+          weightInputs={weightInputs}
+          savingWeight={savingWeight}
+          onWeightInputChange={(key, value) => setWeightInputs((current) => ({ ...current, [key]: value }))}
+          onSaveWeight={saveActualWeight}
+        />
+      ) : null}
 
       {weightCaptureOrder ? (
         <WeightCaptureCard

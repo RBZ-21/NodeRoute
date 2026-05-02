@@ -4,6 +4,7 @@ const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { required, maxLen, isArray, maxItems, compose } = require('../lib/validate');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
+const { sendInvoiceEmail } = require('../services/invoice-email');
 const {
   executeWithOptionalScope,
   filterRowsByContext,
@@ -457,6 +458,22 @@ async function createOrUpdateProcessingInvoice(order, fulfilledItems, overrides,
   return invoiceInsert.data;
 }
 
+async function sendFulfillmentInvoiceIfPossible(invoice) {
+  if (!invoice?.id) {
+    return { sent: false, skipped: true, reason: 'Invoice missing' };
+  }
+  if (!(invoice.billing_email || invoice.customer_email)) {
+    return { sent: false, skipped: true, reason: 'No email on file for this customer' };
+  }
+
+  try {
+    return await sendInvoiceEmail(invoice, 'Invoice');
+  } catch (error) {
+    console.error('Fulfillment invoice email error:', error.message);
+    return { sent: false, error: error.message };
+  }
+}
+
 // ── ORDERS ────────────────────────────────────────────────────────────────────
 router.get('/', authenticateToken, async (req, res) => {
   const data = await dbQuery(supabase.from('orders').select('*').order('created_at', { ascending: false }), res);
@@ -780,9 +797,13 @@ router.post('/:id/fulfill', authenticateToken, requireRole('admin', 'manager'), 
     tracking_expires_at: trackingExpiresAt,
   });
   if (orderUpdate.error) return res.status(500).json({ error: orderUpdate.error.message });
+
+  const emailResult = await sendFulfillmentInvoiceIfPossible(invoice);
   res.json({
     invoice,
     message: 'Invoice created',
+    emailSent: !!emailResult.sent,
+    emailError: emailResult.sent ? null : (emailResult.error || emailResult.reason || null),
     tracking_token: trackingToken,
     tracking_expires_at: trackingExpiresAt,
     tracking_url: buildTrackingUrl(req, trackingToken),
