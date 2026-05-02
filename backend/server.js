@@ -27,6 +27,8 @@ const forecastRouter = require('./routes/forecast');
 const aiRouter = require('./routes/ai');
 const portalRouter = require('./routes/portal');
 const driverRouter = require('./routes/driver');
+const driversRouter = require('./routes/drivers');
+const vendorsRouter = require('./routes/vendors');
 const purchaseOrdersRouter = require('./routes/purchase-orders');
 const trackingRouter = require('./routes/tracking');
 const settingsRouter = require('./routes/settings');
@@ -74,10 +76,7 @@ app.use((req, res, next) => {
       res.setHeader('Access-Control-Allow-Origin', origin);
       res.setHeader('Vary', 'Origin');
     }
-    // Origins not in the list receive no Access-Control-Allow-Origin header,
-    // which causes browsers to block the request.
   } else {
-    // No list configured — allow all (safe for local dev, warned at boot in prod)
     res.setHeader('Access-Control-Allow-Origin', '*');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
@@ -157,6 +156,8 @@ app.use('/api/forecast', forecastRouter);
 app.use('/api/ai', aiLimiter, aiRouter);
 app.use('/api/portal', portalRouter);
 app.use('/api/driver', driverRouter);
+app.use('/api/drivers', driversRouter);
+app.use('/api/vendors', vendorsRouter);
 app.use('/api/purchase-orders', purchaseOrdersRouter);
 app.use('/api/track', trackingRouter);
 app.use('/api/settings', settingsRouter);

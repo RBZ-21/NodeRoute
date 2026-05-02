@@ -103,7 +103,17 @@ router.get('/', authenticateToken, async (req, res) => {
     }
   }
 
-  const data = await dbQuery(supabase.from('invoices').select('*').order('created_at', { ascending: false }), res);
+  let query = supabase.from('invoices').select('*').order('created_at', { ascending: false });
+
+  // Optional filter by customer_id (numeric FK on invoices table)
+  const customerId = req.query.customer_id;
+  if (customerId) {
+    const parsedId = parseInt(customerId, 10);
+    if (!Number.isFinite(parsedId)) return res.status(400).json({ error: 'customer_id must be a number' });
+    query = query.eq('customer_id', parsedId);
+  }
+
+  const data = await dbQuery(query, res);
   if (!data) return;
   res.json(filterRowsByContext(data, req.context));
 });

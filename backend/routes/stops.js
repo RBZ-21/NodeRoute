@@ -8,7 +8,7 @@ const {
 } = require('../services/operating-context');
 
 const router = express.Router();
-const STOP_FIELDS = ['name', 'address', 'lat', 'lng', 'notes'];
+const STOP_FIELDS = ['name', 'address', 'lat', 'lng', 'notes', 'driver_notes', 'door_code'];
 
 function stopPayload(source) {
   const payload = {};
@@ -58,7 +58,7 @@ async function authorizeDwellEvent(req, res) {
   return { route, routeId };
 }
 
-router.get('/',authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const requestedRouteId = String(req.query?.routeId || '').trim();
 
   if (requestedRouteId) {
