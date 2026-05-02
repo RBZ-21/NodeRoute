@@ -5,6 +5,8 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const { buildInvoicePDF } = require('../services/pdf');
 const { loadDriverInvoiceScope } = require('../services/driver-invoice-access');
 const { sendInvoiceEmail } = require('../services/invoice-email');
+const { validate } = require('../lib/zodValidate');
+const { invoiceImportSchema, invoiceSignSchema } = require('../lib/schemas');
 const { validateBody } = require('../lib/zod-validate');
 const {
   buildScopeFields,
@@ -160,7 +162,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
 });
 
 // Entree import — accepts one or many invoices in Entree's export format
-router.post('/import', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/import', validate(invoiceImportSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   if (!Array.isArray(req.body) && (typeof req.body !== 'object' || req.body === null)) {
     return res.status(400).json({ error: 'Request body must be an invoice object or an array of invoices' });
   }
@@ -226,7 +228,7 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
 });
 
 // Save signature → generate PDF → email customer
-router.post('/:id/sign', authenticateToken, async (req, res) => {
+router.post('/:id/sign', validate(invoiceSignSchema), authenticateToken, async (req, res) => {
   const signature_data = req.body?.signature_data || req.body?.signature; // base64 PNG from canvas
   if (!signature_data) return res.status(400).json({ error: 'Signature data required' });
 
