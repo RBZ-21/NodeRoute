@@ -47,14 +47,6 @@ function normalizeStatus(value: string | undefined): DeliveryViewStatus {
   return 'other';
 }
 
-function statusLabel(status: DeliveryViewStatus): string {
-  if (status === 'active') return 'Active';
-  if (status === 'pending') return 'Pending';
-  if (status === 'completed') return 'Completed';
-  if (status === 'failed') return 'Failed';
-  return 'Other';
-}
-
 function statusBadge(status: DeliveryViewStatus) {
   if (status === 'active') return <Badge variant="success">Active</Badge>;
   if (status === 'pending') return <Badge variant="warning">Pending</Badge>;
@@ -69,19 +61,23 @@ export function DeliveriesPage() {
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [updatingId, setUpdatingId] = useState<string | null>(null);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
 
   const [statusFilter, setStatusFilter] = useState<'all' | DeliveryViewStatus>('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
 
+  // Bulk selection
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+
   async function load() {
     setLoading(true);
     setError('');
     try {
-      // Same data source used by the dashboard dispatch widgets.
       const data = await fetchWithAuth<Delivery[]>('/api/deliveries');
       const rows = Array.isArray(data) ? data : [];
       setDeliveries(rows);
+      setSelected(new Set());
     } catch (err) {
       setError(String((err as Error).message || 'Could not load deliveries'));
     } finally {
@@ -89,15 +85,12 @@ export function DeliveriesPage() {
     }
   }
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
 
   const filtered = useMemo(() => {
     return deliveries.filter((delivery) => {
       const status = normalizeStatus(delivery.status);
       if (statusFilter !== 'all' && status !== statusFilter) return false;
-
       const etaKey = toDateKey(delivery.expectedWindowEnd || delivery.createdAt);
       if (startDate && etaKey && etaKey < startDate) return false;
       if (endDate && etaKey && etaKey > endDate) return false;
@@ -105,13 +98,34 @@ export function DeliveriesPage() {
     });
   }, [deliveries, statusFilter, startDate, endDate]);
 
-  const summary = useMemo(() => {
-    const active = deliveries.filter((delivery) => normalizeStatus(delivery.status) === 'active').length;
-    const pending = deliveries.filter((delivery) => normalizeStatus(delivery.status) === 'pending').length;
-    const completed = deliveries.filter((delivery) => normalizeStatus(delivery.status) === 'completed').length;
-    const failed = deliveries.filter((delivery) => normalizeStatus(delivery.status) === 'failed').length;
-    return { active, pending, completed, failed };
-  }, [deliveries]);
+  const summary = useMemo(() => ({
+    active: deliveries.filter((d) => normalizeStatus(d.status) === 'active').length,
+    pending: deliveries.filter((d) => normalizeStatus(d.status) === 'pending').length,
+    completed: deliveries.filter((d) => normalizeStatus(d.status) === 'completed').length,
+    failed: deliveries.filter((d) => normalizeStatus(d.status) === 'failed').length,
+  }), [deliveries]);
+
+  const selectableIds = useMemo(() =>
+    filtered.filter((d) => d.orderDbId).map((d) => d.orderDbId!),
+  [filtered]);
+
+  const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
+
+  function toggleAll() {
+    if (allSelected) {
+      setSelected(new Set());
+    } else {
+      setSelected(new Set(selectableIds));
+    }
+  }
+
+  function toggleOne(id: string) {
+    setSelected((prev) => {
+      const next = new Set(prev);
+      next.has(id) ? next.delete(id) : next.add(id);
+      return next;
+    });
+  }
 
   async function setDeliveryStatus(delivery: Delivery, nextStatus: 'pending' | 'in-transit' | 'delivered') {
     if (!delivery.orderDbId) return;
@@ -127,6 +141,26 @@ export function DeliveriesPage() {
     } finally {
       setUpdatingId(null);
     }
+  }
+
+  async function bulkSetStatus(nextStatus: 'pending' | 'in-transit' | 'delivered') {
+    if (selected.size === 0) return;
+    setBulkUpdating(true);
+    setError('');
+    setNotice('');
+    const ids = Array.from(selected);
+    let successCount = 0;
+    for (const id of ids) {
+      try {
+        await sendWithAuth(`/api/deliveries/${id}/status`, 'PATCH', { status: nextStatus });
+        successCount++;
+      } catch {
+        // continue others
+      }
+    }
+    setNotice(`Bulk updated ${successCount}/${ids.length} deliveries to ${nextStatus}.`);
+    setBulkUpdating(false);
+    await load();
   }
 
   return (
@@ -151,11 +185,7 @@ export function DeliveriesPage() {
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
-              <select
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value as 'all' | DeliveryViewStatus)}
-                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-              >
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | DeliveryViewStatus)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
                 <option value="all">All</option>
                 <option value="active">Active</option>
                 <option value="pending">Pending</option>
@@ -165,21 +195,34 @@ export function DeliveriesPage() {
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Start Date</span>
-              <Input type="date" value={startDate} onChange={(event) => setStartDate(event.target.value)} />
+              <Input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">End Date</span>
-              <Input type="date" value={endDate} onChange={(event) => setEndDate(event.target.value)} />
+              <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </label>
-            <Button variant="outline" onClick={load}>
-              Refresh
-            </Button>
+            <Button variant="outline" onClick={load}>Refresh</Button>
           </div>
         </CardHeader>
+
+        {/* Bulk action bar — only shows when rows are checked */}
+        {selected.size > 0 && (
+          <div className="mx-6 mb-2 flex items-center gap-3 rounded-md border border-border bg-muted/50 px-4 py-2">
+            <span className="text-sm font-medium">{selected.size} selected</span>
+            <Button size="sm" variant="outline" disabled={bulkUpdating} onClick={() => bulkSetStatus('pending')}>Mark Pending</Button>
+            <Button size="sm" variant="secondary" disabled={bulkUpdating} onClick={() => bulkSetStatus('in-transit')}>Mark Active</Button>
+            <Button size="sm" disabled={bulkUpdating} onClick={() => bulkSetStatus('delivered')}>{bulkUpdating ? 'Updating...' : 'Mark Delivered'}</Button>
+            <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
+          </div>
+        )}
+
         <CardContent className="rounded-lg border border-border bg-card p-2">
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <input type="checkbox" checked={allSelected} onChange={toggleAll} className="cursor-pointer" />
+                </TableHead>
                 <TableHead>Delivery ID</TableHead>
                 <TableHead>Order #</TableHead>
                 <TableHead>Customer</TableHead>
@@ -191,62 +234,40 @@ export function DeliveriesPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.length ? (
-                filtered.map((delivery, index) => {
-                  const status = normalizeStatus(delivery.status);
-                  const deliveryId = delivery.userFacingId || delivery.orderDbId || String(delivery.id || index + 1);
-                  const eta = delivery.expectedWindowEnd || delivery.createdAt;
-                  const mapHref = `https://maps.google.com/?q=${encodeURIComponent(`${asNumber(delivery.lat)},${asNumber(delivery.lng)}`)}`;
-                  return (
-                    <TableRow key={deliveryId}>
-                      <TableCell className="font-medium">{deliveryId}</TableCell>
-                      <TableCell>{delivery.orderId || '-'}</TableCell>
-                      <TableCell>{delivery.restaurantName || '-'}</TableCell>
-                      <TableCell>{delivery.driverName || '-'}</TableCell>
-                      <TableCell>{statusBadge(status)}</TableCell>
-                      <TableCell>{delivery.routeId || '-'}</TableCell>
-                      <TableCell>{eta ? new Date(eta).toLocaleString() : '-'}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            disabled={!delivery.orderDbId || updatingId === delivery.orderDbId}
-                            onClick={() => setDeliveryStatus(delivery, 'pending')}
-                          >
-                            Pending
-                          </Button>
-                          <Button
-                            variant="secondary"
-                            size="sm"
-                            disabled={!delivery.orderDbId || updatingId === delivery.orderDbId}
-                            onClick={() => setDeliveryStatus(delivery, 'in-transit')}
-                          >
-                            Active
-                          </Button>
-                          <Button
-                            size="sm"
-                            disabled={!delivery.orderDbId || updatingId === delivery.orderDbId}
-                            onClick={() => setDeliveryStatus(delivery, 'delivered')}
-                          >
-                            Complete
-                          </Button>
-                          <a href={mapHref} target="_blank" rel="noreferrer" className="inline-flex">
-                            <Button variant="outline" size="sm">
-                              Map
-                            </Button>
-                          </a>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-muted-foreground">
-                    No deliveries found for the selected filters.
-                  </TableCell>
-                </TableRow>
+              {filtered.length ? filtered.map((delivery, index) => {
+                const status = normalizeStatus(delivery.status);
+                const deliveryId = delivery.userFacingId || delivery.orderDbId || String(delivery.id || index + 1);
+                const eta = delivery.expectedWindowEnd || delivery.createdAt;
+                const mapHref = `https://maps.google.com/?q=${encodeURIComponent(`${asNumber(delivery.lat)},${asNumber(delivery.lng)}`)}` ;
+                const isChecked = !!delivery.orderDbId && selected.has(delivery.orderDbId);
+                return (
+                  <TableRow key={deliveryId} className={isChecked ? 'bg-muted/30' : ''}>
+                    <TableCell>
+                      {delivery.orderDbId ? (
+                        <input type="checkbox" checked={isChecked} onChange={() => toggleOne(delivery.orderDbId!)} className="cursor-pointer" />
+                      ) : null}
+                    </TableCell>
+                    <TableCell className="font-medium">{deliveryId}</TableCell>
+                    <TableCell>{delivery.orderId || '-'}</TableCell>
+                    <TableCell>{delivery.restaurantName || '-'}</TableCell>
+                    <TableCell>{delivery.driverName || '-'}</TableCell>
+                    <TableCell>{statusBadge(status)}</TableCell>
+                    <TableCell>{delivery.routeId || '-'}</TableCell>
+                    <TableCell>{eta ? new Date(eta).toLocaleString() : '-'}</TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        <Button variant="ghost" size="sm" disabled={!delivery.orderDbId || updatingId === delivery.orderDbId} onClick={() => setDeliveryStatus(delivery, 'pending')}>Pending</Button>
+                        <Button variant="secondary" size="sm" disabled={!delivery.orderDbId || updatingId === delivery.orderDbId} onClick={() => setDeliveryStatus(delivery, 'in-transit')}>Active</Button>
+                        <Button size="sm" disabled={!delivery.orderDbId || updatingId === delivery.orderDbId} onClick={() => setDeliveryStatus(delivery, 'delivered')}>Complete</Button>
+                        <a href={mapHref} target="_blank" rel="noreferrer" className="inline-flex">
+                          <Button variant="outline" size="sm">Map</Button>
+                        </a>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              }) : (
+                <TableRow><TableCell colSpan={9} className="text-muted-foreground">No deliveries found for the selected filters.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -258,11 +279,6 @@ export function DeliveriesPage() {
 
 function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
-    <Card>
-      <CardHeader className="space-y-1">
-        <CardDescription>{label}</CardDescription>
-        <CardTitle className="text-2xl">{value}</CardTitle>
-      </CardHeader>
-    </Card>
+    <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className="text-2xl">{value}</CardTitle></CardHeader></Card>
   );
 }
