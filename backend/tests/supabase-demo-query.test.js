@@ -143,13 +143,95 @@ test('DemoQuery .is() correctly handles update + re-query for depart flow', asyn
   }
 });
 
-test('ResilientQuery.buildQuery passes is and in filters through to real client', () => {
+test('DemoQuery .not(field, is, null) excludes null rows', async () => {
+  const { supabase, cleanup } = freshSupabase();
+  try {
+    await supabase.from('portal_contacts').insert({ id: 'c1', name: 'Alpha', door_code: null });
+    await supabase.from('portal_contacts').insert({ id: 'c2', name: 'Beta', door_code: '1234' });
+
+    const { data } = await supabase.from('portal_contacts').select('id').not('door_code', 'is', null);
+
+    assert.equal(data.length, 1);
+    assert.equal(data[0].id, 'c2');
+  } finally {
+    cleanup();
+  }
+});
+
+test('DemoQuery comparison filters support gt and lt', async () => {
+  const { supabase, cleanup } = freshSupabase();
+  try {
+    await supabase.from('seafood_inventory').insert({ id: 'i1', description: 'A', on_hand_qty: 0 });
+    await supabase.from('seafood_inventory').insert({ id: 'i2', description: 'B', on_hand_qty: 5 });
+    await supabase.from('inventory_stock_history').insert({ id: 'h1', change_qty: -4 });
+    await supabase.from('inventory_stock_history').insert({ id: 'h2', change_qty: 3 });
+
+    const { data: positiveQty } = await supabase.from('seafood_inventory').select('id').gt('on_hand_qty', 0);
+    const { data: negativeMoves } = await supabase.from('inventory_stock_history').select('id').lt('change_qty', 0);
+
+    assert.deepEqual(positiveQty.map((row) => row.id), ['i2']);
+    assert.deepEqual(negativeMoves.map((row) => row.id), ['h1']);
+  } finally {
+    cleanup();
+  }
+});
+
+test('DemoQuery .or() supports active lot filtering expression', async () => {
+  const { supabase, cleanup } = freshSupabase();
+  try {
+    await supabase.from('lot_codes').insert({ id: 'l1', expiration_date: null });
+    await supabase.from('lot_codes').insert({ id: 'l2', expiration_date: '2099-01-01' });
+    await supabase.from('lot_codes').insert({ id: 'l3', expiration_date: '2000-01-01' });
+
+    const { data } = await supabase
+      .from('lot_codes')
+      .select('id')
+      .or('expiration_date.is.null,expiration_date.gte.2026-05-01');
+
+    assert.deepEqual(data.map((row) => row.id).sort(), ['l1', 'l2']);
+  } finally {
+    cleanup();
+  }
+});
+
+test('DemoQuery .contains() matches JSON array objects', async () => {
+  const { supabase, cleanup } = freshSupabase();
+  try {
+    await supabase.from('orders').insert({
+      id: 'o1',
+      items: [{ lot_number: 'LOT-1', quantity: 2 }],
+    });
+    await supabase.from('orders').insert({
+      id: 'o2',
+      items: [{ lot_number: 'LOT-2', quantity: 1 }],
+    });
+
+    const { data } = await supabase
+      .from('orders')
+      .select('id')
+      .contains('items', JSON.stringify([{ lot_number: 'LOT-1' }]));
+
+    assert.deepEqual(data.map((row) => row.id), ['o1']);
+  } finally {
+    cleanup();
+  }
+});
+
+test('ResilientQuery.buildQuery passes supported filters through to real client', () => {
   const src = fs.readFileSync(
     path.join(__dirname, '..', 'services', 'supabase.js'),
     'utf8'
   );
   assert.ok(src.includes("filter.type === 'is' && typeof query.is === 'function'"), 'buildQuery should forward is filter');
   assert.ok(src.includes("filter.type === 'in' && typeof query.in === 'function'"), 'buildQuery should forward in filter');
+  assert.ok(src.includes("filter.type === 'not' && typeof query.not === 'function'"), 'buildQuery should forward not filter');
+  assert.ok(src.includes("filter.type === 'gt' && typeof query.gt === 'function'"), 'buildQuery should forward gt filter');
+  assert.ok(src.includes("filter.type === 'lt' && typeof query.lt === 'function'"), 'buildQuery should forward lt filter');
+  assert.ok(src.includes("filter.type === 'or' && typeof query.or === 'function'"), 'buildQuery should forward or filter');
+  assert.ok(src.includes("filter.type === 'contains' && typeof query.contains === 'function'"), 'buildQuery should forward contains filter');
   assert.ok(src.includes("filter.value === null ? value == null : value === filter.value"), 'matchesFilter should handle is null check');
   assert.ok(src.includes("filter.value.map(String).includes(String(value))"), 'matchesFilter should handle in array check');
+  assert.ok(src.includes("if (filter.type === 'not')"), 'matchesFilter should handle not filters');
+  assert.ok(src.includes("if (filter.type === 'or')"), 'matchesFilter should handle or filters');
+  assert.ok(src.includes("if (filter.type === 'contains')"), 'matchesFilter should handle contains filters');
 });
