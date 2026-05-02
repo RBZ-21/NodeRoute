@@ -1,179 +1,133 @@
-import { Button } from '../components/ui/button';
+import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
-import { Input } from '../components/ui/input';
-import { asMoney, asNumber, hasPendingWeight, orderHasPendingWeights, orderItemQty } from './orders.types';
-import type { Order, OrderItem } from './orders.types';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
+import { Badge } from '../components/ui/badge';
+import { Button } from '../components/ui/button';
+import { fetchWithAuth } from '../lib/api';
+import { WeightCaptureCard } from './WeightCaptureCard';
 
-type WeightBoardFilter = 'needs' | 'captured';
-
-type Props = {
-  orders: Order[];
-  filter: WeightBoardFilter;
-  role: string;
-  weightInputs: Record<string, string>;
-  savingWeight: Record<string, boolean>;
-  onWeightInputChange: (key: string, value: string) => void;
-  onSaveWeight: (orderId: string, itemIndex: number) => void;
+type StopRow = {
+  id: string | number;
+  address?: string;
+  customer_id?: string | number;
+  status?: string;
+  weight_lbs?: number | null;
+  weight_captured_at?: string | null;
+  weight_captured_by?: string | null;
+  route_id?: string | number;
 };
 
-type CustomerWeightGroup = {
-  customerName: string;
-  orders: Array<{
-    order: Order;
-    items: Array<{ item: OrderItem; itemIndex: number }>;
-  }>;
-};
-
-function itemPricePerWeight(item: OrderItem): number {
-  return item.is_catch_weight ? asNumber(item.price_per_lb) : asNumber(item.unit_price);
+interface OrderWeightsBoardProps {
+  routeId?: string | number;
 }
 
-function itemEstimatedWeight(item: OrderItem): number {
-  return item.is_catch_weight
-    ? asNumber(item.estimated_weight)
-    : asNumber(item.requested_weight ?? item.quantity);
-}
+export function OrderWeightsBoard({ routeId }: OrderWeightsBoardProps) {
+  const [stops, setStops] = useState<StopRow[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
+  const [activeStopId, setActiveStopId] = useState<string | number | null>(null);
 
-function itemDisplayName(item: OrderItem, index: number): string {
-  return item.name || item.description || item.item_number || `Item ${index + 1}`;
-}
-
-function groupOrders(orders: Order[], filter: WeightBoardFilter): CustomerWeightGroup[] {
-  const groups = new Map<string, CustomerWeightGroup>();
-
-  for (const order of orders) {
-    const matchingItems = (order.items || [])
-      .map((item, itemIndex) => ({ item, itemIndex }))
-      .filter(({ item }) => {
-        if (filter === 'needs') return hasPendingWeight(item);
-        return !hasPendingWeight(item) && itemPricePerWeight(item) >= 0 && itemEstimatedWeight(item) > 0;
-      });
-
-    if (!matchingItems.length) continue;
-    const customerName = String(order.customer_name || order.customer_email || 'Unnamed Customer').trim() || 'Unnamed Customer';
-    const existing = groups.get(customerName);
-    if (existing) {
-      existing.orders.push({ order, items: matchingItems });
-    } else {
-      groups.set(customerName, { customerName, orders: [{ order, items: matchingItems }] });
+  async function load() {
+    setLoading(true);
+    setError('');
+    try {
+      const params = new URLSearchParams();
+      if (routeId) params.set('route_id', String(routeId));
+      const data = await fetchWithAuth<StopRow[]>(`/api/stops?${params.toString()}`);
+      setStops(Array.isArray(data) ? data : []);
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not load stops'));
+    } finally {
+      setLoading(false);
     }
   }
 
-  return Array.from(groups.values()).sort((a, b) => a.customerName.localeCompare(b.customerName));
-}
+  useEffect(() => { load(); }, [routeId]);
 
-export function OrderWeightsBoard({
-  orders,
-  filter,
-  role,
-  weightInputs,
-  savingWeight,
-  onWeightInputChange,
-  onSaveWeight,
-}: Props) {
-  const canCapture = role === 'admin' || role === 'manager';
-  const groups = groupOrders(orders, filter);
-  const title = filter === 'needs' ? 'Weight Entry Queue' : 'Captured Weights';
-  const description = filter === 'needs'
-    ? 'Run down open customers that still need actual weights entered.'
-    : 'Review open customers whose weight-managed items already have actual weights entered.';
+  function onWeightSaved(stopId: string | number, lbs: number) {
+    setStops((prev) =>
+      prev.map((s) =>
+        s.id === stopId
+          ? { ...s, weight_lbs: lbs, weight_captured_at: new Date().toISOString() }
+          : s
+      )
+    );
+    setActiveStopId(null);
+  }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-        <CardDescription>{description}</CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        {groups.length ? (
-          groups.map((group) => (
-            <div key={group.customerName} className="rounded-lg border border-border bg-card">
-              <div className="border-b border-border bg-muted/20 px-4 py-3">
-                <div className="text-base font-semibold text-foreground">{group.customerName}</div>
-                <div className="mt-1 text-xs text-muted-foreground">
-                  {group.orders.length} order{group.orders.length === 1 ? '' : 's'} ·{' '}
-                  {group.orders.reduce((sum, entry) => sum + entry.items.length, 0)} item{group.orders.reduce((sum, entry) => sum + entry.items.length, 0) === 1 ? '' : 's'}
-                </div>
-              </div>
-              <div className="space-y-3 p-4">
-                {group.orders.map(({ order, items }) => (
-                  <div key={order.id} className="rounded-md border border-border/70 bg-muted/10 p-3">
-                    <div className="flex flex-wrap items-center justify-between gap-2 border-b border-border/70 pb-2">
-                      <div className="text-sm font-semibold text-foreground">{order.order_number || order.id.slice(0, 8)}</div>
-                      <div className="text-xs text-muted-foreground">{orderHasPendingWeights(order) ? 'Pending weight entry' : 'Weights entered'}</div>
-                    </div>
-                    <div className="space-y-3 pt-3">
-                      {items.map(({ item, itemIndex }) => {
-                        const key = `${order.id}:${itemIndex}`;
-                        const estimatedWeight = itemEstimatedWeight(item);
-                        const actualWeight = asNumber(item.actual_weight);
-                        const pricePerWeight = itemPricePerWeight(item);
-                        const total = asMoney(orderItemQty(item) * pricePerWeight);
+    <div className="space-y-4">
+      {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading stops...</div> : null}
+      {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
 
-                        return (
-                          <div key={key} className="grid gap-3 rounded-md border border-border/60 bg-background px-3 py-3 md:grid-cols-[1.6fr_repeat(4,minmax(0,1fr))] md:items-center">
-                            <div>
-                              <div className="text-sm font-medium text-foreground">{itemDisplayName(item, itemIndex)}</div>
-                              <div className="mt-1 text-xs text-muted-foreground">
-                                {String(item.unit || '').toLowerCase() === 'lb' && asNumber(item.requested_qty) > 0 ? `Qty: ${asNumber(item.requested_qty)} · ` : ''}
-                                ${pricePerWeight.toFixed(4)}/lb
-                              </div>
-                            </div>
-                            <Metric label="Estimated" value={`${estimatedWeight.toFixed(3)} lbs`} />
-                            <Metric
-                              label="Actual"
-                              value={actualWeight > 0 ? `${actualWeight.toFixed(3)} lbs` : 'Not entered'}
-                              tone={actualWeight > 0 ? 'text-foreground' : 'text-amber-600'}
-                            />
-                            <Metric label="Line Total" value={total} />
-                            {canCapture ? (
-                              <div className="flex items-center gap-2">
-                                <Input
-                                  type="number"
-                                  min="0.001"
-                                  step="0.001"
-                                  placeholder="0.000"
-                                  value={weightInputs[key] ?? (actualWeight > 0 ? String(actualWeight) : '')}
-                                  onChange={(event) => onWeightInputChange(key, event.target.value)}
-                                  className="w-28"
-                                />
-                                <Button
-                                  size="sm"
-                                  disabled={!!savingWeight[key]}
-                                  onClick={() => onSaveWeight(order.id, itemIndex)}
-                                >
-                                  {savingWeight[key] ? 'Saving…' : actualWeight > 0 ? 'Update' : 'Save'}
-                                </Button>
-                              </div>
-                            ) : (
-                              <Metric label="Status" value={actualWeight > 0 ? 'Captured' : 'Awaiting entry'} />
-                            )}
-                          </div>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          ))
-        ) : (
-          <div className="rounded-lg border border-dashed border-border bg-muted/10 px-4 py-6 text-sm text-muted-foreground">
-            {filter === 'needs'
-              ? 'No open orders are waiting on weight entry.'
-              : 'No open orders have captured weights yet.'}
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
+      <Card>
+        <CardHeader>
+          <CardTitle>Order Weights Board</CardTitle>
+          <CardDescription>Capture and review delivery weights per stop{routeId ? ` for route ${routeId}` : ''}.</CardDescription>
+        </CardHeader>
+        <CardContent className="rounded-lg border border-border bg-card p-2">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Stop</TableHead>
+                <TableHead>Address</TableHead>
+                <TableHead>Status</TableHead>
+                <TableHead>Weight (lbs)</TableHead>
+                <TableHead>Captured By</TableHead>
+                <TableHead>Actions</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {stops.length ? stops.map((stop) => (
+                <TableRow key={String(stop.id)}>
+                  <TableCell className="font-medium">{stop.id}</TableCell>
+                  <TableCell>{stop.address || '-'}</TableCell>
+                  <TableCell>
+                    <Badge variant={stop.status === 'completed' ? 'success' : 'secondary'}>
+                      {stop.status || 'pending'}
+                    </Badge>
+                  </TableCell>
+                  <TableCell>
+                    {stop.weight_lbs != null ? (
+                      <span className="font-semibold">{stop.weight_lbs} lbs</span>
+                    ) : (
+                      <span className="text-muted-foreground">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="text-sm text-muted-foreground">
+                    {stop.weight_captured_by || '—'}
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      size="sm"
+                      variant={activeStopId === stop.id ? 'default' : 'outline'}
+                      onClick={() => setActiveStopId(activeStopId === stop.id ? null : stop.id)}
+                    >
+                      {activeStopId === stop.id ? 'Cancel' : 'Enter Weight'}
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              )) : (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-muted-foreground">No stops found.</TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
 
-function Metric({ label, value, tone = 'text-foreground' }: { label: string; value: string; tone?: string }) {
-  return (
-    <div>
-      <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className={`mt-1 text-sm font-medium ${tone}`}>{value}</div>
+      {activeStopId != null ? (
+        <WeightCaptureCard
+          stopId={activeStopId}
+          currentWeight={stops.find((s) => s.id === activeStopId)?.weight_lbs}
+          onSaved={(lbs) => onWeightSaved(activeStopId, lbs)}
+        />
+      ) : null}
+
+      <div className="flex justify-end">
+        <Button variant="outline" onClick={load}>Refresh</Button>
+      </div>
     </div>
   );
 }

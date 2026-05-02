@@ -1,230 +1,202 @@
-import { Lightbulb, ListChecks, ShieldAlert, Sparkles } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { sendWithAuth } from '../lib/api';
 
-type WalkthroughResponse = {
-  title?: string;
-  summary?: string;
-  steps?: string[];
-  tips?: string[];
-  warnings?: string[];
+type MessageRole = 'user' | 'assistant' | 'system';
+
+type Message = {
+  id: string;
+  role: MessageRole;
+  content: string;
+  timestamp: string;
 };
 
-type FeatureOption = {
-  label: string;
-  value: string;
+type AIChatResponse = {
+  reply?: string;
+  message?: string;
+  content?: string;
+  response?: string;
 };
 
-const featureOptions: FeatureOption[] = [
-  { label: 'Dashboard Overview', value: 'Dashboard' },
-  { label: 'Orders', value: 'Orders' },
-  { label: 'Deliveries', value: 'Deliveries' },
-  { label: 'Drivers', value: 'Drivers' },
-  { label: 'Routes', value: 'Routes' },
-  { label: 'Stops', value: 'Stops' },
-  { label: 'Customers', value: 'Customers' },
-  { label: 'Vendors', value: 'Vendors' },
-  { label: 'Planning', value: 'Planning' },
-  { label: 'Purchasing', value: 'Purchasing' },
-  { label: 'Warehouse', value: 'Warehouse' },
-  { label: 'Invoices', value: 'Invoices' },
-  { label: 'Analytics', value: 'Analytics' },
-  { label: 'Reporting', value: 'Reporting' },
-  { label: 'Portal Payments', value: 'Portal Payments' },
-  { label: 'Inventory', value: 'Inventory' },
-  { label: 'Forecasting', value: 'Forecasting' },
-  { label: 'Settings', value: 'Settings' },
+const SUGGESTED_PROMPTS = [
+  'Summarize today\'s delivery status',
+  'Which customers are on credit hold?',
+  'Show me low inventory items',
+  'What routes are active today?',
+  'List overdue invoices',
 ];
 
-function normalizeList(value: unknown): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.map((item) => String(item || '').trim()).filter(Boolean);
+function formatTime(iso: string): string {
+  try { return new Date(iso).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }); }
+  catch { return ''; }
 }
 
 export function AIHelpPage() {
-  const [feature, setFeature] = useState<string>(featureOptions[0].value);
-  const [question, setQuestion] = useState('');
+  const [messages, setMessages] = useState<Message[]>([
+    {
+      id: 'welcome',
+      role: 'assistant',
+      content: 'Hi! I\'m your NodeRoute AI assistant. Ask me anything about your deliveries, routes, customers, inventory, or invoices.',
+      timestamp: new Date().toISOString(),
+    },
+  ]);
+  const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [result, setResult] = useState<WalkthroughResponse | null>(null);
+  const [conversationId, setConversationId] = useState<string | null>(null);
+  const bottomRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  const outputTitle = useMemo(() => {
-    if (result?.title?.trim()) return result.title.trim();
-    return feature ? `${feature} Walkthrough` : 'Walkthrough';
-  }, [feature, result?.title]);
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
+  }, [messages]);
 
-  async function requestWalkthrough() {
-    if (!feature.trim()) {
-      setError('Choose a function first.');
-      return;
-    }
-
-    setLoading(true);
+  async function sendMessage(text: string) {
+    const trimmed = text.trim();
+    if (!trimmed || loading) return;
+    setInput('');
     setError('');
-    setResult(null);
+
+    const userMsg: Message = {
+      id: `user-${Date.now()}`,
+      role: 'user',
+      content: trimmed,
+      timestamp: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setLoading(true);
+
     try {
-      const data = await sendWithAuth<WalkthroughResponse>('/api/ai/walkthrough', 'POST', {
-        feature: feature.trim(),
-        question: question.trim(),
-      });
-      setResult({
-        title: String(data?.title || '').trim(),
-        summary: String(data?.summary || '').trim(),
-        steps: normalizeList(data?.steps),
-        tips: normalizeList(data?.tips),
-        warnings: normalizeList(data?.warnings),
-      });
+      const payload: Record<string, unknown> = { message: trimmed };
+      if (conversationId) payload.conversation_id = conversationId;
+
+      const response = await sendWithAuth<AIChatResponse & { conversation_id?: string }>(
+        '/api/ai/chat',
+        'POST',
+        payload
+      );
+
+      const reply = String(
+        response.reply ?? response.message ?? response.content ?? response.response ?? ''
+      ).trim() || '(No response from AI)';
+
+      if (response.conversation_id) setConversationId(response.conversation_id);
+
+      const assistantMsg: Message = {
+        id: `ai-${Date.now()}`,
+        role: 'assistant',
+        content: reply,
+        timestamp: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, assistantMsg]);
     } catch (err) {
-      setError(String((err as Error).message || 'AI walkthrough failed'));
+      setError(String((err as Error).message || 'AI request failed'));
     } finally {
       setLoading(false);
+      setTimeout(() => inputRef.current?.focus(), 50);
     }
   }
 
-  function resetForm() {
-    setFeature(featureOptions[0].value);
-    setQuestion('');
+  function clearChat() {
+    setMessages([
+      {
+        id: 'welcome',
+        role: 'assistant',
+        content: 'Chat cleared. How can I help you?',
+        timestamp: new Date().toISOString(),
+      },
+    ]);
+    setConversationId(null);
     setError('');
-    setResult(null);
   }
 
   return (
-    <div className="space-y-5">
-      {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
-
-      <div className="grid gap-4 xl:grid-cols-[1fr_1.2fr]">
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle>AI Walkthroughs</CardTitle>
-            <CardDescription>Ask for a plain-English walkthrough of any NodeRoute function.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <label className="space-y-1 text-sm">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Function</span>
-              <select
-                value={feature}
-                onChange={(event) => setFeature(event.target.value)}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              >
-                {featureOptions.map((option) => (
-                  <option key={option.value} value={option.value}>
-                    {option.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-
-            <label className="space-y-1 text-sm">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Optional Question</span>
-              <textarea
-                value={question}
-                onChange={(event) => setQuestion(event.target.value)}
-                placeholder="Example: How do I create an order, assign a driver, and invoice it?"
-                rows={6}
-                className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-              />
-            </label>
-
-            <div className="flex flex-wrap gap-2">
-              <Button onClick={requestWalkthrough} disabled={loading}>
-                {loading ? 'Generating Walkthrough...' : 'Get Walkthrough'}
-              </Button>
-              <Button variant="outline" onClick={resetForm} disabled={loading}>
-                Reset
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="space-y-1">
-            <CardTitle>{outputTitle}</CardTitle>
-            <CardDescription>
-              {result?.summary?.trim()
-                ? result.summary
-                : 'Choose a function and request a walkthrough to see steps, tips, and warnings.'}
-            </CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <InsightSection
-              title="Steps"
-              icon={<ListChecks className="h-4 w-4" />}
-              items={normalizeList(result?.steps)}
-              emptyText="No steps yet."
-              tone="blue"
-            />
-            <InsightSection
-              title="Tips"
-              icon={<Lightbulb className="h-4 w-4" />}
-              items={normalizeList(result?.tips)}
-              emptyText="No tips yet."
-              tone="emerald"
-            />
-            <InsightSection
-              title="Warnings"
-              icon={<ShieldAlert className="h-4 w-4" />}
-              items={normalizeList(result?.warnings)}
-              emptyText="No warnings yet."
-              tone="amber"
-            />
-          </CardContent>
-        </Card>
-      </div>
-
-      <Card>
-        <CardHeader className="space-y-1">
-          <CardTitle className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-primary" />
-            Usage Notes
-          </CardTitle>
-          <CardDescription>The walkthrough endpoint uses role-aware guidance and may return fallback advice when AI configuration is limited.</CardDescription>
+    <div className="flex h-[calc(100vh-8rem)] flex-col space-y-3">
+      <Card className="shrink-0">
+        <CardHeader className="flex flex-row items-center justify-between py-3">
+          <div>
+            <CardTitle>AI Assistant</CardTitle>
+            <CardDescription>Ask about deliveries, routes, customers, inventory, or invoices.</CardDescription>
+          </div>
+          <Button variant="ghost" size="sm" onClick={clearChat}>Clear chat</Button>
         </CardHeader>
-        <CardContent className="text-sm text-muted-foreground">
-          When `OPENAI_API_KEY` is missing, the backend can return service availability or fallback guidance depending on environment setup.
+      </Card>
+
+      {error ? (
+        <div className="shrink-0 rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div>
+      ) : null}
+
+      {/* Message thread */}
+      <Card className="flex-1 overflow-hidden">
+        <CardContent className="flex h-full flex-col p-0">
+          <div className="flex-1 overflow-y-auto p-4 space-y-3">
+            {messages.map((msg) => (
+              <div
+                key={msg.id}
+                className={`flex ${
+                  msg.role === 'user' ? 'justify-end' : 'justify-start'
+                }`}
+              >
+                <div
+                  className={`max-w-[80%] rounded-2xl px-4 py-2 text-sm ${
+                    msg.role === 'user'
+                      ? 'bg-primary text-primary-foreground'
+                      : 'bg-muted text-foreground'
+                  }`}
+                >
+                  <p className="whitespace-pre-wrap">{msg.content}</p>
+                  <p className={`mt-1 text-xs ${
+                    msg.role === 'user' ? 'text-primary-foreground/60' : 'text-muted-foreground'
+                  }`}>
+                    {formatTime(msg.timestamp)}
+                  </p>
+                </div>
+              </div>
+            ))}
+            {loading ? (
+              <div className="flex justify-start">
+                <div className="rounded-2xl bg-muted px-4 py-2 text-sm text-muted-foreground animate-pulse">
+                  Thinking...
+                </div>
+              </div>
+            ) : null}
+            <div ref={bottomRef} />
+          </div>
         </CardContent>
       </Card>
-    </div>
-  );
-}
 
-function InsightSection({
-  title,
-  icon,
-  items,
-  emptyText,
-  tone,
-}: {
-  title: string;
-  icon: JSX.Element;
-  items: string[];
-  emptyText: string;
-  tone: 'blue' | 'emerald' | 'amber';
-}) {
-  const toneClass =
-    tone === 'blue'
-      ? 'border-blue-200 bg-blue-50 text-blue-800'
-      : tone === 'emerald'
-        ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
-        : 'border-amber-200 bg-amber-50 text-amber-800';
-
-  return (
-    <div className={`rounded-lg border p-3 ${toneClass}`}>
-      <div className="flex items-center gap-2 text-sm font-semibold">
-        {icon}
-        {title}
+      {/* Suggested prompts */}
+      <div className="shrink-0 flex flex-wrap gap-2">
+        {SUGGESTED_PROMPTS.map((prompt) => (
+          <button
+            key={prompt}
+            onClick={() => void sendMessage(prompt)}
+            className="rounded-full border border-border bg-background px-3 py-1 text-xs hover:bg-muted transition-colors"
+          >
+            {prompt}
+          </button>
+        ))}
       </div>
-      {items.length ? (
-        <ol className="mt-2 list-decimal space-y-1 pl-5 text-sm">
-          {items.map((item, index) => (
-            <li key={`${title}-${index}`}>{item}</li>
-          ))}
-        </ol>
-      ) : (
-        <div className="mt-2 text-sm opacity-80">{emptyText}</div>
-      )}
+
+      {/* Input bar */}
+      <Card className="shrink-0">
+        <CardContent className="flex gap-2 p-3">
+          <Input
+            ref={inputRef}
+            placeholder="Ask anything about your operations..."
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); void sendMessage(input); } }}
+            disabled={loading}
+            className="flex-1"
+          />
+          <Button onClick={() => void sendMessage(input)} disabled={loading || !input.trim()}>
+            {loading ? '...' : 'Send'}
+          </Button>
+        </CardContent>
+      </Card>
     </div>
   );
 }
