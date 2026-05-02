@@ -15,11 +15,11 @@
     color: #f4f4f0;
   }
   ::selection {
-    background: rgba(61, 186, 127, 0.35);
+    background: rgba(35, 103, 181, 0.35);
     color: #fff;
   }
   :focus-visible {
-    outline: 2px solid #4dcf91;
+    outline: 2px solid #3a7fcc;
     outline-offset: 2px;
     border-radius: 4px;
   }
@@ -44,7 +44,7 @@
     mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
   }
   .gradient-text-teal {
-    background: linear-gradient(180deg, #ffffff 0%, #c4f0d9 55%, #4dcf91 100%);
+    background: linear-gradient(180deg, #ffffff 0%, #c4d9f0 55%, #3a7fcc 100%);
     -webkit-background-clip: text;
     background-clip: text;
     color: transparent;
