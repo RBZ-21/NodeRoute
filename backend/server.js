@@ -241,6 +241,7 @@ const frontendV2Routes = [
   '/integrations',
   '/aihelp',
   '/settings',
+  '/reports',        // ← was missing; direct navigation returned landing page
   '/admin/traceability',
 ];
 app.get(frontendV2Routes, (req, res) => {
