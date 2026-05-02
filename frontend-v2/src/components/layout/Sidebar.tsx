@@ -1,17 +1,32 @@
-import { ChevronDown, ChevronRight } from 'lucide-react';
-import { useState } from 'react';
+import { ChevronDown, ChevronRight, X } from 'lucide-react';
+import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '../../lib/utils';
 import { type NavGroup, type Role, defaultPath, findNavItem, navGroups } from '../../lib/nav';
 
 interface SidebarProps {
   role: Role;
+  mobileOpen: boolean;
+  onMobileClose: () => void;
 }
 
-export function Sidebar({ role }: SidebarProps) {
+export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
   const location    = useLocation();
   const navigate    = useNavigate();
   const currentItem = findNavItem(location.pathname) ?? findNavItem(defaultPath);
+
+  // Close drawer on route change
+  useEffect(() => { onMobileClose(); }, [location.pathname]);
+
+  // Prevent body scroll when drawer is open
+  useEffect(() => {
+    if (mobileOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => { document.body.style.overflow = ''; };
+  }, [mobileOpen]);
 
   const visibleGroups = navGroups
     .filter((g) => !g.adminOnly || role === 'admin')
@@ -20,8 +35,20 @@ export function Sidebar({ role }: SidebarProps) {
       items: g.items.filter((item) => !item.adminOnly || role === 'admin'),
     }));
 
-  return (
+  const sidebarContent = (
     <aside className="flex h-full w-56 shrink-0 flex-col gap-1 overflow-y-auto border-r border-border bg-card px-2 py-4">
+      {/* Mobile close button */}
+      <div className="flex items-center justify-between px-3 pb-2 md:hidden">
+        <span className="text-xs font-bold uppercase tracking-widest text-primary">Menu</span>
+        <button
+          onClick={onMobileClose}
+          aria-label="Close menu"
+          className="rounded-md p-1 text-muted-foreground hover:bg-muted/60"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
       {visibleGroups.map((group) => (
         <SidebarGroup
           key={group.id}
@@ -31,6 +58,31 @@ export function Sidebar({ role }: SidebarProps) {
         />
       ))}
     </aside>
+  );
+
+  return (
+    <>
+      {/* Desktop: always visible */}
+      <div className="hidden md:flex h-full">
+        {sidebarContent}
+      </div>
+
+      {/* Mobile: slide-in drawer with backdrop */}
+      {mobileOpen && (
+        <div className="fixed inset-0 z-50 flex md:hidden">
+          {/* Backdrop */}
+          <div
+            className="absolute inset-0 bg-black/40"
+            onClick={onMobileClose}
+            aria-hidden="true"
+          />
+          {/* Drawer panel */}
+          <div className="relative flex h-full w-56 flex-col bg-card shadow-xl">
+            {sidebarContent}
+          </div>
+        </div>
+      )}
+    </>
   );
 }
 
