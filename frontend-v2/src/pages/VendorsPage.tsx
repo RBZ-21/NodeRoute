@@ -2,9 +2,10 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Input } from '../components/ui/input';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth } from '../lib/api';
+import { fetchWithAuth, sendWithAuth } from '../lib/api';
 
 type VendorStatus = 'active' | 'inactive' | 'on-hold' | 'other';
 
@@ -22,6 +23,9 @@ type Vendor = {
   activePOs?: number | string;
   active_pos?: number | string;
   status?: string;
+  address?: string;
+  notes?: string;
+  payment_terms?: string;
 };
 
 const statusColors = {
@@ -36,10 +40,7 @@ function toNumber(value: unknown): number {
 }
 
 function normalizeStatus(value: string | undefined): VendorStatus {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_]+/g, '-');
+  const normalized = String(value || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
   if (normalized === 'active') return 'active';
   if (normalized === 'inactive') return 'inactive';
   if (normalized === 'on-hold') return 'on-hold';
@@ -71,6 +72,12 @@ export function VendorsPage() {
   const [statusFilter, setStatusFilter] = useState<'all' | VendorStatus>('all');
   const [categoryFilter, setCategoryFilter] = useState<'all' | string>('all');
 
+  // Edit panel
+  const [selected, setSelected] = useState<Vendor | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState<Vendor>({});
+  const [saving, setSaving] = useState(false);
+
   async function load() {
     setLoading(true);
     setError('');
@@ -84,9 +91,7 @@ export function VendorsPage() {
     }
   }
 
-  useEffect(() => {
-    load();
-  }, []);
+  useEffect(() => { load(); }, []);
 
   const categoryOptions = useMemo(() => {
     const options = new Set<string>();
@@ -106,19 +111,37 @@ export function VendorsPage() {
     });
   }, [vendors, statusFilter, categoryFilter]);
 
+  function openVendor(vendor: Vendor) {
+    setSelected(vendor);
+    setDraft({ ...vendor });
+    setEditing(false);
+  }
+
+  async function saveVendor() {
+    const id = selected?.id || selected?.vendor_id || selected?.vendorId;
+    if (!id) return;
+    setSaving(true);
+    setError('');
+    try {
+      const updated = await sendWithAuth<Vendor>(`/api/vendors/${id}`, 'PATCH', draft);
+      setVendors((prev) => prev.map((v) => String(v.id) === String(id) ? { ...v, ...updated } : v));
+      setSelected({ ...selected!, ...updated });
+      setEditing(false);
+      setNotice(`${draft.name || vendorName(draft)} saved.`);
+    } catch (err) {
+      setError(String((err as Error).message || 'Save failed'));
+    } finally {
+      setSaving(false);
+    }
+  }
+
   function viewPOs(vendor: Vendor) {
-    const value = vendorName(vendor);
-    navigate(`/purchasing?vendor=${encodeURIComponent(value)}`);
+    navigate(`/purchasing?vendor=${encodeURIComponent(vendorName(vendor))}`);
   }
 
   function newPO(vendor: Vendor) {
-    const value = vendorName(vendor);
-    navigate(`/purchasing?vendor=${encodeURIComponent(value)}`);
-    setNotice(`Opened new PO flow for ${value}.`);
-  }
-
-  function editVendor(vendor: Vendor, index: number) {
-    setNotice(`Vendor editor opened for ${vendorName(vendor)} (${vendorId(vendor, index)}).`);
+    navigate(`/purchasing?vendor=${encodeURIComponent(vendorName(vendor))}`);
+    setNotice(`Opened new PO flow for ${vendorName(vendor)}.`);
   }
 
   return (
@@ -136,11 +159,7 @@ export function VendorsPage() {
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
-              <select
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value as 'all' | VendorStatus)}
-                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-              >
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | VendorStatus)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
                 <option value="all">All</option>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
@@ -149,22 +168,12 @@ export function VendorsPage() {
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Category</span>
-              <select
-                value={categoryFilter}
-                onChange={(event) => setCategoryFilter(event.target.value)}
-                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-              >
+              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
                 <option value="all">All Categories</option>
-                {categoryOptions.map((category) => (
-                  <option key={category} value={category}>
-                    {category}
-                  </option>
-                ))}
+                {categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
               </select>
             </label>
-            <Button variant="outline" onClick={load}>
-              Refresh
-            </Button>
+            <Button variant="outline" onClick={load}>Refresh</Button>
           </div>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
@@ -183,48 +192,99 @@ export function VendorsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.length ? (
-                filtered.map((vendor, index) => {
-                  const status = normalizeStatus(vendor.status);
-                  return (
-                    <TableRow key={vendorId(vendor, index)}>
-                      <TableCell className="font-medium">{vendorId(vendor, index)}</TableCell>
-                      <TableCell>{vendorName(vendor)}</TableCell>
-                      <TableCell>{vendorContact(vendor)}</TableCell>
-                      <TableCell>{vendor.email || '-'}</TableCell>
-                      <TableCell>{vendor.phone || '-'}</TableCell>
-                      <TableCell>{vendor.category || '-'}</TableCell>
-                      <TableCell>{activePOs(vendor).toLocaleString()}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={status} colorMap={statusColors} fallbackLabel="Unknown" />
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          <Button variant="ghost" size="sm" onClick={() => viewPOs(vendor)}>
-                            View POs
-                          </Button>
-                          <Button variant="secondary" size="sm" onClick={() => newPO(vendor)}>
-                            New PO
-                          </Button>
-                          <Button size="sm" onClick={() => editVendor(vendor, index)}>
-                            Edit Vendor
-                          </Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={9} className="text-muted-foreground">
-                    No vendors found for the selected filters.
-                  </TableCell>
-                </TableRow>
+              {filtered.length ? filtered.map((vendor, index) => {
+                const status = normalizeStatus(vendor.status);
+                return (
+                  <TableRow key={vendorId(vendor, index)}>
+                    <TableCell className="font-medium">{vendorId(vendor, index)}</TableCell>
+                    <TableCell>{vendorName(vendor)}</TableCell>
+                    <TableCell>{vendorContact(vendor)}</TableCell>
+                    <TableCell>{vendor.email || '-'}</TableCell>
+                    <TableCell>{vendor.phone || '-'}</TableCell>
+                    <TableCell>{vendor.category || '-'}</TableCell>
+                    <TableCell>{activePOs(vendor).toLocaleString()}</TableCell>
+                    <TableCell><StatusBadge status={status} colorMap={statusColors} fallbackLabel="Unknown" /></TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        <Button variant="ghost" size="sm" onClick={() => viewPOs(vendor)}>View POs</Button>
+                        <Button variant="secondary" size="sm" onClick={() => newPO(vendor)}>New PO</Button>
+                        <Button size="sm" onClick={() => openVendor(vendor)}>Edit</Button>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              }) : (
+                <TableRow><TableCell colSpan={9} className="text-muted-foreground">No vendors found for the selected filters.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
+
+      {/* ── Vendor Edit Slide-Over ── */}
+      {selected ? (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setSelected(null)} />
+          <div className="relative z-10 flex h-full w-full max-w-md flex-col overflow-y-auto bg-background shadow-xl">
+            <div className="flex items-center justify-between border-b px-6 py-4">
+              <div>
+                <h2 className="text-lg font-semibold">{vendorName(selected)}</h2>
+                <p className="text-sm text-muted-foreground">{vendorId(selected, 0)}</p>
+              </div>
+              <div className="flex gap-2">
+                {!editing ? (
+                  <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
+                ) : (
+                  <>
+                    <Button size="sm" variant="outline" onClick={() => { setEditing(false); setDraft({ ...selected }); }}>Cancel</Button>
+                    <Button size="sm" disabled={saving} onClick={saveVendor}>{saving ? 'Saving...' : 'Save'}</Button>
+                  </>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>✕</Button>
+              </div>
+            </div>
+            <div className="flex-1 space-y-4 p-6">
+              <VendorField label="Name" value={draft.name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, name: v }))} />
+              <VendorField label="Contact" value={draft.contact || draft.contactName || draft.contact_name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, contact: v }))} />
+              <VendorField label="Email" value={draft.email} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
+              <VendorField label="Phone" value={draft.phone} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, phone: v }))} />
+              <VendorField label="Category" value={draft.category} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, category: v }))} />
+              <VendorField label="Address" value={draft.address} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, address: v }))} />
+              <VendorField label="Payment Terms" value={draft.payment_terms} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, payment_terms: v }))} />
+              <div className="flex items-start gap-3">
+                <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Status</span>
+                {editing ? (
+                  <select value={draft.status || ''} onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value }))} className="flex-1 h-10 rounded-md border border-input bg-background px-3 text-sm">
+                    <option value="active">Active</option>
+                    <option value="inactive">Inactive</option>
+                    <option value="on-hold">On Hold</option>
+                  </select>
+                ) : (
+                  <span className="text-sm capitalize">{selected.status || '-'}</span>
+                )}
+              </div>
+              <VendorField label="Notes" value={draft.notes} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} multiline />
+            </div>
+          </div>
+        </div>
+      ) : null}
+    </div>
+  );
+}
+
+function VendorField({ label, value, editing, onChange, multiline }: { label: string; value?: string | null; editing: boolean; onChange: (v: string) => void; multiline?: boolean }) {
+  return (
+    <div className="flex items-start gap-3">
+      <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">{label}</span>
+      {editing ? (
+        multiline ? (
+          <textarea className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm" rows={3} value={value || ''} onChange={(e) => onChange(e.target.value)} />
+        ) : (
+          <Input className="flex-1" value={value || ''} onChange={(e) => onChange(e.target.value)} />
+        )
+      ) : (
+        <span className="text-sm">{value || '-'}</span>
+      )}
     </div>
   );
 }

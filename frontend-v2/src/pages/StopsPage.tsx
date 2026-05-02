@@ -5,7 +5,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth } from '../lib/api';
+import { fetchWithAuth, sendWithAuth } from '../lib/api';
 
 type StopStatus = 'pending' | 'arrived' | 'completed' | 'failed' | 'other';
 
@@ -26,6 +26,7 @@ type StopRecord = {
   arrival_time?: string;
   driverNotes?: string;
   driver_notes?: string;
+  door_code?: string;
   mapUrl?: string;
   map_url?: string;
   lat?: number | string | null;
@@ -42,10 +43,7 @@ const statusColors = {
 } as const;
 
 function normalizeStatus(value: string | undefined): StopStatus {
-  const normalized = String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/[\s_]+/g, '-');
+  const normalized = String(value || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
   if (normalized === 'pending') return 'pending';
   if (normalized === 'arrived') return 'arrived';
   if (normalized === 'completed') return 'completed';
@@ -83,24 +81,13 @@ function orderNumber(stop: StopRecord): string {
   return String(stop.orderNumber || stop.order_number || '-');
 }
 
-function driverNotes(stop: StopRecord): string {
-  return String(stop.driverNotes || stop.driver_notes || '-');
-}
-
 function mapHref(stop: StopRecord): string {
   const explicit = String(stop.mapUrl || stop.map_url || '').trim();
   if (explicit) return explicit;
-
   const lat = Number(stop.lat);
   const lng = Number(stop.lng);
-  if (Number.isFinite(lat) && Number.isFinite(lng)) {
-    return `https://maps.google.com/?q=${encodeURIComponent(`${lat},${lng}`)}`;
-  }
-
-  if (stop.address) {
-    return `https://maps.google.com/?q=${encodeURIComponent(stop.address)}`;
-  }
-
+  if (Number.isFinite(lat) && Number.isFinite(lng)) return `https://maps.google.com/?q=${encodeURIComponent(`${lat},${lng}`)}`;
+  if (stop.address) return `https://maps.google.com/?q=${encodeURIComponent(stop.address)}`;
   return 'https://maps.google.com';
 }
 
@@ -117,6 +104,11 @@ export function StopsPage() {
   const [dateFilter, setDateFilter] = useState('');
   const [statusOverrides, setStatusOverrides] = useState<Record<string, 'completed' | 'failed'>>({});
 
+  // Inline note/door edit state: key -> { notes, door_code }
+  const [editingKey, setEditingKey] = useState<string | null>(null);
+  const [noteDraft, setNoteDraft] = useState<{ driverNotes: string; door_code: string }>({ driverNotes: '', door_code: '' });
+  const [savingNote, setSavingNote] = useState(false);
+
   async function load() {
     setLoading(true);
     setError('');
@@ -131,13 +123,8 @@ export function StopsPage() {
     }
   }
 
-  useEffect(() => {
-    load();
-  }, [routeIdParam]);
-
-  useEffect(() => {
-    setRouteFilter(routeIdParam || 'all');
-  }, [routeIdParam]);
+  useEffect(() => { load(); }, [routeIdParam]);
+  useEffect(() => { setRouteFilter(routeIdParam || 'all'); }, [routeIdParam]);
 
   const routeOptions = useMemo(() => {
     const unique = new Set<string>();
@@ -165,19 +152,43 @@ export function StopsPage() {
   const summary = useMemo(() => {
     const countByStatus = (target: StopStatus) =>
       stops.filter((stop, index) => (statusOverrides[stopKey(stop, index)] || normalizeStatus(stop.status)) === target).length;
-
-    return {
-      pending: countByStatus('pending'),
-      arrived: countByStatus('arrived'),
-      completed: countByStatus('completed'),
-      failed: countByStatus('failed'),
-    };
+    return { pending: countByStatus('pending'), arrived: countByStatus('arrived'), completed: countByStatus('completed'), failed: countByStatus('failed') };
   }, [stops, statusOverrides]);
 
   function setStopStatus(stop: StopRecord, index: number, nextStatus: 'completed' | 'failed') {
     const key = stopKey(stop, index);
     setStatusOverrides((current) => ({ ...current, [key]: nextStatus }));
     setNotice(`Stop ${stopNumberLabel(stop, index)} marked ${nextStatus}.`);
+  }
+
+  function startEditNote(stop: StopRecord, index: number) {
+    setEditingKey(stopKey(stop, index));
+    setNoteDraft({
+      driverNotes: String(stop.driverNotes || stop.driver_notes || ''),
+      door_code: String(stop.door_code || ''),
+    });
+  }
+
+  async function saveNote(stop: StopRecord, index: number) {
+    const id = stop.id;
+    if (!id) {
+      // Optimistic local save only if no id
+      setStops((prev) => prev.map((s, i) => i === index ? { ...s, driverNotes: noteDraft.driverNotes, door_code: noteDraft.door_code } : s));
+      setEditingKey(null);
+      setNotice(`Stop ${stopNumberLabel(stop, index)} notes updated locally.`);
+      return;
+    }
+    setSavingNote(true);
+    try {
+      await sendWithAuth(`/api/stops/${id}`, 'PATCH', { driver_notes: noteDraft.driverNotes, door_code: noteDraft.door_code });
+      setStops((prev) => prev.map((s) => String(s.id) === String(id) ? { ...s, driverNotes: noteDraft.driverNotes, driver_notes: noteDraft.driverNotes, door_code: noteDraft.door_code } : s));
+      setEditingKey(null);
+      setNotice(`Stop ${stopNumberLabel(stop, index)} notes saved.`);
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not save notes'));
+    } finally {
+      setSavingNote(false);
+    }
   }
 
   return (
@@ -207,11 +218,7 @@ export function StopsPage() {
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
-              <select
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value as 'all' | StopStatus)}
-                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-              >
+              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | StopStatus)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
                 <option value="all">All</option>
                 <option value="pending">Pending</option>
                 <option value="arrived">Arrived</option>
@@ -221,26 +228,16 @@ export function StopsPage() {
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Route</span>
-              <select
-                value={routeFilter}
-                onChange={(event) => setRouteFilter(event.target.value)}
-                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-              >
+              <select value={routeFilter} onChange={(e) => setRouteFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
                 <option value="all">All Routes</option>
-                {routeOptions.map((route) => (
-                  <option key={route} value={route}>
-                    {route}
-                  </option>
-                ))}
+                {routeOptions.map((route) => <option key={route} value={route}>{route}</option>)}
               </select>
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</span>
-              <Input type="date" value={dateFilter} onChange={(event) => setDateFilter(event.target.value)} />
+              <Input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} />
             </label>
-            <Button variant="outline" onClick={load}>
-              Refresh
-            </Button>
+            <Button variant="outline" onClick={load}>Refresh</Button>
           </div>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
@@ -253,48 +250,54 @@ export function StopsPage() {
                 <TableHead>Order #</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Arrival Time</TableHead>
-                <TableHead>Driver Notes</TableHead>
+                <TableHead>Notes / Door Code</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.length ? (
-                filtered.map((stop, index) => {
-                  const key = stopKey(stop, index);
-                  const status: StopStatus = statusOverrides[key] ?? normalizeStatus(stop.status);
-                  return (
-                    <TableRow key={key}>
-                      <TableCell className="font-medium">{stopNumberLabel(stop, index)}</TableCell>
-                      <TableCell>{stop.address || '-'}</TableCell>
-                      <TableCell>{customerName(stop)}</TableCell>
-                      <TableCell>{orderNumber(stop)}</TableCell>
-                      <TableCell>
-                        <StatusBadge status={status} colorMap={statusColors} fallbackLabel="Unknown" />
-                      </TableCell>
-                      <TableCell>{stop.arrivalTime || stop.arrival_time ? new Date(stop.arrivalTime || stop.arrival_time || '').toLocaleString() : '-'}</TableCell>
-                      <TableCell>{driverNotes(stop)}</TableCell>
-                      <TableCell>
-                        <div className="flex flex-wrap gap-1">
-                          <Button variant="secondary" size="sm" onClick={() => setStopStatus(stop, index, 'completed')}>
-                            Mark Complete
-                          </Button>
-                          <Button variant="ghost" size="sm" onClick={() => setStopStatus(stop, index, 'failed')}>
-                            Mark Failed
-                          </Button>
-                          <a href={mapHref(stop)} target="_blank" rel="noreferrer" className="inline-flex">
-                            <Button size="sm">View on Map</Button>
-                          </a>
+              {filtered.length ? filtered.map((stop, index) => {
+                const key = stopKey(stop, index);
+                const status: StopStatus = statusOverrides[key] ?? normalizeStatus(stop.status);
+                const isEditing = editingKey === key;
+                return (
+                  <TableRow key={key}>
+                    <TableCell className="font-medium">{stopNumberLabel(stop, index)}</TableCell>
+                    <TableCell>{stop.address || '-'}</TableCell>
+                    <TableCell>{customerName(stop)}</TableCell>
+                    <TableCell>{orderNumber(stop)}</TableCell>
+                    <TableCell><StatusBadge status={status} colorMap={statusColors} fallbackLabel="Unknown" /></TableCell>
+                    <TableCell>{stop.arrivalTime || stop.arrival_time ? new Date(stop.arrivalTime || stop.arrival_time || '').toLocaleString() : '-'}</TableCell>
+                    <TableCell>
+                      {isEditing ? (
+                        <div className="flex flex-col gap-1">
+                          <Input placeholder="Driver notes..." value={noteDraft.driverNotes} onChange={(e) => setNoteDraft((d) => ({ ...d, driverNotes: e.target.value }))} className="text-xs" />
+                          <Input placeholder="Door code..." value={noteDraft.door_code} onChange={(e) => setNoteDraft((d) => ({ ...d, door_code: e.target.value }))} className="text-xs" />
+                          <div className="flex gap-1">
+                            <Button size="sm" disabled={savingNote} onClick={() => saveNote(stop, index)}>{savingNote ? '...' : 'Save'}</Button>
+                            <Button size="sm" variant="ghost" onClick={() => setEditingKey(null)}>Cancel</Button>
+                          </div>
                         </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                })
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-muted-foreground">
-                    No stops found for the selected filters.
-                  </TableCell>
-                </TableRow>
+                      ) : (
+                        <div className="space-y-0.5">
+                          <div className="text-xs">{stop.driverNotes || stop.driver_notes || <span className="text-muted-foreground">No notes</span>}</div>
+                          {stop.door_code ? <div className="text-xs text-muted-foreground">Door: {stop.door_code}</div> : null}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell>
+                      <div className="flex flex-wrap gap-1">
+                        {!isEditing && <Button variant="outline" size="sm" onClick={() => startEditNote(stop, index)}>Edit Notes</Button>}
+                        <Button variant="secondary" size="sm" onClick={() => setStopStatus(stop, index, 'completed')}>Complete</Button>
+                        <Button variant="ghost" size="sm" onClick={() => setStopStatus(stop, index, 'failed')}>Failed</Button>
+                        <a href={mapHref(stop)} target="_blank" rel="noreferrer" className="inline-flex">
+                          <Button size="sm">Map</Button>
+                        </a>
+                      </div>
+                    </TableCell>
+                  </TableRow>
+                );
+              }) : (
+                <TableRow><TableCell colSpan={8} className="text-muted-foreground">No stops found for the selected filters.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -306,11 +309,6 @@ export function StopsPage() {
 
 function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
-    <Card>
-      <CardHeader className="space-y-1">
-        <CardDescription>{label}</CardDescription>
-        <CardTitle className="text-2xl">{value}</CardTitle>
-      </CardHeader>
-    </Card>
+    <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className="text-2xl">{value}</CardTitle></CardHeader></Card>
   );
 }
