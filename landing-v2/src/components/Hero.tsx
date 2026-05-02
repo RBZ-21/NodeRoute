@@ -30,7 +30,7 @@ export function Hero() {
           </h1>
           <p className="mt-6 max-w-2xl text-[17px] leading-relaxed text-white/60 md:text-[19px]">
             NodeRoute helps you manage routes, ETAs, drivers, inventory, and invoices in one
-            place — so you’re not running the whole day through calls, texts, and spreadsheets.
+            place — so you're not running the whole day through calls, texts, and spreadsheets.
           </p>
 
           <div className="mt-8 flex flex-wrap gap-3">
@@ -87,7 +87,7 @@ function EyebrowTag() {
 
 function LiveOpsCard() {
   return (
-    <div className="relative rounded-2xl border border-line-strong bg-ink-100/80 p-1.5 shadow-[0_30px_120px_-40px_rgba(61,186,127,0.25)]">
+    <div className="relative rounded-2xl border border-line-strong bg-ink-100/80 p-1.5 shadow-[0_30px_120px_-40px_rgba(35,103,181,0.25)]">
       <div className="rounded-xl border border-line bg-ink-200">
         <div className="flex items-center justify-between border-b border-line px-5 py-3">
           <div className="flex items-center gap-2">
