@@ -1,134 +1,122 @@
-import { useEffect, useState } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { fetchWithAuth } from '../lib/api';
-import { WeightCaptureCard } from './WeightCaptureCard';
+import type { Order } from './orders.types';
+import { asNumber, orderItemQty } from './orders.types';
 
-type StopRow = {
-  id: string | number;
-  address?: string;
-  customer_id?: string | number;
-  status?: string;
-  weight_lbs?: number | null;
-  weight_captured_at?: string | null;
-  weight_captured_by?: string | null;
-  route_id?: string | number;
-};
-
-interface OrderWeightsBoardProps {
-  // routeId is required — rendering this board without a route filter would
-  // expose every stop in the system to the current user.
-  routeId: string | number;
+export interface OrderWeightsBoardProps {
+  orders: Order[];
+  filter: 'needs' | 'captured';
+  role: 'admin' | 'manager' | 'driver' | 'unknown';
+  weightInputs: Record<string, string>;
+  savingWeight: Record<string, boolean>;
+  onWeightInputChange: (key: string, value: string) => void;
+  onSaveWeight: (orderId: string, itemIndex: number) => Promise<void>;
 }
 
-export function OrderWeightsBoard({ routeId }: OrderWeightsBoardProps) {
-  const [stops, setStops] = useState<StopRow[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [activeStopId, setActiveStopId] = useState<string | number | null>(null);
-
-  async function load() {
-    setLoading(true);
-    setError('');
-    try {
-      const params = new URLSearchParams({ route_id: String(routeId) });
-      const data = await fetchWithAuth<StopRow[]>(`/api/stops?${params.toString()}`);
-      setStops(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(String((err as Error).message || 'Could not load stops'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { load(); }, [routeId]);
-
-  function onWeightSaved(stopId: string | number, lbs: number) {
-    setStops((prev) =>
-      prev.map((s) =>
-        s.id === stopId
-          ? { ...s, weight_lbs: lbs, weight_captured_at: new Date().toISOString() }
-          : s
-      )
-    );
-    setActiveStopId(null);
-  }
+export function OrderWeightsBoard({
+  orders,
+  filter,
+  weightInputs,
+  savingWeight,
+  onWeightInputChange,
+  onSaveWeight,
+}: OrderWeightsBoardProps) {
+  const title = filter === 'needs' ? 'Orders Needing Weights' : 'Weights Entered';
+  const description =
+    filter === 'needs'
+      ? 'Enter actual weights for catch-weight and lb-unit items on open orders.'
+      : 'Open orders whose weight-managed items already have actual weights captured.';
 
   return (
-    <div className="space-y-4">
-      {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading stops...</div> : null}
-      {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
-
-      <Card>
-        <CardHeader>
-          <CardTitle>Order Weights Board</CardTitle>
-          <CardDescription>Capture and review delivery weights for route {routeId}.</CardDescription>
-        </CardHeader>
-        <CardContent className="rounded-lg border border-border bg-card p-2">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Stop</TableHead>
-                <TableHead>Address</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Weight (lbs)</TableHead>
-                <TableHead>Captured By</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {stops.length ? stops.map((stop) => (
-                <TableRow key={String(stop.id)}>
-                  <TableCell className="font-medium">{stop.id}</TableCell>
-                  <TableCell>{stop.address || '-'}</TableCell>
-                  <TableCell>
-                    <Badge variant={stop.status === 'completed' ? 'success' : 'secondary'}>
-                      {stop.status || 'pending'}
-                    </Badge>
-                  </TableCell>
-                  <TableCell>
-                    {stop.weight_lbs != null ? (
-                      <span className="font-semibold">{stop.weight_lbs} lbs</span>
-                    ) : (
-                      <span className="text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {stop.weight_captured_by || '—'}
-                  </TableCell>
-                  <TableCell>
-                    <Button
-                      size="sm"
-                      variant={activeStopId === stop.id ? 'default' : 'outline'}
-                      onClick={() => setActiveStopId(activeStopId === stop.id ? null : stop.id)}
-                    >
-                      {activeStopId === stop.id ? 'Cancel' : 'Enter Weight'}
-                    </Button>
-                  </TableCell>
-                </TableRow>
-              )) : (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-muted-foreground">No stops found for this route.</TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </CardContent>
-      </Card>
-
-      {activeStopId != null ? (
-        <WeightCaptureCard
-          stopId={activeStopId}
-          currentWeight={stops.find((s) => s.id === activeStopId)?.weight_lbs}
-          onSaved={(lbs) => onWeightSaved(activeStopId, lbs)}
-        />
-      ) : null}
-
-      <div className="flex justify-end">
-        <Button variant="outline" onClick={load}>Refresh</Button>
-      </div>
-    </div>
+    <Card>
+      <CardHeader>
+        <CardTitle>{title}</CardTitle>
+        <CardDescription>{description}</CardDescription>
+      </CardHeader>
+      <CardContent className="rounded-lg border border-border bg-card p-2">
+        {orders.length ? (
+          orders.map((order) => (
+            <div key={order.id} className="mb-4 last:mb-0">
+              <div className="mb-2 text-sm font-semibold text-foreground">
+                {order.order_number || order.id.slice(0, 8)} &mdash; {order.customer_name || 'Unknown customer'}
+              </div>
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Item</TableHead>
+                    <TableHead>Requested</TableHead>
+                    <TableHead>Actual Weight</TableHead>
+                    <TableHead>Status</TableHead>
+                    {filter === 'needs' ? <TableHead>Enter Weight</TableHead> : null}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(order.items || []).map((item, idx) => {
+                    const isCatchWeight =
+                      item.is_catch_weight ||
+                      String(item.unit || '').toLowerCase() === 'lb' ||
+                      item.requested_weight !== undefined;
+                    if (!isCatchWeight) return null;
+                    const key = `${order.id}:${idx}`;
+                    const actual = asNumber(item.actual_weight);
+                    const requested = asNumber(item.requested_weight ?? orderItemQty(item));
+                    return (
+                      <TableRow key={key}>
+                        <TableCell className="font-medium">
+                          {item.name || item.description || item.item_number || `Item ${idx + 1}`}
+                        </TableCell>
+                        <TableCell>{requested > 0 ? `${requested} lb` : '—'}</TableCell>
+                        <TableCell>
+                          {actual > 0 ? (
+                            <span className="font-semibold text-emerald-700">{actual} lb</span>
+                          ) : (
+                            <span className="text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant={actual > 0 ? 'success' : 'warning'}>
+                            {actual > 0 ? 'Captured' : 'Pending'}
+                          </Badge>
+                        </TableCell>
+                        {filter === 'needs' ? (
+                          <TableCell>
+                            <div className="flex items-center gap-2">
+                              <input
+                                type="number"
+                                min="0"
+                                step="0.01"
+                                placeholder="lbs"
+                                className="w-24 rounded border border-input bg-background px-2 py-1 text-sm"
+                                value={weightInputs[key] ?? ''}
+                                onChange={(e) => onWeightInputChange(key, e.target.value)}
+                              />
+                              <Button
+                                size="sm"
+                                disabled={savingWeight[key]}
+                                onClick={() => void onSaveWeight(order.id, idx)}
+                              >
+                                {savingWeight[key] ? '...' : 'Save'}
+                              </Button>
+                            </div>
+                          </TableCell>
+                        ) : null}
+                      </TableRow>
+                    );
+                  })}
+                </TableBody>
+              </Table>
+            </div>
+          ))
+        ) : (
+          <div className="px-4 py-6 text-sm text-muted-foreground">
+            {filter === 'needs'
+              ? 'No open orders are currently missing weights.'
+              : 'No open orders have captured weights yet.'}
+          </div>
+        )}
+      </CardContent>
+    </Card>
   );
 }

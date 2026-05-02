@@ -16,7 +16,6 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { sendWithAuth } from '../lib/api';
 import { useDriverWorkspace } from '../hooks/useDriverWorkspace';
 import { useLocationSharing } from '../hooks/useLocationSharing';
-import { useSignatureCapture } from '../hooks/useSignatureCapture';
 import { DriverRouteTab } from './DriverRouteTab';
 import { SignatureModal } from './SignatureModal';
 import { asDriverNumber, dwellForStop, formatDateTime, formatMoney, greeting, routeProgress, stopStatus } from './driver.types';
@@ -26,15 +25,12 @@ export function DriverPage() {
   const ws = useDriverWorkspace();
   const loc = useLocationSharing();
 
-  const [activeTab, setActiveTab]         = useState<DriverTab>('route');
-  const [busyStopId, setBusyStopId]       = useState('');
-  const [signatureStopId, setSignatureStopId] = useState('');
-  const [signatureSaving, setSignatureSaving] = useState(false);
+  const [activeTab, setActiveTab]             = useState<DriverTab>('route');
+  const [busyStopId, setBusyStopId]           = useState('');
+  const [signatureStopId, setSignatureStopId] = useState<string | number>('');
   const [proofUploadStopId, setProofUploadStopId] = useState('');
   const [proofUploadSaving, setProofUploadSaving] = useState(false);
   const proofInputRef = useRef<HTMLInputElement | null>(null);
-
-  const sig = useSignatureCapture(signatureStopId);
 
   useEffect(() => {
     void ws.load();
@@ -135,37 +131,6 @@ export function DriverPage() {
       window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
     } catch (err) {
       ws.setError(String((err as Error).message || 'Could not open invoice PDF.'));
-    }
-  }
-
-  async function saveSignature() {
-    const stop = activeStops.find((s) => s.id === signatureStopId) || null;
-    const canvas = sig.canvasRef.current;
-    if (!stop?.invoice_id || !canvas) {
-      ws.setError('This stop is missing an invoice, so the signature could not be saved.');
-      return;
-    }
-    if (!sig.hasSignatureRef.current) {
-      ws.setError('Please capture a customer signature first.');
-      return;
-    }
-    setSignatureSaving(true);
-    try {
-      const payload = await sendWithAuth<{ signed_at?: string; status?: string; emailSent?: boolean }>(
-        `/api/invoices/${stop.invoice_id}/sign`, 'POST',
-        { signature: canvas.toDataURL('image/png') } as never,
-      );
-      ws.updateStopInvoice(stop.id, {
-        invoice_has_signature: true,
-        invoice_signed_at: payload.signed_at || new Date().toISOString(),
-        invoice_status: payload.status || 'signed',
-      });
-      setSignatureStopId('');
-      ws.setError(payload.emailSent ? 'Signature saved and invoice emailed to the customer.' : '');
-    } catch (err) {
-      ws.setError(String((err as Error).message || 'Could not save the signature.'));
-    } finally {
-      setSignatureSaving(false);
     }
   }
 
@@ -448,16 +413,22 @@ export function DriverPage() {
         </main>
       </div>
 
-      {signatureStopId ? (
+      {/* SignatureModal is self-contained — it manages its own canvas ref and save logic internally. */}
+      {signatureStopId !== '' ? (
         <SignatureModal
-          canvasRef={sig.canvasRef}
-          signatureSaving={signatureSaving}
-          onBegin={sig.beginSignature}
-          onMove={sig.moveSignature}
-          onEnd={sig.endSignature}
-          onClear={sig.clearSignature}
-          onSave={() => void saveSignature()}
+          stopId={signatureStopId}
           onClose={() => setSignatureStopId('')}
+          onSaved={() => {
+            const stop = activeStops.find((s) => s.id === signatureStopId);
+            if (stop) {
+              ws.updateStopInvoice(stop.id, {
+                invoice_has_signature: true,
+                invoice_signed_at: new Date().toISOString(),
+                invoice_status: 'signed',
+              });
+            }
+            setSignatureStopId('');
+          }}
         />
       ) : null}
     </div>

@@ -1,75 +1,83 @@
-import { useRef, useState } from 'react';
-import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { Input } from '../components/ui/input';
-import { sendWithAuth } from '../lib/api';
+import { Button } from '../components/ui/button';
+import { asNumber, orderItemQty } from './orders.types';
+import type { Order } from './orders.types';
 
-interface WeightCaptureCardProps {
-  stopId: string | number;
-  currentWeight?: number | null;
-  onSaved?: (weightLbs: number) => void;
+export interface WeightCaptureCardProps {
+  order: Order;
+  role: 'admin' | 'manager' | 'driver' | 'unknown';
+  weightInputs: Record<string, string>;
+  savingWeight: Record<string, boolean>;
+  onWeightInputChange: (key: string, val: string) => void;
+  onSaveWeight: (orderId: string, itemIndex: number) => Promise<void>;
 }
 
-export function WeightCaptureCard({ stopId, currentWeight, onSaved }: WeightCaptureCardProps) {
-  const [weight, setWeight] = useState<string>(currentWeight != null ? String(currentWeight) : '');
-  const [saving, setSaving] = useState(false);
-  const [saved, setSaved] = useState(false);
-  const [error, setError] = useState('');
-  const inputRef = useRef<HTMLInputElement>(null);
-
-  async function handleSave() {
-    const lbs = parseFloat(weight);
-    if (isNaN(lbs) || lbs <= 0) {
-      setError('Enter a valid weight in lbs');
-      inputRef.current?.focus();
-      return;
-    }
-    setSaving(true);
-    setError('');
-    try {
-      await sendWithAuth(`/api/stops/${stopId}/weight`, 'POST', { weight_lbs: lbs });
-      setSaved(true);
-      onSaved?.(lbs);
-      setTimeout(() => setSaved(false), 3000);
-    } catch (err) {
-      setError(String((err as Error).message || 'Failed to save weight'));
-    } finally {
-      setSaving(false);
-    }
-  }
+export function WeightCaptureCard({
+  order,
+  weightInputs,
+  savingWeight,
+  onWeightInputChange,
+  onSaveWeight,
+}: WeightCaptureCardProps) {
+  const weightItems = (order.items || []).filter(
+    (item) =>
+      item.is_catch_weight ||
+      String(item.unit || '').toLowerCase() === 'lb' ||
+      item.requested_weight !== undefined,
+  );
 
   return (
     <Card>
       <CardHeader className="pb-2">
-        <CardTitle className="text-base">Capture Weight</CardTitle>
+        <CardTitle className="text-base">
+          Weight Entry — {order.order_number || order.id.slice(0, 8)}
+        </CardTitle>
       </CardHeader>
       <CardContent className="space-y-3">
-        {error ? (
-          <div className="rounded border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive">{error}</div>
-        ) : null}
-        {saved ? (
-          <div className="rounded border border-emerald-300 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">Weight saved ✓</div>
-        ) : null}
-        <div className="flex gap-2">
-          <Input
-            ref={inputRef}
-            type="number"
-            min="0"
-            step="0.01"
-            placeholder="lbs"
-            value={weight}
-            onChange={(e) => { setWeight(e.target.value); setError(''); }}
-            className="w-32"
-            onKeyDown={(e) => { if (e.key === 'Enter') void handleSave(); }}
-          />
-          <span className="flex items-center text-sm text-muted-foreground">lbs</span>
-          <Button onClick={handleSave} disabled={saving}>
-            {saving ? 'Saving...' : 'Save Weight'}
-          </Button>
-        </div>
-        {currentWeight != null && !saved ? (
-          <p className="text-xs text-muted-foreground">Last recorded: {currentWeight} lbs</p>
-        ) : null}
+        {weightItems.length ? (
+          weightItems.map((item, idx) => {
+            const key = `${order.id}:${idx}`;
+            const actual = asNumber(item.actual_weight);
+            const requested = asNumber(item.requested_weight ?? orderItemQty(item));
+            return (
+              <div key={key} className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/20 p-3">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-foreground truncate">
+                    {item.name || item.description || item.item_number || `Item ${idx + 1}`}
+                  </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">
+                    Requested: {requested > 0 ? `${requested} lb` : '—'}
+                    {actual > 0 ? ` · Last: ${actual} lb` : ''}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="lbs"
+                    className="w-24 rounded border border-input bg-background px-2 py-1 text-sm"
+                    value={weightInputs[key] ?? ''}
+                    onChange={(e) => onWeightInputChange(key, e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void onSaveWeight(order.id, idx);
+                    }}
+                  />
+                  <span className="text-sm text-muted-foreground">lbs</span>
+                  <Button
+                    size="sm"
+                    disabled={savingWeight[key]}
+                    onClick={() => void onSaveWeight(order.id, idx)}
+                  >
+                    {savingWeight[key] ? 'Saving...' : 'Save'}
+                  </Button>
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          <div className="text-sm text-muted-foreground">No weight-managed items on this order.</div>
+        )}
       </CardContent>
     </Card>
   );
