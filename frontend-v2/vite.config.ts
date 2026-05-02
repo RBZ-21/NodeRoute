@@ -1,5 +1,6 @@
 import { sentryVitePlugin } from '@sentry/vite-plugin';
 import react from '@vitejs/plugin-react';
+import { resolve } from 'path';
 import { loadEnv } from 'vite';
 import { defineConfig } from 'vitest/config';
 
@@ -20,6 +21,11 @@ export default defineConfig(({ mode }) => {
           ]
         : []),
     ],
+    resolve: {
+      alias: {
+        '@': resolve(__dirname, 'src'),
+      },
+    },
     base: '/dashboard-v2/',
     test: {
       environment: 'jsdom',
@@ -34,13 +40,11 @@ export default defineConfig(({ mode }) => {
         output: {
           manualChunks(id) {
             if (!id.includes('node_modules')) return undefined;
-
             if (id.includes('@sentry/')) return 'sentry';
             if (id.includes('@sentry-internal/')) return 'sentry';
             if (id.includes('react-router') || id.includes('@remix-run/router')) return 'router';
             if (id.includes('lucide-react')) return 'icons';
             if (id.includes('@radix-ui/')) return 'radix';
-
             return 'vendor';
           },
         },
