@@ -1,570 +1,61 @@
-import { ChevronDown, LogOut, Moon, Settings, Sun } from 'lucide-react';
-import type { ReactElement } from 'react';
-import { Suspense, lazy, useEffect, useMemo, useState } from 'react';
-import { Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
-import { captureException, flush } from '@sentry/react';
-import { Button } from './components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from './components/ui/card';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from './components/ui/dropdown-menu';
-import { clearSession, fetchCurrentUser, getUserRole, redirectToLogin, requireAuthToken } from './lib/api';
-import { cn } from './lib/utils';
+/**
+ * App.tsx — thin entry point (~50 lines).
+ *
+ * Responsibilities:
+ *   1. Detect route type (public vs. app shell vs. driver)
+ *   2. Run session check via useAuth
+ *   3. Render the correct top-level component
+ *
+ * All nav config  → src/lib/nav.ts
+ * Auth logic      → src/hooks/useAuth.ts
+ * Layout & shell  → src/components/layout/AppShell.tsx
+ * Sidebar         → src/components/layout/Sidebar.tsx
+ * Skeleton loader → src/components/layout/PageSkeleton.tsx
+ */
+import { lazy, Suspense } from 'react';
+import { useLocation } from 'react-router-dom';
+import { getUserRole } from './lib/api';
+import { useAuth } from './hooks/useAuth';
+import { AppShell } from './components/layout/AppShell';
+import { PageSkeleton } from './components/layout/PageSkeleton';
 
-function lazyNamed<TModule, TKey extends keyof TModule>(
-  loader: () => Promise<TModule>,
-  key: TKey,
-) {
-  return lazy(async () => {
-    const mod = await loader();
-    return { default: mod[key] as React.ComponentType };
-  });
-}
-
-const AIHelpPage = lazyNamed(() => import('./pages/AIHelpPage'), 'AIHelpPage');
-const AnalyticsPage = lazyNamed(() => import('./pages/AnalyticsPage'), 'AnalyticsPage');
-const CustomerPortalPage = lazyNamed(() => import('./pages/CustomerPortalPage'), 'CustomerPortalPage');
-const CustomersPage = lazyNamed(() => import('./pages/CustomersPage'), 'CustomersPage');
-const DashboardPage = lazyNamed(() => import('./pages/DashboardPage'), 'DashboardPage');
-const DeliveriesPage = lazyNamed(() => import('./pages/DeliveriesPage'), 'DeliveriesPage');
-const DriverPage = lazyNamed(() => import('./pages/DriverPage'), 'DriverPage');
-const DriversPage = lazyNamed(() => import('./pages/DriversPage'), 'DriversPage');
-const FinancialsPage = lazyNamed(() => import('./pages/FinancialsPage'), 'FinancialsPage');
-const ForecastingPage = lazyNamed(() => import('./pages/ForecastingPage'), 'ForecastingPage');
-const IntegrationsPage = lazyNamed(() => import('./pages/IntegrationsPage'), 'IntegrationsPage');
-const InventoryPage = lazyNamed(() => import('./pages/InventoryPage'), 'InventoryPage');
-const InvoicesPage = lazyNamed(() => import('./pages/InvoicesPage'), 'InvoicesPage');
-const LoginPage = lazyNamed(() => import('./pages/LoginPage'), 'LoginPage');
-const MapPage = lazyNamed(() => import('./pages/MapPage'), 'MapPage');
-const OrdersPage = lazyNamed(() => import('./pages/OrdersPage'), 'OrdersPage');
-const PlanningPage = lazyNamed(() => import('./pages/PlanningPage'), 'PlanningPage');
-const PurchasingPage = lazyNamed(() => import('./pages/PurchasingPage'), 'PurchasingPage');
-const ReportsPage = lazyNamed(() => import('./pages/ReportsPage'), 'ReportsPage');
-const RoutesPage = lazyNamed(() => import('./pages/RoutesPage'), 'RoutesPage');
-const SettingsPage = lazyNamed(() => import('./pages/SettingsPage'), 'SettingsPage');
-const SetupPasswordPage = lazyNamed(() => import('./pages/SetupPasswordPage'), 'SetupPasswordPage');
-const StopsPage = lazyNamed(() => import('./pages/StopsPage'), 'StopsPage');
-const TraceabilityPage = lazyNamed(() => import('./pages/TraceabilityPage'), 'TraceabilityPage');
-const TrackPage = lazyNamed(() => import('./pages/TrackPage'), 'TrackPage');
-const UsersPage = lazyNamed(() => import('./pages/UsersPage'), 'UsersPage');
-const VendorsPage = lazyNamed(() => import('./pages/VendorsPage'), 'VendorsPage');
-const WarehousePage = lazyNamed(() => import('./pages/WarehousePage'), 'WarehousePage');
-
-type TabId =
-  | 'dashboard'
-  | 'orders'
-  | 'deliveries'
-  | 'reports'
-  | 'map'
-  | 'drivers'
-  | 'routes'
-  | 'stops'
-  | 'customers'
-  | 'users'
-  | 'invoices'
-  | 'analytics'
-  | 'inventory'
-  | 'forecast'
-  | 'financials'
-  | 'purchasing'
-  | 'vendors'
-  | 'warehouse'
-  | 'planning'
-  | 'integrations'
-  | 'aihelp'
-  | 'settings'
-  | 'traceability';
-
-type GroupId = 'core' | 'logistics' | 'people' | 'financials' | 'operations' | 'reports' | 'ai';
-type Role = 'admin' | 'manager' | 'driver' | 'unknown';
-
-type NavItem = {
-  id: TabId;
-  label: string;
-  path: string;
-  adminOnly?: boolean;
-};
-
-type NavGroup = {
-  id: GroupId;
-  label: string;
-  items: NavItem[];
-  adminOnly?: boolean;
-};
-
-const navGroups: NavGroup[] = [
-  {
-    id: 'core',
-    label: 'Core',
-    items: [
-      { id: 'dashboard', label: 'Dashboard', path: '/dashboard' },
-      { id: 'orders', label: 'Orders', path: '/orders' },
-      { id: 'settings', label: 'Settings', path: '/settings' },
-    ],
-  },
-  {
-    id: 'logistics',
-    label: 'Logistics',
-    items: [
-      { id: 'deliveries', label: 'Deliveries', path: '/deliveries' },
-      { id: 'map', label: 'Live Map', path: '/map' },
-      { id: 'drivers', label: 'Drivers', path: '/drivers' },
-      { id: 'routes', label: 'Routes', path: '/routes' },
-      { id: 'stops', label: 'Stops', path: '/stops' },
-    ],
-  },
-  {
-    id: 'people',
-    label: 'People',
-    items: [
-      { id: 'customers', label: 'Customers', path: '/customers' },
-      { id: 'users', label: 'Users', path: '/users', adminOnly: true },
-    ],
-  },
-  {
-    id: 'financials',
-    label: 'Financials',
-    items: [
-      { id: 'financials', label: 'Financial Overview', path: '/financials' },
-      { id: 'invoices', label: 'Invoices', path: '/invoices' },
-      { id: 'analytics', label: 'Analytics', path: '/analytics' },
-      { id: 'inventory', label: 'Inventory', path: '/inventory' },
-      { id: 'forecast', label: 'Forecasting', path: '/forecast' },
-    ],
-  },
-  {
-    id: 'operations',
-    label: 'Operations',
-    adminOnly: true,
-    items: [
-      { id: 'purchasing', label: 'Purchasing', path: '/purchasing', adminOnly: true },
-      { id: 'traceability', label: 'FSMA Traceability', path: '/admin/traceability', adminOnly: true },
-      { id: 'vendors', label: 'Vendors', path: '/vendors', adminOnly: true },
-      { id: 'warehouse', label: 'Warehouse', path: '/warehouse', adminOnly: true },
-      { id: 'planning', label: 'Planning & Rules', path: '/planning', adminOnly: true },
-      { id: 'integrations', label: 'Integrations', path: '/integrations', adminOnly: true },
-    ],
-  },
-  {
-    id: 'reports',
-    label: 'Reports',
-    items: [{ id: 'reports', label: 'Reports', path: '/reports' }],
-  },
-  {
-    id: 'ai',
-    label: 'AI Help',
-    items: [{ id: 'aihelp', label: 'Walkthroughs', path: '/aihelp' }],
-  },
-];
-
-const defaultPath = '/dashboard';
-const allNavItems = navGroups.flatMap((group) => group.items);
-const showSentryTestButton =
-  import.meta.env.DEV || new URLSearchParams(window.location.search).has('sentry-test');
-
-function PageFallback({ label = 'page' }: { label?: string }) {
-  return (
-    <div className="min-h-screen bg-enterprise-gradient">
-      <div className="mx-auto flex min-h-screen max-w-[1420px] items-center justify-center p-4 md:p-6">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle>Loading {label}</CardTitle>
-            <CardDescription>Preparing the next workspace view.</CardDescription>
-          </CardHeader>
-          <CardContent className="text-sm text-muted-foreground">Please wait a moment.</CardContent>
-        </Card>
-      </div>
-    </div>
-  );
-}
-
-function SuspendedPage({ label, children }: { label?: string; children: ReactElement }) {
-  return <Suspense fallback={<PageFallback label={label} />}>{children}</Suspense>;
-}
+const LoginPage          = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })));
+const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPage').then(m => ({ default: m.CustomerPortalPage })));
+const TrackPage          = lazy(() => import('./pages/TrackPage').then(m => ({ default: m.TrackPage })));
+const SetupPasswordPage  = lazy(() => import('./pages/SetupPasswordPage').then(m => ({ default: m.SetupPasswordPage })));
+const DriverPage         = lazy(() => import('./pages/DriverPage').then(m => ({ default: m.DriverPage })));
 
 export function App() {
-  const location = useLocation();
-  const [sessionState, setSessionState] = useState<'checking' | 'ready'>('checking');
+  const { pathname } = useLocation();
+  const authState    = useAuth();
 
-  const isLoginRoute = location.pathname === '/login';
-  const isPortalRoute = location.pathname === '/portal' || location.pathname === '/customer-portal';
-  const isDriverRoute = location.pathname === '/driver';
-  const isTrackRoute = location.pathname === '/track' || location.pathname.startsWith('/track/');
-  const isSetupPasswordRoute = location.pathname === '/setup-password';
+  // ── Public / standalone routes ────────────────────────────────────────────
+  if (pathname === '/login')
+    return <Suspense fallback={<PageSkeleton />}><LoginPage /></Suspense>;
+  if (pathname === '/portal' || pathname === '/customer-portal')
+    return <Suspense fallback={<PageSkeleton />}><CustomerPortalPage /></Suspense>;
+  if (pathname === '/track' || pathname.startsWith('/track/'))
+    return <Suspense fallback={<PageSkeleton />}><TrackPage /></Suspense>;
+  if (pathname === '/setup-password')
+    return <Suspense fallback={<PageSkeleton />}><SetupPasswordPage /></Suspense>;
 
-  useEffect(() => {
-    let cancelled = false;
-
-    async function validateSession() {
-      if (isLoginRoute || isPortalRoute || isTrackRoute || isSetupPasswordRoute) {
-        if (!cancelled) setSessionState('ready');
-        return;
-      }
-
-      if (!requireAuthToken()) {
-        redirectToLogin('Please sign in to continue.');
-        return;
-      }
-
-      try {
-        await fetchCurrentUser();
-        if (!cancelled) setSessionState('ready');
-      } catch {
-        clearSession();
-        redirectToLogin('Your session could not be verified. Please sign in again.');
-      }
-    }
-
-    void validateSession();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [isLoginRoute, isPortalRoute, isTrackRoute, isSetupPasswordRoute]);
-
-  if (isLoginRoute) {
-    return <SuspendedPage label="sign-in"><LoginPage /></SuspendedPage>;
-  }
-
-  if (isPortalRoute) {
-    return <SuspendedPage label="customer portal"><CustomerPortalPage /></SuspendedPage>;
-  }
-
-  if (isTrackRoute) {
-    return <SuspendedPage label="tracking"><TrackPage /></SuspendedPage>;
-  }
-
-  if (isSetupPasswordRoute) {
-    return <SuspendedPage label="password setup"><SetupPasswordPage /></SuspendedPage>;
-  }
-
-  if (sessionState === 'checking') {
+  // ── Session in flight ─────────────────────────────────────────────────────
+  if (authState === 'checking')
     return (
-      <div className="min-h-screen bg-enterprise-gradient">
-        <div className="mx-auto flex min-h-screen max-w-[1420px] items-center justify-center p-4 md:p-6">
-          <Card className="w-full max-w-md">
-            <CardHeader>
-              <CardTitle>Verifying session</CardTitle>
-              <CardDescription>Checking your NodeRoute access before loading the workspace.</CardDescription>
-            </CardHeader>
-            <CardContent className="text-sm text-muted-foreground">Please wait a moment.</CardContent>
-          </Card>
-        </div>
+      <div className="min-h-screen bg-enterprise-gradient flex items-center justify-center p-6">
+        <div className="w-full max-w-lg"><PageSkeleton /></div>
       </div>
     );
+
+  // authState === 'redirecting' → useAuth already called redirectToLogin
+  if (authState === 'redirecting') return null;
+
+  // ── Driver workspace ──────────────────────────────────────────────────────
+  if (pathname === '/driver') {
+    if (getUserRole() !== 'driver') { window.location.href = '/dashboard'; return null; }
+    return <Suspense fallback={<PageSkeleton />}><DriverPage /></Suspense>;
   }
 
-  if (isDriverRoute) {
-    if (getUserRole() !== 'driver') {
-      window.location.href = '/dashboard-v2';
-      return null;
-    }
-    return <SuspendedPage label="driver workspace"><DriverPage /></SuspendedPage>;
-  }
-
+  // ── Main app shell ────────────────────────────────────────────────────────
   return <AppShell />;
-}
-
-function AppShell() {
-  const role = getUserRole();
-  const location = useLocation();
-  const navigate = useNavigate();
-
-  // Dark mode — persisted to localStorage, applied as class on <html>
-  const [dark, setDark] = useState<boolean>(() => {
-    try {
-      const stored = localStorage.getItem('nr_theme');
-      if (stored) return stored === 'dark';
-      return window.matchMedia('(prefers-color-scheme: dark)').matches;
-    } catch { return false; }
-  });
-
-  useEffect(() => {
-    document.documentElement.classList.toggle('dark', dark);
-    try { localStorage.setItem('nr_theme', dark ? 'dark' : 'light'); } catch {}
-  }, [dark]);
-
-  const availableGroups = useMemo(
-    () =>
-      navGroups
-        .filter((group) => !group.adminOnly || role === 'admin')
-        .map((group) => ({
-          ...group,
-          items: group.items.filter((item) => !item.adminOnly || role === 'admin'),
-        })),
-    [role]
-  );
-
-  const currentItem = useMemo(() => findNavItem(location.pathname) || findNavItem(defaultPath), [location.pathname]);
-  const coreItems = useMemo(
-    () => availableGroups.find((group) => group.id === 'core')?.items || [],
-    [availableGroups]
-  );
-  const navDropdownGroups = useMemo(
-    () => availableGroups.filter((group) => group.id !== 'core' && group.id !== 'reports' && group.id !== 'ai'),
-    [availableGroups]
-  );
-  const aiGroup = useMemo(
-    () => availableGroups.find((group) => group.id === 'ai') || null,
-    [availableGroups]
-  );
-  const dashboardItem = coreItems.find((item) => item.id === 'dashboard') || null;
-  const ordersItem = coreItems.find((item) => item.id === 'orders') || null;
-  const settingsItem = coreItems.find((item) => item.id === 'settings') || null;
-  const reportsItem = useMemo(
-    () => availableGroups.find((group) => group.id === 'reports')?.items[0] || null,
-    [availableGroups]
-  );
-
-  return (
-    <div className="min-h-screen bg-enterprise-gradient">
-      <div className="mx-auto max-w-[1420px] p-4 md:p-6">
-        <header className="rounded-xl border border-border bg-card shadow-panel">
-          <div className="flex flex-col gap-4 border-b border-border p-5 md:flex-row md:items-center md:justify-between">
-            <div className="space-y-1">
-              <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-primary">
-                NodeRoute Enterprise UI (V2)
-              </div>
-              <h1 className="text-2xl font-semibold tracking-tight text-foreground">Admin Command Center</h1>
-              <p className="text-sm text-muted-foreground">
-                Light enterprise redesign inspired by proven admin patterns, tailored for NodeRoute operations.
-              </p>
-            </div>
-            <div className="flex flex-wrap gap-2">
-              {showSentryTestButton ? <ErrorButton /> : null}
-              <Button variant="outline" size="sm" onClick={() => setDark((d) => !d)} title={dark ? 'Switch to light mode' : 'Switch to dark mode'}>
-                {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-              </Button>
-              <Button onClick={() => { localStorage.removeItem('nr_token'); localStorage.removeItem('nr_user'); window.location.href = '/login'; }}>
-                <LogOut className="mr-2 h-4 w-4" />
-                Logout
-              </Button>
-            </div>
-          </div>
-
-          <nav className="flex flex-wrap items-center gap-2 p-4">
-            {dashboardItem ? (
-              <Button
-                variant={currentItem?.id === dashboardItem.id ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => navigate(dashboardItem.path)}
-              >
-                {dashboardItem.label}
-              </Button>
-            ) : null}
-            {ordersItem ? (
-              <Button
-                variant={currentItem?.id === ordersItem.id ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => navigate(ordersItem.path)}
-              >
-                {ordersItem.label}
-              </Button>
-            ) : null}
-            {navDropdownGroups.map((group) => (
-              <DropdownMenu key={group.id}>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-2">
-                    {group.label}
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  {group.items.map((item) => (
-                    <DropdownMenuItem
-                      key={item.id}
-                      onSelect={() => navigate(item.path)}
-                      className={cn(currentItem?.id === item.id && 'bg-accent')}
-                    >
-                      {item.label}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ))}
-            {reportsItem ? (
-              <Button
-                variant={currentItem?.id === reportsItem.id ? 'default' : 'outline'}
-                size="sm"
-                onClick={() => navigate(reportsItem.path)}
-              >
-                {reportsItem.label}
-              </Button>
-            ) : null}
-            {aiGroup ? (
-              <DropdownMenu key={aiGroup.id}>
-                <DropdownMenuTrigger asChild>
-                  <Button variant="outline" size="sm" className="gap-2">
-                    {aiGroup.label}
-                    <ChevronDown className="h-3.5 w-3.5" />
-                  </Button>
-                </DropdownMenuTrigger>
-                <DropdownMenuContent align="start">
-                  {aiGroup.items.map((item) => (
-                    <DropdownMenuItem
-                      key={item.id}
-                      onSelect={() => navigate(item.path)}
-                      className={cn(currentItem?.id === item.id && 'bg-accent')}
-                    >
-                      {item.label}
-                    </DropdownMenuItem>
-                  ))}
-                </DropdownMenuContent>
-              </DropdownMenu>
-            ) : null}
-            {settingsItem ? (
-              <Button
-                variant={currentItem?.id === settingsItem.id ? 'default' : 'ghost'}
-                size="sm"
-                className="ml-auto"
-                onClick={() => navigate(settingsItem.path)}
-                title={settingsItem.label}
-              >
-                <Settings className="h-4 w-4" />
-                <span className="sr-only">{settingsItem.label}</span>
-              </Button>
-            ) : null}
-          </nav>
-        </header>
-
-        <main className="mt-4 rounded-xl border border-border bg-card p-4 shadow-panel md:p-6">
-          <div className="mb-4 flex flex-col gap-1 border-b border-border pb-4 md:flex-row md:items-end md:justify-between">
-            <h2 className="text-xl font-semibold text-foreground">{currentItem?.label || 'Dashboard'}</h2>
-            <p className="text-sm font-medium text-muted-foreground">Signed in as {role.toUpperCase()}</p>
-          </div>
-          <Routes>
-            <Route index element={<Navigate to={defaultPath} replace />} />
-            {allNavItems.map((item) => (
-              <Route
-                key={item.id}
-                path={routePath(item.path)}
-                element={
-                  item.adminOnly ? (
-                    <AdminOnlyRoute role={role}>{pageElement(item, role)}</AdminOnlyRoute>
-                  ) : (
-                    pageElement(item, role)
-                  )
-                }
-              />
-            ))}
-            <Route path="*" element={<Navigate to={defaultPath} replace />} />
-          </Routes>
-        </main>
-      </div>
-    </div>
-  );
-}
-
-function AdminOnlyRoute({ children, role }: { children: ReactElement; role: Role }) {
-  if (role !== 'admin') {
-    return <Navigate to={defaultPath} replace />;
-  }
-
-  return children;
-}
-
-function PlaceholderPage({ item, role }: { item: NavItem; role: Role }) {
-  return (
-    <Card className="bg-muted/20">
-      <CardHeader>
-        <CardTitle>{item.label}</CardTitle>
-        <CardDescription>
-          This section is queued for framework migration. Core APIs remain unchanged and this module will move to shared primitives next.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="text-sm text-muted-foreground">
-        {item.id === 'vendors' || item.id === 'warehouse' || item.id === 'planning' || item.id === 'integrations'
-          ? role === 'admin'
-            ? 'Operations scope is enabled for admin users in V2.'
-            : 'Operations scope is admin-only and hidden for your role.'
-          : 'This route has its own URL now and is ready for the next migration pass.'}
-      </CardContent>
-    </Card>
-  );
-}
-
-function ErrorButton() {
-  return (
-    <Button
-      variant="outline"
-      size="sm"
-      onClick={() => {
-        const error = new Error('This is your first error!');
-        const eventId = captureException(error);
-        void flush(2000).then((sent) => {
-          console.info('[Sentry test] event', eventId, sent ? 'flushed' : 'not flushed');
-        });
-        window.setTimeout(() => {
-          throw error;
-        }, 0);
-      }}
-    >
-      Break the world
-    </Button>
-  );
-}
-
-function pageElement(item: NavItem, role: Role) {
-  switch (item.id) {
-    case 'dashboard':
-      return <SuspendedPage label="dashboard"><DashboardPage /></SuspendedPage>;
-    case 'analytics':
-      return <SuspendedPage label="analytics"><AnalyticsPage /></SuspendedPage>;
-    case 'financials':
-      return <SuspendedPage label="financial overview"><FinancialsPage /></SuspendedPage>;
-    case 'inventory':
-      return <SuspendedPage label="inventory"><InventoryPage /></SuspendedPage>;
-    case 'orders':
-      return <SuspendedPage label="orders"><OrdersPage /></SuspendedPage>;
-    case 'reports':
-      return <SuspendedPage label="reports"><ReportsPage /></SuspendedPage>;
-    case 'settings':
-      return <SuspendedPage label="settings"><SettingsPage /></SuspendedPage>;
-    case 'deliveries':
-      return <SuspendedPage label="deliveries"><DeliveriesPage /></SuspendedPage>;
-    case 'drivers':
-      return <SuspendedPage label="drivers"><DriversPage /></SuspendedPage>;
-    case 'routes':
-      return <SuspendedPage label="routes"><RoutesPage /></SuspendedPage>;
-    case 'stops':
-      return <SuspendedPage label="stops"><StopsPage /></SuspendedPage>;
-    case 'customers':
-      return <SuspendedPage label="customers"><CustomersPage /></SuspendedPage>;
-    case 'users':
-      return <SuspendedPage label="users"><UsersPage /></SuspendedPage>;
-    case 'invoices':
-      return <SuspendedPage label="invoices"><InvoicesPage /></SuspendedPage>;
-    case 'forecast':
-      return <SuspendedPage label="forecasting"><ForecastingPage /></SuspendedPage>;
-    case 'purchasing':
-      return <SuspendedPage label="purchasing"><PurchasingPage /></SuspendedPage>;
-    case 'traceability':
-      return <SuspendedPage label="traceability"><TraceabilityPage /></SuspendedPage>;
-    case 'vendors':
-      return <SuspendedPage label="vendors"><VendorsPage /></SuspendedPage>;
-    case 'warehouse':
-      return <SuspendedPage label="warehouse"><WarehousePage /></SuspendedPage>;
-    case 'planning':
-      return <SuspendedPage label="planning"><PlanningPage /></SuspendedPage>;
-    case 'integrations':
-      return <SuspendedPage label="integrations"><IntegrationsPage /></SuspendedPage>;
-    case 'aihelp':
-      return <SuspendedPage label="walkthroughs"><AIHelpPage /></SuspendedPage>;
-    case 'map':
-      return <SuspendedPage label="live map"><MapPage /></SuspendedPage>;
-    default:
-      return <PlaceholderPage item={item} role={role} />;
-  }
-}
-
-function findNavItem(pathname: string) {
-  const normalizedPath = normalizePath(pathname);
-  return allNavItems.find((item) => item.path === normalizedPath) || null;
-}
-
-function normalizePath(pathname: string) {
-  const trimmed = pathname.replace(/\/+$/, '');
-  return trimmed || defaultPath;
-}
-
-function routePath(pathname: string) {
-  return pathname.replace(/^\//, '');
 }
