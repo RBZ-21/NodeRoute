@@ -4,7 +4,7 @@ const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const STOP_FIELDS = [
-  'route_id', 'customer_id', 'address', 'status', 'sequence',
+  'route_id', 'customer_id', 'address', 'status',
   'scheduled_date', 'scheduled_time', 'notes', 'driver_id',
   'driver_notes', 'door_code',
   'signature_data', 'signature_captured_at', 'signature_captured_by',
@@ -19,7 +19,8 @@ router.get('/', authenticateToken, async (req, res) => {
     if (req.query.driver_id) query = query.eq('driver_id', req.query.driver_id);
     if (req.query.status)   query = query.eq('status', req.query.status);
     if (req.user.role === 'driver') query = query.eq('driver_id', req.user.id);
-    query = query.order('sequence', { ascending: true });
+    // order by created_at — 'sequence' column does not exist in this schema
+    query = query.order('created_at', { ascending: true });
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
     res.json(data || []);
