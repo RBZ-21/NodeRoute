@@ -18,6 +18,7 @@ type AIChatResponse = {
   message?: string;
   content?: string;
   response?: string;
+  conversation_id?: string;
 };
 
 const SUGGESTED_PROMPTS = [
@@ -65,14 +66,25 @@ export function AIHelpPage() {
       content: trimmed,
       timestamp: new Date().toISOString(),
     };
+
+    // Capture current messages before state update so we can build history
+    const currentMessages = messages;
     setMessages((prev) => [...prev, userMsg]);
     setLoading(true);
 
     try {
-      const payload: Record<string, unknown> = { message: trimmed };
+      // Build history array from all non-welcome messages for context threading
+      const history = currentMessages
+        .filter((m) => m.id !== 'welcome')
+        .map((m) => ({ role: m.role, content: m.content }));
+
+      const payload: Record<string, unknown> = {
+        message: trimmed,
+        history,
+      };
       if (conversationId) payload.conversation_id = conversationId;
 
-      const response = await sendWithAuth<AIChatResponse & { conversation_id?: string }>(
+      const response = await sendWithAuth<AIChatResponse>(
         '/api/ai/chat',
         'POST',
         payload

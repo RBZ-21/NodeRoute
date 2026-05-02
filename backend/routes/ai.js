@@ -51,11 +51,16 @@ router.post('/chat', authenticateToken, async (req, res) => {
 
   const userName = req.user?.name || req.user?.email || 'User';
   const userRole = req.user?.role || 'user';
+
+  // Accept history as an array of { role, content } pairs for context threading.
+  // The frontend sends the full message history so the AI has context of prior turns.
   const history = Array.isArray(req.body.history) ? req.body.history : [];
 
   try {
     const reply = await generateChatReply(userName, userRole, message, history);
-    res.json({ reply });
+    // Return reply + echo conversation_id if client sent one (stateless — server doesn't store it)
+    const conversation_id = req.body.conversation_id || null;
+    res.json({ reply, ...(conversation_id ? { conversation_id } : {}) });
   } catch (err) {
     if (String(err.message || '').includes('OPENAI_API_KEY')) {
       return res.status(503).json({ error: 'AI service is not configured.' });

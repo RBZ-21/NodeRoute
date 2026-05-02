@@ -4,12 +4,12 @@ const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
 // GET /api/warehouse — summary stats for the warehouse page
-router.get('/', authenticateToken, async (req, res) => {
+router.get('/', authenticateToken, requireRole('admin', 'manager', 'warehouse'), async (req, res) => {
   try {
-    // Inventory on-hand counts
+    // Inventory on-hand counts — uses seafood_inventory (canonical table)
     const { data: inventory, error: invErr } = await supabase
-      .from('inventory')
-      .select('id, name, quantity, unit, category, status');
+      .from('seafood_inventory')
+      .select('id, description, quantity, unit, category, status');
     if (invErr) return res.status(500).json({ error: invErr.message });
 
     // Pending inbound purchase orders
@@ -30,6 +30,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
     res.json({
       inventory: inventory || [],
+      totalSkus: (inventory || []).length,
       pendingInbound: (pos || []).length,
       todayStops: (stops || []).length,
       todayStopsCompleted: (stops || []).filter((s) => s.status === 'completed').length,
@@ -39,13 +40,13 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 });
 
-// GET /api/warehouse/inventory — full inventory list for warehouse view
-router.get('/inventory', authenticateToken, async (req, res) => {
+// GET /api/warehouse/inventory — full seafood_inventory list for warehouse view
+router.get('/inventory', authenticateToken, requireRole('admin', 'manager', 'warehouse'), async (req, res) => {
   try {
     const { data, error } = await supabase
-      .from('inventory')
+      .from('seafood_inventory')
       .select('*')
-      .order('name');
+      .order('description');
     if (error) return res.status(500).json({ error: error.message });
     res.json(data || []);
   } catch (err) {
@@ -53,17 +54,18 @@ router.get('/inventory', authenticateToken, async (req, res) => {
   }
 });
 
-// PATCH /api/warehouse/inventory/:id — update a single inventory item (qty adjustment etc.)
+// PATCH /api/warehouse/inventory/:id — update a single seafood_inventory item
 router.patch('/inventory/:id', authenticateToken, requireRole('admin', 'manager', 'warehouse'), async (req, res) => {
   try {
-    const ALLOWED = ['quantity', 'status', 'location', 'notes'];
+    // Only allow safe fields that exist on seafood_inventory
+    const ALLOWED = ['quantity', 'status', 'cost', 'description'];
     const update = {};
     for (const key of ALLOWED) {
       if (req.body[key] !== undefined) update[key] = req.body[key];
     }
     if (!Object.keys(update).length) return res.status(400).json({ error: 'No valid fields provided' });
     const { data, error } = await supabase
-      .from('inventory')
+      .from('seafood_inventory')
       .update(update)
       .eq('id', req.params.id)
       .select()
