@@ -1,75 +1,82 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&family=Source+Sans+3:wght@400;500;600&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    /* Light mode — softer grey-blue base instead of near-white */
-    --background: 214 25% 93%;
-    --foreground: 217 33% 17%;
-    --card: 214 30% 97%;
-    --card-foreground: 217 33% 17%;
-    --primary: 213 70% 42%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 213 30% 88%;
-    --secondary-foreground: 213 31% 28%;
-    --muted: 214 22% 89%;
-    --muted-foreground: 215 20% 41%;
-    --accent: 214 50% 90%;
-    --accent-foreground: 213 61% 33%;
-    --destructive: 0 75% 46%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 214 22% 82%;
-    --input: 214 22% 82%;
-    --ring: 213 70% 42%;
-    --radius: 0.72rem;
+    --background: 0 0% 100%;
+    --foreground: 222.2 84% 4.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 222.2 84% 4.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 222.2 84% 4.9%;
+    --primary: 221.2 83.2% 53.3%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 210 40% 96.1%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 210 40% 96.1%;
+    --muted-foreground: 215.4 16.3% 46.9%;
+    --accent: 210 40% 96.1%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 214.3 31.8% 91.4%;
+    --input: 214.3 31.8% 91.4%;
+    --ring: 221.2 83.2% 53.3%;
+    --radius: 0.5rem;
   }
 
   .dark {
-    /* Dark mode — deep navy matching brand tones */
-    --background: 222 28% 10%;
-    --foreground: 213 20% 86%;
-    --card: 222 24% 14%;
-    --card-foreground: 213 20% 86%;
-    --primary: 213 65% 55%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 217 22% 21%;
-    --secondary-foreground: 213 20% 78%;
-    --muted: 217 20% 18%;
-    --muted-foreground: 215 15% 52%;
-    --accent: 214 35% 22%;
-    --accent-foreground: 213 50% 76%;
-    --destructive: 0 62% 52%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 217 18% 26%;
-    --input: 217 18% 26%;
-    --ring: 213 65% 55%;
-  }
-
-  * {
-    @apply border-border;
-  }
-
-  body {
-    @apply bg-background text-foreground antialiased;
-    font-family: 'Source Sans 3', 'Segoe UI', sans-serif;
-  }
-
-  h1,
-  h2,
-  h3,
-  h4 {
-    font-family: 'Manrope', 'Segoe UI', sans-serif;
+    --background: 222.2 84% 4.9%;
+    --foreground: 210 40% 98%;
+    --card: 222.2 84% 4.9%;
+    --card-foreground: 210 40% 98%;
+    --popover: 222.2 84% 4.9%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 217.2 91.2% 59.8%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 217.2 32.6% 17.5%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 217.2 32.6% 17.5%;
+    --muted-foreground: 215 20.2% 65.1%;
+    --accent: 217.2 32.6% 17.5%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 217.2 32.6% 17.5%;
+    --input: 217.2 32.6% 17.5%;
+    --ring: 224.3 76.3% 48%;
   }
 }
 
-@layer utilities {
-  .bg-enterprise-gradient {
-    background:
-      radial-gradient(1000px 420px at 5% -5%, rgba(30, 90, 168, 0.12), transparent 60%),
-      radial-gradient(850px 330px at 95% 4%, rgba(28, 108, 185, 0.09), transparent 58%),
-      hsl(var(--background));
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+/* Horizontal scroll hint for data tables on mobile */
+.table-scroll-container {
+  position: relative;
+}
+.table-scroll-container::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 32px;
+  background: linear-gradient(to right, transparent, hsl(var(--card) / 0.9));
+  pointer-events: none;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  /* Only show on narrow screens */
+  display: none;
+}
+@media (max-width: 767px) {
+  .table-scroll-container::after {
+    display: block;
   }
 }
