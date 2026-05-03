@@ -565,6 +565,8 @@ export function InvoicesPage() {
                           <Button variant="ghost" size="sm" onClick={() => void generateFollowUp(invoice.id)} disabled={!!followUpLoading[invoice.id] || status === 'paid' || status === 'void'} title="AI follow-up draft">
                             {followUpLoading[invoice.id] ? '…' : '✦ Draft Follow-Up'}
                           </Button>
+                          ) : null}
+                          {invoice.source !== 'order-draft' ? (
                           <Button variant="ghost" size="sm" onClick={() => voidInvoice(invoice, index)} disabled={!!pendingAction || status === 'void'}>
                             Void Invoice
                           </Button>
