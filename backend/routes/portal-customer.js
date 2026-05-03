@@ -16,7 +16,7 @@ module.exports = function buildCustomerRouter({ authenticatePortalToken }) {
     const { data, error } = await supabase
       .from('orders')
       .select('*')
-      .ilike('customer_email', req.customerEmail)
+      .eq('customer_email', req.customerEmail.toLowerCase())
       .order('created_at', { ascending: false });
     if (error) return res.status(500).json({ error: error.message });
     const scopedOrders = filterRowsByContext(data || [], req.portalContext);
@@ -38,7 +38,7 @@ module.exports = function buildCustomerRouter({ authenticatePortalToken }) {
     const { data, error } = await supabase
       .from('invoices')
       .select('*')
-      .ilike('customer_email', req.customerEmail)
+      .eq('customer_email', req.customerEmail.toLowerCase())
       .order('created_at', { ascending: false });
     if (error) return res.status(500).json({ error: error.message });
     const scopedInvoices = filterRowsByContext(data || [], req.portalContext);
@@ -65,7 +65,7 @@ module.exports = function buildCustomerRouter({ authenticatePortalToken }) {
       .from('invoices')
       .select('*')
       .eq('id', req.params.id)
-      .ilike('customer_email', req.customerEmail)
+      .eq('customer_email', req.customerEmail.toLowerCase())
       .single();
     if (error || !inv) return res.status(404).json({ error: 'Invoice not found' });
     if (!filterRowsByContext([inv], req.portalContext).length) {
@@ -82,7 +82,7 @@ module.exports = function buildCustomerRouter({ authenticatePortalToken }) {
     const { data: saved, error: savedError } = await supabase
       .from('portal_contacts')
       .select('*')
-      .eq('email', req.customerEmail)
+      .eq('email', req.customerEmail.toLowerCase())
       .order('updated_at', { ascending: false })
       .limit(10);
 
@@ -106,7 +106,7 @@ module.exports = function buildCustomerRouter({ authenticatePortalToken }) {
     const { data: inv } = await supabase
       .from('invoices')
       .select('*')
-      .ilike('customer_email', req.customerEmail)
+      .eq('customer_email', req.customerEmail.toLowerCase())
       .order('created_at', { ascending: false })
       .limit(10);
 
@@ -128,14 +128,14 @@ module.exports = function buildCustomerRouter({ authenticatePortalToken }) {
     const { data: existingRows, error: existingError } = await supabase
       .from('portal_contacts')
       .select('*')
-      .eq('email', req.customerEmail)
+      .eq('email', req.customerEmail.toLowerCase())
       .order('updated_at', { ascending: false })
       .limit(10);
     if (existingError) return res.status(500).json({ error: existingError.message });
 
     const payload = {
       ...buildScopeFields(req.portalContext),
-      email: req.customerEmail,
+      email: req.customerEmail.toLowerCase(),
       name: name || req.customerName,
       phone: phone || null,
       address: address || null,
@@ -164,7 +164,7 @@ module.exports = function buildCustomerRouter({ authenticatePortalToken }) {
     const { data: existingRows, error: existingError } = await supabase
       .from('portal_contacts')
       .select('*')
-      .eq('email', req.customerEmail)
+      .eq('email', req.customerEmail.toLowerCase())
       .order('updated_at', { ascending: false })
       .limit(10);
     if (existingError) return res.status(500).json({ error: existingError.message });
@@ -186,7 +186,7 @@ module.exports = function buildCustomerRouter({ authenticatePortalToken }) {
         supabase,
         'portal_contacts',
         {
-          email: req.customerEmail,
+          email: req.customerEmail.toLowerCase(),
           name: req.customerName,
           door_code: code,
           updated_at: new Date().toISOString(),

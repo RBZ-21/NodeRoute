@@ -18,7 +18,10 @@ const {
 
 const router = express.Router();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'noderoute-dev-secret-change-in-production';
+if (!process.env.JWT_SECRET) {
+  throw new Error('FATAL: JWT_SECRET environment variable is not set. Server cannot start without it.');
+}
+const JWT_SECRET = process.env.JWT_SECRET;
 const JWT_EXPIRY = '24h';
 const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 h in ms
 
@@ -106,8 +109,7 @@ router.post('/login', loginLimiter, async (req, res) => {
   }
   const token = signJWT(u);
   setAuthCookies(res, token);
-  // token still returned in body for backwards-compat with any existing API consumers
-  res.json({ token, user: userResponseWithContext(u) });
+  res.json({ user: userResponseWithContext(u) });
 });
 
 // POST /auth/setup-password — 10 attempts / hour
@@ -128,7 +130,7 @@ router.post('/setup-password', setupPasswordLimiter, async (req, res) => {
   }).eq('id', u.id);
   const sessionToken = signJWT(u);
   setAuthCookies(res, sessionToken);
-  res.json({ token: sessionToken, user: userResponseWithContext(u) });
+  res.json({ user: userResponseWithContext(u) });
 });
 
 router.get('/me', authenticateToken, (req, res) => {

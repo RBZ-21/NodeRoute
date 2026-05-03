@@ -5,7 +5,10 @@ const jwt = require('jsonwebtoken');
 const { supabase } = require('../services/supabase');
 const { buildRequestContext } = require('../services/operating-context');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'noderoute-dev-secret-change-in-production';
+if (!process.env.JWT_SECRET) {
+  throw new Error('FATAL: JWT_SECRET environment variable is not set. Server cannot start without it.');
+}
+const JWT_SECRET = process.env.JWT_SECRET;
 
 // Methods that mutate state — CSRF check is enforced on these.
 const CSRF_METHODS = new Set(['POST', 'PATCH', 'DELETE', 'PUT']);
@@ -65,7 +68,7 @@ function extractToken(req) {
  * The frontend reads it and sends it back as X-CSRF-Token on every mutation.
  * We verify both values match using constant-time comparison.
  * Attackers on other origins cannot read the cookie due to SameSite=Strict
- * + same-origin policy, so they can\'t forge the header.
+ * + same-origin policy, so they can't forge the header.
  */
 function verifyCsrf(req) {
   if (!CSRF_METHODS.has(req.method)) return true;
