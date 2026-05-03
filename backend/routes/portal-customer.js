@@ -160,7 +160,6 @@ module.exports = function buildCustomerRouter({ authenticatePortalToken }) {
     const { door_code } = req.body;
     const code = (door_code || '').trim() || null;
 
-    // Update portal_contacts — preserve existing fields
     const { data: existingRows, error: existingError } = await supabase
       .from('portal_contacts')
       .select('*')
@@ -196,7 +195,6 @@ module.exports = function buildCustomerRouter({ authenticatePortalToken }) {
     }
     if (contactWrite.error) return res.status(500).json({ error: contactWrite.error.message });
 
-    // Best-effort: sync to matching stop row by name
     const lookupName = (existing && existing.name) || req.customerName;
     if (lookupName) {
       const { data: candidateStops } = await supabase
@@ -205,26 +203,14 @@ module.exports = function buildCustomerRouter({ authenticatePortalToken }) {
         .ilike('name', lookupName);
       const scopedStops = filterRowsByContext(candidateStops || [], req.portalContext);
       for (const stop of scopedStops) {
-        await supabase
-        .from('stops')
-        .update({ door_code: code })
-        .eq('id', stop.id);
+        await supabase.from('stops').update({ door_code: code }).eq('id', stop.id);
       }
     }
 
     res.json({ message: 'Door code saved' });
   });
 
-  // GET /api/portal/inventory
-  router.get('/inventory', authenticatePortalToken, async (req, res) => {
-    const { data, error } = await supabase
-      .from('seafood_inventory')
-      .select('description, category, unit, on_hand_qty, on_hand_weight, cost, updated_at, created_at')
-      .gt('on_hand_qty', 0)
-      .order('updated_at', { ascending: false, nullsFirst: false });
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data || []);
-  });
+  // /inventory endpoint removed — customers receive the daily fish blast SMS instead.
 
   return router;
 };

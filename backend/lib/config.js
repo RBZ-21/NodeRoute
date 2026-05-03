@@ -33,6 +33,12 @@ const envSchema = z.object({
   PORTAL_PAYMENT_ENABLED:     z.string().optional().default('false'),
   PORTAL_PAYMENT_PROVIDER:    z.string().optional().default('manual'),
   STRIPE_WEBHOOK_TOLERANCE_SECONDS: z.string().optional().default('300'),
+  // SMS / Daily Fish Blast
+  TWILIO_ACCOUNT_SID:         z.string().optional().default(''),
+  TWILIO_AUTH_TOKEN:          z.string().optional().default(''),
+  TWILIO_FROM_NUMBER:         z.string().optional().default(''),
+  COMPANY_NAME:               z.string().optional().default(''),
+  DAILY_BLAST_CRON:           z.string().optional().default('30 6 * * 1-6'),
 }).passthrough();
 
 const rawEnv       = envSchema.parse(process.env);
@@ -65,6 +71,12 @@ const STRIPE_WEBHOOK_TOLERANCE_SECONDS = Math.max(
   1,
   z.coerce.number().int().positive().catch(300).parse(rawEnv.STRIPE_WEBHOOK_TOLERANCE_SECONDS)
 );
+const TWILIO_ACCOUNT_SID  = rawEnv.TWILIO_ACCOUNT_SID;
+const TWILIO_AUTH_TOKEN   = rawEnv.TWILIO_AUTH_TOKEN;
+const TWILIO_FROM_NUMBER  = rawEnv.TWILIO_FROM_NUMBER;
+const COMPANY_NAME        = rawEnv.COMPANY_NAME;
+const DAILY_BLAST_CRON    = rawEnv.DAILY_BLAST_CRON;
+const hasTwilio           = !!(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_FROM_NUMBER);
 
 function validate(logger) {
   const fatal  = [];
@@ -124,6 +136,9 @@ function validate(logger) {
       !['auto','resend','smtp'].includes(String(process.env.EMAIL_PROVIDER).toLowerCase()))
     warns.push(`EMAIL_PROVIDER="${process.env.EMAIL_PROVIDER}" is not recognized — treated as "auto".`);
 
+  if (!hasTwilio)
+    warns.push('Twilio is not configured — daily fish blast SMS will not be sent. Set TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, TWILIO_FROM_NUMBER.');
+
   for (const msg of warns)  logger.warn(msg);
   for (const msg of errors) logger.error(msg);
   for (const msg of fatal)  logger.fatal(msg);
@@ -155,4 +170,10 @@ module.exports = {
   PORTAL_PAYMENT_PROVIDER,
   CORS_ORIGINS,
   STRIPE_WEBHOOK_TOLERANCE_SECONDS,
+  TWILIO_ACCOUNT_SID,
+  TWILIO_AUTH_TOKEN,
+  TWILIO_FROM_NUMBER,
+  COMPANY_NAME,
+  DAILY_BLAST_CRON,
+  hasTwilio,
 };
