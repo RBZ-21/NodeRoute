@@ -3,6 +3,13 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '../components/ui/select';
 import { fetchCurrentUser, fetchWithAuth, getUserRole, sendWithAuth } from '../lib/api';
 
 type Role = 'admin' | 'manager' | 'driver' | 'unknown';
@@ -101,7 +108,6 @@ export function SettingsPage() {
   const [invoiceLogoDataUrl, setInvoiceLogoDataUrl] = useState<string | null>(null);
   const [initialInvoiceLogoDataUrl, setInitialInvoiceLogoDataUrl] = useState<string | null>(null);
 
-  // Order cutoff
   const [orderCutoffHour, setOrderCutoffHour] = useState<number>(14);
   const [initialOrderCutoffHour, setInitialOrderCutoffHour] = useState<number>(14);
   const [orderCutoffDay, setOrderCutoffDay] = useState<string>('day_of');
@@ -143,16 +149,16 @@ export function SettingsPage() {
 
     if (companyResult.status === 'fulfilled') {
       const c = companyResult.value;
-      const nextSig = !!c.forceDriverSignature;
-      const nextPod = !!c.forceDriverProofOfDelivery;
-      const nextBizName = String(c.businessName || userCompanyName || '');
+      const nextSig  = !!c.forceDriverSignature;
+      const nextPod  = !!c.forceDriverProofOfDelivery;
+      const nextBiz  = String(c.businessName || userCompanyName || '');
       const nextLogo = c.invoiceLogoDataUrl || null;
       const nextHour = typeof c.orderCutoffHour === 'number' ? c.orderCutoffHour : 14;
       const nextDay  = typeof c.orderCutoffDay  === 'string' ? c.orderCutoffDay  : 'day_of';
 
       setForceDriverSignature(nextSig);            setInitialForceDriverSignature(nextSig);
       setForceDriverProofOfDelivery(nextPod);      setInitialForceDriverProofOfDelivery(nextPod);
-      setBusinessName(nextBizName);                setInitialBusinessName(nextBizName);
+      setBusinessName(nextBiz);                    setInitialBusinessName(nextBiz);
       setInvoiceLogoDataUrl(nextLogo);             setInitialInvoiceLogoDataUrl(nextLogo);
       setOrderCutoffHour(nextHour);                setInitialOrderCutoffHour(nextHour);
       setOrderCutoffDay(nextDay);                  setInitialOrderCutoffDay(nextDay);
@@ -277,7 +283,7 @@ export function SettingsPage() {
           <CardContent className="space-y-3">
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Display Name</span>
-              <Input value={displayName} onChange={(event) => setDisplayName(event.target.value)} placeholder="Your name" />
+              <Input value={displayName} onChange={(e) => setDisplayName(e.target.value)} placeholder="Your name" />
             </label>
             <div className="grid gap-3 sm:grid-cols-2">
               <ReadonlyField label="Email" value={String(user.email || '—')} />
@@ -324,7 +330,7 @@ export function SettingsPage() {
             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Business Name</span>
             <Input
               value={businessName}
-              onChange={(event) => setBusinessName(event.target.value)}
+              onChange={(e) => setBusinessName(e.target.value)}
               placeholder="Your business name"
               disabled={isCompanyDisabled}
             />
@@ -353,7 +359,7 @@ export function SettingsPage() {
             </div>
           </div>
 
-          {/* ── Order Cutoff Time ─────────────────────────────────────── */}
+          {/* Order Cutoff Time */}
           <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
             <div>
               <div className="text-sm font-semibold text-foreground">Order Cutoff Time</div>
@@ -362,32 +368,44 @@ export function SettingsPage() {
               </div>
             </div>
             <div className="grid gap-3 sm:grid-cols-2">
-              <label className="space-y-1 text-sm">
+              <div className="space-y-1">
                 <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cutoff Time</span>
-                <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
-                  value={orderCutoffHour}
-                  onChange={(e) => setOrderCutoffHour(Number(e.target.value))}
+                <Select
+                  value={String(orderCutoffHour)}
+                  onValueChange={(v) => setOrderCutoffHour(Number(v))}
                   disabled={isCompanyDisabled}
                 >
-                  {cutoffHourOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="space-y-1 text-sm">
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select time" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {cutoffHourOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={String(opt.value)}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="space-y-1">
                 <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Relative To Delivery</span>
-                <select
-                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                <Select
                   value={orderCutoffDay}
-                  onChange={(e) => setOrderCutoffDay(e.target.value)}
+                  onValueChange={(v) => setOrderCutoffDay(v)}
                   disabled={isCompanyDisabled}
                 >
-                  {cutoffDayOptions.map((opt) => (
-                    <option key={opt.value} value={opt.value}>{opt.label}</option>
-                  ))}
-                </select>
-              </label>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Select day" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {cutoffDayOptions.map((opt) => (
+                      <SelectItem key={opt.value} value={String(opt.value)}>
+                        {opt.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
             <div className="text-xs text-muted-foreground">
               Current setting: orders must be placed by{' '}
@@ -395,20 +413,15 @@ export function SettingsPage() {
                 {cutoffHourOptions.find((o) => o.value === orderCutoffHour)?.label ?? `${orderCutoffHour}:00`}
               </strong>
               {' '}on the{' '}
-              <strong>
-                {orderCutoffDay === 'day_before' ? 'day before' : 'day of'}
-              </strong>
+              <strong>{orderCutoffDay === 'day_before' ? 'day before' : 'day of'}</strong>
               {' '}delivery.
             </div>
           </div>
-          {/* ─────────────────────────────────────────────────────────── */}
 
           <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 p-4">
             <div>
               <div className="text-sm font-semibold text-foreground">Force Driver Signature</div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                Require signature capture before proof-of-delivery completion.
-              </div>
+              <div className="mt-1 text-xs text-muted-foreground">Require signature capture before proof-of-delivery completion.</div>
             </div>
             <label className="inline-flex cursor-pointer items-center gap-2">
               <span className="text-xs font-medium text-muted-foreground">Off</span>
@@ -416,7 +429,7 @@ export function SettingsPage() {
                 type="checkbox"
                 className="h-4 w-4 rounded border-input"
                 checked={forceDriverSignature}
-                onChange={(event) => setForceDriverSignature(event.target.checked)}
+                onChange={(e) => setForceDriverSignature(e.target.checked)}
                 disabled={isCompanyDisabled}
               />
               <span className="text-xs font-medium text-muted-foreground">On</span>
@@ -426,9 +439,7 @@ export function SettingsPage() {
           <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 p-4">
             <div>
               <div className="text-sm font-semibold text-foreground">Proof Of Delivery Photo</div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                Require drivers to capture and upload a delivery photo from their mobile device before completing the stop.
-              </div>
+              <div className="mt-1 text-xs text-muted-foreground">Require drivers to capture and upload a delivery photo from their mobile device before completing the stop.</div>
             </div>
             <label className="inline-flex cursor-pointer items-center gap-2">
               <span className="text-xs font-medium text-muted-foreground">Off</span>
@@ -436,7 +447,7 @@ export function SettingsPage() {
                 type="checkbox"
                 className="h-4 w-4 rounded border-input"
                 checked={forceDriverProofOfDelivery}
-                onChange={(event) => setForceDriverProofOfDelivery(event.target.checked)}
+                onChange={(e) => setForceDriverProofOfDelivery(e.target.checked)}
                 disabled={isCompanyDisabled}
               />
               <span className="text-xs font-medium text-muted-foreground">On</span>
