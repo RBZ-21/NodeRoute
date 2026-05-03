@@ -1,3 +1,6 @@
+'use strict';
+
+const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { supabase } = require('../services/supabase');
 const { buildRequestContext } = require('../services/operating-context');
@@ -49,35 +52,30 @@ async function findUserFromTokenPayload(payload) {
 
 /**
  * Extract a raw JWT string from the request.
- * Priority: HttpOnly cookie -> Authorization: Bearer header (legacy fallback).
- * Step 4 of the migration plan removes the header fallback.
+ * Cookie-only — the Authorization: Bearer header fallback was removed in Step 4
+ * of the JWT migration. All clients must authenticate via the HttpOnly cookie.
  */
 function extractToken(req) {
-  if (req.cookies?.token) return req.cookies.token;
-  const auth = req.headers['authorization'];
-  if (auth && auth.startsWith('Bearer ')) return auth.slice(7);
-  return null;
+  return req.cookies?.token || null;
 }
 
 /**
  * CSRF double-submit check.
  * The server sets a readable `csrf-token` cookie on login.
  * The frontend reads it and sends it back as X-CSRF-Token on every mutation.
- * We verify both values match. Attackers on other origins cannot read the cookie
- * due to SameSite=Strict + same-origin policy, so they can't forge the header.
+ * We verify both values match using constant-time comparison.
+ * Attackers on other origins cannot read the cookie due to SameSite=Strict
+ * + same-origin policy, so they can\'t forge the header.
  */
 function verifyCsrf(req) {
   if (!CSRF_METHODS.has(req.method)) return true;
   if (CSRF_EXEMPT.has(req.path)) return true;
-  // Skip CSRF for requests using the legacy Authorization header (API consumers)
-  if (!req.cookies?.token) return true;
   const cookieToken = req.cookies['csrf-token'];
   const headerToken = req.headers['x-csrf-token'];
   if (!cookieToken || !headerToken) return false;
-  // Constant-time comparison to prevent timing attacks
   try {
     const a = Buffer.from(cookieToken);
-    const b = Buffer.from(headerToken);
+    const b = Buffer.from(String(headerToken));
     if (a.length !== b.length) return false;
     return crypto.timingSafeEqual(a, b);
   } catch {
@@ -85,17 +83,17 @@ function verifyCsrf(req) {
   }
 }
 
-const crypto = require('crypto');
-
 async function authenticateToken(req, res, next) {
   const token = extractToken(req);
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
+
   let payload;
   try {
     payload = jwt.verify(token, JWT_SECRET);
-  } catch (err) {
+  } catch {
     return res.status(401).json({ error: 'Invalid or expired session' });
   }
+
   const { user, error } = await findUserFromTokenPayload(payload);
   if (error || !user) return res.status(401).json({ error: 'User not found' });
 
