@@ -30,13 +30,16 @@ export function App() {
   const authState    = useAuth();
 
   // ── Public / standalone routes ────────────────────────────────────────────
+  const isTrackRoute         = pathname === '/track' || pathname.startsWith('/track/');
+  const isSetupPasswordRoute = pathname === '/setup-password';
+
   if (pathname === '/login')
     return <Suspense fallback={<PageSkeleton />}><LoginPage /></Suspense>;
   if (pathname === '/portal' || pathname === '/customer-portal')
     return <Suspense fallback={<PageSkeleton />}><CustomerPortalPage /></Suspense>;
-  if (pathname === '/track' || pathname.startsWith('/track/'))
+  if (isTrackRoute)
     return <Suspense fallback={<PageSkeleton />}><TrackPage /></Suspense>;
-  if (pathname === '/setup-password')
+  if (isSetupPasswordRoute)
     return <Suspense fallback={<PageSkeleton />}><SetupPasswordPage /></Suspense>;
 
   // ── Session in flight ─────────────────────────────────────────────────────
@@ -47,7 +50,6 @@ export function App() {
       </div>
     );
 
-  // authState === 'redirecting' → useAuth already called redirectToLogin
   if (authState === 'redirecting') return null;
 
   // ── Driver workspace ──────────────────────────────────────────────────────
