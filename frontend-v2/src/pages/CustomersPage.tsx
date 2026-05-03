@@ -77,6 +77,10 @@ export function CustomersPage() {
   const [invoices, setInvoices] = useState<Invoice[]>([]);
   const [invoicesLoading, setInvoicesLoading] = useState(false);
 
+  // Address lookup state
+  const [lookingUpAddress, setLookingUpAddress] = useState(false);
+  const [addressLookupError, setAddressLookupError] = useState('');
+
   const panelRef = useRef<HTMLDivElement>(null);
 
   async function load() {
@@ -112,12 +116,39 @@ export function CustomersPage() {
     setEditing(false);
     setDetailTab('info');
     setInvoices([]);
+    setAddressLookupError('');
   }
 
   function onTabChange(tab: DetailTab) {
     setDetailTab(tab);
+    setAddressLookupError('');
     if (tab === 'invoices' && selected?.id != null) {
       loadInvoices(selected.id);
+    }
+  }
+
+  async function lookupAddress(targetField: 'address' | 'billing_address') {
+    const name = draft.company_name?.trim();
+    if (!name) {
+      setAddressLookupError('Company name is required to look up an address.');
+      return;
+    }
+    setLookingUpAddress(true);
+    setAddressLookupError('');
+    try {
+      const result = await fetchWithAuth<{ address: string; place_name?: string; place_id?: string }>(
+        `/api/customers/address-lookup?name=${encodeURIComponent(name)}`
+      );
+      if (result?.address) {
+        setDraft((d) => ({ ...d, [targetField]: result.address }));
+        setNotice(`Address found: ${result.address}`);
+      } else {
+        setAddressLookupError(`No address found for "${name}". Try editing the company name and searching again.`);
+      }
+    } catch (err) {
+      setAddressLookupError(String((err as Error).message || 'Address lookup failed'));
+    } finally {
+      setLookingUpAddress(false);
     }
   }
 
@@ -251,7 +282,7 @@ export function CustomersPage() {
                   <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
                 ) : (
                   <>
-                    <Button size="sm" variant="outline" onClick={() => { setEditing(false); setDraft({ ...selected }); }}>Cancel</Button>
+                    <Button size="sm" variant="outline" onClick={() => { setEditing(false); setDraft({ ...selected }); setAddressLookupError(''); }}>Cancel</Button>
                     <Button size="sm" disabled={saving} onClick={saveCustomer}>{saving ? 'Saving...' : 'Save'}</Button>
                   </>
                 )}
@@ -299,7 +330,37 @@ export function CustomersPage() {
               {/* Delivery Tab */}
               {detailTab === 'delivery' && (
                 <div className="space-y-3">
-                  <Field label="Address" value={draft.address} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, address: v }))} />
+                  {/* Address field with auto-lookup */}
+                  <div className="flex items-start gap-3">
+                    <span className="w-36 shrink-0 pt-1 text-sm text-muted-foreground">Address</span>
+                    {editing ? (
+                      <div className="flex flex-1 flex-col gap-1">
+                        <div className="flex gap-2">
+                          <Input
+                            className="flex-1"
+                            value={draft.address || ''}
+                            onChange={(e) => setDraft((d) => ({ ...d, address: e.target.value }))}
+                            placeholder="Street address..."
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={lookingUpAddress}
+                            onClick={() => lookupAddress('address')}
+                            title={`Look up address for ${draft.company_name || 'this business'}`}
+                          >
+                            {lookingUpAddress ? '...' : '🔍'}
+                          </Button>
+                        </div>
+                        {addressLookupError && (
+                          <p className="text-xs text-destructive">{addressLookupError}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-sm">{selected.address || '-'}</span>
+                    )}
+                  </div>
                   <Field label="Delivery Notes" value={draft.delivery_notes} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, delivery_notes: v }))} multiline />
                   <Field label="Preferred Window" value={draft.preferred_delivery_window} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, preferred_delivery_window: v }))} />
                   <Field label="Preferred Door" value={draft.preferred_door} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, preferred_door: v }))} />
@@ -313,7 +374,37 @@ export function CustomersPage() {
                   <Field label="Billing Contact" value={draft.billing_contact} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, billing_contact: v }))} />
                   <Field label="Billing Email" value={draft.billing_email} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, billing_email: v }))} />
                   <Field label="Billing Phone" value={draft.billing_phone} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, billing_phone: v }))} />
-                  <Field label="Billing Address" value={draft.billing_address} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, billing_address: v }))} />
+                  {/* Billing address with auto-lookup */}
+                  <div className="flex items-start gap-3">
+                    <span className="w-36 shrink-0 pt-1 text-sm text-muted-foreground">Billing Address</span>
+                    {editing ? (
+                      <div className="flex flex-1 flex-col gap-1">
+                        <div className="flex gap-2">
+                          <Input
+                            className="flex-1"
+                            value={draft.billing_address || ''}
+                            onChange={(e) => setDraft((d) => ({ ...d, billing_address: e.target.value }))}
+                            placeholder="Billing address..."
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={lookingUpAddress}
+                            onClick={() => lookupAddress('billing_address')}
+                            title={`Look up address for ${draft.company_name || 'this business'}`}
+                          >
+                            {lookingUpAddress ? '...' : '🔍'}
+                          </Button>
+                        </div>
+                        {addressLookupError && (
+                          <p className="text-xs text-destructive">{addressLookupError}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-sm">{selected.billing_address || '-'}</span>
+                    )}
+                  </div>
                 </div>
               )}
 

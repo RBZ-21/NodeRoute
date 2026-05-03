@@ -124,6 +124,67 @@ async function fetchAllCustomers(res) {
   });
 }
 
+// ── ADDRESS LOOKUP via Google Places ──────────────────────────────────────────
+// GET /api/customers/address-lookup?name=<business+name>
+// Returns { address } or { error }
+router.get('/address-lookup', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const name = String(req.query.name || '').trim();
+  if (!name) return res.status(400).json({ error: 'name query param is required' });
+
+  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
+  if (!apiKey) return res.status(503).json({ error: 'GOOGLE_MAPS_API_KEY is not configured on the server' });
+
+  try {
+    // Step 1: Find the place ID
+    const findUrl = new URL('https://maps.googleapis.com/maps/api/place/findplacefromtext/json');
+    findUrl.searchParams.set('input', name);
+    findUrl.searchParams.set('inputtype', 'textquery');
+    findUrl.searchParams.set('fields', 'place_id,name,formatted_address');
+    findUrl.searchParams.set('key', apiKey);
+
+    const findResp = await fetch(findUrl.toString());
+    if (!findResp.ok) throw new Error(`Google Places findplace HTTP ${findResp.status}`);
+    const findData = await findResp.json();
+
+    if (!findData.candidates || !findData.candidates.length) {
+      return res.status(404).json({ error: `No results found for "${name}"` });
+    }
+
+    const candidate = findData.candidates[0];
+
+    // If formatted_address came back in the findplace response, use it directly
+    if (candidate.formatted_address) {
+      return res.json({
+        address: candidate.formatted_address,
+        place_name: candidate.name || name,
+        place_id: candidate.place_id,
+      });
+    }
+
+    // Step 2: Get full place details for the address
+    const detailUrl = new URL('https://maps.googleapis.com/maps/api/place/details/json');
+    detailUrl.searchParams.set('place_id', candidate.place_id);
+    detailUrl.searchParams.set('fields', 'formatted_address,name');
+    detailUrl.searchParams.set('key', apiKey);
+
+    const detailResp = await fetch(detailUrl.toString());
+    if (!detailResp.ok) throw new Error(`Google Places details HTTP ${detailResp.status}`);
+    const detailData = await detailResp.json();
+
+    const address = detailData?.result?.formatted_address;
+    if (!address) return res.status(404).json({ error: `Could not resolve address for "${name}"` });
+
+    return res.json({
+      address,
+      place_name: detailData?.result?.name || name,
+      place_id: candidate.place_id,
+    });
+  } catch (err) {
+    console.error('[address-lookup]', err);
+    return res.status(500).json({ error: 'Address lookup failed', detail: err.message });
+  }
+});
+
 // ── CUSTOMERS (Supabase: "Customers") ─────────────
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const data = await fetchAllCustomers(res);
@@ -169,7 +230,6 @@ router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async 
 
 // ── CREDIT HOLD ────────────────────────────────────────────────────────────────
 
-// Place a customer on credit hold
 router.post('/:id/hold', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const existing = await dbQuery(supabase.from('Customers').select('*').eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Customer not found' });
@@ -188,7 +248,6 @@ router.post('/:id/hold', authenticateToken, requireRole('admin', 'manager'), asy
   res.json(updateResult.data);
 });
 
-// Lift a customer's credit hold
 router.delete('/:id/hold', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const existing = await dbQuery(supabase.from('Customers').select('*').eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Customer not found' });
