@@ -145,7 +145,7 @@ def resolve_pr_from_gh_cli() -> tuple[str, str, int]:
     name_with_owner: str = base_repo.get("nameWithOwner", "")
     if not name_with_owner:
         # Fall back to parsing the PR URL
-        return parse_pr_url(data["url"]) 
+        return parse_pr_url(data["url"])
 
     owner, _, repo = name_with_owner.partition("/")
     return owner, repo, pr_number
@@ -168,7 +168,7 @@ def resolve_pr(
             sys.exit(1)
         return owner, repo_name, pr_number
 
-    # Neither explicit -- fall back to gh CLI auto-detection (base repo)
+    # Neither explicit — fall back to gh CLI auto-detection (base repo)
     return resolve_pr_from_gh_cli()
 
 
@@ -279,19 +279,24 @@ def fetch_issue_comments(owner: str, repo: str, pr_number: int, token: str) -> l
     return data
 
 
+# Explicit body prefixes that reliably indicate a comment has been addressed.
+# Deliberately narrow: we do NOT filter on diff position / outdated state because
+# outdated comments are still open action items — the code changed under them but
+# the reviewer's request is still pending.
+_RESOLVED_PREFIXES = ("✅", "LGTM", "Resolved", "Fixed", "Done", "~~")
+
+
 def is_resolved(comment: dict) -> bool:
     """
-    GitHub's REST API doesn't expose thread resolution state directly on
-    inline comments, but we can approximate: skip comments where the body
-    starts with common bot/resolved markers, or that are outdated.
+    Return True only when the comment body starts with a well-known marker
+    indicating the reviewer considers it addressed.
+
+    Intentionally does NOT filter "outdated" comments (position=None) because
+    GitHub marks a comment outdated when the surrounding code changes, not when
+    the reviewer's request is fulfilled — the comment remains an open action item.
     """
     body: str = (comment.get("body") or "").strip()
-    if body.startswith(("✅", "LGTM", "Resolved", "Fixed", "Done", "~~")):
-        return True
-    # outdated diff position means the code changed under the comment
-    if comment.get("position") is None and comment.get("original_position") is not None:
-        return True
-    return False
+    return body.startswith(_RESOLVED_PREFIXES)
 
 
 def format_comments(review_comments: list[dict], issue_comments: list[dict]) -> list[dict]:
@@ -309,6 +314,7 @@ def format_comments(review_comments: list[dict], issue_comments: list[dict]) -> 
             "path": c.get("path"),
             "line": c.get("line") or c.get("original_line"),
             "side": c.get("side", "RIGHT"),
+            "outdated": c.get("position") is None and c.get("original_position") is not None,
             "body": (c.get("body") or "").strip(),
             "created_at": c.get("created_at"),
             "in_reply_to_id": c.get("in_reply_to_id"),
@@ -325,6 +331,7 @@ def format_comments(review_comments: list[dict], issue_comments: list[dict]) -> 
             "path": None,
             "line": None,
             "side": None,
+            "outdated": False,
             "body": (c.get("body") or "").strip(),
             "created_at": c.get("created_at"),
             "in_reply_to_id": None,
@@ -371,21 +378,35 @@ def main() -> None:
 
     if args.include_resolved:
         comments = [
-            {**c_dict, "path": c.get("path"), "line": c.get("line") or c.get("original_line")}
-            for c, c_dict in [
-                (c, {"type": "review", "id": c.get("id"), "url": c.get("html_url"),
-                     "author": c.get("user", {}).get("login"), "path": c.get("path"),
-                     "line": c.get("line") or c.get("original_line"), "side": c.get("side", "RIGHT"),
-                     "body": (c.get("body") or "").strip(), "created_at": c.get("created_at"),
-                     "in_reply_to_id": c.get("in_reply_to_id")})
-                for c in review_comments
-            ] + [
-                (c, {"type": "issue", "id": c.get("id"), "url": c.get("html_url"),
-                     "author": c.get("user", {}).get("login"), "path": None, "line": None,
-                     "side": None, "body": (c.get("body") or "").strip(),
-                     "created_at": c.get("created_at"), "in_reply_to_id": None})
-                for c in issue_comments
-            ]
+            {
+                "type": "review",
+                "id": c.get("id"),
+                "url": c.get("html_url"),
+                "author": c.get("user", {}).get("login"),
+                "path": c.get("path"),
+                "line": c.get("line") or c.get("original_line"),
+                "side": c.get("side", "RIGHT"),
+                "outdated": c.get("position") is None and c.get("original_position") is not None,
+                "body": (c.get("body") or "").strip(),
+                "created_at": c.get("created_at"),
+                "in_reply_to_id": c.get("in_reply_to_id"),
+            }
+            for c in review_comments
+        ] + [
+            {
+                "type": "issue",
+                "id": c.get("id"),
+                "url": c.get("html_url"),
+                "author": c.get("user", {}).get("login"),
+                "path": None,
+                "line": None,
+                "side": None,
+                "outdated": False,
+                "body": (c.get("body") or "").strip(),
+                "created_at": c.get("created_at"),
+                "in_reply_to_id": None,
+            }
+            for c in issue_comments
         ]
         comments.sort(key=lambda x: x.get("created_at") or "")
     else:
@@ -398,10 +419,11 @@ def main() -> None:
             print("No unresolved comments found.")
             return
         for c in comments:
-            loc = f"{c['path']}:{c['line']}" if c.get("path") else "(top-level)"
+            outdated_tag = " [outdated]" if c.get("outdated") else ""
+            loc = f"{c['path']}:{c['line']}{outdated_tag}" if c.get("path") else "(top-level)"
             print(f"[{c['type'].upper()}] #{c['id']} by @{c['author']}  {loc}")
             print(f"  URL: {c['url']}")
-            print(f"  {c['body'][:200]}{'...' if len(c.get('body','')) > 200 else ''}")
+            print(f"  {c['body'][:200]}{'...' if len(c.get('body', '')) > 200 else ''}")
             print()
 
 
