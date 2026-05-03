@@ -100,6 +100,32 @@ router.patch('/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// POST /api/stops/:id/arrive — driver marks arrival at a stop
+router.post('/:id/arrive', authenticateToken, async (req, res) => {
+  try {
+    const { data: existing, error: fetchErr } = await supabase
+      .from('stops').select('driver_id, status').eq('id', req.params.id).single();
+    if (fetchErr) return res.status(404).json({ error: 'Stop not found' });
+    // Drivers can only arrive their own stops
+    if (req.user.role === 'driver' && String(existing.driver_id) !== String(req.user.id)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+    const { data, error } = await supabase
+      .from('stops')
+      .update({
+        status: 'arrived',
+        arrived_at: new Date().toISOString(),
+      })
+      .eq('id', req.params.id)
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/stops/:id/signature — save a delivery signature
 router.post('/:id/signature', authenticateToken, async (req, res) => {
   try {
