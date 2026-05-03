@@ -6,6 +6,7 @@ const logger = require('./services/logger');
 const config = require('./lib/config');
 config.validate(logger);
 const express = require('express');
+const cookieParser = require('cookie-parser');
 const pinoHttp = require('pino-http');
 const fs = require('fs');
 const path = require('path');
@@ -49,6 +50,7 @@ app.set('trust proxy', 1);
 
 app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhookHandler);
 app.use(express.json({ limit: config.JSON_BODY_LIMIT }));
+app.use(cookieParser());
 app.disable('x-powered-by');
 
 // ── Security headers ─────────────────────────────────────────────────────────
@@ -107,6 +109,7 @@ app.use((req, res, next) => {
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,sentry-trace,baggage');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });

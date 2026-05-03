@@ -41,10 +41,23 @@ async function findUserFromTokenPayload(payload) {
   return { user: null, error: null };
 }
 
-async function authenticateToken(req, res, next) {
+/**
+ * Extract a raw JWT string from the request.
+ * Priority: HttpOnly cookie → Authorization: Bearer header.
+ * This dual-read supports Step 2 of the JWT migration plan (cookie-first
+ * with header fallback). Once the frontend stops writing to localStorage
+ * and all clients move to cookies, the header fallback can be removed.
+ */
+function extractToken(req) {
+  if (req.cookies?.token) return req.cookies.token;
   const auth = req.headers['authorization'];
-  if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
-  const token = auth.slice(7);
+  if (auth && auth.startsWith('Bearer ')) return auth.slice(7);
+  return null;
+}
+
+async function authenticateToken(req, res, next) {
+  const token = extractToken(req);
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
   let payload;
   try {
     payload = jwt.verify(token, JWT_SECRET);
@@ -67,4 +80,4 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { authenticateToken, requireRole };
+module.exports = { authenticateToken, requireRole, extractToken };

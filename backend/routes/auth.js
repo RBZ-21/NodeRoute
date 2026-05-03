@@ -15,6 +15,9 @@ const router = express.Router();
 
 const JWT_SECRET = process.env.JWT_SECRET || 'noderoute-dev-secret-change-in-production';
 const JWT_EXPIRY = '24h';
+const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 h in ms
+
+const IS_PROD = process.env.NODE_ENV === 'production';
 
 function hashPassword(pw) { return bcrypt.hashSync(pw, 10); }
 
@@ -47,14 +50,36 @@ function signJWT(user) {
   );
 }
 
+/**
+ * Sets the HttpOnly auth cookie (Step 1 of JWT migration).
+ * The token is ALSO returned in the JSON body so existing clients
+ * using localStorage continue to work unchanged.
+ */
+function setAuthCookie(res, token) {
+  res.cookie('token', token, {
+    httpOnly: true,
+    secure: IS_PROD,
+    sameSite: 'strict',
+    maxAge: COOKIE_MAX_AGE,
+    path: '/',
+  });
+}
+
+function clearAuthCookie(res) {
+  res.clearCookie('token', {
+    httpOnly: true,
+    secure: IS_PROD,
+    sameSite: 'strict',
+    path: '/',
+  });
+}
+
 router.post('/login', async (req, res) => {
   const parsed = parseLoginBody(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error });
   const { email, password } = parsed.data;
 
   const normalizedEmail = email.toLowerCase();
-  // Avoid .ilike() here; some client adapters don't expose it on this query path.
-  // Perform a deterministic case-insensitive lookup in memory.
   const users = await dbQuery(supabase.from('users').select('*'), res);
   if (!users) return;
 
@@ -69,6 +94,7 @@ router.post('/login', async (req, res) => {
     await supabase.from('users').update({ password_hash: bcrypt.hashSync(password, 10) }).eq('id', u.id);
   }
   const token = signJWT(u);
+  setAuthCookie(res, token);
   res.json({ token, user: userResponseWithContext(u) });
 });
 
@@ -88,6 +114,7 @@ router.post('/setup-password', async (req, res) => {
     invite_expires: null
   }).eq('id', u.id);
   const sessionToken = signJWT(u);
+  setAuthCookie(res, sessionToken);
   res.json({ token: sessionToken, user: userResponseWithContext(u) });
 });
 
@@ -96,7 +123,7 @@ router.get('/me', authenticateToken, (req, res) => {
 });
 
 router.post('/logout', authenticateToken, (req, res) => {
-  // JWTs are stateless; logout is handled client-side by discarding the token
+  clearAuthCookie(res);
   res.json({ message: 'Logged out' });
 });
 
