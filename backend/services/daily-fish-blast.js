@@ -4,13 +4,9 @@
  * Daily Fish Blast
  * ─────────────────
  * Runs at 6:30 AM Eastern every weekday morning.
- * Pulls inventory items received since the previous order cutoff,
- * builds a concise SMS, and texts every active opted-in customer
- * that has a phone number on file.
- *
- * Order cutoff is defined as the last time `inventory_stock_history`
- * had a 'received' entry before today — or midnight yesterday as a
- * fallback.
+ * Pulls inventory items received since the order cutoff (loaded from
+ * company settings), builds a concise SMS, and texts every active
+ * opted-in customer that has a phone number on file.
  *
  * Opt-out: customers with sms_opt_out = true are skipped.
  */
@@ -18,6 +14,7 @@
 const { supabase } = require('./supabase');
 const { sendSms }  = require('./sms');
 const logger       = require('./logger');
+const { loadCompanySettings, computeCutoffTimestamp } = require('./company-settings');
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -27,37 +24,8 @@ function normalizePhone(raw) {
   const digits = String(raw).replace(/\D/g, '');
   if (digits.length === 10) return `+1${digits}`;
   if (digits.length === 11 && digits.startsWith('1')) return `+${digits}`;
-  if (digits.length > 11) return `+${digits}`; // international — pass through
-  return null; // unparseable
-}
-
-/**
- * Returns the ISO timestamp of the last order cutoff.
- * Defined as: the created_at of the most recent 'received' entry in
- * inventory_stock_history before today's blast window.
- * Falls back to midnight UTC yesterday if no history found.
- */
-async function getLastCutoffTimestamp() {
-  const todayNoon = new Date();
-  todayNoon.setHours(12, 0, 0, 0); // use noon to avoid catching today's entries
-
-  const { data, error } = await supabase
-    .from('inventory_stock_history')
-    .select('created_at')
-    .eq('change_type', 'received')
-    .lt('created_at', todayNoon.toISOString())
-    .order('created_at', { ascending: false })
-    .limit(1);
-
-  if (error || !data || !data.length) {
-    // Fallback: midnight yesterday
-    const yesterday = new Date();
-    yesterday.setDate(yesterday.getDate() - 1);
-    yesterday.setHours(0, 0, 0, 0);
-    return yesterday.toISOString();
-  }
-
-  return data[0].created_at;
+  if (digits.length > 11) return `+${digits}`;
+  return null;
 }
 
 /** Fetch items received since the cutoff timestamp. */
@@ -71,7 +39,6 @@ async function fetchReceivedSinceCutoff(cutoff) {
 
   if (error || !data || !data.length) return [];
 
-  // Join to seafood_inventory to get the human-readable description
   const itemNumbers = [...new Set(data.map((r) => r.item_number))];
   const { data: inventory } = await supabase
     .from('seafood_inventory')
@@ -81,7 +48,6 @@ async function fetchReceivedSinceCutoff(cutoff) {
   const descMap = {};
   (inventory || []).forEach((i) => { descMap[i.item_number] = i; });
 
-  // Aggregate total qty received per item
   const totals = {};
   data.forEach(({ item_number, change_qty }) => {
     totals[item_number] = (totals[item_number] || 0) + parseFloat(change_qty || 0);
@@ -101,22 +67,17 @@ async function fetchReceivedSinceCutoff(cutoff) {
 /** Build the SMS body from the received items list. */
 function buildBlastMessage(items, companyName) {
   const date = new Date().toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
-  const header = `${companyName ? companyName + ' — ' : ''}Fresh Catch ${date}:`;
-
-  if (!items.length) return null; // nothing to send
-
-  // SMS has a 160-char soft limit per segment; keep it tight
+  const header = `${companyName ? companyName + ' \u2014 ' : ''}Fresh Catch ${date}:`;
+  if (!items.length) return null;
   const lines = items.map((i) => {
     const qty = i.qty % 1 === 0 ? i.qty.toString() : i.qty.toFixed(1);
     const unit = i.unit ? ` ${i.unit}` : '';
-    return `• ${i.description} (${qty}${unit})`;
+    return `\u2022 ${i.description} (${qty}${unit})`;
   });
-
-  const body = [header, ...lines, '\nReply STOP to unsubscribe.'].join('\n');
-  return body;
+  return [header, ...lines, '\nReply STOP to unsubscribe.'].join('\n');
 }
 
-/** Fetch all opted-in customers with a usable phone number. */
+/** Fetch all opted-in active customers with a usable phone number. */
 async function fetchEligibleCustomers() {
   const { data, error } = await supabase
     .from('Customers')
@@ -137,11 +98,14 @@ async function fetchEligibleCustomers() {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-async function runDailyFishBlast(companyName = '') {
+async function runDailyFishBlast(companyName = '', companyId = null) {
   logger.info('Daily fish blast: starting');
 
-  const cutoff = await getLastCutoffTimestamp();
-  logger.info({ cutoff }, 'Daily fish blast: cutoff timestamp');
+  // Load cutoff settings from the database
+  const settings = await loadCompanySettings(companyId, companyName);
+  const cutoff   = computeCutoffTimestamp(settings);
+
+  logger.info({ cutoff, orderCutoffHour: settings.orderCutoffHour, orderCutoffDay: settings.orderCutoffDay }, 'Daily fish blast: cutoff');
 
   const items = await fetchReceivedSinceCutoff(cutoff);
   if (!items.length) {
@@ -149,14 +113,14 @@ async function runDailyFishBlast(companyName = '') {
     return { sent: 0, skipped: 0, reason: 'no_inventory' };
   }
 
-  const message = buildBlastMessage(items, companyName);
+  const message = buildBlastMessage(items, settings.businessName || companyName);
   if (!message) {
     logger.info('Daily fish blast: message was empty — skipping');
     return { sent: 0, skipped: 0, reason: 'empty_message' };
   }
 
   const customers = await fetchEligibleCustomers();
-  logger.info({ count: customers.length, items: items.length }, 'Daily fish blast: sending');
+  logger.info({ customerCount: customers.length, itemCount: items.length }, 'Daily fish blast: sending');
 
   let sent = 0;
   let failed = 0;
