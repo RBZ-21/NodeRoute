@@ -2,7 +2,11 @@ import { ChevronDown, ChevronRight, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { cn } from '../../lib/utils';
-import { type NavGroup, type Role, defaultPath, findNavItem, navGroups } from '../../lib/nav';
+import {
+  type NavGroup, type Role,
+  defaultPath, findNavItem, navGroups,
+  canAccess, canAccessGroup,
+} from '../../lib/nav';
 
 interface SidebarProps {
   role: Role;
@@ -15,10 +19,8 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
   const navigate    = useNavigate();
   const currentItem = findNavItem(location.pathname) ?? findNavItem(defaultPath);
 
-  // Close drawer on route change
   useEffect(() => { onMobileClose(); }, [location.pathname]);
 
-  // Prevent body scroll when drawer is open
   useEffect(() => {
     if (mobileOpen) {
       document.body.style.overflow = 'hidden';
@@ -29,11 +31,12 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
   }, [mobileOpen]);
 
   const visibleGroups = navGroups
-    .filter((g) => !g.adminOnly || role === 'admin')
+    .filter((g) => canAccessGroup(g, role))
     .map((g) => ({
       ...g,
-      items: g.items.filter((item) => !item.adminOnly || role === 'admin'),
-    }));
+      items: g.items.filter((item) => canAccess(item, role)),
+    }))
+    .filter((g) => g.items.length > 0);
 
   const sidebarContent = (
     <aside className="flex h-full w-56 shrink-0 flex-col gap-1 overflow-y-auto border-r border-border bg-card px-2 py-4">
@@ -67,16 +70,10 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
         {sidebarContent}
       </div>
 
-      {/* Mobile: slide-in drawer with backdrop */}
+      {/* Mobile: slide-in drawer */}
       {mobileOpen && (
         <div className="fixed inset-0 z-50 flex md:hidden">
-          {/* Backdrop */}
-          <div
-            className="absolute inset-0 bg-black/40"
-            onClick={onMobileClose}
-            aria-hidden="true"
-          />
-          {/* Drawer panel */}
+          <div className="absolute inset-0 bg-black/40" onClick={onMobileClose} aria-hidden="true" />
           <div className="relative flex h-full w-56 flex-col bg-card shadow-xl">
             {sidebarContent}
           </div>
@@ -102,7 +99,12 @@ function SidebarGroup({
     <div className="mb-1">
       <button
         onClick={() => setOpen((o) => !o)}
-        className="flex w-full items-center justify-between rounded-md px-3 py-1.5 text-xs font-semibold uppercase tracking-wider text-muted-foreground hover:bg-muted/50 transition-colors"
+        className={cn(
+          'flex w-full items-center justify-between rounded-md px-3 py-1.5 text-xs font-semibold uppercase tracking-wider transition-colors hover:bg-muted/50',
+          group.id === 'superadmin'
+            ? 'text-violet-500 dark:text-violet-400'
+            : 'text-muted-foreground',
+        )}
         aria-expanded={open}
       >
         {group.label}
@@ -126,15 +128,13 @@ function SidebarGroup({
                     'group flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-sm transition-colors',
                     isActive
                       ? 'bg-primary/10 font-semibold text-primary'
-                      : 'text-foreground hover:bg-muted/60'
+                      : 'text-foreground hover:bg-muted/60',
                   )}
                 >
                   <Icon
                     className={cn(
                       'h-4 w-4 shrink-0 transition-colors',
-                      isActive
-                        ? 'text-primary'
-                        : 'text-muted-foreground group-hover:text-foreground'
+                      isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground',
                     )}
                     aria-hidden="true"
                   />
