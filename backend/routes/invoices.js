@@ -38,11 +38,9 @@ const invoiceBodySchema = z.object({
   if (!customerName || !String(customerName).trim()) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'customer_name is required' });
   }
-
   if (body.subtotal !== undefined && !Number.isFinite(Number(body.subtotal))) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'subtotal must be a number' });
   }
-
   if (body.total !== undefined && !Number.isFinite(Number(body.total))) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'total must be a number' });
   }
@@ -106,8 +104,6 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 
   let query = supabase.from('invoices').select('*').order('created_at', { ascending: false });
-
-  // Optional filter by customer_id (numeric FK on invoices table)
   const customerId = req.query.customer_id;
   if (customerId) {
     const parsedId = parseInt(customerId, 10);
@@ -161,7 +157,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
   res.json(data);
 });
 
-// Entree import — accepts one or many invoices in Entree's export format
+// Entree import
 router.post('/import', validate(invoiceImportSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   if (!Array.isArray(req.body) && (typeof req.body !== 'object' || req.body === null)) {
     return res.status(400).json({ error: 'Request body must be an invoice object or an array of invoices' });
@@ -198,12 +194,15 @@ router.post('/import', validate(invoiceImportSchema), authenticateToken, require
   res.json({ imported: data.length, invoices: data });
 });
 
+// Update invoice status — fires completion email when status is set to 'paid'
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   if (!rowMatchesContext(inv, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
   const updates = {};
+  const prevStatus = inv.status;
+
   if (req.body.status !== undefined) {
     const nextStatus = String(req.body.status || '').trim().toLowerCase();
     if (!['pending', 'paid', 'overdue', 'void', 'signed', 'sent'].includes(nextStatus)) {
@@ -224,23 +223,31 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
     res
   );
   if (!data) return;
+
+  // Send completion email with PDF when invoice is marked paid for the first time
+  const beingMarkedPaid = updates.status === 'paid' && prevStatus !== 'paid';
+  const recipient = data.billing_email || data.customer_email;
+  if (beingMarkedPaid && recipient) {
+    sendInvoiceEmail(data, 'Your Completed Invoice').catch((err) =>
+      console.error('[invoices] completion email failed:', err.message)
+    );
+  }
+
   res.json(data);
 });
 
 // Save signature → generate PDF → email customer
 router.post('/:id/sign', validate(invoiceSignSchema), authenticateToken, async (req, res) => {
-  const signature_data = req.body?.signature_data || req.body?.signature; // base64 PNG from canvas
+  const signature_data = req.body?.signature_data || req.body?.signature;
   if (!signature_data) return res.status(400).json({ error: 'Signature data required' });
 
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   if (!(await canAccessInvoice(req, inv))) return res.status(403).json({ error: 'Forbidden' });
 
-  // Update invoice as signed
   const updated = await dbQuery(supabase.from('invoices').update({ signature_data, status: 'signed', signed_at: new Date().toISOString() }).eq('id', req.params.id).select().single(), res);
   if (!updated) return;
 
-  // Generate PDF
   let emailSent = false;
   if (inv.billing_email || inv.customer_email) {
     try {
@@ -313,7 +320,6 @@ router.post('/:id/email', authenticateToken, requireRole('admin', 'manager'), as
   }
 });
 
-// Resend email for an already-signed invoice
 router.post('/:id/resend', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
@@ -330,7 +336,6 @@ router.post('/:id/resend', authenticateToken, requireRole('admin', 'manager'), a
   }
 });
 
-// Download PDF for any invoice
 router.get('/:id/pdf', authenticateToken, async (req, res) => {
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });

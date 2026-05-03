@@ -38,7 +38,8 @@ const reportingRouter     = require('./routes/reporting').router;
 const lotsRouter          = require('./routes/lots');
 const integrationsRouter  = require('./routes/integrations');
 const warehouseRouter     = require('./routes/warehouse');
-const superadminRouter    = require('./routes/superadmin');          // ← NEW
+const superadminRouter    = require('./routes/superadmin');
+const waitlistRouter      = require('./routes/waitlist');
 const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
 
 const app = express();
@@ -170,7 +171,8 @@ app.use('/api/reporting', reportingRouter);
 app.use('/api/lots', lotsRouter);
 app.use('/api/integrations', integrationsRouter);
 app.use('/api/warehouse', warehouseRouter);
-app.use('/api/superadmin', superadminRouter);                        // ← NEW
+app.use('/api/superadmin', superadminRouter);
+app.use('/api/waitlist', waitlistRouter);
 
 const { authenticateToken, requireRole } = require('./middleware/auth');
 app.get('/api/config/maps-key', authenticateToken, (req, res) => {
@@ -218,7 +220,7 @@ const frontendV2Routes = [
   '/forecast', '/financials', '/purchasing', '/vendors', '/warehouse',
   '/planning', '/integrations', '/aihelp', '/settings', '/reports',
   '/admin/traceability',
-  '/superadmin/companies',   // ← NEW: direct nav to companies page
+  '/superadmin/companies',
 ];
 app.get(frontendV2Routes, (req, res) => res.sendFile(frontendV2Entry));
 

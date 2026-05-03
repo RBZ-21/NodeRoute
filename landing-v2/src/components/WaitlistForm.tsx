@@ -1,6 +1,5 @@
 import { ArrowRight, CheckCircle, Loader2 } from 'lucide-react';
 import { useState } from 'react';
-import { supabase } from '../lib/supabase';
 
 type Status = 'idle' | 'loading' | 'success' | 'duplicate' | 'error';
 
@@ -20,26 +19,33 @@ export function WaitlistForm({ source = 'landing', className = '' }: Props) {
     if (!email.trim()) return;
     setStatus('loading');
 
-    const { error } = await supabase
-      .from('waitlist')
-      .insert({
-        email:   email.trim().toLowerCase(),
-        name:    name.trim()    || null,
-        company: company.trim() || null,
-        source,
+    try {
+      const res = await fetch('/api/waitlist', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          email:   email.trim().toLowerCase(),
+          name:    name.trim()    || null,
+          company: company.trim() || null,
+          source,
+        }),
       });
 
-    if (!error) { setStatus('success'); return; }
-    if (error.code === '23505') { setStatus('duplicate'); return; }
-    console.error('[waitlist]', error);
-    setStatus('error');
+      const json = await res.json();
+
+      if (json.status === 'duplicate') { setStatus('duplicate'); return; }
+      if (!res.ok) { setStatus('error'); return; }
+      setStatus('success');
+    } catch {
+      setStatus('error');
+    }
   }
 
   if (status === 'success') {
     return (
       <div className={`flex items-center gap-3 rounded-lg border border-teal/40 bg-teal/10 px-5 py-4 text-teal-light ${className}`}>
         <CheckCircle className="h-5 w-5 shrink-0" />
-        <span className="text-[14px] font-medium">You’re on the list — I’ll be in touch soon.</span>
+        <span className="text-[14px] font-medium">You’re on the list — check your email for a confirmation.</span>
       </div>
     );
   }
