@@ -56,15 +56,16 @@ export function SetupPasswordPage() {
     try {
       const res = await fetch('/auth/setup-password', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: inviteToken, password }),
       });
       const payload = (await res.json()) as Partial<SetupResponse> & { error?: string };
-      if (!res.ok || !payload.token) {
+      if (!res.ok) {
         throw new Error(payload.error || 'Setup failed. The link may have expired.');
       }
 
-      localStorage.setItem('nr_token', payload.token);
+      // Store user profile for role-based UI — NOT the token (that's in the HttpOnly cookie)
       localStorage.setItem('nr_user', JSON.stringify(payload.user || {}));
       setSuccess(true);
       setTimeout(() => { window.location.href = '/dashboard'; }, 1200);
