@@ -1,3 +1,5 @@
+'use strict';
+
 const express = require('express');
 const multer = require('multer');
 const { authenticateToken, requireRole } = require('../middleware/auth');
@@ -22,8 +24,53 @@ const {
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
 
+// ── PER-USER AI RATE LIMITER ───────────────────────────────────────────────────
+// Sliding window — tracks timestamps of calls per user per endpoint group.
+// "heavy" endpoints (OpenAI calls with DB fetches): 20 per hour per user.
+// "chat" endpoint keeps its own existing checkChatRateLimit (60/hr).
+const AI_RATE_WINDOWS = new Map(); // key: `${userId}:${group}` → [timestamp, ...]
+const HEAVY_LIMIT = 20;            // max calls
+const HEAVY_WINDOW_MS = 60 * 60 * 1000; // 1 hour
+
+function checkAiRateLimit(userId, group) {
+  const key = `${userId}:${group}`;
+  const now = Date.now();
+  const cutoff = now - HEAVY_WINDOW_MS;
+
+  const timestamps = (AI_RATE_WINDOWS.get(key) || []).filter((t) => t > cutoff);
+  if (timestamps.length >= HEAVY_LIMIT) {
+    return false;
+  }
+  timestamps.push(now);
+  AI_RATE_WINDOWS.set(key, timestamps);
+  return true;
+}
+
+// Middleware factory — call with a group name so limits are per-endpoint-group.
+function aiRateLimit(group) {
+  return (req, res, next) => {
+    const userId = req.user?.id || req.user?.email || 'unknown';
+    if (!checkAiRateLimit(userId, group)) {
+      return res.status(429).json({
+        error: `AI rate limit reached. You can make up to ${HEAVY_LIMIT} ${group} requests per hour.`,
+      });
+    }
+    next();
+  };
+}
+
+// Periodically prune stale entries so the Map doesn't grow forever.
+setInterval(() => {
+  const cutoff = Date.now() - HEAVY_WINDOW_MS;
+  for (const [key, timestamps] of AI_RATE_WINDOWS) {
+    const filtered = timestamps.filter((t) => t > cutoff);
+    if (filtered.length === 0) AI_RATE_WINDOWS.delete(key);
+    else AI_RATE_WINDOWS.set(key, filtered);
+  }
+}, 15 * 60 * 1000); // prune every 15 min
+
 // ── WALKTHROUGH ────────────────────────────────────────────────────────────────
-router.post('/walkthrough', authenticateToken, async (req, res) => {
+router.post('/walkthrough', authenticateToken, aiRateLimit('walkthrough'), async (req, res) => {
   const feature = String(req.body.feature || '').trim();
   const question = String(req.body.question || '').trim();
 
@@ -43,7 +90,7 @@ router.post('/walkthrough', authenticateToken, async (req, res) => {
 });
 
 // ── ORDER INTAKE ───────────────────────────────────────────────────────────────
-router.post('/order-intake', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/order-intake', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('order-intake'), async (req, res) => {
   const message = String(req.body.message || '').trim();
 
   if (!message) {
@@ -75,7 +122,6 @@ router.post('/chat', authenticateToken, async (req, res) => {
   const history = Array.isArray(req.body.history) ? req.body.history : [];
 
   try {
-    // Fetch live DB context based on message keywords
     const msg = message.toLowerCase();
     const dbContext = {};
 
@@ -118,9 +164,7 @@ router.post('/chat', authenticateToken, async (req, res) => {
 });
 
 // ── INVENTORY HEALTH ANALYSIS ──────────────────────────────────────────────────
-// POST /api/ai/inventory-analysis
-// Admin/manager only. Fetches live inventory + expiring lots, runs AI analysis.
-router.post('/inventory-analysis', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/inventory-analysis', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('inventory-analysis'), async (req, res) => {
   try {
     const { data: products, error: pErr } = await supabase
       .from('seafood_inventory')
@@ -128,7 +172,7 @@ router.post('/inventory-analysis', authenticateToken, requireRole('admin', 'mana
       .order('category');
     if (pErr) return res.status(500).json({ error: pErr.message });
 
-    const since = new Date(Date.now() - 28 * 86400000).toISOString(); // 4 weeks
+    const since = new Date(Date.now() - 28 * 86400000).toISOString();
     const { data: allHistory, error: hErr } = await supabase
       .from('inventory_stock_history')
       .select('item_number,change_qty,change_type,created_at')
@@ -142,7 +186,6 @@ router.post('/inventory-analysis', authenticateToken, requireRole('admin', 'mana
       historyByItem[h.item_number].push(h);
     });
 
-    // Fetch lots expiring within 14 days
     const expiryWindow = new Date(Date.now() + 14 * 86400000).toISOString();
     const { data: expiringLots } = await supabase
       .from('lot_codes')
@@ -150,12 +193,7 @@ router.post('/inventory-analysis', authenticateToken, requireRole('admin', 'mana
       .lte('expiry_date', expiryWindow)
       .gte('expiry_date', new Date().toISOString().split('T')[0]);
 
-    const analysis = await analyzeInventory(
-      products || [],
-      historyByItem,
-      expiringLots || []
-    );
-
+    const analysis = await analyzeInventory(products || [], historyByItem, expiringLots || []);
     res.json(analysis);
   } catch (err) {
     if (String(err.message || '').includes('OPENAI_API_KEY')) {
@@ -166,12 +204,11 @@ router.post('/inventory-analysis', authenticateToken, requireRole('admin', 'mana
 });
 
 // ── PO IMAGE SCAN ──────────────────────────────────────────────────────────────
-// POST /api/ai/scan-po  (multipart: field name = "file")
-// Admin/manager only. Accepts a JPEG/PNG/PDF image of a PO and returns parsed line items.
 router.post(
   '/scan-po',
   authenticateToken,
   requireRole('admin', 'manager'),
+  aiRateLimit('scan-po'),
   upload.single('file'),
   async (req, res) => {
     if (!req.file) {
@@ -198,7 +235,7 @@ router.post(
 );
 
 // ── ROUTE OPTIMIZATION ─────────────────────────────────────────────────────────
-router.post('/optimize-route', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/optimize-route', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('optimize-route'), async (req, res) => {
   const routeId = String(req.body.route_id || '').trim();
   if (!routeId) return res.status(400).json({ error: 'route_id is required' });
 
@@ -214,7 +251,6 @@ router.post('/optimize-route', authenticateToken, requireRole('admin', 'manager'
       .select('id,address,customer_id,status')
       .in('id', stopIds);
 
-    // Enrich with customer names
     const customerIds = (stops || []).map((s) => s.customer_id).filter(Boolean);
     let customerMap = {};
     if (customerIds.length) {
@@ -222,11 +258,7 @@ router.post('/optimize-route', authenticateToken, requireRole('admin', 'manager'
       (customers || []).forEach((c) => { customerMap[c.customer_number] = c.company_name; });
     }
 
-    const enrichedStops = (stops || []).map((s) => ({
-      ...s,
-      customer_name: customerMap[s.customer_id] || null,
-    }));
-
+    const enrichedStops = (stops || []).map((s) => ({ ...s, customer_name: customerMap[s.customer_id] || null }));
     const result = await optimizeRoute(enrichedStops);
     res.json(result);
   } catch (err) {
@@ -236,7 +268,7 @@ router.post('/optimize-route', authenticateToken, requireRole('admin', 'manager'
 });
 
 // ── CUSTOMER RISK SCORING ──────────────────────────────────────────────────────
-router.post('/customer-risk', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/customer-risk', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('customer-risk'), async (req, res) => {
   const customerId = String(req.body.customer_id || '').trim();
   if (!customerId) return res.status(400).json({ error: 'customer_id is required' });
 
@@ -259,7 +291,7 @@ router.post('/customer-risk', authenticateToken, requireRole('admin', 'manager')
 });
 
 // ── ANOMALY DETECTION ──────────────────────────────────────────────────────────
-router.post('/anomalies', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/anomalies', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('anomalies'), async (req, res) => {
   try {
     const since = new Date(Date.now() - 7 * 86400000).toISOString();
     const [{ data: deliveries }, { data: orders }] = await Promise.all([
@@ -276,7 +308,7 @@ router.post('/anomalies', authenticateToken, requireRole('admin', 'manager'), as
 });
 
 // ── VENDOR PERFORMANCE SCORE ───────────────────────────────────────────────────
-router.post('/vendor-score', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/vendor-score', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('vendor-score'), async (req, res) => {
   const vendorId = String(req.body.vendor_id || '').trim();
   if (!vendorId) return res.status(400).json({ error: 'vendor_id is required' });
 
@@ -300,7 +332,7 @@ router.post('/vendor-score', authenticateToken, requireRole('admin', 'manager'),
 });
 
 // ── DRIVER ASSIGNMENT OPTIMIZATION ────────────────────────────────────────────
-router.post('/driver-assignments', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/driver-assignments', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('driver-assignments'), async (req, res) => {
   try {
     const [{ data: drivers }, { data: routes }] = await Promise.all([
       supabase.from('users').select('id,name,email').eq('role', 'driver'),
@@ -327,7 +359,7 @@ router.post('/driver-assignments', authenticateToken, requireRole('admin', 'mana
 });
 
 // ── MARKDOWN RECOMMENDATIONS ───────────────────────────────────────────────────
-router.post('/markdown-recommendations', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/markdown-recommendations', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('markdown-recommendations'), async (req, res) => {
   try {
     const windowDays = Math.min(30, Math.max(1, parseInt(req.body.window_days || '10', 10)));
     const expiryWindow = new Date(Date.now() + windowDays * 86400000).toISOString().split('T')[0];
@@ -377,7 +409,7 @@ router.post('/markdown-recommendations', authenticateToken, requireRole('admin',
 });
 
 // ── INVOICE FOLLOW-UP DRAFT ────────────────────────────────────────────────────
-router.post('/invoice-followup', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/invoice-followup', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('invoice-followup'), async (req, res) => {
   const invoiceId = String(req.body.invoice_id || '').trim();
   if (!invoiceId) return res.status(400).json({ error: 'invoice_id is required' });
 
