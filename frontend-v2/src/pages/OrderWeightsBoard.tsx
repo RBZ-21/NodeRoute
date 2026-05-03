@@ -4,11 +4,12 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import type { Order } from './orders.types';
 import { asNumber, orderItemQty } from './orders.types';
+import type { Role } from '../lib/api';
 
 export interface OrderWeightsBoardProps {
   orders: Order[];
   filter: 'needs' | 'captured';
-  role: 'admin' | 'manager' | 'driver' | 'unknown';
+  role: Role;
   weightInputs: Record<string, string>;
   savingWeight: Record<string, boolean>;
   onWeightInputChange: (key: string, value: string) => void;

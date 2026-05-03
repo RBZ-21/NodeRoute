@@ -2,10 +2,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { Button } from '../components/ui/button';
 import { asNumber, orderItemQty } from './orders.types';
 import type { Order } from './orders.types';
+import type { Role } from '../lib/api';
 
 export interface WeightCaptureCardProps {
   order: Order;
-  role: 'admin' | 'manager' | 'driver' | 'unknown';
+  role: Role;
   weightInputs: Record<string, string>;
   savingWeight: Record<string, boolean>;
   onWeightInputChange: (key: string, val: string) => void;

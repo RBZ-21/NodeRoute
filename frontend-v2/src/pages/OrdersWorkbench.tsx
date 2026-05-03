@@ -6,6 +6,7 @@ import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { asMoney, calcOrderTotal, hasPendingWeight, isWeightManagedItem, normalizedStatus, orderCustomerId, statusVariant } from './orders.types';
 import type { Order, OrderStatus } from './orders.types';
+import type { Role } from '../lib/api';
 
 type Props = {
   orders: Order[];
@@ -15,7 +16,7 @@ type Props = {
   status: OrderStatus | 'all';
   setStatus: (v: OrderStatus | 'all') => void;
   weightCaptureOrderId: string | null;
-  role: string;
+  role: Role;
   onLoad: () => void;
   onEdit: (order: Order) => void;
   onSend: (order: Order) => void;
@@ -127,7 +128,7 @@ export function OrdersWorkbench({
                           {parsedStatus === 'in_process' ? (
                             <Button variant="secondary" size="sm" onClick={() => onFulfill(order)}>Fulfill</Button>
                           ) : null}
-                          {(order.items || []).some((it) => isWeightManagedItem(it)) && (role === 'admin' || role === 'manager') ? (
+                          {(order.items || []).some((it) => isWeightManagedItem(it)) && (role === 'admin' || role === 'manager' || role === 'superadmin') ? (
                             <Button
                               variant={weightCaptureOrderId === order.id ? 'secondary' : 'outline'}
                               size="sm"
