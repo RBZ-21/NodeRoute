@@ -3,6 +3,7 @@
 const { z } = require('zod');
 
 const DEV_JWT_SECRET    = 'noderoute-dev-secret-change-in-production';
+const DEV_PORTAL_SECRET = 'noderoute-portal-dev-secret-change-in-production';
 const DEFAULT_ADMIN_PW  = 'Admin@123';
 
 const envSchema = z.object({
@@ -15,6 +16,7 @@ const envSchema = z.object({
   SUPABASE_URL:               z.string().optional().default(''),
   SUPABASE_SERVICE_KEY:       z.string().optional().default(''),
   JWT_SECRET:                 z.string().optional().default(DEV_JWT_SECRET),
+  PORTAL_JWT_SECRET:          z.string().optional().default(DEV_PORTAL_SECRET),
   BASE_URL:                   z.string().optional().default(''),
   RESEND_API_KEY:             z.string().optional().default(''),
   SMTP_HOST:                  z.string().optional().default(''),
@@ -42,6 +44,7 @@ const JSON_BODY_LIMIT = rawEnv.JSON_BODY_LIMIT;
 const SUPABASE_URL    = rawEnv.SUPABASE_URL;
 const SUPABASE_SERVICE_KEY = rawEnv.SUPABASE_SERVICE_KEY;
 const JWT_SECRET      = rawEnv.JWT_SECRET;
+const PORTAL_JWT_SECRET = rawEnv.PORTAL_JWT_SECRET;
 const BASE_URL        = rawEnv.BASE_URL;
 const RESEND_API_KEY  = rawEnv.RESEND_API_KEY;
 const hasResend       = !!RESEND_API_KEY;
@@ -75,9 +78,9 @@ function validate(logger) {
     if (!process.env.JWT_SECRET || JWT_SECRET === DEV_JWT_SECRET)
       fatal.push('JWT_SECRET must be set in production — the development fallback is not safe');
 
-    // A missing or default ADMIN_PASSWORD in production means the auto-created
-    // admin account has a publicly known credential. Treat as fatal so the server
-    // refuses to boot rather than silently exposing the credential.
+    if (!process.env.PORTAL_JWT_SECRET || PORTAL_JWT_SECRET === DEV_PORTAL_SECRET)
+      fatal.push('PORTAL_JWT_SECRET must be set in production — the development fallback is not safe');
+
     if (!process.env.ADMIN_PASSWORD || ADMIN_PASSWORD === DEFAULT_ADMIN_PW)
       fatal.push('ADMIN_PASSWORD must be set in production — using the default credential is not safe');
 
@@ -88,6 +91,8 @@ function validate(logger) {
       warns.push('ADMIN_PASSWORD is the default — set it before deploying to production');
     if (!BASE_URL)
       warns.push('BASE_URL is not set — invite links will use http://localhost');
+    if (PORTAL_JWT_SECRET === DEV_PORTAL_SECRET)
+      warns.push('PORTAL_JWT_SECRET is the default — set it before deploying to production');
   }
 
   if (!hasResend && !hasSmtp)
@@ -137,6 +142,7 @@ module.exports = {
   SUPABASE_URL,
   SUPABASE_SERVICE_KEY,
   JWT_SECRET,
+  PORTAL_JWT_SECRET,
   BASE_URL,
   hasResend,
   hasSmtp,
