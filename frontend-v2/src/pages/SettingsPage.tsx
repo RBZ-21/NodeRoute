@@ -16,11 +16,17 @@ type CurrentUser = {
   locationName?: string;
 };
 
+type CutoffOption = { label: string; value: number | string };
+
 type CompanySettings = {
   forceDriverSignature?: boolean;
   forceDriverProofOfDelivery?: boolean;
   businessName?: string;
   invoiceLogoDataUrl?: string | null;
+  orderCutoffHour?: number;
+  orderCutoffDay?: string;
+  cutoffHourOptions?: CutoffOption[];
+  cutoffDayOptions?: CutoffOption[];
 };
 
 type MutationResult = {
@@ -51,6 +57,25 @@ function updateLocalUserName(nextName: string) {
   }
 }
 
+const DEFAULT_HOUR_OPTIONS: CutoffOption[] = [
+  { label: '8:00 AM',  value: 8  },
+  { label: '9:00 AM',  value: 9  },
+  { label: '10:00 AM', value: 10 },
+  { label: '11:00 AM', value: 11 },
+  { label: '12:00 PM', value: 12 },
+  { label: '1:00 PM',  value: 13 },
+  { label: '2:00 PM',  value: 14 },
+  { label: '3:00 PM',  value: 15 },
+  { label: '4:00 PM',  value: 16 },
+  { label: '5:00 PM',  value: 17 },
+  { label: '6:00 PM',  value: 18 },
+];
+
+const DEFAULT_DAY_OPTIONS: CutoffOption[] = [
+  { label: 'Day of delivery',     value: 'day_of'     },
+  { label: 'Day before delivery', value: 'day_before' },
+];
+
 export function SettingsPage() {
   const role = getUserRole() as Role;
   const canManageCompanySettings = role === 'admin' || role === 'manager';
@@ -75,6 +100,15 @@ export function SettingsPage() {
   const [initialBusinessName, setInitialBusinessName] = useState('');
   const [invoiceLogoDataUrl, setInvoiceLogoDataUrl] = useState<string | null>(null);
   const [initialInvoiceLogoDataUrl, setInitialInvoiceLogoDataUrl] = useState<string | null>(null);
+
+  // Order cutoff
+  const [orderCutoffHour, setOrderCutoffHour] = useState<number>(14);
+  const [initialOrderCutoffHour, setInitialOrderCutoffHour] = useState<number>(14);
+  const [orderCutoffDay, setOrderCutoffDay] = useState<string>('day_of');
+  const [initialOrderCutoffDay, setInitialOrderCutoffDay] = useState<string>('day_of');
+  const [cutoffHourOptions, setCutoffHourOptions] = useState<CutoffOption[]>(DEFAULT_HOUR_OPTIONS);
+  const [cutoffDayOptions, setCutoffDayOptions] = useState<CutoffOption[]>(DEFAULT_DAY_OPTIONS);
+
   const [companySettingsLoading, setCompanySettingsLoading] = useState(false);
   const [savingCompanySettings, setSavingCompanySettings] = useState(false);
 
@@ -82,7 +116,9 @@ export function SettingsPage() {
     forceDriverSignature !== initialForceDriverSignature
     || forceDriverProofOfDelivery !== initialForceDriverProofOfDelivery
     || businessName !== initialBusinessName
-    || invoiceLogoDataUrl !== initialInvoiceLogoDataUrl;
+    || invoiceLogoDataUrl !== initialInvoiceLogoDataUrl
+    || orderCutoffHour !== initialOrderCutoffHour
+    || orderCutoffDay !== initialOrderCutoffDay;
 
   async function fetchCompanySettings(): Promise<CompanySettings> {
     return fetchWithAuth<CompanySettings>('/api/settings/company');
@@ -106,18 +142,23 @@ export function SettingsPage() {
     }
 
     if (companyResult.status === 'fulfilled') {
-      const nextValue = !!companyResult.value.forceDriverSignature;
-      const nextProofValue = !!companyResult.value.forceDriverProofOfDelivery;
-      const nextBusinessName = String(companyResult.value.businessName || userCompanyName || '');
-      const nextInvoiceLogo = companyResult.value.invoiceLogoDataUrl || null;
-      setForceDriverSignature(nextValue);
-      setInitialForceDriverSignature(nextValue);
-      setForceDriverProofOfDelivery(nextProofValue);
-      setInitialForceDriverProofOfDelivery(nextProofValue);
-      setBusinessName(nextBusinessName);
-      setInitialBusinessName(nextBusinessName);
-      setInvoiceLogoDataUrl(nextInvoiceLogo);
-      setInitialInvoiceLogoDataUrl(nextInvoiceLogo);
+      const c = companyResult.value;
+      const nextSig = !!c.forceDriverSignature;
+      const nextPod = !!c.forceDriverProofOfDelivery;
+      const nextBizName = String(c.businessName || userCompanyName || '');
+      const nextLogo = c.invoiceLogoDataUrl || null;
+      const nextHour = typeof c.orderCutoffHour === 'number' ? c.orderCutoffHour : 14;
+      const nextDay  = typeof c.orderCutoffDay  === 'string' ? c.orderCutoffDay  : 'day_of';
+
+      setForceDriverSignature(nextSig);            setInitialForceDriverSignature(nextSig);
+      setForceDriverProofOfDelivery(nextPod);      setInitialForceDriverProofOfDelivery(nextPod);
+      setBusinessName(nextBizName);                setInitialBusinessName(nextBizName);
+      setInvoiceLogoDataUrl(nextLogo);             setInitialInvoiceLogoDataUrl(nextLogo);
+      setOrderCutoffHour(nextHour);                setInitialOrderCutoffHour(nextHour);
+      setOrderCutoffDay(nextDay);                  setInitialOrderCutoffDay(nextDay);
+
+      if (c.cutoffHourOptions?.length) setCutoffHourOptions(c.cutoffHourOptions);
+      if (c.cutoffDayOptions?.length)  setCutoffDayOptions(c.cutoffDayOptions);
     } else {
       const message = String(companyResult.reason?.message || 'Could not load company settings');
       setError((prev) => prev || message);
@@ -135,18 +176,9 @@ export function SettingsPage() {
 
   async function saveProfile() {
     const name = displayName.trim();
-    if (!name) {
-      setError('Display name is required.');
-      return;
-    }
-    if (!user.id) {
-      setError('Could not determine current user id for profile update.');
-      return;
-    }
-
-    setSavingProfile(true);
-    setError('');
-    setNotice('');
+    if (!name) { setError('Display name is required.'); return; }
+    if (!user.id) { setError('Could not determine current user id for profile update.'); return; }
+    setSavingProfile(true); setError(''); setNotice('');
     try {
       await sendWithAuth(`/api/users/${user.id}`, 'PATCH', { name });
       setUser((prev) => ({ ...prev, name }));
@@ -160,30 +192,13 @@ export function SettingsPage() {
   }
 
   async function savePassword() {
-    if (!currentPassword || !newPassword || !confirmPassword) {
-      setError('Please complete all password fields.');
-      return;
-    }
-    if (newPassword.length < 8) {
-      setError('New password must be at least 8 characters.');
-      return;
-    }
-    if (newPassword !== confirmPassword) {
-      setError('New password and confirmation do not match.');
-      return;
-    }
-
-    setSavingPassword(true);
-    setError('');
-    setNotice('');
+    if (!currentPassword || !newPassword || !confirmPassword) { setError('Please complete all password fields.'); return; }
+    if (newPassword.length < 8) { setError('New password must be at least 8 characters.'); return; }
+    if (newPassword !== confirmPassword) { setError('New password and confirmation do not match.'); return; }
+    setSavingPassword(true); setError(''); setNotice('');
     try {
-      const response = await sendWithAuth<MutationResult>('/auth/change-password', 'POST', {
-        currentPassword,
-        newPassword,
-      });
-      setCurrentPassword('');
-      setNewPassword('');
-      setConfirmPassword('');
+      const response = await sendWithAuth<MutationResult>('/auth/change-password', 'POST', { currentPassword, newPassword });
+      setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
       setNotice(response.message || 'Password updated.');
     } catch (err) {
       setError(String((err as Error).message || 'Failed to update password'));
@@ -193,32 +208,30 @@ export function SettingsPage() {
   }
 
   async function saveCompanySettings() {
-    if (!canManageCompanySettings) {
-      setError('Only admin and manager roles can update company settings.');
-      return;
-    }
-    setSavingCompanySettings(true);
-    setError('');
-    setNotice('');
+    if (!canManageCompanySettings) { setError('Only admin and manager roles can update company settings.'); return; }
+    setSavingCompanySettings(true); setError(''); setNotice('');
     try {
       const response = await sendWithAuth<CompanySettings>('/api/settings/company', 'PATCH', {
         forceDriverSignature,
         forceDriverProofOfDelivery,
         businessName: businessName.trim(),
         invoiceLogoDataUrl,
+        orderCutoffHour,
+        orderCutoffDay,
       });
-      const nextValue = !!response.forceDriverSignature;
-      const nextProofValue = !!response.forceDriverProofOfDelivery;
-      const nextBusinessName = String(response.businessName || businessName || user.companyName || '');
-      const nextInvoiceLogo = response.invoiceLogoDataUrl || null;
-      setForceDriverSignature(nextValue);
-      setInitialForceDriverSignature(nextValue);
-      setForceDriverProofOfDelivery(nextProofValue);
-      setInitialForceDriverProofOfDelivery(nextProofValue);
-      setBusinessName(nextBusinessName);
-      setInitialBusinessName(nextBusinessName);
-      setInvoiceLogoDataUrl(nextInvoiceLogo);
-      setInitialInvoiceLogoDataUrl(nextInvoiceLogo);
+      const nextSig  = !!response.forceDriverSignature;
+      const nextPod  = !!response.forceDriverProofOfDelivery;
+      const nextBiz  = String(response.businessName || businessName || user.companyName || '');
+      const nextLogo = response.invoiceLogoDataUrl || null;
+      const nextHour = typeof response.orderCutoffHour === 'number' ? response.orderCutoffHour : orderCutoffHour;
+      const nextDay  = typeof response.orderCutoffDay  === 'string' ? response.orderCutoffDay  : orderCutoffDay;
+
+      setForceDriverSignature(nextSig);       setInitialForceDriverSignature(nextSig);
+      setForceDriverProofOfDelivery(nextPod); setInitialForceDriverProofOfDelivery(nextPod);
+      setBusinessName(nextBiz);               setInitialBusinessName(nextBiz);
+      setInvoiceLogoDataUrl(nextLogo);        setInitialInvoiceLogoDataUrl(nextLogo);
+      setOrderCutoffHour(nextHour);           setInitialOrderCutoffHour(nextHour);
+      setOrderCutoffDay(nextDay);             setInitialOrderCutoffDay(nextDay);
       setNotice('Company settings saved.');
     } catch (err) {
       setError(String((err as Error).message || 'Failed to save company settings'));
@@ -231,25 +244,16 @@ export function SettingsPage() {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    if (!['image/png', 'image/jpeg'].includes(file.type)) {
-      setError('Invoice logo must be a PNG or JPG image.');
-      return;
-    }
-    if (file.size > 1_000_000) {
-      setError('Invoice logo must be under 1 MB.');
-      return;
-    }
-
+    if (!['image/png', 'image/jpeg'].includes(file.type)) { setError('Invoice logo must be a PNG or JPG image.'); return; }
+    if (file.size > 1_000_000) { setError('Invoice logo must be under 1 MB.'); return; }
     setError('');
     const reader = new FileReader();
-    reader.onload = () => {
-      setInvoiceLogoDataUrl(typeof reader.result === 'string' ? reader.result : null);
-    };
-    reader.onerror = () => {
-      setError('Could not read the selected logo file.');
-    };
+    reader.onload = () => { setInvoiceLogoDataUrl(typeof reader.result === 'string' ? reader.result : null); };
+    reader.onerror = () => { setError('Could not read the selected logo file.'); };
     reader.readAsDataURL(file);
   }
+
+  const isCompanyDisabled = !canManageCompanySettings || companySettingsLoading || savingCompanySettings;
 
   return (
     <div className="space-y-5">
@@ -293,30 +297,15 @@ export function SettingsPage() {
           <CardContent className="space-y-3">
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Current Password</span>
-              <Input
-                type="password"
-                value={currentPassword}
-                onChange={(event) => setCurrentPassword(event.target.value)}
-                placeholder="Current password"
-              />
+              <Input type="password" value={currentPassword} onChange={(e) => setCurrentPassword(e.target.value)} placeholder="Current password" />
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">New Password</span>
-              <Input
-                type="password"
-                value={newPassword}
-                onChange={(event) => setNewPassword(event.target.value)}
-                placeholder="At least 8 characters"
-              />
+              <Input type="password" value={newPassword} onChange={(e) => setNewPassword(e.target.value)} placeholder="At least 8 characters" />
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Confirm New Password</span>
-              <Input
-                type="password"
-                value={confirmPassword}
-                onChange={(event) => setConfirmPassword(event.target.value)}
-                placeholder="Repeat new password"
-              />
+              <Input type="password" value={confirmPassword} onChange={(e) => setConfirmPassword(e.target.value)} placeholder="Repeat new password" />
             </label>
             <Button onClick={savePassword} disabled={savingPassword}>
               {savingPassword ? 'Updating Password...' : 'Update Password'}
@@ -337,10 +326,11 @@ export function SettingsPage() {
               value={businessName}
               onChange={(event) => setBusinessName(event.target.value)}
               placeholder="Your business name"
-              disabled={!canManageCompanySettings || companySettingsLoading || savingCompanySettings}
+              disabled={isCompanyDisabled}
             />
             <div className="text-xs text-muted-foreground">Shown at the top of invoices and invoice emails.</div>
           </label>
+
           <div className="space-y-2">
             <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Invoice Logo</div>
             <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/20 p-4">
@@ -352,26 +342,67 @@ export function SettingsPage() {
                 </div>
               )}
               <div className="space-y-2">
-                <Input
-                  type="file"
-                  accept="image/png,image/jpeg"
-                  onChange={handleLogoUpload}
-                  disabled={!canManageCompanySettings || companySettingsLoading || savingCompanySettings}
-                />
+                <Input type="file" accept="image/png,image/jpeg" onChange={handleLogoUpload} disabled={isCompanyDisabled} />
                 <div className="text-xs text-muted-foreground">PNG or JPG only, up to 1 MB.</div>
                 {invoiceLogoDataUrl ? (
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => setInvoiceLogoDataUrl(null)}
-                    disabled={!canManageCompanySettings || companySettingsLoading || savingCompanySettings}
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => setInvoiceLogoDataUrl(null)} disabled={isCompanyDisabled}>
                     Remove Logo
                   </Button>
                 ) : null}
               </div>
             </div>
           </div>
+
+          {/* ── Order Cutoff Time ─────────────────────────────────────── */}
+          <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+            <div>
+              <div className="text-sm font-semibold text-foreground">Order Cutoff Time</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Orders received after this time will not be included in the daily fish blast for that delivery window.
+              </div>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Cutoff Time</span>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  value={orderCutoffHour}
+                  onChange={(e) => setOrderCutoffHour(Number(e.target.value))}
+                  disabled={isCompanyDisabled}
+                >
+                  {cutoffHourOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Relative To Delivery</span>
+                <select
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm text-foreground shadow-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:cursor-not-allowed disabled:opacity-50"
+                  value={orderCutoffDay}
+                  onChange={(e) => setOrderCutoffDay(e.target.value)}
+                  disabled={isCompanyDisabled}
+                >
+                  {cutoffDayOptions.map((opt) => (
+                    <option key={opt.value} value={opt.value}>{opt.label}</option>
+                  ))}
+                </select>
+              </label>
+            </div>
+            <div className="text-xs text-muted-foreground">
+              Current setting: orders must be placed by{' '}
+              <strong>
+                {cutoffHourOptions.find((o) => o.value === orderCutoffHour)?.label ?? `${orderCutoffHour}:00`}
+              </strong>
+              {' '}on the{' '}
+              <strong>
+                {orderCutoffDay === 'day_before' ? 'day before' : 'day of'}
+              </strong>
+              {' '}delivery.
+            </div>
+          </div>
+          {/* ─────────────────────────────────────────────────────────── */}
+
           <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 p-4">
             <div>
               <div className="text-sm font-semibold text-foreground">Force Driver Signature</div>
@@ -386,11 +417,12 @@ export function SettingsPage() {
                 className="h-4 w-4 rounded border-input"
                 checked={forceDriverSignature}
                 onChange={(event) => setForceDriverSignature(event.target.checked)}
-                disabled={!canManageCompanySettings || companySettingsLoading || savingCompanySettings}
+                disabled={isCompanyDisabled}
               />
               <span className="text-xs font-medium text-muted-foreground">On</span>
             </label>
           </div>
+
           <div className="flex items-center justify-between gap-4 rounded-lg border border-border bg-muted/20 p-4">
             <div>
               <div className="text-sm font-semibold text-foreground">Proof Of Delivery Photo</div>
@@ -405,11 +437,12 @@ export function SettingsPage() {
                 className="h-4 w-4 rounded border-input"
                 checked={forceDriverProofOfDelivery}
                 onChange={(event) => setForceDriverProofOfDelivery(event.target.checked)}
-                disabled={!canManageCompanySettings || companySettingsLoading || savingCompanySettings}
+                disabled={isCompanyDisabled}
               />
               <span className="text-xs font-medium text-muted-foreground">On</span>
             </label>
           </div>
+
           {!canManageCompanySettings ? (
             <div className="text-xs text-muted-foreground">Only admin and manager roles can save company controls.</div>
           ) : null}
