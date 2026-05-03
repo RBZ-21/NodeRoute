@@ -221,6 +221,7 @@ const frontendV2Routes = [
   '/planning', '/integrations', '/aihelp', '/settings', '/reports',
   '/admin/traceability',
   '/superadmin/companies',
+  '/superadmin/waitlist',
 ];
 app.get(frontendV2Routes, (req, res) => res.sendFile(frontendV2Entry));
 
