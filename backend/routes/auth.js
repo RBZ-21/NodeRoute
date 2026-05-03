@@ -51,11 +51,11 @@ function signJWT(user) {
 }
 
 /**
- * Sets the HttpOnly auth cookie (Step 1 of JWT migration).
- * The token is ALSO returned in the JSON body so existing clients
- * using localStorage continue to work unchanged.
+ * Sets the HttpOnly auth cookie and a readable CSRF token cookie.
+ * The CSRF cookie is NOT HttpOnly so the frontend JS can read it
+ * and send it back as the X-CSRF-Token header on mutations.
  */
-function setAuthCookie(res, token) {
+function setAuthCookies(res, token) {
   res.cookie('token', token, {
     httpOnly: true,
     secure: IS_PROD,
@@ -63,15 +63,20 @@ function setAuthCookie(res, token) {
     maxAge: COOKIE_MAX_AGE,
     path: '/',
   });
-}
-
-function clearAuthCookie(res) {
-  res.clearCookie('token', {
-    httpOnly: true,
+  // Readable CSRF token — same value bound to the session
+  const csrfToken = crypto.randomBytes(32).toString('hex');
+  res.cookie('csrf-token', csrfToken, {
+    httpOnly: false,
     secure: IS_PROD,
     sameSite: 'strict',
+    maxAge: COOKIE_MAX_AGE,
     path: '/',
   });
+}
+
+function clearAuthCookies(res) {
+  res.clearCookie('token', { httpOnly: true, secure: IS_PROD, sameSite: 'strict', path: '/' });
+  res.clearCookie('csrf-token', { httpOnly: false, secure: IS_PROD, sameSite: 'strict', path: '/' });
 }
 
 router.post('/login', async (req, res) => {
@@ -94,7 +99,8 @@ router.post('/login', async (req, res) => {
     await supabase.from('users').update({ password_hash: bcrypt.hashSync(password, 10) }).eq('id', u.id);
   }
   const token = signJWT(u);
-  setAuthCookie(res, token);
+  setAuthCookies(res, token);
+  // token still returned in body for backwards-compat with any existing API consumers
   res.json({ token, user: userResponseWithContext(u) });
 });
 
@@ -114,7 +120,7 @@ router.post('/setup-password', async (req, res) => {
     invite_expires: null
   }).eq('id', u.id);
   const sessionToken = signJWT(u);
-  setAuthCookie(res, sessionToken);
+  setAuthCookies(res, sessionToken);
   res.json({ token: sessionToken, user: userResponseWithContext(u) });
 });
 
@@ -123,7 +129,7 @@ router.get('/me', authenticateToken, (req, res) => {
 });
 
 router.post('/logout', authenticateToken, (req, res) => {
-  clearAuthCookie(res);
+  clearAuthCookies(res);
   res.json({ message: 'Logged out' });
 });
 

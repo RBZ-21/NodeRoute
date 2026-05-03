@@ -1,3 +1,8 @@
+// JWT migration: Step 3 — tokens are now stored in HttpOnly cookies only.
+// The browser sends the cookie automatically; we no longer read/write nr_token.
+// nr_user remains in localStorage for role-based UI rendering only.
+// See docs/security/jwt-migration.md for the full migration plan.
+
 const AUTH_ERROR_KEY = 'nr_auth_error';
 
 function saveAuthError(message: string) {
@@ -13,7 +18,7 @@ export function readAndClearAuthError(): string {
 }
 
 export function clearSession() {
-  localStorage.removeItem('nr_token');
+  localStorage.removeItem('nr_token'); // kept for clean wipe of any legacy value
   localStorage.removeItem('nr_user');
 }
 
@@ -22,6 +27,12 @@ export function redirectToLogin(message?: string) {
   const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   const next = currentPath && currentPath !== '/login' ? `?next=${encodeURIComponent(currentPath)}` : '';
   window.location.href = `/login${next}`;
+}
+
+/** Read the CSRF token from the readable csrf-token cookie the server sets on login. */
+function getCsrfToken(): string {
+  const match = document.cookie.match(/(?:^|;\s*)csrf-token=([^;]*)/);
+  return match ? decodeURIComponent(match[1]) : '';
 }
 
 async function parseResponse<T>(response: Response, url: string): Promise<T> {
@@ -36,20 +47,19 @@ async function parseResponse<T>(response: Response, url: string): Promise<T> {
 }
 
 export async function fetchWithAuth<T>(url: string): Promise<T> {
-  const token = localStorage.getItem('nr_token');
   const response = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
+    credentials: 'include',
   });
   return parseResponse<T>(response, url);
 }
 
 export async function sendWithAuth<T>(url: string, method: 'POST' | 'PATCH' | 'DELETE', body?: unknown): Promise<T> {
-  const token = localStorage.getItem('nr_token');
   const response = await fetch(url, {
     method,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      'X-CSRF-Token': getCsrfToken(),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -95,5 +105,7 @@ export function hasRole(userRole: Role, required: Role): boolean {
 }
 
 export function requireAuthToken(): boolean {
-  return !!localStorage.getItem('nr_token');
+  // With cookie auth, we check nr_user in localStorage as a lightweight
+  // session indicator. The real auth gate is the HttpOnly cookie on the server.
+  return !!localStorage.getItem('nr_user');
 }
