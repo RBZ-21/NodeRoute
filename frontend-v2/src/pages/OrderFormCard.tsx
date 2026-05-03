@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useMemo, useRef } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Combobox } from '../components/ui/combobox';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
+import { fetchWithAuth } from '../lib/api';
 import { asMoney, asNumber, fmtDate } from './orders.types';
 import type { Customer, InventoryProduct, LotCode, OrderCharge, OrderLineDraft } from './orders.types';
 
@@ -55,6 +56,9 @@ export function OrderFormCard({
   updateLine, toggleLineCatchWeight, addLine, removeLine,
   onSubmit, onCancel, submitting,
 }: Props) {
+  // Prevent firing duplicate lookups for the same name
+  const lookupInFlightRef = useRef<string | null>(null);
+
   function normalizedCustomerName(value: string) {
     return value.trim().toLowerCase();
   }
@@ -71,10 +75,35 @@ export function OrderFormCard({
     ).trim();
   }
 
+  // Silently look up the address from Google Places if the customer has none stored
+  async function maybeLookupAddress(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (lookupInFlightRef.current === trimmed) return; // already running for this name
+    lookupInFlightRef.current = trimmed;
+    try {
+      const result = await fetchWithAuth<{ address?: string }>(
+        `/api/customers/address-lookup?name=${encodeURIComponent(trimmed)}`
+      );
+      if (result?.address) {
+        setCustomerAddress(result.address);
+      }
+    } catch {
+      // Silently ignore — address field stays empty, user can type it in manually
+    } finally {
+      lookupInFlightRef.current = null;
+    }
+  }
+
   function hydrateCustomerDetails(customer: Customer) {
     setCustomerName(customer.company_name || '');
     setCustomerEmail(customer.billing_email || '');
-    setCustomerAddress(customerAddressValue(customer));
+    const addr = customerAddressValue(customer);
+    setCustomerAddress(addr);
+    // If no address is stored in Supabase, pull it from Google automatically
+    if (!addr && customer.company_name) {
+      void maybeLookupAddress(customer.company_name);
+    }
   }
 
   function hydrateCustomerByName(nextName: string) {
