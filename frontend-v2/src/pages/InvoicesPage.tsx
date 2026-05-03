@@ -561,9 +561,9 @@ export function InvoicesPage() {
                             Mark Paid
                           </Button>
                           ) : null}
-                          {invoice.source !== 'order-draft' ? (
-                          <Button variant="ghost" size="sm" onClick={() => void generateFollowUp(invoice.id)} disabled={!!followUpLoading[invoice.id] || status === 'paid' || status === 'void'} title="AI follow-up draft">
-                            {followUpLoading[invoice.id] ? '…' : '✦ Draft Follow-Up'}
+                          {invoice.source !== 'order-draft' && invoice.id ? (
+                          <Button variant="ghost" size="sm" onClick={() => void generateFollowUp(invoice.id!)} disabled={!!followUpLoading[invoice.id!] || status === 'paid' || status === 'void'} title="AI follow-up draft">
+                            {followUpLoading[invoice.id!] ? '…' : '✦ Draft Follow-Up'}
                           </Button>
                           ) : null}
                           {invoice.source !== 'order-draft' ? (
