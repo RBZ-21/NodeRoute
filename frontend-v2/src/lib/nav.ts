@@ -19,8 +19,8 @@ export type TabId =
   | 'aihelp' | 'settings' | 'traceability' | 'companies' | 'waitlist';
 
 export type GroupId =
-  | 'core' | 'logistics' | 'people' | 'financials'
-  | 'operations' | 'reports' | 'ai' | 'superadmin';
+  | 'top' | 'logistics' | 'people' | 'financials'
+  | 'operations' | 'reports' | 'ai' | 'superadmin' | 'bottom';
 
 // Re-export so nav consumers don't need a separate import
 export type { Role };
@@ -36,6 +36,7 @@ export type NavItem = {
 
 export type NavGroup = {
   id: GroupId;
+  /** Empty string = render items flat with no header */
   label: string;
   items: NavItem[];
   allowedRoles?: Role[];
@@ -83,10 +84,10 @@ export const navGroups: NavGroup[] = [
     ],
   },
 
-  // ── Core ──────────────────────────────────────────────────────────────────
+  // ── Top-level (no group header) ───────────────────────────────────────────
   {
-    id: 'core',
-    label: 'Core',
+    id: 'top',
+    label: '',
     items: [
       {
         id: 'dashboard',
@@ -105,12 +106,12 @@ export const navGroups: NavGroup[] = [
         component: lazyNamed(() => import('../pages/OrdersPage'), 'OrdersPage'),
       },
       {
-        id: 'settings',
-        label: 'Settings',
-        path: '/settings',
-        icon: Settings,
-        allowedRoles: SA_ADMIN,
-        component: lazyNamed(() => import('../pages/SettingsPage'), 'SettingsPage'),
+        id: 'invoices',
+        label: 'Invoices',
+        path: '/invoices',
+        icon: FileText,
+        allowedRoles: SA_ADMIN_MGR,
+        component: lazyNamed(() => import('../pages/InvoicesPage'), 'InvoicesPage'),
       },
     ],
   },
@@ -158,7 +159,6 @@ export const navGroups: NavGroup[] = [
     label: 'Financials',
     items: [
       { id: 'financials', label: 'Financial Overview', path: '/financials', icon: DollarSign, allowedRoles: SA_ADMIN,     component: lazyNamed(() => import('../pages/FinancialsPage'),   'FinancialsPage') },
-      { id: 'invoices',   label: 'Invoices',           path: '/invoices',   icon: FileText,   allowedRoles: SA_ADMIN_MGR, component: lazyNamed(() => import('../pages/InvoicesPage'),     'InvoicesPage') },
       { id: 'analytics',  label: 'Analytics',          path: '/analytics',  icon: BarChart2,  allowedRoles: SA_ADMIN,     component: lazyNamed(() => import('../pages/AnalyticsPage'),    'AnalyticsPage') },
       { id: 'inventory',  label: 'Inventory',          path: '/inventory',  icon: Package,    allowedRoles: SA_ADMIN_MGR, component: lazyNamed(() => import('../pages/InventoryPage'),    'InventoryPage') },
       { id: 'forecast',   label: 'Forecasting',        path: '/forecast',   icon: TrendingUp, allowedRoles: SA_ADMIN,     component: lazyNamed(() => import('../pages/ForecastingPage'),  'ForecastingPage') },
@@ -195,6 +195,22 @@ export const navGroups: NavGroup[] = [
     label: 'AI Help',
     items: [
       { id: 'aihelp', label: 'Walkthroughs', path: '/aihelp', icon: Bot, allowedRoles: SA_ADMIN_MGR, component: lazyNamed(() => import('../pages/AIHelpPage'), 'AIHelpPage') },
+    ],
+  },
+
+  // ── Settings (pinned bottom) ───────────────────────────────────────────────
+  {
+    id: 'bottom',
+    label: '',
+    items: [
+      {
+        id: 'settings',
+        label: 'Settings',
+        path: '/settings',
+        icon: Settings,
+        allowedRoles: SA_ADMIN,
+        component: lazyNamed(() => import('../pages/SettingsPage'), 'SettingsPage'),
+      },
     ],
   },
 ];
