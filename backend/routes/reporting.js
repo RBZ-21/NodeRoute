@@ -158,6 +158,7 @@ function computeRollups({ orders, invoices, routes, inventory, startDate, endDat
     driverRow.revenue += invoiceRevenue;
 
     for (const line of parseInvoiceItems(invoice)) {
+      // Prefer human-readable description/name over SKU for label; keep SKU as stable grouping key
       const skuLabel = line.description || line.name || line.item_number || 'Unknown SKU';
       const skuKey = normalize(line.item_number) || normalize(skuLabel) || `sku:${invoice.id}:${customerRow.sku_line_count}`;
       if (!bySku.has(skuKey)) bySku.set(skuKey, createAccumulator(skuLabel));
@@ -234,8 +235,12 @@ function dateRangeForPreset(preset, now = new Date()) {
   return { start: null, end: null };
 }
 
+/**
+ * Returns the human-readable label for an invoice line item.
+ * Prefers description/name over item_number so reports show product names, not SKU codes.
+ */
 function itemLabelFromLine(line) {
-  return String(line.item_number || line.description || line.name || 'Unknown Item').trim() || 'Unknown Item';
+  return String(line.description || line.name || line.item_number || 'Unknown Item').trim() || 'Unknown Item';
 }
 
 function normalizeFulfillment(value) {

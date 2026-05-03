@@ -7,55 +7,59 @@ on:
     branches: [main, dev]
 
 jobs:
-  build:
-    name: Install, Type-check & Build
+  backend-test:
+    name: Backend – Install & Test
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
-          cache-dependency-path: |
-            backend/package-lock.json
-            frontend-v2/package-lock.json
-            landing-v2/package-lock.json
-
-      # ---------- Backend ----------
+          cache-dependency-path: backend/package-lock.json
       - name: Install backend
-        run: npm --prefix backend install
+        run: npm ci --prefix backend
+      - name: Test backend
+        run: npm --prefix backend test
 
-      # ---------- Frontend-v2 ----------
+  frontend-build:
+    name: Frontend-v2 – Install, Type-check, Lint & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: frontend-v2/package-lock.json
       - name: Install frontend-v2
-        run: npm --prefix frontend-v2 install --include=dev
-
+        run: npm ci --prefix frontend-v2
       - name: Type-check frontend-v2
         run: npx --prefix frontend-v2 tsc --noEmit
-
       - name: Lint frontend-v2
         run: npm --prefix frontend-v2 run lint --if-present
-
       - name: Build frontend-v2
         run: npm --prefix frontend-v2 run build
         env:
           VITE_MAP_API_KEY: ''
           VITE_API_URL: https://ci-placeholder.invalid
-
       - name: Test frontend-v2
         run: npm --prefix frontend-v2 test -- --run --passWithNoTests
-        continue-on-error: true
 
-      # ---------- Landing-v2 ----------
+  landing-build:
+    name: Landing-v2 – Install, Lint & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: landing-v2/package-lock.json
       - name: Install landing-v2
-        run: npm --prefix landing-v2 install --include=dev
-
+        run: npm ci --prefix landing-v2
       - name: Lint landing-v2
         run: npm --prefix landing-v2 run lint --if-present
-
       - name: Build landing-v2
         run: npm --prefix landing-v2 run build
         env:

@@ -11,6 +11,7 @@ const {
   executeWithOptionalScope,
   filterRowsByContext,
   insertRecordWithOptionalScope,
+  rowMatchesContext,
 } = require('../services/operating-context');
 
 function isMissingFtlColumnError(error) {
@@ -49,7 +50,6 @@ const purchaseOrderConfirmSchema = z.object({
 });
 
 // ── POST /api/purchase-orders/scan ─────────────────────────────────────────
-// Accept an image upload, run GPT-4o vision, return parsed PO items for review.
 router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
   upload.single('image'),
   async (req, res) => {
@@ -60,9 +60,7 @@ router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
 
     try {
       const parsed = await parsePurchaseOrderImage(base64, mimeType);
-      // Ensure items is always an array
       if (!Array.isArray(parsed.items)) parsed.items = [];
-      // Compute totals for any items missing them
       parsed.items = parsed.items.map(item => ({
         ...item,
         quantity:   parseFloat(item.quantity)   || 0,
@@ -83,12 +81,9 @@ router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
 );
 
 // ── POST /api/purchase-orders/confirm ──────────────────────────────────────
-// User has reviewed and confirmed the AI-extracted items.
-// Upsert inventory, log stock history, create lot_codes records, save the PO.
 router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), validateBody(purchaseOrderConfirmSchema), async (req, res) => {
   const { vendor, po_number, date, items, total_cost, notes } = req.validated.body;
 
-  // Fetch all current inventory for matching by description
   let { data: inventory, error: invErr } = await supabase
     .from('seafood_inventory')
     .select('item_number, description, on_hand_qty, cost, unit, is_ftl_product, company_id, location_id');
@@ -108,7 +103,7 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
   let itemsUpdated  = 0;
   let lotsCreated   = 0;
   const errors      = [];
-  const savedItems  = []; // items array to store in PO record (with lot data)
+  const savedItems  = [];
 
   for (const item of items) {
     const desc = (item.description || '').trim();
@@ -122,7 +117,6 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
     const existing = invMap[key];
     const poRef    = `PO scan${po_number ? ' · ' + po_number : ''}${vendor ? ' from ' + vendor : ''}`;
 
-    // Determine item_number for lot association
     let resolvedItemNumber = existing?.item_number || null;
 
     if (existing) {
@@ -141,7 +135,6 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
       }
       itemsUpdated++;
     } else {
-      // Generate a unique item_number
       const itemNumber = 'PO-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
       resolvedItemNumber = itemNumber;
 
@@ -183,19 +176,34 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
     // Auto-create a lot_codes record when lot_number is provided
     let lotId = null;
     if (item.lot_number && item.lot_number.trim()) {
-      const lotNumber = item.lot_number.trim(); // stored verbatim — never normalised
-      const { data: existingLots, error: existingLotErr } = await supabase
-        .from('lot_codes')
-        .select('id')
-        .eq('lot_number', lotNumber)
-        .limit(1);
-      if (existingLotErr) throw new Error(existingLotErr.message);
-      const existingLot = existingLots?.[0] || null;
+      const lotNumber = item.lot_number.trim();
 
-      if (existingLot) {
-        lotId = existingLot.id;
+      // Scope lot lookup to current tenant context where possible
+      const scopeFields = buildScopeFields(req.context);
+      let lotQuery = supabase.from('lot_codes').select('id').eq('lot_number', lotNumber);
+      if (scopeFields.company_id) lotQuery = lotQuery.eq('company_id', scopeFields.company_id);
+      if (scopeFields.location_id) lotQuery = lotQuery.eq('location_id', scopeFields.location_id);
+      const { data: existingLots, error: existingLotErr } = await lotQuery.limit(1);
+
+      if (existingLotErr) {
+        // Fallback: query without scope if column missing
+        const { data: fallbackLots, error: fallbackErr } = await supabase
+          .from('lot_codes').select('id').eq('lot_number', lotNumber).limit(1);
+        if (fallbackErr) throw new Error(fallbackErr.message);
+        const existingLot = fallbackLots?.[0] || null;
+        if (existingLot) {
+          lotId = existingLot.id;
+        }
       } else {
-        const { data: newLot, error: lotErr } = await supabase.from('lot_codes').insert([{
+        const existingLot = existingLots?.[0] || null;
+        if (existingLot) {
+          lotId = existingLot.id;
+        }
+      }
+
+      if (!lotId) {
+        // Insert with tenant scope
+        const lotPayload = {
           lot_number:        lotNumber,
           product_id:        resolvedItemNumber,
           vendor_id:         vendor || null,
@@ -205,12 +213,16 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
           received_by:       req.user.name || req.user.email,
           expiration_date:   item.expiration_date || null,
           notes:             `Auto-created from PO confirm${po_number ? ' · ' + po_number : ''}`,
-        }]).select('id').single();
-
-        if (lotErr && lotErr.code !== '23505') {
-          errors.push(`Lot ${lotNumber}: ${lotErr.message}`);
-        } else if (newLot) {
-          lotId = newLot.id;
+          ...buildScopeFields(req.context),
+        };
+        const lotInsert = await executeWithOptionalScope(
+          (candidate) => supabase.from('lot_codes').insert([candidate]).select('id').single(),
+          lotPayload
+        );
+        if (lotInsert.error && lotInsert.error.code !== '23505') {
+          errors.push(`Lot ${lotNumber}: ${lotInsert.error.message}`);
+        } else if (lotInsert.data) {
+          lotId = lotInsert.data.id;
           lotsCreated++;
         }
       }
@@ -224,7 +236,6 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
     });
   }
 
-  // Persist the purchase order record
   const computedTotal = parseFloat(total_cost) ||
     parseFloat(items.reduce((s, i) => s + (parseFloat(i.total) || 0), 0).toFixed(2));
 

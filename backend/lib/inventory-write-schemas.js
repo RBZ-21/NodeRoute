@@ -1,9 +1,9 @@
 const { z } = require('zod');
 
-const blankToUndefined = z.union([
-  z.literal('').transform(() => undefined),
-  z.null().transform(() => undefined),
-  z.undefined(),
+const blankToNull = z.union([
+  z.literal('').transform(() => null),
+  z.null(),
+  z.undefined().transform(() => undefined),
 ]);
 
 const optionalTrimmedString = z.preprocess((value) => {
@@ -21,7 +21,10 @@ const optionalNullableString = z.preprocess((value) => {
 const optionalCoercedNumber = z.union([
   z.number().finite(),
   z.string().trim().min(1).pipe(z.coerce.number().finite()),
-  blankToUndefined,
+  // blank / null / undefined → strip the key (return undefined so nonEmptyPatch strips it)
+  z.literal('').transform(() => undefined),
+  z.null().transform(() => undefined),
+  z.undefined(),
 ]).optional();
 
 const optionalCoercedBoolean = z.union([
@@ -32,7 +35,9 @@ const optionalCoercedBoolean = z.union([
     ctx.addIssue({ code: 'custom', message: 'Invalid boolean value' });
     return z.NEVER;
   }),
-  blankToUndefined,
+  z.literal('').transform(() => undefined),
+  z.null().transform(() => undefined),
+  z.undefined(),
 ]).optional();
 
 const countedQuantity = z.preprocess((value) => {
