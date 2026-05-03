@@ -1080,6 +1080,770 @@ async function generateChatReply(userName, userRole, message, history = []) {
   return reply || 'I was unable to generate a response. Please try again.';
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// ROUTE OPTIMIZATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ROUTE_OPTIMIZATION_SYSTEM_PROMPT = `You are a logistics route optimizer for a food wholesale delivery operation.
+Reorder delivery stops to minimize total drive time and fuel, accounting for geographic clustering and time windows.
+
+Rules:
+1. Return stop IDs in the optimal delivery sequence.
+2. Cluster geographically close stops together.
+3. Prefer delivery windows requested by customers when present.
+4. Keep reasoning brief and operational.`;
+
+const ROUTE_OPTIMIZATION_SCHEMA = {
+  name: 'route_optimization',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['optimized_stop_ids', 'key_changes', 'estimated_efficiency_gain', 'reasoning'],
+    properties: {
+      optimized_stop_ids: { type: 'array', items: { type: 'string' } },
+      key_changes: { type: 'array', items: { type: 'string' } },
+      estimated_efficiency_gain: { type: 'string' },
+      reasoning: { type: 'string' },
+    },
+  },
+};
+
+function heuristicRouteOptimization(stops) {
+  // Simple heuristic: sort by address alphabetically as a placeholder
+  const sorted = [...stops].sort((a, b) => String(a.address || '').localeCompare(String(b.address || '')));
+  return {
+    optimized_stop_ids: sorted.map((s) => String(s.id)),
+    key_changes: ['Stops grouped alphabetically by address as a fallback sequence.'],
+    estimated_efficiency_gain: 'Unknown — AI unavailable',
+    reasoning: 'Heuristic fallback: stops sorted by address. Run again when AI is available for a proper geographic cluster.',
+  };
+}
+
+async function optimizeRoute(stops) {
+  if (!stops || stops.length < 2) {
+    return {
+      optimized_stop_ids: (stops || []).map((s) => String(s.id)),
+      key_changes: [],
+      estimated_efficiency_gain: 'N/A — fewer than 2 stops',
+      reasoning: 'Nothing to optimize.',
+    };
+  }
+
+  const stopList = stops.map((s, i) => `${i + 1}. ID: ${s.id} | Customer: ${stringOr(s.customer_name, 'Unknown')} | Address: ${stringOr(s.address, 'No address')} | Window: ${s.preferred_delivery_window || 'Any'}`).join('\n');
+
+  const userMessage = `Optimize the sequence for these ${stops.length} delivery stops:
+
+${stopList}
+
+Return the stop IDs in optimal delivery order.`;
+
+  try {
+    const result = await callAI({
+      systemPrompt: ROUTE_OPTIMIZATION_SYSTEM_PROMPT,
+      userMessage,
+      schema: ROUTE_OPTIMIZATION_SCHEMA,
+      maxTokens: 600,
+    });
+    // Validate all stop IDs are present
+    const stopIds = new Set(stops.map((s) => String(s.id)));
+    const returnedIds = (result.optimized_stop_ids || []).map(String);
+    const allPresent = returnedIds.length === stops.length && returnedIds.every((id) => stopIds.has(id));
+    if (!allPresent) return heuristicRouteOptimization(stops);
+    return result;
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    return heuristicRouteOptimization(stops);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CUSTOMER RISK SCORING
+// ─────────────────────────────────────────────────────────────────────────────
+
+const CUSTOMER_RISK_SYSTEM_PROMPT = `You are a credit and churn risk analyst for a food wholesale distribution company.
+Assess each customer's risk based on payment behavior, order patterns, and account signals.
+
+Rules:
+1. Base risk_score on 0-100 where 0 is no risk and 100 is extreme risk.
+2. risk_level must match: low (0-33), medium (34-66), high (67-100).
+3. List specific, evidence-based risk_factors only.
+4. recommended_action must be a concrete next step for the account manager.`;
+
+const CUSTOMER_RISK_SCHEMA = {
+  name: 'customer_risk_score',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['risk_level', 'risk_score', 'risk_factors', 'recommended_action', 'summary'],
+    properties: {
+      risk_level: { type: 'string', enum: ['low', 'medium', 'high'] },
+      risk_score: { type: 'integer' },
+      risk_factors: { type: 'array', items: { type: 'string' } },
+      recommended_action: { type: 'string' },
+      summary: { type: 'string' },
+    },
+  },
+};
+
+function heuristicCustomerRisk(customer, invoices, recentOrders) {
+  const factors = [];
+  let score = 0;
+
+  if (customer.status === 'inactive') { score += 30; factors.push('Account is marked inactive.'); }
+  if (customer.credit_hold_reason) { score += 40; factors.push(`On credit hold: ${customer.credit_hold_reason}`); }
+
+  const overdueInvoices = (invoices || []).filter((inv) => inv.status === 'overdue');
+  if (overdueInvoices.length > 0) {
+    score += Math.min(40, overdueInvoices.length * 15);
+    factors.push(`${overdueInvoices.length} overdue invoice(s).`);
+  }
+
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000);
+  const recentCount = (recentOrders || []).filter((o) => new Date(o.created_at) >= thirtyDaysAgo).length;
+  if (recentCount === 0 && (recentOrders || []).length > 0) {
+    score += 20;
+    factors.push('No orders in the past 30 days.');
+  }
+
+  score = clamp(score, 0, 100);
+  const risk_level = score >= 67 ? 'high' : score >= 34 ? 'medium' : 'low';
+
+  return {
+    risk_level,
+    risk_score: score,
+    risk_factors: factors.length ? factors : ['No significant risk signals detected.'],
+    recommended_action: risk_level === 'high'
+      ? 'Contact customer immediately to resolve overdue balance or credit hold.'
+      : risk_level === 'medium'
+        ? 'Monitor account closely and follow up on any open invoices.'
+        : 'No action required — continue normal account management.',
+    summary: `${stringOr(customer.company_name, 'Customer')} scored ${score}/100 (${risk_level} risk).`,
+  };
+}
+
+async function scoreCustomerRisk(customer, invoices = [], recentOrders = []) {
+  const overdueCount = (invoices || []).filter((i) => i.status === 'overdue').length;
+  const totalInvoiced = (invoices || []).reduce((s, i) => s + numberOr(i.total, 0), 0);
+  const totalPaid = (invoices || []).filter((i) => i.status === 'paid').reduce((s, i) => s + numberOr(i.total, 0), 0);
+  const orderCount = (recentOrders || []).length;
+  const lastOrderDate = orderCount > 0
+    ? recentOrders.sort((a, b) => new Date(b.created_at) - new Date(a.created_at))[0].created_at
+    : null;
+
+  const userMessage = `Score the credit and churn risk for this wholesale customer.
+
+Customer: ${stringOr(customer.company_name, 'Unknown')}
+Status: ${customer.status || 'active'}
+Credit hold: ${customer.credit_hold_reason || 'None'}
+Payment terms: ${customer.payment_terms || 'Unknown'}
+Total invoiced (90 days): $${totalInvoiced.toFixed(2)}
+Total paid (90 days): $${totalPaid.toFixed(2)}
+Overdue invoices: ${overdueCount}
+Orders (90 days): ${orderCount}
+Last order: ${lastOrderDate || 'None on record'}`;
+
+  try {
+    const result = await callAI({
+      systemPrompt: CUSTOMER_RISK_SYSTEM_PROMPT,
+      userMessage,
+      schema: CUSTOMER_RISK_SCHEMA,
+      maxTokens: 500,
+    });
+    const score = clamp(intOr(result.risk_score, 0), 0, 100);
+    const level = score >= 67 ? 'high' : score >= 34 ? 'medium' : 'low';
+    return {
+      risk_level: ['low', 'medium', 'high'].includes(result.risk_level) ? result.risk_level : level,
+      risk_score: score,
+      risk_factors: Array.isArray(result.risk_factors) ? result.risk_factors.map((f) => stringOr(f)).filter(Boolean) : [],
+      recommended_action: stringOr(result.recommended_action, 'Monitor account.'),
+      summary: stringOr(result.summary, ''),
+    };
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    return heuristicCustomerRisk(customer, invoices, recentOrders);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ANOMALY DETECTION
+// ─────────────────────────────────────────────────────────────────────────────
+
+const ANOMALY_DETECTION_SYSTEM_PROMPT = `You are an operations anomaly detector for a food wholesale delivery company.
+Identify unusual patterns in delivery and order data that may indicate problems.
+
+Rules:
+1. Only flag genuine anomalies — not normal variation.
+2. Severity: high = needs immediate attention, medium = investigate soon, low = monitor.
+3. Be specific: name the entity, metric, and why it's unusual.
+4. Keep descriptions short and operational.`;
+
+const ANOMALY_DETECTION_SCHEMA = {
+  name: 'anomaly_detection',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['anomalies', 'analysis_period', 'summary'],
+    properties: {
+      analysis_period: { type: 'string' },
+      summary: { type: 'string' },
+      anomalies: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['type', 'severity', 'description', 'affected_entity', 'recommended_action'],
+          properties: {
+            type: { type: 'string' },
+            severity: { type: 'string', enum: ['low', 'medium', 'high'] },
+            description: { type: 'string' },
+            affected_entity: { type: 'string' },
+            recommended_action: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+};
+
+function heuristicAnomalyDetection(deliveries, orders) {
+  const anomalies = [];
+  const today = new Date();
+
+  // Flag deliveries stuck in transit > 24 hours
+  (deliveries || []).forEach((d) => {
+    if (d.status === 'in_transit' && d.created_at) {
+      const hoursAgo = (today - new Date(d.created_at)) / 3600000;
+      if (hoursAgo > 24) {
+        anomalies.push({
+          type: 'stuck_delivery',
+          severity: 'high',
+          description: `Delivery has been in-transit for ${Math.round(hoursAgo)} hours without completion.`,
+          affected_entity: `Delivery ${d.id || 'unknown'}`,
+          recommended_action: 'Contact the assigned driver to confirm delivery status.',
+        });
+      }
+    }
+  });
+
+  // Flag orders with no activity in pending > 48 hours
+  (orders || []).forEach((o) => {
+    if (o.status === 'pending' && o.created_at) {
+      const hoursAgo = (today - new Date(o.created_at)) / 3600000;
+      if (hoursAgo > 48) {
+        anomalies.push({
+          type: 'stale_order',
+          severity: 'medium',
+          description: `Order has been in pending status for ${Math.round(hoursAgo / 24)} days.`,
+          affected_entity: `Order for ${stringOr(o.customer_name, 'unknown customer')}`,
+          recommended_action: 'Confirm the order with the customer or advance it to confirmed.',
+        });
+      }
+    }
+  });
+
+  return {
+    anomalies,
+    analysis_period: 'Last 7 days',
+    summary: anomalies.length
+      ? `Detected ${anomalies.length} anomaly(ies) requiring attention.`
+      : 'No significant anomalies detected in recent operations.',
+  };
+}
+
+async function detectAnomalies(deliveries = [], orders = []) {
+  const stuckDeliveries = (deliveries || []).filter((d) => {
+    if (d.status !== 'in_transit' || !d.created_at) return false;
+    return (Date.now() - new Date(d.created_at)) / 3600000 > 24;
+  });
+
+  const staleOrders = (orders || []).filter((o) => {
+    if (o.status !== 'pending' || !o.created_at) return false;
+    return (Date.now() - new Date(o.created_at)) / 3600000 > 48;
+  });
+
+  const cancelledRecent = (orders || []).filter((o) => o.status === 'cancelled').length;
+  const deliveryStatuses = (deliveries || []).reduce((acc, d) => {
+    acc[d.status] = (acc[d.status] || 0) + 1;
+    return acc;
+  }, {});
+
+  const userMessage = `Analyze these recent operations for anomalies (last 7 days).
+
+Deliveries (${deliveries.length} total):
+- Status breakdown: ${JSON.stringify(deliveryStatuses)}
+- Stuck in transit >24h: ${stuckDeliveries.length}
+${stuckDeliveries.slice(0, 5).map((d) => `  • Delivery ${d.id}: ${Math.round((Date.now() - new Date(d.created_at)) / 3600000)}h in transit`).join('\n')}
+
+Orders (${orders.length} total):
+- Pending >48h: ${staleOrders.length}
+- Recently cancelled: ${cancelledRecent}
+${staleOrders.slice(0, 5).map((o) => `  • Order for ${o.customer_name || 'unknown'}: ${Math.round((Date.now() - new Date(o.created_at)) / 3600000)}h in pending`).join('\n')}`;
+
+  try {
+    const result = await callAI({
+      systemPrompt: ANOMALY_DETECTION_SYSTEM_PROMPT,
+      userMessage,
+      schema: ANOMALY_DETECTION_SCHEMA,
+      maxTokens: 800,
+    });
+    return {
+      anomalies: Array.isArray(result.anomalies) ? result.anomalies : [],
+      analysis_period: stringOr(result.analysis_period, 'Last 7 days'),
+      summary: stringOr(result.summary, ''),
+    };
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    return heuristicAnomalyDetection(deliveries, orders);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// VENDOR PERFORMANCE SCORING
+// ─────────────────────────────────────────────────────────────────────────────
+
+const VENDOR_SCORE_SYSTEM_PROMPT = `You are a vendor performance analyst for a food wholesale distribution company.
+Score vendors based on their purchase order history.
+
+Rules:
+1. Scores are 0-100 where 100 is perfect.
+2. overall_grade: A (90-100), B (75-89), C (60-74), D (45-59), F (<45).
+3. strengths and concerns must be specific to the data provided.
+4. Keep summary to 1-2 sentences.`;
+
+const VENDOR_SCORE_SCHEMA = {
+  name: 'vendor_performance_score',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['overall_grade', 'on_time_score', 'quality_score', 'price_consistency_score', 'summary', 'strengths', 'concerns'],
+    properties: {
+      overall_grade: { type: 'string', enum: ['A', 'B', 'C', 'D', 'F'] },
+      on_time_score: { type: 'integer' },
+      quality_score: { type: 'integer' },
+      price_consistency_score: { type: 'integer' },
+      summary: { type: 'string' },
+      strengths: { type: 'array', items: { type: 'string' } },
+      concerns: { type: 'array', items: { type: 'string' } },
+    },
+  },
+};
+
+function heuristicVendorScore(vendor, purchaseOrders) {
+  const completed = (purchaseOrders || []).filter((po) => po.status === 'received' || po.status === 'complete');
+  const partial = (purchaseOrders || []).filter((po) => po.status === 'partial');
+  const total = (purchaseOrders || []).length;
+
+  const onTimeScore = total > 0 ? clamp(Math.round((completed.length / total) * 100), 0, 100) : 50;
+  const qualityScore = total > 0 ? clamp(Math.round(((completed.length + partial.length * 0.7) / total) * 100), 0, 100) : 50;
+  const avg = Math.round((onTimeScore + qualityScore + 70) / 3);
+  const grade = avg >= 90 ? 'A' : avg >= 75 ? 'B' : avg >= 60 ? 'C' : avg >= 45 ? 'D' : 'F';
+
+  return {
+    overall_grade: grade,
+    on_time_score: onTimeScore,
+    quality_score: qualityScore,
+    price_consistency_score: 70,
+    summary: `${stringOr(vendor.name, 'Vendor')} completed ${completed.length} of ${total} PO(s) fully. Grade: ${grade}.`,
+    strengths: completed.length > 0 ? [`${completed.length} PO(s) received in full.`] : [],
+    concerns: partial.length > 0 ? [`${partial.length} PO(s) only partially fulfilled.`] : [],
+  };
+}
+
+async function scoreVendorPerformance(vendor, purchaseOrders = []) {
+  const completed = (purchaseOrders || []).filter((po) => po.status === 'received' || po.status === 'complete').length;
+  const partial = (purchaseOrders || []).filter((po) => po.status === 'partial').length;
+  const pending = (purchaseOrders || []).filter((po) => po.status === 'pending' || po.status === 'ordered').length;
+  const total = (purchaseOrders || []).length;
+
+  const userMessage = `Score this vendor's performance based on their purchase order history.
+
+Vendor: ${stringOr(vendor.name, 'Unknown')}
+Category: ${vendor.category || 'General'}
+Payment terms: ${vendor.payment_terms || 'Unknown'}
+Notes: ${vendor.notes || 'None'}
+
+Purchase Order Summary (last 90 days):
+- Total POs: ${total}
+- Fully received: ${completed}
+- Partially received: ${partial}
+- Still pending/ordered: ${pending}
+- Fulfillment rate: ${total > 0 ? Math.round((completed / total) * 100) : 0}%`;
+
+  try {
+    const result = await callAI({
+      systemPrompt: VENDOR_SCORE_SYSTEM_PROMPT,
+      userMessage,
+      schema: VENDOR_SCORE_SCHEMA,
+      maxTokens: 500,
+    });
+    return {
+      overall_grade: ['A', 'B', 'C', 'D', 'F'].includes(result.overall_grade) ? result.overall_grade : 'C',
+      on_time_score: clamp(intOr(result.on_time_score, 50), 0, 100),
+      quality_score: clamp(intOr(result.quality_score, 50), 0, 100),
+      price_consistency_score: clamp(intOr(result.price_consistency_score, 50), 0, 100),
+      summary: stringOr(result.summary, ''),
+      strengths: Array.isArray(result.strengths) ? result.strengths.map((s) => stringOr(s)).filter(Boolean) : [],
+      concerns: Array.isArray(result.concerns) ? result.concerns.map((c) => stringOr(c)).filter(Boolean) : [],
+    };
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    return heuristicVendorScore(vendor, purchaseOrders);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// DRIVER ASSIGNMENT OPTIMIZATION
+// ─────────────────────────────────────────────────────────────────────────────
+
+const DRIVER_ASSIGNMENTS_SYSTEM_PROMPT = `You are a delivery operations manager for a food wholesale distribution company.
+Match available drivers to routes based on workload, performance history, and capacity.
+
+Rules:
+1. Each route gets exactly one driver recommendation.
+2. Balance workload fairly across drivers.
+3. Prefer drivers with successful history on similar routes.
+4. If a route cannot be confidently assigned, add it to unassignable_routes.`;
+
+const DRIVER_ASSIGNMENTS_SCHEMA = {
+  name: 'driver_assignments',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['assignments', 'unassignable_routes', 'summary'],
+    properties: {
+      summary: { type: 'string' },
+      unassignable_routes: { type: 'array', items: { type: 'string' } },
+      assignments: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['route_id', 'route_name', 'recommended_driver_name', 'reasoning', 'confidence'],
+          properties: {
+            route_id: { type: 'string' },
+            route_name: { type: 'string' },
+            recommended_driver_name: { type: 'string' },
+            reasoning: { type: 'string' },
+            confidence: { type: 'string', enum: ['low', 'medium', 'high'] },
+          },
+        },
+      },
+    },
+  },
+};
+
+function heuristicDriverAssignments(drivers, routes) {
+  const assignments = [];
+  const driverList = [...(drivers || [])];
+  (routes || []).forEach((route, i) => {
+    const driver = driverList[i % Math.max(driverList.length, 1)];
+    assignments.push({
+      route_id: String(route.id),
+      route_name: stringOr(route.name, `Route ${route.id}`),
+      recommended_driver_name: driver ? stringOr(driver.name, 'Unknown') : 'Unassigned',
+      reasoning: 'Round-robin fallback assignment — AI unavailable.',
+      confidence: 'low',
+    });
+  });
+  return {
+    assignments,
+    unassignable_routes: [],
+    summary: 'Assignments generated via round-robin fallback.',
+  };
+}
+
+async function optimizeDriverAssignments(drivers = [], routes = []) {
+  if (!drivers.length || !routes.length) {
+    return { assignments: [], unassignable_routes: routes.map((r) => String(r.id)), summary: 'No drivers or routes provided.' };
+  }
+
+  const driverSummary = (drivers || []).map((d) =>
+    `- ${stringOr(d.name, 'Unknown')} (completed deliveries: ${d.completed_count || 0}, active routes: ${d.active_count || 0})`
+  ).join('\n');
+
+  const routeSummary = (routes || []).map((r) =>
+    `- Route "${stringOr(r.name, r.id)}" (ID: ${r.id}, stops: ${r.stop_count || 'unknown'}, area: ${r.area || 'unknown'})`
+  ).join('\n');
+
+  const userMessage = `Assign drivers to routes for today's deliveries.
+
+Available Drivers:
+${driverSummary}
+
+Routes to Assign:
+${routeSummary}
+
+Match each route to the best available driver. Balance workload.`;
+
+  try {
+    const result = await callAI({
+      systemPrompt: DRIVER_ASSIGNMENTS_SYSTEM_PROMPT,
+      userMessage,
+      schema: DRIVER_ASSIGNMENTS_SCHEMA,
+      maxTokens: 700,
+    });
+    return {
+      assignments: Array.isArray(result.assignments) ? result.assignments : [],
+      unassignable_routes: Array.isArray(result.unassignable_routes) ? result.unassignable_routes : [],
+      summary: stringOr(result.summary, ''),
+    };
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    return heuristicDriverAssignments(drivers, routes);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// SPOILAGE MARKDOWN RECOMMENDATIONS
+// ─────────────────────────────────────────────────────────────────────────────
+
+const MARKDOWN_SYSTEM_PROMPT = `You are a perishable inventory manager for a food wholesale distribution company.
+Recommend markdown discounts for items approaching expiry to maximize revenue and minimize waste.
+
+Rules:
+1. Items expiring in 1-2 days: recommend 30-50% discount (urgency: immediate).
+2. Items expiring in 3-5 days: recommend 15-30% discount (urgency: soon).
+3. Items expiring in 6-10 days: recommend 5-15% discount (urgency: plan_ahead).
+4. Message should be a brief customer-facing promo note.
+5. suggested_action should be an internal ops step.`;
+
+const MARKDOWN_SCHEMA = {
+  name: 'markdown_recommendations',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['recommendations', 'summary'],
+    properties: {
+      summary: { type: 'string' },
+      recommendations: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['product_id', 'product_name', 'lot_number', 'days_until_expiry', 'current_stock', 'suggested_discount_pct', 'urgency', 'message', 'suggested_action'],
+          properties: {
+            product_id: { type: 'string' },
+            product_name: { type: 'string' },
+            lot_number: { type: ['string', 'null'] },
+            days_until_expiry: { type: 'integer' },
+            current_stock: { type: 'integer' },
+            suggested_discount_pct: { type: 'integer' },
+            urgency: { type: 'string', enum: ['immediate', 'soon', 'plan_ahead'] },
+            message: { type: 'string' },
+            suggested_action: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+};
+
+function heuristicMarkdownRecommendations(expiringItems) {
+  const recommendations = (expiringItems || []).map((item) => {
+    const days = intOr(item.days_until_expiry, 0);
+    const urgency = days <= 2 ? 'immediate' : days <= 5 ? 'soon' : 'plan_ahead';
+    const discount = days <= 2 ? 40 : days <= 5 ? 20 : 10;
+    return {
+      product_id: stringOr(item.item_number, 'unknown'),
+      product_name: stringOr(item.description, 'Unknown product'),
+      lot_number: item.lot_number || null,
+      days_until_expiry: days,
+      current_stock: intOr(item.on_hand_qty, 0),
+      suggested_discount_pct: discount,
+      urgency,
+      message: `Special pricing on ${item.description} — ${discount}% off while supplies last.`,
+      suggested_action: urgency === 'immediate'
+        ? `Contact top buyers immediately. Move ${item.description} before ${item.expiry_date}.`
+        : `Feature in next order communication. Target accounts that buy ${item.description} regularly.`,
+    };
+  });
+
+  return {
+    recommendations,
+    summary: `${recommendations.length} item(s) flagged for markdown to reduce spoilage loss.`,
+  };
+}
+
+async function generateMarkdownRecommendations(expiringItems = []) {
+  if (!expiringItems.length) {
+    return { recommendations: [], summary: 'No items approaching expiry.' };
+  }
+
+  const itemList = expiringItems.map((item) =>
+    `- ${stringOr(item.description, 'Unknown')} (ID: ${item.item_number}, Lot: ${item.lot_number || 'N/A'}, Stock: ${intOr(item.on_hand_qty, 0)} ${item.unit || 'units'}, Expires: ${item.expiry_date}, Days left: ${intOr(item.days_until_expiry, 0)})`
+  ).join('\n');
+
+  const userMessage = `Generate markdown recommendations for these expiring items:
+
+${itemList}
+
+Recommend discounts that will move product before spoilage while protecting margin.`;
+
+  try {
+    const result = await callAI({
+      systemPrompt: MARKDOWN_SYSTEM_PROMPT,
+      userMessage,
+      schema: MARKDOWN_SCHEMA,
+      maxTokens: 900,
+    });
+    return {
+      recommendations: Array.isArray(result.recommendations) ? result.recommendations.map((r) => ({
+        product_id: stringOr(r.product_id, 'unknown'),
+        product_name: stringOr(r.product_name, 'Unknown'),
+        lot_number: r.lot_number || null,
+        days_until_expiry: intOr(r.days_until_expiry, 0),
+        current_stock: intOr(r.current_stock, 0),
+        suggested_discount_pct: clamp(intOr(r.suggested_discount_pct, 10), 0, 90),
+        urgency: ['immediate', 'soon', 'plan_ahead'].includes(r.urgency) ? r.urgency : 'plan_ahead',
+        message: stringOr(r.message, ''),
+        suggested_action: stringOr(r.suggested_action, ''),
+      })) : [],
+      summary: stringOr(result.summary, ''),
+    };
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    return heuristicMarkdownRecommendations(expiringItems);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// INVOICE FOLLOW-UP DRAFT
+// ─────────────────────────────────────────────────────────────────────────────
+
+const INVOICE_FOLLOWUP_SYSTEM_PROMPT = `You are an accounts receivable assistant for a food wholesale distribution company.
+Draft payment follow-up messages for overdue invoices. Match tone to days overdue.
+
+Rules:
+1. tone friendly: 1-14 days overdue — polite reminder.
+2. tone firm: 15-30 days overdue — firm but professional.
+3. tone urgent: 31+ days overdue — direct, escalation implied.
+4. Body must mention the invoice amount and due date.
+5. key_points are internal notes for the AR team, not customer-facing.`;
+
+const INVOICE_FOLLOWUP_SCHEMA = {
+  name: 'invoice_followup',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['subject', 'body', 'tone', 'key_points'],
+    properties: {
+      subject: { type: 'string' },
+      body: { type: 'string' },
+      tone: { type: 'string', enum: ['friendly', 'firm', 'urgent'] },
+      key_points: { type: 'array', items: { type: 'string' } },
+    },
+  },
+};
+
+function heuristicInvoiceFollowUp(invoice, customer, daysOverdue) {
+  const tone = daysOverdue >= 31 ? 'urgent' : daysOverdue >= 15 ? 'firm' : 'friendly';
+  const amount = numberOr(invoice.total, 0).toFixed(2);
+  const customerName = stringOr(customer && customer.company_name, invoice.customer_name || 'Valued Customer');
+  const invoiceNum = stringOr(invoice.invoice_number || invoice.id, 'your invoice');
+
+  const bodies = {
+    friendly: `Hi ${customerName},\n\nThis is a friendly reminder that invoice ${invoiceNum} for $${amount} was due ${daysOverdue} day(s) ago. If payment has already been sent, please disregard this notice.\n\nYou can pay online through our customer portal. Please let us know if you have any questions.\n\nThank you,\nNodeRoute Accounts Receivable`,
+    firm: `Dear ${customerName},\n\nOur records show that invoice ${invoiceNum} for $${amount} is now ${daysOverdue} days past due. Please arrange payment at your earliest convenience to avoid any service interruption.\n\nIf there is a dispute or issue with this invoice, please contact us immediately.\n\nRegards,\nNodeRoute Accounts Receivable`,
+    urgent: `Dear ${customerName},\n\nThis is an urgent notice. Invoice ${invoiceNum} for $${amount} is ${daysOverdue} days overdue. Immediate payment or contact from your accounts payable team is required.\n\nFailure to respond may result in a hold on future orders.\n\nNodeRoute Accounts Receivable`,
+  };
+
+  return {
+    subject: tone === 'urgent'
+      ? `URGENT: Invoice ${invoiceNum} — ${daysOverdue} Days Overdue`
+      : tone === 'firm'
+        ? `Invoice ${invoiceNum} — Payment Required`
+        : `Payment Reminder: Invoice ${invoiceNum}`,
+    body: bodies[tone],
+    tone,
+    key_points: [`Invoice ${invoiceNum} is ${daysOverdue} days overdue for $${amount}.`, `Customer: ${customerName}.`],
+  };
+}
+
+async function generateInvoiceFollowUp(invoice, customer = {}, daysOverdue = 0) {
+  const amount = numberOr(invoice.total, 0).toFixed(2);
+  const customerName = stringOr(customer.company_name, invoice.customer_name || 'Customer');
+  const invoiceNum = stringOr(invoice.invoice_number || invoice.id, 'unknown');
+
+  const userMessage = `Draft a payment follow-up for this overdue invoice.
+
+Customer: ${customerName}
+Invoice #: ${invoiceNum}
+Amount: $${amount}
+Due date: ${invoice.due_date || 'Unknown'}
+Days overdue: ${daysOverdue}
+Payment terms: ${customer.payment_terms || invoice.payment_terms || 'Net 30'}
+Prior invoices on this account: ${invoice.prior_invoice_count || 'Unknown'}`;
+
+  try {
+    const result = await callAI({
+      systemPrompt: INVOICE_FOLLOWUP_SYSTEM_PROMPT,
+      userMessage,
+      schema: INVOICE_FOLLOWUP_SCHEMA,
+      maxTokens: 600,
+    });
+    return {
+      subject: stringOr(result.subject, ''),
+      body: stringOr(result.body, ''),
+      tone: ['friendly', 'firm', 'urgent'].includes(result.tone) ? result.tone : 'friendly',
+      key_points: Array.isArray(result.key_points) ? result.key_points.map((k) => stringOr(k)).filter(Boolean) : [],
+    };
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    return heuristicInvoiceFollowUp(invoice, customer, daysOverdue);
+  }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// ENHANCED CHAT WITH LIVE DB CONTEXT
+// ─────────────────────────────────────────────────────────────────────────────
+
+async function generateChatReplyWithContext(userName, userRole, message, history = [], dbContext = {}) {
+  const client = getClient();
+
+  const contextParts = [];
+  if (dbContext.recentOrders && dbContext.recentOrders.length) {
+    contextParts.push(`## Recent Orders (last 10)\n${dbContext.recentOrders.map((o) => `- Order for ${o.customer_name || 'unknown'}: status=${o.status}, date=${o.date || o.created_at}`).join('\n')}`);
+  }
+  if (dbContext.lowInventory && dbContext.lowInventory.length) {
+    contextParts.push(`## Low Inventory Items\n${dbContext.lowInventory.map((i) => `- ${i.description}: ${i.on_hand_qty} ${i.unit} on hand`).join('\n')}`);
+  }
+  if (dbContext.overdueInvoices && dbContext.overdueInvoices.length) {
+    contextParts.push(`## Overdue Invoices (${dbContext.overdueInvoices.length})\n${dbContext.overdueInvoices.slice(0, 10).map((inv) => `- ${inv.customer_name}: $${numberOr(inv.total, 0).toFixed(2)} overdue`).join('\n')}`);
+  }
+  if (dbContext.creditHoldCustomers && dbContext.creditHoldCustomers.length) {
+    contextParts.push(`## Customers on Credit Hold\n${dbContext.creditHoldCustomers.map((c) => `- ${c.company_name}: ${c.credit_hold_reason}`).join('\n')}`);
+  }
+  if (dbContext.activeRoutes && dbContext.activeRoutes.length) {
+    contextParts.push(`## Active Routes Today\n${dbContext.activeRoutes.map((r) => `- ${r.name}: driver=${r.driver || 'unassigned'}`).join('\n')}`);
+  }
+
+  const liveContext = contextParts.length
+    ? `\n\n## Live Data from Your NodeRoute Account\n${contextParts.join('\n\n')}`
+    : '';
+
+  const systemContent = CHAT_SYSTEM_PROMPT
+    .replace('{name}', stringOr(userName, 'User'))
+    .replace('{role}', stringOr(userRole, 'user'))
+    .replace('{knowledge}', NODEROUTE_KNOWLEDGE + liveContext);
+
+  const cappedHistory = history.slice(-10);
+  const messages = [
+    { role: 'system', content: systemContent },
+    ...cappedHistory,
+    { role: 'user', content: String(message || '') },
+  ];
+
+  const response = await client.chat.completions.create({
+    model: DEFAULT_MODEL,
+    max_tokens: 600,
+    messages,
+  });
+
+  const choice = response.choices && response.choices[0];
+  const reply = extractMessageContent(choice && choice.message && choice.message.content);
+  return reply || 'I was unable to generate a response. Please try again.';
+}
+
 module.exports = {
   forecastDemand,
   analyzeInventory,
@@ -1089,5 +1853,13 @@ module.exports = {
   parsePurchaseOrderImage,
   buildWeeklyBuckets,
   generateChatReply,
+  generateChatReplyWithContext,
   checkChatRateLimit,
+  optimizeRoute,
+  scoreCustomerRisk,
+  detectAnomalies,
+  scoreVendorPerformance,
+  optimizeDriverAssignments,
+  generateMarkdownRecommendations,
+  generateInvoiceFollowUp,
 };
