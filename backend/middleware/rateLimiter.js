@@ -19,7 +19,7 @@ const globalLimiter = rateLimit({
   handler: jsonMessage('Too many requests. Please slow down and try again shortly.'),
 });
 
-// 20 requests per 15 minutes — brute-force protection on login / auth routes.
+// 20 requests per 15 minutes — shared fallback for /auth routes not covered below.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 20,
@@ -27,6 +27,36 @@ const authLimiter = rateLimit({
   legacyHeaders: false,
   skip: () => !isProduction,
   handler: jsonMessage('Too many authentication attempts. Please wait 15 minutes before trying again.'),
+});
+
+// 5 attempts per 15 minutes per IP — strict brute-force protection on login.
+const loginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: () => !isProduction,
+  handler: jsonMessage('Too many login attempts. Please wait 15 minutes before trying again.'),
+});
+
+// 10 attempts per hour per IP — invite setup is one-shot, be generous but bounded.
+const setupPasswordLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: () => !isProduction,
+  handler: jsonMessage('Too many setup attempts. Please wait an hour before trying again.'),
+});
+
+// 5 attempts per 15 minutes per IP — protect change-password from credential stuffing.
+const changePasswordLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: () => !isProduction,
+  handler: jsonMessage('Too many password change attempts. Please wait 15 minutes before trying again.'),
 });
 
 // 30 requests per 5 minutes — cost protection on OpenAI-backed routes.
@@ -39,4 +69,11 @@ const aiLimiter = rateLimit({
   handler: jsonMessage('AI request limit reached. Please wait a few minutes before trying again.'),
 });
 
-module.exports = { globalLimiter, authLimiter, aiLimiter };
+module.exports = {
+  globalLimiter,
+  authLimiter,
+  loginLimiter,
+  setupPasswordLimiter,
+  changePasswordLimiter,
+  aiLimiter,
+};

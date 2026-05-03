@@ -10,6 +10,11 @@ const {
   parseSetupPasswordBody,
   parseChangePasswordBody,
 } = require('../lib/auth-schemas');
+const {
+  loginLimiter,
+  setupPasswordLimiter,
+  changePasswordLimiter,
+} = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
@@ -63,7 +68,7 @@ function setAuthCookies(res, token) {
     maxAge: COOKIE_MAX_AGE,
     path: '/',
   });
-  // Readable CSRF token — same value bound to the session
+  // Readable CSRF token — same session, different cookie
   const csrfToken = crypto.randomBytes(32).toString('hex');
   res.cookie('csrf-token', csrfToken, {
     httpOnly: false,
@@ -79,7 +84,8 @@ function clearAuthCookies(res) {
   res.clearCookie('csrf-token', { httpOnly: false, secure: IS_PROD, sameSite: 'strict', path: '/' });
 }
 
-router.post('/login', async (req, res) => {
+// POST /auth/login — 5 attempts / 15 min
+router.post('/login', loginLimiter, async (req, res) => {
   const parsed = parseLoginBody(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error });
   const { email, password } = parsed.data;
@@ -104,7 +110,8 @@ router.post('/login', async (req, res) => {
   res.json({ token, user: userResponseWithContext(u) });
 });
 
-router.post('/setup-password', async (req, res) => {
+// POST /auth/setup-password — 10 attempts / hour
+router.post('/setup-password', setupPasswordLimiter, async (req, res) => {
   const parsed = parseSetupPasswordBody(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error });
   const { token, password } = parsed.data;
@@ -133,7 +140,8 @@ router.post('/logout', authenticateToken, (req, res) => {
   res.json({ message: 'Logged out' });
 });
 
-router.post('/change-password', authenticateToken, async (req, res) => {
+// POST /auth/change-password — 5 attempts / 15 min
+router.post('/change-password', authenticateToken, changePasswordLimiter, async (req, res) => {
   const parsed = parseChangePasswordBody(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error });
   const { currentPassword, newPassword } = parsed.data;
