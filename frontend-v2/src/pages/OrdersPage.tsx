@@ -98,6 +98,72 @@ export function OrdersPage() {
 
   const role = getUserRole();
 
+  // ── Order Intake (AI parse) ──────────────────────────────────────────────
+  const [intakeOpen, setIntakeOpen]       = useState(false);
+  const [intakeText, setIntakeText]       = useState('');
+  const [intakeParsing, setIntakeParsing] = useState(false);
+  const [intakeError, setIntakeError]     = useState('');
+
+  async function runOrderIntake() {
+    if (!intakeText.trim()) return;
+    setIntakeParsing(true);
+    setIntakeError('');
+    try {
+      type IntakeResult = {
+        customer_name_hint?: string | null;
+        order_notes?: string | null;
+        warnings?: string[];
+        items: { name: string; unit: string; amount: number; unit_price: number; notes?: string | null; item_number?: string | null }[];
+      };
+      const result = await sendWithAuth<IntakeResult>('/api/ai/order-intake', 'POST', { message: intakeText });
+      if (result.customer_name_hint) form.setCustomerName(result.customer_name_hint);
+      if (result.order_notes) form.setNotes(result.order_notes);
+      // Map parsed items into form lines
+      type ParsedLine = { itemNumber: string; description: string; quantity: string; unit: string; unitPrice: string; notes: string };
+      const matchedLines: ParsedLine[] = (result.items || []).map((item) => {
+        const matched = products.find((p) =>
+          p.description?.toLowerCase().includes(item.name.toLowerCase()) ||
+          (item.item_number && p.item_number === item.item_number)
+        );
+        return {
+          itemNumber: matched?.item_number || item.item_number || '',
+          description: matched?.description || item.name,
+          quantity: String(item.amount),
+          unit: item.unit,
+          unitPrice: item.unit_price > 0 ? String(item.unit_price) : (matched ? String(matched.cost || '') : ''),
+          notes: item.notes || '',
+        };
+      });
+
+      function applyLine(idx: number, line: ParsedLine) {
+        if (line.itemNumber) form.updateLine(idx, 'itemNumber', line.itemNumber);
+        form.updateLine(idx, 'quantity', line.quantity);
+        const safeUnit = line.unit === 'lb' || line.unit === 'each' ? line.unit : 'each';
+        form.updateLine(idx, 'unit', safeUnit);
+        if (line.unitPrice) form.updateLine(idx, 'unitPrice', line.unitPrice);
+        if (line.notes) form.updateLine(idx, 'notes', line.notes);
+      }
+
+      if (matchedLines.length) {
+        applyLine(0, matchedLines[0]);
+        for (let i = 1; i < matchedLines.length; i++) {
+          form.addLine();
+        }
+        // updateLine refs are stable so we can fire after addLine in the same tick
+        setTimeout(() => {
+          for (let i = 1; i < matchedLines.length; i++) applyLine(i, matchedLines[i]);
+        }, 50);
+      }
+      setIntakeOpen(false);
+      setIntakeText('');
+      setNotice(`Parsed ${matchedLines.length} item(s) from message.${result.warnings?.length ? ' Warnings: ' + result.warnings.join('; ') : ''}`);
+    } catch (err) {
+      setIntakeError(String((err as Error).message || 'Parse failed'));
+    } finally {
+      setIntakeParsing(false);
+    }
+  }
+
   useEffect(() => {
     for (const line of form.lines) {
       const num = line.itemNumber.trim();
@@ -270,6 +336,45 @@ export function OrdersPage() {
         <SummaryCard title="In Process"           value={summary.inProcess.toLocaleString()} />
         <SummaryCard title="Total Pipeline Value" value={asMoney(summary.totalValue)} />
       </div>
+
+      {/* ── AI Order Intake modal ── */}
+      {(role === 'admin' || role === 'manager') && (
+        <div>
+          <button
+            onClick={() => setIntakeOpen(true)}
+            className="rounded-md border border-dashed border-primary/40 bg-primary/5 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
+          >
+            ✦ Parse Customer Message → Order
+          </button>
+          {intakeOpen && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+              <div className="w-full max-w-lg rounded-xl border border-border bg-background shadow-xl">
+                <div className="border-b border-border px-5 py-4">
+                  <h2 className="font-semibold">Parse Customer Message</h2>
+                  <p className="mt-0.5 text-xs text-muted-foreground">Paste a customer email, text, or fax. AI will extract line items and pre-fill the order form.</p>
+                </div>
+                <div className="p-5 space-y-3">
+                  {intakeError && <div className="rounded border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive">{intakeError}</div>}
+                  <textarea
+                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                    rows={7}
+                    placeholder={"e.g. Hi, can I get 10 lbs of salmon, 2 cases of shrimp, and 5 lbs of tuna? – Joe's Seafood"}
+                    value={intakeText}
+                    onChange={(e) => setIntakeText(e.target.value)}
+                    disabled={intakeParsing}
+                  />
+                </div>
+                <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
+                  <button onClick={() => { setIntakeOpen(false); setIntakeText(''); setIntakeError(''); }} className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted" disabled={intakeParsing}>Cancel</button>
+                  <button onClick={() => void runOrderIntake()} disabled={intakeParsing || !intakeText.trim()} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                    {intakeParsing ? 'Parsing...' : 'Parse & Fill'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       <OrderFormCard
         editingOrderId={form.editingOrderId}

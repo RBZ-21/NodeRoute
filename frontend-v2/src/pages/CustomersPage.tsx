@@ -81,6 +81,23 @@ export function CustomersPage() {
   const [lookingUpAddress, setLookingUpAddress] = useState(false);
   const [addressLookupError, setAddressLookupError] = useState('');
 
+  // AI: Risk scoring
+  type RiskResult = { risk_level: string; risk_score: number; risk_factors: string[]; recommended_action: string; summary: string };
+  const [riskScores, setRiskScores] = useState<Record<string, RiskResult>>({});
+  const [riskLoading, setRiskLoading] = useState<Record<string, boolean>>({});
+
+  async function scoreRisk(customerId: string) {
+    setRiskLoading((r) => ({ ...r, [customerId]: true }));
+    try {
+      const result = await sendWithAuth<RiskResult & { customer_id: string }>('/api/ai/customer-risk', 'POST', { customer_id: customerId });
+      setRiskScores((prev) => ({ ...prev, [customerId]: result }));
+    } catch (err) {
+      setError(String((err as Error).message || 'Risk scoring failed'));
+    } finally {
+      setRiskLoading((r) => ({ ...r, [customerId]: false }));
+    }
+  }
+
   const panelRef = useRef<HTMLDivElement>(null);
 
   async function load() {
@@ -256,7 +273,25 @@ export function CustomersPage() {
                   </TableCell>
                   <TableCell>{c.payment_terms || '-'}</TableCell>
                   <TableCell>
-                    <Button size="sm" onClick={() => openCustomer(c)}>View / Edit</Button>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <Button size="sm" onClick={() => openCustomer(c)}>View / Edit</Button>
+                      {c.customer_number && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void scoreRisk(String(c.customer_number))}
+                          disabled={riskLoading[String(c.customer_number)]}
+                          title="AI risk score"
+                        >
+                          {riskLoading[String(c.customer_number)] ? '…' : '✦ Risk'}
+                        </Button>
+                      )}
+                      {c.customer_number && riskScores[String(c.customer_number)] && (
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${riskScores[String(c.customer_number)].risk_level === 'high' ? 'bg-red-100 text-red-700' : riskScores[String(c.customer_number)].risk_level === 'medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                          {riskScores[String(c.customer_number)].risk_level} {riskScores[String(c.customer_number)].risk_score}/100
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               )) : (

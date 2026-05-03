@@ -121,6 +121,65 @@ export function RoutesPage() {
 
   const [statusFilter, setStatusFilter] = useState<'all' | RouteStatus>('all');
 
+  // ── AI: Route Optimization ──────────────────────────────────────────────────
+  const [optimizing, setOptimizing] = useState(false);
+  const [optimizeResult, setOptimizeResult] = useState<{
+    optimized_stop_ids: string[];
+    key_changes: string[];
+    estimated_efficiency_gain: string;
+    reasoning: string;
+  } | null>(null);
+  const [optimizeRouteId, setOptimizeRouteId] = useState<string | null>(null);
+
+  async function runOptimizeRoute(routeId: string) {
+    setOptimizing(true); setOptimizeResult(null); setOptimizeRouteId(routeId); setError(''); setNotice('');
+    try {
+      type OptResult = { optimized_stop_ids: string[]; key_changes: string[]; estimated_efficiency_gain: string; reasoning: string };
+      const result = await sendWithAuth<OptResult>('/api/ai/optimize-route', 'POST', { route_id: routeId });
+      setOptimizeResult(result);
+    } catch (err) {
+      setError(String((err as Error).message || 'Route optimization failed'));
+    } finally {
+      setOptimizing(false);
+    }
+  }
+
+  async function applyOptimization() {
+    if (!optimizeRouteId || !optimizeResult) return;
+    try {
+      await sendWithAuth(`/api/routes/${optimizeRouteId}`, 'PATCH', {
+        stopIds: optimizeResult.optimized_stop_ids,
+        activeStopIds: optimizeResult.optimized_stop_ids,
+      });
+      setNotice('Route stop order updated.');
+      setOptimizeResult(null); setOptimizeRouteId(null);
+      await load();
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not apply optimization'));
+    }
+  }
+
+  // ── AI: Driver Assignments ──────────────────────────────────────────────────
+  const [assignmentsLoading, setAssignmentsLoading] = useState(false);
+  const [assignmentsResult, setAssignmentsResult] = useState<{
+    assignments: { route_id: string; route_name: string; recommended_driver_name: string; reasoning: string; confidence: string }[];
+    unassignable_routes: string[];
+    summary: string;
+  } | null>(null);
+
+  async function runDriverAssignments() {
+    setAssignmentsLoading(true); setAssignmentsResult(null); setError(''); setNotice('');
+    try {
+      type AssignResult = { assignments: { route_id: string; route_name: string; recommended_driver_name: string; reasoning: string; confidence: string }[]; unassignable_routes: string[]; summary: string };
+      const result = await sendWithAuth<AssignResult>('/api/ai/driver-assignments', 'POST', {});
+      setAssignmentsResult(result);
+    } catch (err) {
+      setError(String((err as Error).message || 'Driver assignment failed'));
+    } finally {
+      setAssignmentsLoading(false);
+    }
+  }
+
   async function load() {
     setLoading(true);
     setError('');
@@ -610,6 +669,76 @@ export function RoutesPage() {
         </Card>
       ) : null}
 
+      {/* ── AI: Driver Assignments ── */}
+      <Card>
+        <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2">✦ AI Driver Assignments</CardTitle>
+            <CardDescription>AI suggests the best driver for each unassigned route based on workload and history.</CardDescription>
+          </div>
+          <Button onClick={() => void runDriverAssignments()} disabled={assignmentsLoading} variant="outline" size="sm">
+            {assignmentsLoading ? 'Analyzing…' : 'Suggest Assignments'}
+          </Button>
+        </CardHeader>
+        {assignmentsResult && (
+          <CardContent className="space-y-3">
+            {assignmentsResult.summary && <p className="text-sm text-muted-foreground">{assignmentsResult.summary}</p>}
+            {assignmentsResult.assignments.length > 0 ? (
+              <div className="rounded-lg border border-border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Route</TableHead>
+                      <TableHead>Suggested Driver</TableHead>
+                      <TableHead>Confidence</TableHead>
+                      <TableHead>Reasoning</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {assignmentsResult.assignments.map((a) => (
+                      <TableRow key={a.route_id}>
+                        <TableCell className="font-medium">{a.route_name}</TableCell>
+                        <TableCell>{a.recommended_driver_name}</TableCell>
+                        <TableCell>
+                          <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${a.confidence === 'high' ? 'bg-emerald-100 text-emerald-700' : a.confidence === 'medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                            {a.confidence}
+                          </span>
+                        </TableCell>
+                        <TableCell className="text-sm text-muted-foreground">{a.reasoning}</TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : <p className="text-sm text-muted-foreground">No assignment suggestions generated.</p>}
+          </CardContent>
+        )}
+      </Card>
+
+      {/* ── AI: Route Optimization Result ── */}
+      {optimizeResult && optimizeRouteId && (
+        <Card className="border-primary/40 ring-1 ring-primary/20">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">✦ Optimized Stop Order</CardTitle>
+            <CardDescription>Estimated efficiency gain: {optimizeResult.estimated_efficiency_gain}</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <p className="text-sm text-muted-foreground">{optimizeResult.reasoning}</p>
+            {optimizeResult.key_changes.length > 0 && (
+              <ul className="space-y-1">
+                {optimizeResult.key_changes.map((change, i) => (
+                  <li key={i} className="flex items-start gap-2 text-sm"><span className="mt-0.5 text-primary">•</span>{change}</li>
+                ))}
+              </ul>
+            )}
+            <div className="flex gap-2">
+              <Button size="sm" onClick={() => void applyOptimization()}>Apply New Order</Button>
+              <Button size="sm" variant="ghost" onClick={() => { setOptimizeResult(null); setOptimizeRouteId(null); }}>Dismiss</Button>
+            </div>
+          </CardContent>
+        </Card>
+      )}
+
       {/* ── Routes List ── */}
       <Card>
         <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -668,6 +797,9 @@ export function RoutesPage() {
                         </Button>
                         <Button variant="ghost" size="sm" onClick={() => navigate(`/stops?routeId=${route.id}`)}>
                           Stops
+                        </Button>
+                        <Button variant="ghost" size="sm" onClick={() => void runOptimizeRoute(route.id)} disabled={optimizing && optimizeRouteId === route.id} title="AI optimize stop order">
+                          {optimizing && optimizeRouteId === route.id ? '…' : '✦ Optimize'}
                         </Button>
                         <a href={`https://maps.google.com/?q=${encodeURIComponent(route.name || '')}`} target="_blank" rel="noreferrer">
                           <Button variant="secondary" size="sm">Map</Button>

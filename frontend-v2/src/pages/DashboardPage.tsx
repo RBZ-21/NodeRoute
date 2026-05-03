@@ -17,7 +17,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { WeightEntryModal } from '../components/dashboard/WeightEntryModal';
-import { fetchWithAuth, getUserRole } from '../lib/api';
+import { fetchWithAuth, getUserRole, sendWithAuth } from '../lib/api';
 import { cn } from '../lib/utils';
 
 type Role = 'admin' | 'manager' | 'driver' | 'unknown';
@@ -210,6 +210,26 @@ export function DashboardPage() {
   const [vendorPurchaseOrders, setVendorPurchaseOrders] = useState<VendorPurchaseOrder[]>([]);
   const [weightModalOpen, setWeightModalOpen] = useState(false);
 
+  // AI: Anomaly detection
+  type Anomaly = { type: string; severity: string; description: string; affected_entity: string; recommended_action: string };
+  const [anomalies, setAnomalies] = useState<Anomaly[] | null>(null);
+  const [anomalyLoading, setAnomalyLoading] = useState(false);
+  const [anomalySummary, setAnomalySummary] = useState('');
+
+  async function runAnomalyDetection() {
+    setAnomalyLoading(true);
+    try {
+      type AnomalyResult = { anomalies: Anomaly[]; analysis_period: string; summary: string };
+      const result = await sendWithAuth<AnomalyResult>('/api/ai/anomalies', 'POST', {});
+      setAnomalies(result.anomalies || []);
+      setAnomalySummary(result.summary || '');
+    } catch (err) {
+      setError(String((err as Error).message || 'Anomaly detection failed'));
+    } finally {
+      setAnomalyLoading(false);
+    }
+  }
+
   async function loadDashboard() {
     if (role === 'driver') { setLoading(false); setError(''); return; }
     setLoading(true); setError('');
@@ -363,6 +383,43 @@ export function DashboardPage() {
         <MetricCard icon={Users}          label="Active Drivers"   value={`${deliverySummary.activeDrivers} / ${deliverySummary.totalDrivers}`} trend={trendText(deliverySummary.activeDrivers, deliverySummary.yesterday.activeDrivers)} />
         <MetricCard icon={AlertTriangle}  label="Failed Deliveries" value={deliverySummary.failed.toLocaleString()} valueTone={deliverySummary.failed > 0 ? 'rose' : 'emerald'} trend={trendText(deliverySummary.failed, deliverySummary.yesterday.failed, false)} />
       </div>
+
+      {/* ── AI Anomaly Detection ── */}
+      {(role === 'admin' || role === 'manager') && (
+        <Card className={anomalies && anomalies.some((a) => a.severity === 'high') ? 'border-red-300 ring-1 ring-red-200' : ''}>
+          <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between py-3">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">✦ AI Anomaly Detection</CardTitle>
+              {anomalySummary && <CardDescription>{anomalySummary}</CardDescription>}
+            </div>
+            <Button size="sm" variant="outline" onClick={() => void runAnomalyDetection()} disabled={anomalyLoading}>
+              {anomalyLoading ? 'Scanning…' : anomalies ? 'Re-scan' : 'Scan for Anomalies'}
+            </Button>
+          </CardHeader>
+          {anomalies && (
+            <CardContent>
+              {anomalies.length === 0 ? (
+                <p className="text-sm text-emerald-600">No anomalies detected in the last 7 days.</p>
+              ) : (
+                <div className="space-y-2">
+                  {anomalies.map((a, i) => (
+                    <div key={i} className={`rounded-lg border px-4 py-3 text-sm ${a.severity === 'high' ? 'border-red-200 bg-red-50' : a.severity === 'medium' ? 'border-yellow-200 bg-yellow-50' : 'border-border bg-muted/30'}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <span className={`mr-2 rounded-full px-2 py-0.5 text-xs font-semibold ${a.severity === 'high' ? 'bg-red-100 text-red-700' : a.severity === 'medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-muted text-muted-foreground'}`}>{a.severity}</span>
+                          <span className="font-medium">{a.affected_entity}</span>
+                          <p className="mt-1 text-muted-foreground">{a.description}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">→ {a.recommended_action}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-[1.3fr_1fr_1fr]">
         <Card>

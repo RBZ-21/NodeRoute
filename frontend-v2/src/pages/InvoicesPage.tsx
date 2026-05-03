@@ -146,6 +146,23 @@ export function InvoicesPage() {
   const [customerFilter, setCustomerFilter] = useState<'all' | string>('all');
   const [pendingActionById, setPendingActionById] = useState<Record<string, string>>({});
 
+  // AI: Invoice follow-up drafts
+  type FollowUpDraft = { invoice_id: string; days_overdue: number; subject: string; body: string; tone: string; key_points: string[] };
+  const [followUpDraft, setFollowUpDraft] = useState<FollowUpDraft | null>(null);
+  const [followUpLoading, setFollowUpLoading] = useState<Record<string, boolean>>({});
+
+  async function generateFollowUp(invoiceId: string) {
+    setFollowUpLoading((prev) => ({ ...prev, [invoiceId]: true }));
+    try {
+      const result = await sendWithAuth<FollowUpDraft>('/api/ai/invoice-followup', 'POST', { invoice_id: invoiceId });
+      setFollowUpDraft(result);
+    } catch (err) {
+      setError(String((err as Error).message || 'Follow-up generation failed'));
+    } finally {
+      setFollowUpLoading((prev) => ({ ...prev, [invoiceId]: false }));
+    }
+  }
+
   async function load() {
     setLoading(true);
     setError('');
@@ -369,6 +386,41 @@ export function InvoicesPage() {
       {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading invoices...</div> : null}
       {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
+
+      {/* AI Follow-Up Draft Modal */}
+      {followUpDraft && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="w-full max-w-lg rounded-xl border border-border bg-background shadow-xl">
+            <div className="flex items-center justify-between border-b border-border px-5 py-4">
+              <div>
+                <h2 className="font-semibold">AI Follow-Up Draft</h2>
+                <p className="text-xs text-muted-foreground capitalize">{followUpDraft.days_overdue} days overdue · tone: <span className={`font-medium ${followUpDraft.tone === 'urgent' ? 'text-red-600' : followUpDraft.tone === 'firm' ? 'text-yellow-600' : 'text-emerald-600'}`}>{followUpDraft.tone}</span></p>
+              </div>
+              <button onClick={() => setFollowUpDraft(null)} className="rounded p-1 hover:bg-muted text-muted-foreground">✕</button>
+            </div>
+            <div className="space-y-3 p-5">
+              <div>
+                <p className="mb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Subject</p>
+                <p className="rounded border border-border bg-muted/30 px-3 py-2 text-sm">{followUpDraft.subject}</p>
+              </div>
+              <div>
+                <p className="mb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wide">Body</p>
+                <pre className="whitespace-pre-wrap rounded border border-border bg-muted/30 px-3 py-2 text-sm font-sans">{followUpDraft.body}</pre>
+              </div>
+              {followUpDraft.key_points.length > 0 && (
+                <div>
+                  <p className="mb-1 text-xs font-semibold text-muted-foreground uppercase tracking-wide">AR Notes</p>
+                  <ul className="space-y-0.5">{followUpDraft.key_points.map((k, i) => <li key={i} className="text-xs text-muted-foreground">• {k}</li>)}</ul>
+                </div>
+              )}
+            </div>
+            <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
+              <button onClick={() => { void navigator.clipboard.writeText(`Subject: ${followUpDraft.subject}\n\n${followUpDraft.body}`); setNotice('Copied to clipboard.'); setFollowUpDraft(null); }} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90">Copy & Close</button>
+              <button onClick={() => setFollowUpDraft(null)} className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted">Dismiss</button>
+            </div>
+          </div>
+        </div>
+      )}
       {customerIdParam ? (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700">
           Filtered by customer from Customers page: <strong>{customerIdParam}</strong>
@@ -510,6 +562,9 @@ export function InvoicesPage() {
                           </Button>
                           ) : null}
                           {invoice.source !== 'order-draft' ? (
+                          <Button variant="ghost" size="sm" onClick={() => void generateFollowUp(invoice.id)} disabled={!!followUpLoading[invoice.id] || status === 'paid' || status === 'void'} title="AI follow-up draft">
+                            {followUpLoading[invoice.id] ? '…' : '✦ Draft Follow-Up'}
+                          </Button>
                           <Button variant="ghost" size="sm" onClick={() => voidInvoice(invoice, index)} disabled={!!pendingAction || status === 'void'}>
                             Void Invoice
                           </Button>

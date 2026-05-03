@@ -78,6 +78,23 @@ export function VendorsPage() {
   const [draft, setDraft] = useState<Vendor>({});
   const [saving, setSaving] = useState(false);
 
+  // AI: Vendor scoring
+  type VendorScore = { overall_grade: string; on_time_score: number; quality_score: number; price_consistency_score: number; summary: string; strengths: string[]; concerns: string[] };
+  const [vendorScores, setVendorScores] = useState<Record<string, VendorScore>>({});
+  const [scoreLoading, setScoreLoading] = useState<Record<string, boolean>>({});
+
+  async function scoreVendor(vendorId: string) {
+    setScoreLoading((prev) => ({ ...prev, [vendorId]: true }));
+    try {
+      const result = await sendWithAuth<VendorScore & { vendor_id: string }>('/api/ai/vendor-score', 'POST', { vendor_id: vendorId });
+      setVendorScores((prev) => ({ ...prev, [vendorId]: result }));
+    } catch (err) {
+      setError(String((err as Error).message || 'Vendor scoring failed'));
+    } finally {
+      setScoreLoading((prev) => ({ ...prev, [vendorId]: false }));
+    }
+  }
+
   async function load() {
     setLoading(true);
     setError('');
@@ -209,6 +226,16 @@ export function VendorsPage() {
                         <Button variant="ghost" size="sm" onClick={() => viewPOs(vendor)}>View POs</Button>
                         <Button variant="secondary" size="sm" onClick={() => newPO(vendor)}>New PO</Button>
                         <Button size="sm" onClick={() => openVendor(vendor)}>Edit</Button>
+                        {vendor.id && (
+                          <Button variant="ghost" size="sm" onClick={() => void scoreVendor(String(vendor.id))} disabled={scoreLoading[String(vendor.id)]} title="AI performance score">
+                            {scoreLoading[String(vendor.id)] ? '…' : '✦ Score'}
+                          </Button>
+                        )}
+                        {vendor.id && vendorScores[String(vendor.id)] && (
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${vendorScores[String(vendor.id)].overall_grade === 'A' ? 'bg-emerald-100 text-emerald-700' : vendorScores[String(vendor.id)].overall_grade === 'B' ? 'bg-blue-100 text-blue-700' : vendorScores[String(vendor.id)].overall_grade === 'C' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                            {vendorScores[String(vendor.id)].overall_grade}
+                          </span>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
