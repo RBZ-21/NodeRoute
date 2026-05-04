@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -6,25 +6,14 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Combobox } from '../components/ui/combobox';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
-
-type PurchaseOrder = {
-  id: string;
-  po_number?: string;
-  vendor?: string;
-  total_cost?: number | string;
-  confirmed_by?: string;
-  created_at?: string;
-  items?: unknown[];
-};
-
-type InventoryProduct = {
-  item_number: string;
-  description: string;
-  unit?: string;
-  cost?: number | string;
-  category?: string;
-};
+import {
+  type PoScanResult,
+  type PurchaseOrder,
+  scanPoFile,
+  useConfirmPurchaseOrder,
+  useInventoryProducts,
+  usePurchaseOrders,
+} from '../hooks/usePurchasing';
 
 type PurchaseItemDraft = {
   description: string;
@@ -37,57 +26,33 @@ type PurchaseItemDraft = {
   expiration_date: string;
 };
 
-type ScannedLineItem = {
-  description: string | null;
-  category: string | null;
-  quantity: number | null;
-  unit: string | null;
-  unit_price: number | null;
-  total: number | null;
-};
-type PoScanResult = {
-  vendor: string | null;
-  po_number: string | null;
-  date: string | null;
-  total_cost: number | null;
-  items: ScannedLineItem[];
-};
-
 function money(value: number): string {
   return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
-
 function asNumber(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
-
 const emptyLine = (): PurchaseItemDraft => ({
-  description: '',
-  item_number: '',
-  quantity: '',
-  unit_price: '',
-  unit: 'lb',
-  category: 'Other',
-  lot_number: '',
-  expiration_date: '',
+  description: '', item_number: '', quantity: '', unit_price: '',
+  unit: 'lb', category: 'Other', lot_number: '', expiration_date: '',
 });
 
 export function PurchasingPage() {
   const [searchParams] = useSearchParams();
   const vendorParam = String(searchParams.get('vendor') || '').trim();
 
-  const [orders, setOrders] = useState<PurchaseOrder[]>([]);
-  const [products, setProducts] = useState<InventoryProduct[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { data: orders = [], isLoading, isError, error, refetch } = usePurchaseOrders(vendorParam || undefined);
+  const { data: products = [] } = useInventoryProducts();
+  const confirmPo = useConfirmPurchaseOrder();
+
   const [notice, setNotice] = useState('');
-  const [submitting, setSubmitting] = useState(false);
+  const [formError, setFormError] = useState('');
   const [vendor, setVendor] = useState('');
   const [poNumber, setPoNumber] = useState('');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<PurchaseItemDraft[]>([emptyLine()]);
-  const [vendorFilter, setVendorFilter] = useState<'all' | string>('all');
+  const [vendorFilter, setVendorFilter] = useState<'all' | string>(vendorParam || 'all');
 
   const [scanLoading, setScanLoading] = useState(false);
   const [scanError, setScanError] = useState('');
@@ -95,46 +60,20 @@ export function PurchasingPage() {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  async function load() {
-    setLoading(true);
-    setError('');
-    try {
-      const query = vendorParam ? `?vendor=${encodeURIComponent(vendorParam)}` : '';
-      const data = await fetchWithAuth<PurchaseOrder[]>(`/api/purchase-orders${query}`);
-      setOrders(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(String((err as Error).message || 'Could not load purchase orders'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    load();
-    fetchWithAuth<InventoryProduct[]>('/api/inventory')
-      .then((data) => setProducts(Array.isArray(data) ? data : []))
-      .catch(() => {});
-  }, [vendorParam]);
-
-  useEffect(() => { setVendorFilter(vendorParam || 'all'); }, [vendorParam]);
-
   const summary = useMemo(() => ({
     count: orders.length,
-    spend: orders.reduce((sum, order) => sum + asNumber(order.total_cost), 0),
-    vendors: new Set(orders.map((order) => String(order.vendor || '').trim()).filter(Boolean)).size,
+    spend: orders.reduce((sum, o) => sum + asNumber(o.total_cost), 0),
+    vendors: new Set(orders.map((o) => String(o.vendor || '').trim()).filter(Boolean)).size,
   }), [orders]);
 
   const draftTotal = useMemo(
-    () => lines.reduce((sum, line) => sum + asNumber(line.quantity) * asNumber(line.unit_price), 0),
+    () => lines.reduce((sum, l) => sum + asNumber(l.quantity) * asNumber(l.unit_price), 0),
     [lines],
   );
 
   const vendorOptions = useMemo(() => {
     const unique = new Set<string>();
-    for (const order of orders) {
-      const name = String(order.vendor || '').trim();
-      if (name) unique.add(name);
-    }
+    for (const o of orders) { const n = String(o.vendor || '').trim(); if (n) unique.add(n); }
     return Array.from(unique).sort((a, b) => a.localeCompare(b)).map((v) => ({ label: v, value: v }));
   }, [orders]);
 
@@ -147,32 +86,30 @@ export function PurchasingPage() {
     [products],
   );
 
-  const filteredOrders = useMemo(() => {
-    if (vendorFilter === 'all') return orders;
-    return orders.filter((order) => String(order.vendor || '').trim() === vendorFilter);
-  }, [orders, vendorFilter]);
+  const filteredOrders = useMemo(() =>
+    vendorFilter === 'all' ? orders : orders.filter((o) => String(o.vendor || '').trim() === vendorFilter),
+    [orders, vendorFilter],
+  );
 
   function updateLine(index: number, key: keyof PurchaseItemDraft, value: string) {
-    setLines((current) => current.map((line, i) => (i === index ? { ...line, [key]: value } : line)));
+    setLines((cur) => cur.map((l, i) => (i === index ? { ...l, [key]: value } : l)));
   }
-
-  function addLine() { setLines((current) => [...current, emptyLine()]); }
-
+  function addLine() { setLines((cur) => [...cur, emptyLine()]); }
   function removeLine(index: number) {
-    setLines((current) => (current.length === 1 ? current : current.filter((_, i) => i !== index)));
+    setLines((cur) => (cur.length === 1 ? cur : cur.filter((_, i) => i !== index)));
   }
 
   function applyScanResult(result: PoScanResult) {
     if (result.vendor) setVendor(result.vendor);
     if (result.po_number) setPoNumber(result.po_number);
     const draftLines: PurchaseItemDraft[] = (result.items || []).map((item) => ({
-      description:     item.description ?? '',
-      item_number:     '',
-      quantity:        item.quantity != null ? String(item.quantity) : '',
-      unit_price:      item.unit_price != null ? String(item.unit_price) : '',
-      unit:            item.unit ?? 'lb',
-      category:        item.category ?? 'Other',
-      lot_number:      '',
+      description: item.description ?? '',
+      item_number: '',
+      quantity: item.quantity != null ? String(item.quantity) : '',
+      unit_price: item.unit_price != null ? String(item.unit_price) : '',
+      unit: item.unit ?? 'lb',
+      category: item.category ?? 'Other',
+      lot_number: '',
       expiration_date: '',
     }));
     setLines(draftLines.length ? draftLines : [emptyLine()]);
@@ -185,19 +122,7 @@ export function PurchasingPage() {
     setScanError('');
     setScanResult(null);
     try {
-      const formData = new FormData();
-      formData.append('file', file);
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
-      const res = await fetch('/api/ai/scan-po', {
-        method: 'POST',
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
-        body: formData,
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        throw new Error(String(err.error || res.statusText));
-      }
-      const result: PoScanResult = await res.json();
+      const result = await scanPoFile(file);
       applyScanResult(result);
     } catch (err) {
       setScanError(String((err as Error).message || 'PO scan failed'));
@@ -212,57 +137,48 @@ export function PurchasingPage() {
     if (file) handleScanFile(file);
   }
 
-  async function submitPurchaseOrder() {
+  function submitPurchaseOrder() {
     const items = lines
-      .map((line) => ({
-        description:     line.description.trim(),
-        item_number:     line.item_number.trim() || undefined,
-        quantity:        asNumber(line.quantity),
-        unit_price:      asNumber(line.unit_price),
-        unit:            line.unit.trim() || 'lb',
-        category:        line.category.trim() || 'Other',
-        lot_number:      line.lot_number.trim() || undefined,
-        expiration_date: line.expiration_date || undefined,
+      .map((l) => ({
+        description: l.description.trim(),
+        item_number: l.item_number.trim() || undefined,
+        quantity: asNumber(l.quantity),
+        unit_price: asNumber(l.unit_price),
+        unit: l.unit.trim() || 'lb',
+        category: l.category.trim() || 'Other',
+        lot_number: l.lot_number.trim() || undefined,
+        expiration_date: l.expiration_date || undefined,
+        total: parseFloat((asNumber(l.quantity) * asNumber(l.unit_price)).toFixed(2)),
       }))
       .filter((item) => item.description && item.quantity > 0);
 
-    if (!items.length) { setError('Add at least one line with description and quantity.'); return; }
+    if (!items.length) { setFormError('Add at least one line with description and quantity.'); return; }
 
-    setSubmitting(true);
-    setError('');
-    setNotice('');
-    try {
-      const total_cost = items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
-      const response = await sendWithAuth<{ errors?: string[]; lots_created?: number }>(
-        '/api/purchase-orders/confirm',
-        'POST',
-        {
-          vendor:    vendor    || null,
-          po_number: poNumber  || null,
-          notes:     notes     || null,
-          total_cost,
-          items: items.map((item) => ({ ...item, total: parseFloat((item.quantity * item.unit_price).toFixed(2)) })),
+    setFormError('');
+    const total_cost = items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
+
+    confirmPo.mutate(
+      { vendor: vendor || null, po_number: poNumber || null, notes: notes || null, total_cost, items },
+      {
+        onSuccess: (response) => {
+          const failed = Array.isArray(response.errors) && response.errors.length;
+          const lotsMsg = response.lots_created ? ` ${response.lots_created} lot record(s) created.` : '';
+          setNotice(failed
+            ? `PO saved with ${response.errors?.length || 0} line errors.${lotsMsg}`
+            : `Purchase order confirmed and inventory updated.${lotsMsg}`);
+          setVendor(''); setPoNumber(''); setNotes(''); setLines([emptyLine()]); setScanResult(null);
         },
-      );
-      const failed = Array.isArray(response.errors) && response.errors.length;
-      const lotsMsg = response.lots_created ? ` ${response.lots_created} lot record(s) created.` : '';
-      setNotice(failed
-        ? `PO saved with ${response.errors?.length || 0} line errors.${lotsMsg}`
-        : `Purchase order confirmed and inventory updated.${lotsMsg}`);
-      setVendor(''); setPoNumber(''); setNotes(''); setLines([emptyLine()]); setScanResult(null);
-      await load();
-    } catch (err) {
-      setError(String((err as Error).message || 'Failed to confirm purchase order'));
-    } finally {
-      setSubmitting(false);
-    }
+        onError: (err) => setFormError(String((err as Error).message || 'Failed to confirm purchase order')),
+      }
+    );
   }
 
   return (
     <div className="space-y-5">
-      {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading purchasing data...</div> : null}
-      {error   ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
-      {notice  ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
+      {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading purchasing data...</div> : null}
+      {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load purchase orders')}</div> : null}
+      {formError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{formError}</div> : null}
+      {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
       {vendorParam ? (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700">
           Filtered by vendor from Vendors page: <strong>{vendorParam}</strong>
@@ -271,56 +187,32 @@ export function PurchasingPage() {
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard label="Purchase Orders" value={summary.count.toLocaleString()} />
-        <StatCard label="Total Spend"     value={money(summary.spend)} />
-        <StatCard label="Active Vendors"  value={summary.vendors.toLocaleString()} />
+        <StatCard label="Total Spend" value={money(summary.spend)} />
+        <StatCard label="Active Vendors" value={summary.vendors.toLocaleString()} />
       </div>
 
-      {/* ── AI PO Scanner ── */}
+      {/* AI PO Scanner */}
       <Card>
         <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
             <CardTitle>AI PO Scanner</CardTitle>
-            <CardDescription>
-              Snap a photo on your phone or upload an image from your computer.
-              AI extracts the line items and pre-fills the form below.
-            </CardDescription>
+            <CardDescription>Snap a photo on your phone or upload an image. AI extracts line items and pre-fills the form below.</CardDescription>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              className="hidden"
-              onChange={(e) => handleFileInputChange(e, fileInputRef)}
-            />
-            <input
-              ref={cameraInputRef}
-              type="file"
-              accept="image/jpeg,image/png,image/webp"
-              capture="environment"
-              className="hidden"
-              onChange={(e) => handleFileInputChange(e, cameraInputRef)}
-            />
-            <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={scanLoading}>
-              {scanLoading ? 'Scanning…' : '📁 Upload Image'}
-            </Button>
-            <Button variant="outline" onClick={() => cameraInputRef.current?.click()} disabled={scanLoading}>
-              {scanLoading ? 'Scanning…' : '📷 Take Photo'}
-            </Button>
+            <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => handleFileInputChange(e, fileInputRef)} />
+            <input ref={cameraInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="hidden" onChange={(e) => handleFileInputChange(e, cameraInputRef)} />
+            <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={scanLoading}>{scanLoading ? 'Scanning…' : '📁 Upload Image'}</Button>
+            <Button variant="outline" onClick={() => cameraInputRef.current?.click()} disabled={scanLoading}>{scanLoading ? 'Scanning…' : '📷 Take Photo'}</Button>
           </div>
         </CardHeader>
-        {scanError && (
-          <CardContent>
-            <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{scanError}</div>
-          </CardContent>
-        )}
+        {scanError && <CardContent><div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{scanError}</div></CardContent>}
         {scanResult && (
           <CardContent>
             <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-3 text-sm text-blue-800 space-y-1">
               <div className="font-semibold">Scan Summary</div>
-              {scanResult.vendor    && <div>Vendor: <strong>{scanResult.vendor}</strong></div>}
+              {scanResult.vendor && <div>Vendor: <strong>{scanResult.vendor}</strong></div>}
               {scanResult.po_number && <div>PO #: <strong>{scanResult.po_number}</strong></div>}
-              {scanResult.date      && <div>Date: <strong>{scanResult.date}</strong></div>}
+              {scanResult.date && <div>Date: <strong>{scanResult.date}</strong></div>}
               {scanResult.total_cost != null && <div>Total: <strong>{money(scanResult.total_cost)}</strong></div>}
               <div>{scanResult.items.length} line item(s) extracted — review below before confirming.</div>
             </div>
@@ -328,26 +220,17 @@ export function PurchasingPage() {
         )}
       </Card>
 
-      {/* ── Confirm PO Form ── */}
+      {/* Confirm PO Form */}
       <Card>
         <CardHeader>
           <CardTitle>Confirm Purchase Order</CardTitle>
-          <CardDescription>
-            Lot Number is required for FSMA 204 traceability on FDA Food Traceability List products.
-            Expiration date is optional but strongly recommended (enables FEFO picking).
-          </CardDescription>
+          <CardDescription>Lot Number is required for FSMA 204 traceability on FDA Food Traceability List products. Expiration date is optional but strongly recommended (enables FEFO picking).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-3 md:grid-cols-3">
             <label className="space-y-1 text-sm">
               <span className="font-semibold text-muted-foreground">Vendor</span>
-              <Combobox
-                value={vendor}
-                onChange={setVendor}
-                onSelect={(opt) => setVendor(opt.label)}
-                options={vendorOptions}
-                placeholder="Blue Ocean Seafood"
-              />
+              <Combobox value={vendor} onChange={setVendor} onSelect={(opt) => setVendor(opt.label)} options={vendorOptions} placeholder="Blue Ocean Seafood" />
             </label>
             <label className="space-y-1 text-sm">
               <span className="font-semibold text-muted-foreground">PO Number</span>
@@ -359,7 +242,6 @@ export function PurchasingPage() {
             </label>
           </div>
 
-          {/* table-scroll-container gives mobile users the right-edge fade hint */}
           <div className="table-scroll-container overflow-x-auto rounded-lg border border-border">
             <Table>
               <TableHeader>
@@ -386,18 +268,14 @@ export function PurchasingPage() {
                         onSelect={(opt) => {
                           const p = products.find((x) => x.item_number === opt.value);
                           if (!p) return;
-                          setLines((current) =>
-                            current.map((l, i) =>
-                              i !== index ? l : {
-                                ...l,
-                                description: p.description,
-                                item_number: p.item_number,
-                                unit: p.unit ?? 'lb',
-                                unit_price: asNumber(p.cost) > 0 ? String(asNumber(p.cost)) : l.unit_price,
-                                category: p.category ?? l.category,
-                              },
-                            ),
-                          );
+                          setLines((cur) => cur.map((l, i) => i !== index ? l : {
+                            ...l,
+                            description: p.description,
+                            item_number: p.item_number,
+                            unit: p.unit ?? 'lb',
+                            unit_price: asNumber(p.cost) > 0 ? String(asNumber(p.cost)) : l.unit_price,
+                            category: p.category ?? l.category,
+                          }));
                         }}
                         options={productOptions}
                         placeholder="Atlantic Salmon"
@@ -420,7 +298,9 @@ export function PurchasingPage() {
 
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" onClick={addLine}>Add Line</Button>
-            <Button onClick={submitPurchaseOrder} disabled={submitting}>Confirm PO</Button>
+            <Button onClick={submitPurchaseOrder} disabled={confirmPo.isPending}>
+              {confirmPo.isPending ? 'Confirming...' : 'Confirm PO'}
+            </Button>
             <div className="ml-auto rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
               Draft Total: <strong>{money(draftTotal)}</strong>
             </div>
@@ -428,7 +308,7 @@ export function PurchasingPage() {
         </CardContent>
       </Card>
 
-      {/* ── Historical POs ── */}
+      {/* Historical POs */}
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div>
@@ -438,16 +318,12 @@ export function PurchasingPage() {
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Vendor</span>
-              <select
-                value={vendorFilter}
-                onChange={(e) => setVendorFilter(e.target.value)}
-                className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-              >
+              <select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
                 <option value="all">All Vendors</option>
                 {vendorOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
               </select>
             </label>
-            <Button variant="outline" onClick={load}>Refresh</Button>
+            <Button variant="outline" onClick={() => refetch()}>Refresh</Button>
           </div>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
@@ -463,7 +339,7 @@ export function PurchasingPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filteredOrders.length ? filteredOrders.map((order) => (
+              {filteredOrders.length ? filteredOrders.map((order: PurchaseOrder) => (
                 <TableRow key={order.id}>
                   <TableCell className="font-medium">{order.po_number || order.id.slice(0, 8)}</TableCell>
                   <TableCell>{order.vendor || <Badge variant="neutral">Unspecified</Badge>}</TableCell>
@@ -485,11 +361,6 @@ export function PurchasingPage() {
 
 function StatCard({ label, value }: { label: string; value: string }) {
   return (
-    <Card>
-      <CardHeader className="space-y-1">
-        <CardDescription>{label}</CardDescription>
-        <CardTitle className="text-2xl">{value}</CardTitle>
-      </CardHeader>
-    </Card>
+    <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className="text-2xl">{value}</CardTitle></CardHeader></Card>
   );
 }
