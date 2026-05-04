@@ -1,12 +1,23 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
-import type { CountSheetRow, InventoryItem, LedgerEntry, LedgerResponse, LedgerSummary, RecentSoldItemsResponse } from '../types/inventory.types';
+import { sendWithAuth } from '../lib/api';
+import type { CountSheetRow, InventoryItem, LedgerEntry, LedgerSummary } from '../types/inventory.types';
 import { CatchWeightPriceInput, CatchWeightToggle, FtlToggle, InventoryLedger } from '../components/inventory';
+import {
+  type LedgerParams,
+  useAdjustMutation,
+  useInventoryQuery,
+  useLedgerQuery,
+  useRecentSoldQuery,
+  useRestockMutation,
+  useSpoilageMutation,
+  useTransferMutation,
+} from '../hooks/useInventory';
 
 function asNumber(v: unknown): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function money(v: number) { return v.toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
@@ -46,8 +57,36 @@ const PRIORITY_COLORS: Record<string, string> = {
 };
 
 export function InventoryPage() {
-  const [items, setItems] = useState<InventoryItem[]>([]);
-  const [loading, setLoading] = useState(true);
+  const queryClient = useQueryClient();
+
+  // ── Queries ───────────────────────────────────────────────────────────────
+  const inventoryQuery = useInventoryQuery();
+  const items = inventoryQuery.data ?? [];
+
+  // Ledger uses a "committed" params object so filters only apply on explicit
+  // Apply/Refresh — not on every keystroke.
+  const [ledgerCommitted, setLedgerCommitted] = useState<LedgerParams>({
+    itemFilter: '',
+    typeFilter: '',
+    limit: '75',
+  });
+  const ledgerQuery = useLedgerQuery(ledgerCommitted);
+  const ledgerSummary: LedgerSummary | null = ledgerQuery.data?.summary ?? null;
+  const ledgerEntries: LedgerEntry[] = ledgerQuery.data?.entries ?? [];
+
+  const [recentSalesExclusionWindow, setRecentSalesExclusionWindow] = useState('all');
+  const recentSoldQuery = useRecentSoldQuery(
+    recentSalesExclusionWindow === 'all' ? null : (recentSalesExclusionWindow as '30' | '60' | '90'),
+  );
+  const recentSoldItemKeys: Set<string> | null = recentSoldQuery.data ?? null;
+
+  // ── Mutations ─────────────────────────────────────────────────────────────
+  const restockMutation  = useRestockMutation();
+  const adjustMutation   = useAdjustMutation();
+  const transferMutation = useTransferMutation();
+  const spoilageMutation = useSpoilageMutation();
+
+  // ── Local UI state ────────────────────────────────────────────────────────
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [selectedItemNumber, setSelectedItemNumber] = useState('');
@@ -66,12 +105,8 @@ export function InventoryPage() {
   const [search, setSearch] = useState('');
   const [countCategoryFilter, setCountCategoryFilter] = useState('all');
   const [includeZeroStockInCounts, setIncludeZeroStockInCounts] = useState(true);
-  const [recentSalesExclusionWindow, setRecentSalesExclusionWindow] = useState('all');
-  const [recentSoldItemKeys, setRecentSoldItemKeys] = useState<Set<string> | null>(null);
-  const [recentSoldLoading, setRecentSoldLoading] = useState(false);
-  const [ledgerLoading, setLedgerLoading] = useState(false);
-  const [ledgerSummary, setLedgerSummary] = useState<LedgerSummary | null>(null);
-  const [ledgerEntries, setLedgerEntries] = useState<LedgerEntry[]>([]);
+
+  // Draft ledger filter values — committed to ledgerCommitted on Apply/Refresh.
   const [ledgerItemFilter, setLedgerItemFilter] = useState('');
   const [ledgerTypeFilter, setLedgerTypeFilter] = useState('');
   const [ledgerLimit, setLedgerLimit] = useState('75');
@@ -88,54 +123,18 @@ export function InventoryPage() {
   const [markdownLoading, setMarkdownLoading] = useState(false);
   const [markdownSummary, setMarkdownSummary] = useState('');
 
-  async function runMarkdownRecommendations() {
-    setMarkdownLoading(true);
-    try {
-      type MarkdownResult = { recommendations: MarkdownRec[]; summary: string };
-      const result = await sendWithAuth<MarkdownResult>('/api/ai/markdown-recommendations', 'POST', { window_days: 10 });
-      setMarkdownRecs(result.recommendations || []);
-      setMarkdownSummary(result.summary || '');
-    } catch (err) { setError(String((err as Error).message || 'Markdown recommendations failed')); }
-    finally { setMarkdownLoading(false); }
-  }
+  // Initialise selector dropdowns once the first inventory load completes.
+  const selectorInitialized = useRef(false);
+  useEffect(() => {
+    if (selectorInitialized.current || !items.length) return;
+    selectorInitialized.current = true;
+    setSelectedItemNumber(items[0].item_number || '');
+    setSpoilageItem(items[0].item_number || '');
+    setTransferFrom(items[0].item_number || '');
+    if (items.length > 1) setTransferTo(items[1].item_number || '');
+  }, [items]);
 
-  async function loadInventory() {
-    setLoading(true); setError('');
-    try {
-      const data = await fetchWithAuth<InventoryItem[]>('/api/inventory');
-      const rows = Array.isArray(data) ? data : [];
-      setItems(rows);
-      if (!selectedItemNumber && rows.length) setSelectedItemNumber(rows[0].item_number || '');
-      if (!spoilageItem && rows.length) setSpoilageItem(rows[0].item_number || '');
-      if (!transferFrom && rows.length) setTransferFrom(rows[0].item_number || '');
-      if (!transferTo && rows.length > 1) setTransferTo(rows[1].item_number || '');
-    } catch (err) { setError(String((err as Error).message || 'Could not load inventory')); }
-    finally { setLoading(false); }
-  }
-
-  async function loadLedger() {
-    setLedgerLoading(true);
-    try {
-      const params = new URLSearchParams();
-      if (ledgerItemFilter) params.set('item_number', ledgerItemFilter);
-      if (ledgerTypeFilter) params.set('change_type', ledgerTypeFilter);
-      params.set('limit', String(Math.max(1, Math.min(500, asNumber(ledgerLimit) || 75))));
-      const data = await fetchWithAuth<LedgerResponse>(`/api/inventory/ledger?${params.toString()}`);
-      setLedgerSummary(data.summary || null);
-      setLedgerEntries(Array.isArray(data.entries) ? data.entries : []);
-    } catch (err) { setError(String((err as Error).message || 'Could not load ledger')); }
-    finally { setLedgerLoading(false); }
-  }
-
-  async function loadRecentSoldItems(days: '30' | '60' | '90') {
-    setRecentSoldLoading(true);
-    try {
-      const data = await fetchWithAuth<RecentSoldItemsResponse>(`/api/reporting/recent-sold-items?days=${days}`);
-      setRecentSoldItemKeys(new Set((Array.isArray(data.items) ? data.items : []).map((i) => String(i.key || '').trim().toLowerCase()).filter(Boolean)));
-    } catch (err) { setError(String((err as Error).message || 'Could not load recent sold items')); }
-    finally { setRecentSoldLoading(false); }
-  }
-
+  // ── AI calls (not cached server state — kept as direct sendWithAuth) ──────
   async function runAiHealthAnalysis() {
     setAiLoading(true); setAiError(''); setAiAnalysis(null);
     try {
@@ -149,12 +148,86 @@ export function InventoryPage() {
     }
   }
 
-  useEffect(() => { void (async () => { await loadInventory(); await loadLedger(); })(); }, []);
-  useEffect(() => {
-    if (recentSalesExclusionWindow === 'all') { setRecentSoldItemKeys(null); return; }
-    void loadRecentSoldItems(recentSalesExclusionWindow as '30' | '60' | '90');
-  }, [recentSalesExclusionWindow]);
+  async function runMarkdownRecommendations() {
+    setMarkdownLoading(true);
+    try {
+      type MarkdownResult = { recommendations: MarkdownRec[]; summary: string };
+      const result = await sendWithAuth<MarkdownResult>('/api/ai/markdown-recommendations', 'POST', { window_days: 10 });
+      setMarkdownRecs(result.recommendations || []);
+      setMarkdownSummary(result.summary || '');
+    } catch (err) { setError(String((err as Error).message || 'Markdown recommendations failed')); }
+    finally { setMarkdownLoading(false); }
+  }
 
+  // ── Inventory action helpers ───────────────────────────────────────────────
+  // Patches a single item in the cached list — used by FTL/CatchWeight/Price
+  // toggle callbacks that already have the updated item from their own API call.
+  function patchCachedItem(updated: InventoryItem) {
+    queryClient.setQueryData<InventoryItem[]>(['inventory'], (old) =>
+      old?.map((it) => it.item_number === updated.item_number ? { ...it, ...updated } : it) ?? old,
+    );
+  }
+
+  // Commits draft ledger filter values and triggers a re-fetch.
+  function commitLedgerFilters() {
+    setLedgerCommitted({ itemFilter: ledgerItemFilter, typeFilter: ledgerTypeFilter, limit: ledgerLimit });
+  }
+
+  // ── Mutations ─────────────────────────────────────────────────────────────
+  async function submitRestock() {
+    if (!selectedItemNumber) return;
+    const qty = asNumber(restockQty);
+    if (qty <= 0) { setError('Restock quantity must be greater than 0.'); return; }
+    setSubmitting(true); setError(''); setNotice('');
+    try {
+      await restockMutation.mutateAsync({ itemNumber: selectedItemNumber, qty, notes: actionNotes || undefined });
+      setRestockQty(''); setActionNotes('');
+      setNotice(`Restocked ${selectedItemNumber} by ${qty.toLocaleString()}.`);
+    } catch (err) { setError(String((err as Error).message || 'Restock failed')); }
+    finally { setSubmitting(false); }
+  }
+
+  async function submitAdjustment() {
+    if (!selectedItemNumber) return;
+    const delta = asNumber(adjustDelta);
+    if (delta === 0) { setError('Adjustment delta must be non-zero.'); return; }
+    setSubmitting(true); setError(''); setNotice('');
+    try {
+      await adjustMutation.mutateAsync({ itemNumber: selectedItemNumber, delta, notes: actionNotes || undefined });
+      setAdjustDelta(''); setActionNotes('');
+      setNotice(`Adjusted ${selectedItemNumber} by ${delta > 0 ? '+' : ''}${delta.toLocaleString()}.`);
+    } catch (err) { setError(String((err as Error).message || 'Adjustment failed')); }
+    finally { setSubmitting(false); }
+  }
+
+  async function submitTransfer() {
+    const qty = asNumber(transferQty);
+    if (!transferFrom || !transferTo) { setError('Select both source and destination items.'); return; }
+    if (transferFrom === transferTo) { setError('Source and destination must be different.'); return; }
+    if (qty <= 0) { setError('Transfer quantity must be greater than 0.'); return; }
+    setSubmitting(true); setError(''); setNotice('');
+    try {
+      const res = await transferMutation.mutateAsync({ fromItem: transferFrom, toItem: transferTo, qty, notes: transferNotes || undefined });
+      setTransferQty(''); setTransferNotes('');
+      setNotice(`Transfer completed (${res.transfer_ref ?? 'ref unavailable'}).`);
+    } catch (err) { setError(String((err as Error).message || 'Transfer failed')); }
+    finally { setSubmitting(false); }
+  }
+
+  async function submitSpoilage() {
+    const qty = asNumber(spoilageQty);
+    if (!spoilageItem) { setError('Select an item for spoilage.'); return; }
+    if (qty <= 0) { setError('Spoilage quantity must be greater than 0.'); return; }
+    setSubmitting(true); setError(''); setNotice('');
+    try {
+      await spoilageMutation.mutateAsync({ itemNumber: spoilageItem, qty, reason: spoilageReason || undefined, notes: spoilageNotes || undefined });
+      setSpoilageQty(''); setSpoilageReason(''); setSpoilageNotes('');
+      setNotice(`Spoilage recorded for ${spoilageItem}.`);
+    } catch (err) { setError(String((err as Error).message || 'Could not record spoilage')); }
+    finally { setSubmitting(false); }
+  }
+
+  // ── Count sheet helpers ───────────────────────────────────────────────────
   const filtered = useMemo(() => { const n = search.trim().toLowerCase(); if (!n) return items; return items.filter((i) => [i.item_number, i.description, i.category].filter(Boolean).some((p) => String(p).toLowerCase().includes(n))); }, [items, search]);
   const summary = useMemo(() => ({ totalSkus: items.length, lowStock: items.filter((i) => asNumber(i.on_hand_qty) > 0 && asNumber(i.on_hand_qty) <= 10).length, outOfStock: items.filter((i) => asNumber(i.on_hand_qty) <= 0).length, inventoryValue: items.reduce((s, i) => s + asNumber(i.on_hand_qty) * asNumber(i.cost), 0) }), [items]);
   const selectedItem = useMemo(() => items.find((i) => i.item_number === selectedItemNumber) ?? null, [items, selectedItemNumber]);
@@ -165,32 +238,6 @@ export function InventoryPage() {
   const countCategories = useMemo(() => [...new Set(items.map((i) => String(i.category || 'Uncategorized').trim() || 'Uncategorized'))].sort((a, b) => a.localeCompare(b)), [items]);
   const countSheetGroups = useMemo(() => { const g = new Map<string, CountSheetRow[]>(); for (const r of countSheetRows) { const l = g.get(r.category) ?? []; l.push(r); g.set(r.category, l); } return [...g.entries()].map(([category, rows]) => ({ category, rows })); }, [countSheetRows]);
 
-  async function refreshAll() { await loadInventory(); await loadLedger(); }
-
-  async function submitRestock() {
-    if (!selectedItemNumber) return; const qty = asNumber(restockQty); if (qty <= 0) { setError('Restock quantity must be greater than 0.'); return; }
-    setSubmitting(true); setError(''); setNotice('');
-    try { await sendWithAuth(`/api/inventory/${encodeURIComponent(selectedItemNumber)}/restock`, 'POST', { qty, notes: actionNotes || undefined }); setRestockQty(''); setActionNotes(''); setNotice(`Restocked ${selectedItemNumber} by ${qty.toLocaleString()}.`); await refreshAll(); }
-    catch (err) { setError(String((err as Error).message || 'Restock failed')); } finally { setSubmitting(false); }
-  }
-  async function submitAdjustment() {
-    if (!selectedItemNumber) return; const delta = asNumber(adjustDelta); if (delta === 0) { setError('Adjustment delta must be non-zero.'); return; }
-    setSubmitting(true); setError(''); setNotice('');
-    try { await sendWithAuth(`/api/inventory/${encodeURIComponent(selectedItemNumber)}/adjust`, 'POST', { delta, notes: actionNotes || undefined }); setAdjustDelta(''); setActionNotes(''); setNotice(`Adjusted ${selectedItemNumber} by ${delta > 0 ? '+' : ''}${delta.toLocaleString()}.`); await refreshAll(); }
-    catch (err) { setError(String((err as Error).message || 'Adjustment failed')); } finally { setSubmitting(false); }
-  }
-  async function submitTransfer() {
-    const qty = asNumber(transferQty); if (!transferFrom || !transferTo) { setError('Select both source and destination items.'); return; } if (transferFrom === transferTo) { setError('Source and destination must be different.'); return; } if (qty <= 0) { setError('Transfer quantity must be greater than 0.'); return; }
-    setSubmitting(true); setError(''); setNotice('');
-    try { const res = await sendWithAuth<{ transfer_ref?: string }>('/api/inventory/transfer', 'POST', { from_item_number: transferFrom, to_item_number: transferTo, qty, notes: transferNotes || undefined }); setTransferQty(''); setTransferNotes(''); setNotice(`Transfer completed (${res.transfer_ref ?? 'ref unavailable'}).`); await refreshAll(); }
-    catch (err) { setError(String((err as Error).message || 'Transfer failed')); } finally { setSubmitting(false); }
-  }
-  async function submitSpoilage() {
-    const qty = asNumber(spoilageQty); if (!spoilageItem) { setError('Select an item for spoilage.'); return; } if (qty <= 0) { setError('Spoilage quantity must be greater than 0.'); return; }
-    setSubmitting(true); setError(''); setNotice('');
-    try { await sendWithAuth(`/api/inventory/${encodeURIComponent(spoilageItem)}/spoilage`, 'POST', { qty, reason: spoilageReason || undefined, notes: spoilageNotes || undefined }); setSpoilageQty(''); setSpoilageReason(''); setSpoilageNotes(''); setNotice(`Spoilage recorded for ${spoilageItem}.`); await refreshAll(); }
-    catch (err) { setError(String((err as Error).message || 'Could not record spoilage')); } finally { setSubmitting(false); }
-  }
   function exportCountSheetCsv() {
     const scope = countCategoryFilter === 'all' ? 'all-categories' : countCategoryFilter.toLowerCase().replace(/[^a-z0-9]+/g, '-');
     downloadCsv(`inventory-count-sheet-${scope}.csv`, [['Category','Item #','Description','Current On Hand','Unit','Physical Count'], ...countSheetRows.map((i) => [i.category, i.item_number, i.description, i.on_hand_qty.toLocaleString(), i.unit, ''])]);
@@ -204,10 +251,15 @@ export function InventoryPage() {
     popup.document.close(); popup.focus(); popup.print();
   }
 
+  const fetchError = inventoryQuery.error
+    ? String((inventoryQuery.error as Error)?.message || 'Could not load inventory')
+    : '';
+  const displayError = error || fetchError;
+
   return (
     <div className="space-y-5">
-      {loading && <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading inventory...</div>}
-      {error && <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div>}
+      {inventoryQuery.isPending && <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading inventory...</div>}
+      {displayError && <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{displayError}</div>}
       {notice && <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div>}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard label="SKUs" value={summary.totalSkus.toLocaleString()} />
@@ -357,10 +409,10 @@ export function InventoryPage() {
               <label className="flex items-end gap-2 rounded-md border border-border bg-muted/20 px-3 py-2 text-sm"><input type="checkbox" checked={includeZeroStockInCounts} onChange={(e) => setIncludeZeroStockInCounts(e.target.checked)} /><span>Include zero-stock items</span></label>
               <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm"><div className="font-semibold text-muted-foreground">Rows In Sheet</div><div className="mt-1 text-lg font-semibold">{countSheetRows.length.toLocaleString()}</div></div>
             </div>
-            {recentSalesExclusionWindow !== 'all' && <div className="text-sm text-muted-foreground">{recentSoldLoading ? `Checking sold items from the last ${recentSalesExclusionWindow} days...` : `Excluding items not sold in the last ${recentSalesExclusionWindow} days.`}</div>}
+            {recentSalesExclusionWindow !== 'all' && <div className="text-sm text-muted-foreground">{recentSoldQuery.isFetching ? `Checking sold items from the last ${recentSalesExclusionWindow} days...` : `Excluding items not sold in the last ${recentSalesExclusionWindow} days.`}</div>}
             <div className="flex flex-wrap gap-2">
-              <Button onClick={printCountSheet} disabled={!countSheetRows.length || recentSoldLoading}>Print Count Sheet</Button>
-              <Button variant="outline" onClick={exportCountSheetCsv} disabled={!countSheetRows.length || recentSoldLoading}>Export Count Sheet CSV</Button>
+              <Button onClick={printCountSheet} disabled={!countSheetRows.length || recentSoldQuery.isFetching}>Print Count Sheet</Button>
+              <Button variant="outline" onClick={exportCountSheetCsv} disabled={!countSheetRows.length || recentSoldQuery.isFetching}>Export Count Sheet CSV</Button>
             </div>
           </CardContent>
         </Card>
@@ -394,11 +446,23 @@ export function InventoryPage() {
           </CardContent>
         </Card>
       </div>
-      <InventoryLedger ledgerLoading={ledgerLoading} ledgerSummary={ledgerSummary} ledgerEntries={ledgerEntries} ledgerItemFilter={ledgerItemFilter} ledgerTypeFilter={ledgerTypeFilter} ledgerLimit={ledgerLimit} onItemFilterChange={setLedgerItemFilter} onTypeFilterChange={setLedgerTypeFilter} onLimitChange={setLedgerLimit} onApplyFilters={loadLedger} onRefresh={loadLedger} />
+      <InventoryLedger
+        ledgerLoading={ledgerQuery.isFetching}
+        ledgerSummary={ledgerSummary}
+        ledgerEntries={ledgerEntries}
+        ledgerItemFilter={ledgerItemFilter}
+        ledgerTypeFilter={ledgerTypeFilter}
+        ledgerLimit={ledgerLimit}
+        onItemFilterChange={setLedgerItemFilter}
+        onTypeFilterChange={setLedgerTypeFilter}
+        onLimitChange={setLedgerLimit}
+        onApplyFilters={commitLedgerFilters}
+        onRefresh={() => void ledgerQuery.refetch()}
+      />
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div><CardTitle>Inventory Overview</CardTitle><CardDescription>Live stock visibility. Toggle <strong>FTL</strong> (FDA Traceability List) to require lot assignment on every order for that product.</CardDescription></div>
-          <div className="flex gap-2"><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search item/category" /><Button variant="outline" onClick={loadInventory}>Refresh</Button></div>
+          <div className="flex gap-2"><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search item/category" /><Button variant="outline" onClick={() => void inventoryQuery.refetch()}>Refresh</Button></div>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
           <Table>
@@ -415,9 +479,9 @@ export function InventoryPage() {
                     <TableCell>{qty.toLocaleString()} {item.unit ?? ''}</TableCell>
                     <TableCell>{money(asNumber(item.cost))}</TableCell>
                     <TableCell>{status}</TableCell>
-                    <TableCell><FtlToggle item={item} onToggled={(u) => setItems((cur) => cur.map((it) => it.item_number === u.item_number ? { ...it, is_ftl_product: u.is_ftl_product } : it))} /></TableCell>
-                    <TableCell><CatchWeightToggle item={item} onToggled={(u) => setItems((cur) => cur.map((it) => it.item_number === u.item_number ? { ...it, is_catch_weight: u.is_catch_weight } : it))} /></TableCell>
-                    <TableCell>{item.is_catch_weight ? <CatchWeightPriceInput item={item} onSaved={(u) => setItems((cur) => cur.map((it) => it.item_number === u.item_number ? { ...it, default_price_per_lb: u.default_price_per_lb } : it))} /> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
+                    <TableCell><FtlToggle item={item} onToggled={patchCachedItem} /></TableCell>
+                    <TableCell><CatchWeightToggle item={item} onToggled={patchCachedItem} /></TableCell>
+                    <TableCell>{item.is_catch_weight ? <CatchWeightPriceInput item={item} onSaved={patchCachedItem} /> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
                   </TableRow>
                 );
               }) : <TableRow><TableCell colSpan={9} className="text-muted-foreground">No inventory rows available.</TableCell></TableRow>}
