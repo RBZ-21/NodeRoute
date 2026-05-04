@@ -21,7 +21,7 @@ import {
 
 function asNumber(v: unknown): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function money(v: number) { return v.toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
-function csvEscape(v: string) { return `"${String(v).replace(/"/g, '""')}"`; }
+function csvEscape(v: string) { return `"${String(v).replace(/"/g, '""')}`; }
 function downloadCsv(filename: string, rows: string[][]) {
   const csv = rows.map((r) => r.map(csvEscape).join(',')).join('\n');
   const href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -160,9 +160,10 @@ export function InventoryPage() {
   }
 
   // ── Inventory action helpers ───────────────────────────────────────────────
-  // Patches a single item in the cached list — used by FTL/CatchWeight/Price
-  // toggle callbacks that already have the updated item from their own API call.
-  function patchCachedItem(updated: InventoryItem) {
+  // Patches a single item in the cached list — accepts a partial so toggle
+  // components that only return changed fields (e.g. { item_number, is_ftl_product })
+  // can call this without providing the full InventoryItem shape.
+  function patchCachedItem(updated: Pick<InventoryItem, 'item_number'> & Partial<InventoryItem>) {
     queryClient.setQueryData<InventoryItem[]>(['inventory'], (old) =>
       old?.map((it) => it.item_number === updated.item_number ? { ...it, ...updated } : it) ?? old,
     );
