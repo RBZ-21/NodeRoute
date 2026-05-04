@@ -41,6 +41,13 @@ const DEFAULT_COMPANY_NAME = process.env.DEFAULT_COMPANY_NAME || 'Default Compan
 const DEFAULT_LOCATION_ID = process.env.DEFAULT_LOCATION_ID || '00000000-0000-0000-0000-000000000101';
 const DEFAULT_LOCATION_NAME = process.env.DEFAULT_LOCATION_NAME || 'Primary Location';
 
+// Lazy-load logger to avoid circular dependency at module init time.
+let _logger = null;
+function getLogger() {
+  if (!_logger) _logger = require('./logger');
+  return _logger;
+}
+
 function firstValue(source, keys) {
   if (!source || typeof source !== 'object') return null;
   for (const key of keys) {
@@ -106,6 +113,8 @@ function getUserOperatingContext(user) {
 
 function buildRequestContext(req, user) {
   const userContext = getUserOperatingContext(user);
+  const logger = getLogger();
+
   const requestedCompanyId = normalizeId(
     req?.headers?.['x-company-id'] ||
     req?.query?.companyId ||
@@ -117,7 +126,15 @@ function buildRequestContext(req, user) {
     const canUseRequestedCompany =
       userContext.isGlobalOperator ||
       userContext.accessibleCompanyIds.includes(requestedCompanyId);
-    if (canUseRequestedCompany) activeCompanyId = requestedCompanyId;
+    if (canUseRequestedCompany) {
+      activeCompanyId = requestedCompanyId;
+    } else {
+      // Log rejected context-shift attempts for audit visibility.
+      logger.warn(
+        { userId: user?.id, role: user?.role, requestedCompanyId, allowedCompanyIds: userContext.accessibleCompanyIds },
+        'Context shift rejected: x-company-id not in accessibleCompanyIds'
+      );
+    }
   }
 
   const requestedLocationId = normalizeId(
@@ -126,13 +143,20 @@ function buildRequestContext(req, user) {
     req?.body?.locationId ||
     null
   );
-
   let activeLocationId = userContext.locationId;
   if (requestedLocationId) {
     const canUseRequestedLocation =
       userContext.isGlobalOperator ||
       userContext.accessibleLocationIds.includes(requestedLocationId);
-    if (canUseRequestedLocation) activeLocationId = requestedLocationId;
+    if (canUseRequestedLocation) {
+      activeLocationId = requestedLocationId;
+    } else {
+      // Log rejected context-shift attempts for audit visibility.
+      logger.warn(
+        { userId: user?.id, role: user?.role, requestedLocationId, allowedLocationIds: userContext.accessibleLocationIds },
+        'Context shift rejected: x-location-id not in accessibleLocationIds'
+      );
+    }
   }
 
   return {
