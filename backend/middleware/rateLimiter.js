@@ -2,7 +2,7 @@
 
 const rateLimit = require('express-rate-limit');
 
-const isProduction = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+const isTest = (process.env.NODE_ENV || '').toLowerCase() === 'test';
 
 // Default message shape keeps it consistent with the rest of the API.
 function jsonMessage(message) {
@@ -15,7 +15,7 @@ const globalLimiter = rateLimit({
   max: 200,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  skip: () => !isProduction,
+  skip: () => isTest,
   handler: jsonMessage('Too many requests. Please slow down and try again shortly.'),
 });
 
@@ -25,7 +25,7 @@ const authLimiter = rateLimit({
   max: 20,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  skip: () => !isProduction,
+  skip: () => isTest,
   handler: jsonMessage('Too many authentication attempts. Please wait 15 minutes before trying again.'),
 });
 
@@ -35,7 +35,7 @@ const loginLimiter = rateLimit({
   max: 5,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  skip: () => !isProduction,
+  skip: () => isTest,
   handler: jsonMessage('Too many login attempts. Please wait 15 minutes before trying again.'),
 });
 
@@ -45,7 +45,7 @@ const setupPasswordLimiter = rateLimit({
   max: 10,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  skip: () => !isProduction,
+  skip: () => isTest,
   handler: jsonMessage('Too many setup attempts. Please wait an hour before trying again.'),
 });
 
@@ -55,7 +55,7 @@ const changePasswordLimiter = rateLimit({
   max: 5,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  skip: () => !isProduction,
+  skip: () => isTest,
   handler: jsonMessage('Too many password change attempts. Please wait 15 minutes before trying again.'),
 });
 
@@ -65,7 +65,7 @@ const aiLimiter = rateLimit({
   max: 30,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
-  skip: () => !isProduction,
+  skip: () => isTest,
   handler: jsonMessage('AI request limit reached. Please wait a few minutes before trying again.'),
 });
 
