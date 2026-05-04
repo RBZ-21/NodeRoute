@@ -61,7 +61,7 @@ app.use((req, res, next) => {
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   res.setHeader(
     'Permissions-Policy',
-    'camera=(), microphone=(), geolocation=(), payment=()'
+    'camera=(self), microphone=(), geolocation=(self), payment=()'
   );
   res.setHeader(
     'Content-Security-Policy',
@@ -116,8 +116,10 @@ app.use((req, res, next) => {
 
 const frontendV2DistDir = path.join(__dirname, '../frontend-v2/dist');
 const landingV2DistDir  = path.join(__dirname, '../landing-v2/dist');
+const driverAppDistDir  = path.join(__dirname, '../driver-app/dist');
 const frontendV2Entry   = path.join(frontendV2DistDir, 'index.html');
 const landingV2Entry    = path.join(landingV2DistDir, 'index.html');
+const driverAppEntry    = path.join(driverAppDistDir, 'index.html');
 
 function requireBuildArtifact(buildName, entryPath, buildCommand) {
   if (!fs.existsSync(entryPath)) {
@@ -131,8 +133,10 @@ function requireBuildArtifact(buildName, entryPath, buildCommand) {
 
 requireBuildArtifact('frontend-v2', frontendV2Entry, 'npm --prefix frontend-v2 run build');
 requireBuildArtifact('landing-v2',  landingV2Entry,  'npm --prefix landing-v2 run build');
+requireBuildArtifact('driver-app',  driverAppEntry,   'npm --prefix driver-app run build');
 
 app.use('/dashboard-v2', express.static(frontendV2DistDir, { index: false }));
+app.use('/driver-app', express.static(driverAppDistDir, { index: false }));
 app.use(express.static(landingV2DistDir, { index: false }));
 
 const ADMIN_EMAIL    = config.ADMIN_EMAIL;
@@ -226,6 +230,8 @@ app.get('/login', (req, res) => res.sendFile(frontendV2Entry));
 app.get('/dashboard', (req, res) => res.redirect('/dashboard-v2'));
 app.get('/dashboard-v2', (req, res) => res.sendFile(frontendV2Entry));
 app.get(/^\/dashboard-v2\/.*/, (req, res) => res.sendFile(frontendV2Entry));
+app.get('/driver-app', (req, res) => res.sendFile(driverAppEntry));
+app.get(/^\/driver-app\/.*/, (req, res) => res.sendFile(driverAppEntry));
 
 const frontendV2Routes = [
   '/orders', '/deliveries', '/map', '/drivers', '/routes', '/stops',
