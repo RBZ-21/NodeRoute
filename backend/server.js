@@ -40,6 +40,8 @@ const warehouseRouter     = require('./routes/warehouse');
 const superadminRouter    = require('./routes/superadmin');
 const waitlistRouter      = require('./routes/waitlist');
 const dwellRouter         = require('./routes/dwell');
+const salesRepsRouter     = require('./routes/sales-reps');
+const arHubRouter         = require('./routes/ar-hub');
 const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
 
 const app  = express();
@@ -171,6 +173,8 @@ app.use('/api/warehouse', warehouseRouter);
 app.use('/api/superadmin', superadminRouter);
 app.use('/api/waitlist', waitlistRouter);
 app.use('/api/dwell', dwellRouter);
+app.use('/api/sales-reps', salesRepsRouter);
+app.use('/api/ar', arHubRouter);
 
 const { authenticateToken, requireRole } = require('./middleware/auth');
 
@@ -208,6 +212,8 @@ const frontendV2Routes = [
   '/admin/traceability',
   '/superadmin/companies',
   '/superadmin/waitlist',
+  '/sales-rep',
+  '/ar-hub',
 ];
 app.get(frontendV2Routes, (req, res) => res.sendFile(frontendV2Entry));
 
