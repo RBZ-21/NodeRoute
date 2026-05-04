@@ -11,10 +11,10 @@ export function LocationsTab({ onNotice, onError }: { onNotice: (m: string) => v
   const [locations, setLocations] = useState<Location[]>([]);
   const [loading, setLoading] = useState(false);
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name: '', type: 'cooler', capacity: '', notes: '' });
+  const [form, setForm] = useState({ name: '', type: 'cooler', notes: '' });
   const [submitting, setSubmitting] = useState(false);
   const [editingId, setEditingId] = useState<string | number | null>(null);
-  const [editForm, setEditForm] = useState({ name: '', type: '', capacity: '', notes: '', status: 'active' });
+  const [editForm, setEditForm] = useState({ name: '', type: '', notes: '', status: 'active' });
   const [editSaving, setEditSaving] = useState(false);
 
   async function load() {
@@ -36,12 +36,11 @@ export function LocationsTab({ onNotice, onError }: { onNotice: (m: string) => v
     if (!form.name || !form.type) { onError('Name and type are required'); return; }
     setSubmitting(true);
     try {
-      const payload: Record<string, any> = { name: form.name, type: form.type, notes: form.notes || undefined };
-      if (form.capacity) payload.capacity = parseFloat(form.capacity);
+      const payload: Record<string, unknown> = { name: form.name, type: form.type, notes: form.notes || undefined };
       await sendWithAuth('/api/warehouse/locations', 'POST', payload);
       onNotice(`Location "${form.name}" added.`);
       setShowForm(false);
-      setForm({ name: '', type: 'cooler', capacity: '', notes: '' });
+      setForm({ name: '', type: 'cooler', notes: '' });
       load();
     } catch (err) {
       onError(String((err as Error).message));
@@ -53,8 +52,7 @@ export function LocationsTab({ onNotice, onError }: { onNotice: (m: string) => v
   async function saveEdit(id: string | number) {
     setEditSaving(true);
     try {
-      const payload: Record<string, any> = { name: editForm.name, type: editForm.type, status: editForm.status, notes: editForm.notes || undefined };
-      if (editForm.capacity) payload.capacity = parseFloat(editForm.capacity);
+      const payload: Record<string, unknown> = { name: editForm.name, type: editForm.type, status: editForm.status, notes: editForm.notes || undefined };
       await sendWithAuth(`/api/warehouse/locations/${id}`, 'PATCH', payload);
       onNotice('Location updated.');
       setEditingId(null);
@@ -83,11 +81,7 @@ export function LocationsTab({ onNotice, onError }: { onNotice: (m: string) => v
                   {Object.entries(LOCATION_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
               </div>
-              <div className="space-y-1">
-                <label className="text-xs font-medium text-muted-foreground">Capacity</label>
-                <input type="number" className="w-full rounded border border-input bg-background px-3 py-1.5 text-sm" placeholder="e.g. 5000 (lbs)" value={form.capacity} onChange={(e) => setForm({ ...form, capacity: e.target.value })} />
-              </div>
-              <div className="space-y-1">
+              <div className="space-y-1 sm:col-span-2">
                 <label className="text-xs font-medium text-muted-foreground">Notes</label>
                 <input className="w-full rounded border border-input bg-background px-3 py-1.5 text-sm" value={form.notes} onChange={(e) => setForm({ ...form, notes: e.target.value })} />
               </div>
@@ -116,7 +110,6 @@ export function LocationsTab({ onNotice, onError }: { onNotice: (m: string) => v
               <TableRow>
                 <TableHead>Name</TableHead>
                 <TableHead>Type</TableHead>
-                <TableHead>Capacity</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Notes</TableHead>
                 <TableHead>Actions</TableHead>
@@ -133,7 +126,6 @@ export function LocationsTab({ onNotice, onError }: { onNotice: (m: string) => v
                           {Object.entries(LOCATION_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                         </select>
                       </TableCell>
-                      <TableCell><input type="number" className="w-20 rounded border border-input bg-background px-2 py-1 text-sm" value={editForm.capacity} onChange={(e) => setEditForm({ ...editForm, capacity: e.target.value })} /></TableCell>
                       <TableCell>
                         <select className="rounded border border-input bg-background px-1 py-1 text-sm" value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}>
                           <option value="active">active</option>
@@ -152,7 +144,6 @@ export function LocationsTab({ onNotice, onError }: { onNotice: (m: string) => v
                     <>
                       <TableCell className="font-medium">{loc.name}</TableCell>
                       <TableCell>{LOCATION_TYPE_LABELS[loc.type] || loc.type}</TableCell>
-                      <TableCell>{loc.capacity != null ? `${loc.capacity} lbs` : '-'}</TableCell>
                       <TableCell>
                         <Badge variant={(loc.status === 'active' ? 'success' : 'secondary') as any}>{loc.status || 'active'}</Badge>
                       </TableCell>
@@ -160,14 +151,14 @@ export function LocationsTab({ onNotice, onError }: { onNotice: (m: string) => v
                       <TableCell>
                         <Button size="sm" variant="outline" onClick={() => {
                           setEditingId(loc.id);
-                          setEditForm({ name: loc.name, type: loc.type, capacity: String(loc.capacity ?? ''), notes: loc.notes || '', status: loc.status || 'active' });
+                          setEditForm({ name: loc.name, type: loc.type, notes: loc.notes || '', status: loc.status || 'active' });
                         }}>Edit</Button>
                       </TableCell>
                     </>
                   )}
                 </TableRow>
               )) : (
-                <TableRow><TableCell colSpan={6} className="text-muted-foreground">No locations configured yet.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={5} className="text-muted-foreground">No locations configured yet.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>

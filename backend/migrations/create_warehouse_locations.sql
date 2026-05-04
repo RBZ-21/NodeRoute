@@ -3,13 +3,13 @@
 -- (zones, bays, coolers, etc.) within the warehouse.
 
 CREATE TABLE IF NOT EXISTS public.warehouse_locations (
-  id            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name          TEXT NOT NULL,
-  zone          TEXT,
-  description   TEXT,
-  is_active     BOOLEAN NOT NULL DEFAULT TRUE,
-  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  name        TEXT NOT NULL,
+  type        TEXT NOT NULL,
+  status      TEXT NOT NULL DEFAULT 'active',
+  notes       TEXT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- Keep updated_at current automatically
@@ -29,7 +29,7 @@ CREATE TRIGGER trg_warehouse_locations_updated_at
 -- Enable RLS (Supabase standard)
 ALTER TABLE public.warehouse_locations ENABLE ROW LEVEL SECURITY;
 
--- Allow authenticated users full access (adjust policy to match your auth setup)
+-- Allow authenticated users full access
 DROP POLICY IF EXISTS "authenticated_all" ON public.warehouse_locations;
 CREATE POLICY "authenticated_all"
   ON public.warehouse_locations
