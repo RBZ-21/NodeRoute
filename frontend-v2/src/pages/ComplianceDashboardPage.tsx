@@ -11,7 +11,7 @@ import {
   ShieldCheck, ShieldAlert, AlertTriangle, CheckCircle2,
   RefreshCw, Download, Info,
 } from 'lucide-react';
-import { apiFetch } from '../lib/api';
+import { fetchWithAuth } from '../lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface ComplianceSummary {
@@ -125,9 +125,9 @@ export function ComplianceDashboardPage() {
     try {
       // Try live endpoints; fall back to mock on error
       const [sumRes, cteRes, gapRes] = await Promise.allSettled([
-        apiFetch('/api/compliance/summary'),
-        apiFetch('/api/compliance/cte-completeness'),
-        apiFetch('/api/compliance/gaps'),
+        fetchWithAuth<ComplianceSummary>('/api/compliance/summary'),
+        fetchWithAuth<CteRow[]>('/api/compliance/cte-completeness'),
+        fetchWithAuth<GapRow[]>('/api/compliance/gaps'),
       ]);
       setSummary(sumRes.status === 'fulfilled' ? sumRes.value : MOCK_SUMMARY);
       setCtes(cteRes.status === 'fulfilled'    ? cteRes.value : MOCK_CTES);
