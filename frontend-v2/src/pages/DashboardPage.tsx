@@ -10,133 +10,32 @@ import {
   Truck,
   Users,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { WeightEntryModal } from '../components/dashboard/WeightEntryModal';
-import { fetchWithAuth, getUserRole, sendWithAuth } from '../lib/api';
+import { getUserRole, sendWithAuth } from '../lib/api';
 import { cn } from '../lib/utils';
+import {
+  type Delivery,
+  type DriverSummary,
+  type OrderRecord,
+  type RouteRecord,
+  dashboardKeys,
+  useAnalyticsQuery,
+  useDashboardOrdersQuery,
+  useDeliveriesQuery,
+  useDriversQuery,
+  usePurchaseOrdersQuery,
+  useRoutesQuery,
+  useStatsQuery,
+} from '../hooks/useDashboard';
 
 type Role = 'admin' | 'manager' | 'driver' | 'unknown';
-
-type DashboardStats = {
-  totalDeliveries: number;
-  completedToday: number;
-  onTimeRate: number;
-  activeDrivers: number;
-  totalDrivers: number;
-  failed: number;
-  pendingCount: number;
-  inTransitCount: number;
-  yesterday: {
-    totalDeliveries: number;
-    completedToday: number;
-    onTimeRate: number;
-    activeDrivers: number;
-    totalDrivers: number;
-    failed: number;
-    pendingCount: number;
-    inTransitCount: number;
-  };
-};
-
-type DriverRanking = {
-  name: string;
-  stopsPerHour: number;
-  avgStopMinutes: number;
-  avgSpeedMph: number;
-  onTimeRate: number;
-  milesToday: number;
-};
-
-type DashboardAnalytics = {
-  avgStopTime: string;
-  onTimeRate: string;
-  avgSpeed: string;
-  driverRankings: DriverRanking[];
-  doorBreakdown?: Record<string, number>;
-};
-
-type Delivery = {
-  id: number;
-  orderDbId?: string;
-  orderId: string;
-  restaurantName: string;
-  driverName: string;
-  status: string;
-  deliveryDoor?: string;
-  onTime?: boolean | null;
-  address?: string;
-  distanceMiles?: number;
-  stopDurationMinutes?: number | null;
-  routeId?: string | null;
-  createdAt?: string;
-};
-
-type DriverSummary = {
-  id: string;
-  name: string;
-  status?: string;
-  onTimeRate?: number;
-  totalStopsToday?: number;
-  milesToday?: number;
-  avgStopMinutes?: number;
-  avgSpeedMph?: number;
-  updatedAt?: string | null;
-};
-
-type RouteRecord = {
-  id: string;
-  name?: string;
-  driver?: string;
-  notes?: string;
-  stop_ids?: string[];
-  active_stop_ids?: string[];
-  created_at?: string;
-};
-
-type OrderItem = {
-  name?: string;
-  description?: string;
-  item_number?: string;
-  unit?: string;
-  is_catch_weight?: boolean;
-  actual_weight?: number | string | null;
-  requested_weight?: number | string | null;
-  price_per_lb?: number | string | null;
-  unit_price?: number | string | null;
-  notes?: string;
-};
-
-type OrderRecord = {
-  id: string;
-  customer_id?: string;
-  customerId?: string;
-  order_number?: string;
-  customer_name?: string;
-  customer_email?: string;
-  customer_address?: string;
-  status?: string;
-  created_at?: string;
-  tax_enabled?: boolean;
-  tax_rate?: number | string | null;
-  items?: OrderItem[];
-};
-
-type VendorPurchaseOrder = {
-  id: string;
-  po_number?: string;
-  vendor_name?: string;
-  vendor?: string;
-  status?: string;
-  total_ordered_cost?: number | string;
-  total_backordered_qty?: number | string;
-  line_count?: number | string;
-  created_at?: string;
-};
 
 function asNumber(value: unknown, fallback = 0): number {
   const parsed = Number(value);
@@ -191,80 +90,82 @@ function isOpenOrder(order: OrderRecord): boolean {
   return normalized === 'pending' || normalized === 'in_process' || normalized === 'processed';
 }
 
-function driverBadgeVariant(status: string | undefined): 'success' | 'neutral' {
-  return String(status || '').toLowerCase() === 'on-duty' ? 'success' : 'neutral';
-}
-
 export function DashboardPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const role = getUserRole() as Role;
+  const active = role !== 'driver';
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
-  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
-  const [drivers, setDrivers] = useState<DriverSummary[]>([]);
-  const [routes, setRoutes] = useState<RouteRecord[]>([]);
-  const [orders, setOrders] = useState<OrderRecord[]>([]);
-  const [vendorPurchaseOrders, setVendorPurchaseOrders] = useState<VendorPurchaseOrder[]>([]);
+  // ── Queries ───────────────────────────────────────────────────────────────
+  const statsQuery         = useStatsQuery(active);
+  const analyticsQuery     = useAnalyticsQuery(active);
+  const deliveriesQuery    = useDeliveriesQuery(active);
+  const driversQuery       = useDriversQuery(active);
+  const routesQuery        = useRoutesQuery(active);
+  const ordersQuery        = useDashboardOrdersQuery(active);
+  const purchaseOrdersQuery = usePurchaseOrdersQuery(active && role === 'admin');
+
+  const stats     = statsQuery.data     ?? null;
+  const analytics = analyticsQuery.data ?? null;
+  const deliveries: Delivery[]     = deliveriesQuery.data    ?? [];
+  const drivers:   DriverSummary[] = driversQuery.data       ?? [];
+  const routes:    RouteRecord[]   = routesQuery.data        ?? [];
+  const orders:    OrderRecord[]   = ordersQuery.data        ?? [];
+  const vendorPurchaseOrders       = purchaseOrdersQuery.data ?? [];
+
+  const isLoading = active && (
+    statsQuery.isPending || deliveriesQuery.isPending || driversQuery.isPending ||
+    routesQuery.isPending || ordersQuery.isPending
+  );
+
+  // First error across all queries — mirrors the original Promise.allSettled behaviour.
+  const fetchError = [statsQuery, analyticsQuery, deliveriesQuery, driversQuery, routesQuery, ordersQuery]
+    .map((q) => (q.error ? String((q.error as Error).message || '') : ''))
+    .find(Boolean) || '';
+
+  // ── Local UI state ────────────────────────────────────────────────────────
   const [weightModalOpen, setWeightModalOpen] = useState(false);
 
-  // AI: Anomaly detection
+  // AI: Anomaly detection — not server state, kept as direct sendWithAuth
   type Anomaly = { type: string; severity: string; description: string; affected_entity: string; recommended_action: string };
   const [anomalies, setAnomalies] = useState<Anomaly[] | null>(null);
   const [anomalyLoading, setAnomalyLoading] = useState(false);
   const [anomalySummary, setAnomalySummary] = useState('');
+  const [anomalyError, setAnomalyError] = useState('');
 
   async function runAnomalyDetection() {
     setAnomalyLoading(true);
+    setAnomalyError('');
     try {
       type AnomalyResult = { anomalies: Anomaly[]; analysis_period: string; summary: string };
       const result = await sendWithAuth<AnomalyResult>('/api/ai/anomalies', 'POST', {});
       setAnomalies(result.anomalies || []);
       setAnomalySummary(result.summary || '');
     } catch (err) {
-      setError(String((err as Error).message || 'Anomaly detection failed'));
+      setAnomalyError(String((err as Error).message || 'Anomaly detection failed'));
     } finally {
       setAnomalyLoading(false);
     }
   }
 
-  async function loadDashboard() {
-    if (role === 'driver') { setLoading(false); setError(''); return; }
-    setLoading(true); setError('');
-    const requests = await Promise.allSettled([
-      fetchWithAuth<DashboardStats>('/api/stats'),
-      fetchWithAuth<DashboardAnalytics>('/api/analytics'),
-      fetchWithAuth<Delivery[]>('/api/deliveries'),
-      fetchWithAuth<DriverSummary[]>('/api/drivers'),
-      fetchWithAuth<RouteRecord[]>('/api/routes'),
-      fetchWithAuth<OrderRecord[]>('/api/orders'),
-      role === 'admin'
-        ? fetchWithAuth<VendorPurchaseOrder[]>('/api/ops/vendor-purchase-orders')
-        : Promise.resolve([] as VendorPurchaseOrder[]),
-    ]);
-    const nextErrors: string[] = [];
-    if (requests[0].status === 'fulfilled') setStats(requests[0].value);
-    else nextErrors.push(String(requests[0].reason?.message || 'Could not load delivery stats.'));
-    if (requests[1].status === 'fulfilled') setAnalytics(requests[1].value);
-    else nextErrors.push(String(requests[1].reason?.message || 'Could not load dashboard analytics.'));
-    if (requests[2].status === 'fulfilled') setDeliveries(Array.isArray(requests[2].value) ? requests[2].value : []);
-    else nextErrors.push(String(requests[2].reason?.message || 'Could not load deliveries.'));
-    if (requests[3].status === 'fulfilled') setDrivers(Array.isArray(requests[3].value) ? requests[3].value : []);
-    else nextErrors.push(String(requests[3].reason?.message || 'Could not load drivers.'));
-    if (requests[4].status === 'fulfilled') setRoutes(Array.isArray(requests[4].value) ? requests[4].value : []);
-    else nextErrors.push(String(requests[4].reason?.message || 'Could not load routes.'));
-    if (requests[5].status === 'fulfilled') setOrders(Array.isArray(requests[5].value) ? requests[5].value : []);
-    else nextErrors.push(String(requests[5].reason?.message || 'Could not load orders.'));
-    if (requests[6].status === 'fulfilled') setVendorPurchaseOrders(Array.isArray(requests[6].value) ? requests[6].value : []);
-    else if (role === 'admin') nextErrors.push(String(requests[6].reason?.message || 'Could not load purchasing snapshot.'));
-    setError(nextErrors[0] || '');
-    setLoading(false);
+  function refreshDashboard() {
+    void queryClient.invalidateQueries({ queryKey: dashboardKeys.stats });
+    void queryClient.invalidateQueries({ queryKey: dashboardKeys.analytics });
+    void queryClient.invalidateQueries({ queryKey: dashboardKeys.deliveries });
+    void queryClient.invalidateQueries({ queryKey: dashboardKeys.drivers });
+    void queryClient.invalidateQueries({ queryKey: dashboardKeys.routes });
+    void queryClient.invalidateQueries({ queryKey: dashboardKeys.orders });
+    if (role === 'admin') void queryClient.invalidateQueries({ queryKey: dashboardKeys.purchaseOrders });
   }
 
-  useEffect(() => { void loadDashboard(); }, [role]);
+  // Patches the dashboard orders cache after the weight modal saves an order.
+  function handleOrderUpdated(updated: OrderRecord) {
+    queryClient.setQueryData<OrderRecord[]>(dashboardKeys.orders, (prev) =>
+      prev?.map((o) => (o.id === updated.id ? { ...o, ...updated } : o)) ?? prev,
+    );
+  }
 
+  // ── Derived values ────────────────────────────────────────────────────────
   const deliverySummary = stats ?? {
     totalDeliveries: deliveries.length,
     completedToday: deliveries.filter((d) => d.status === 'delivered').length,
@@ -284,11 +185,6 @@ export function DashboardPage() {
       weightsEntered: openOrders.filter((o) => orderHasCapturedWeights(o)),
     };
   }, [orders]);
-
-  // Keep modal orders in sync when parent orders state updates (after saves)
-  function handleOrderUpdated(updated: OrderRecord) {
-    setOrders((prev) => prev.map((o) => (o.id === updated.id ? { ...o, ...updated } : o)));
-  }
 
   const activeRoutes = useMemo(
     () =>
@@ -356,10 +252,12 @@ export function DashboardPage() {
     );
   }
 
+  const displayError = anomalyError || fetchError;
+
   return (
     <div className="space-y-5">
-      {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading dashboard...</div> : null}
-      {error   ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
+      {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading dashboard...</div> : null}
+      {displayError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{displayError}</div> : null}
 
       {/* Weight Entry Modal */}
       {weightModalOpen && (
@@ -371,7 +269,7 @@ export function DashboardPage() {
       )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" onClick={loadDashboard}><RefreshCw className="mr-2 h-4 w-4" />Refresh Dashboard</Button>
+        <Button variant="outline" onClick={refreshDashboard}><RefreshCw className="mr-2 h-4 w-4" />Refresh Dashboard</Button>
         <Button variant="outline" onClick={() => navigate('/orders')}>Orders Queue</Button>
         <Button variant="outline" onClick={() => navigate('/routes')}>Route Workspace</Button>
         {role === 'admin' ? <Button variant="outline" onClick={() => navigate('/purchasing')}>Purchasing</Button> : null}
