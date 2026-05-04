@@ -3,7 +3,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth } from '../lib/api';
+import { fetchWithAuth, sendWithAuth } from '../lib/api';
 
 type Customer = {
   id: string | number;
@@ -109,9 +109,11 @@ export function SalesRepPage() {
     setError('');
     setSuccess('');
     try {
-      await fetchWithAuth('/api/sales-reps/visit-logs', {
-        method: 'POST',
-        body: JSON.stringify({ customer_id: visitCustomerId, customer_name: visitCustomerName, notes: visitNotes, outcome: visitOutcome }),
+      await sendWithAuth('/api/sales-reps/visit-logs', 'POST', {
+        customer_id: visitCustomerId,
+        customer_name: visitCustomerName,
+        notes: visitNotes,
+        outcome: visitOutcome,
       });
       setSuccess('Visit logged successfully');
       setVisitNotes('');
@@ -278,7 +280,7 @@ export function SalesRepPage() {
         <Card>
           <CardHeader>
             <CardTitle>Upsell Alerts</CardTitle>
-            <CardDescription>Customers who haven’t ordered forecasted high-demand items in the last 60 days.</CardDescription>
+            <CardDescription>Customers who haven't ordered forecasted high-demand items in the last 60 days.</CardDescription>
           </CardHeader>
           <CardContent>
             <Table>

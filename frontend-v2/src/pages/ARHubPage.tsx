@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth } from '../lib/api';
+import { fetchWithAuth, sendWithAuth } from '../lib/api';
 
 type AgingRow = {
   customer_name: string;
@@ -82,9 +82,9 @@ export function ARHubPage() {
     if (!id) return setError('No email or name to look up for this customer');
     setSuccess(''); setError('');
     try {
-      const result = await fetchWithAuth<{ sent: number; total_owed: number }>(
+      const result = await sendWithAuth<{ sent: number; total_owed: number }>(
         `/api/ar/remind/${encodeURIComponent(id)}`,
-        { method: 'POST' }
+        'POST'
       );
       setSuccess(`Sent ${result.sent} reminder email${result.sent !== 1 ? 's' : ''} — ${money(result.total_owed)} owed`);
     } catch (err) { setError(String((err as Error).message)); }
@@ -95,9 +95,9 @@ export function ARHubPage() {
     if (!state) return;
     setError(''); setSuccess('');
     try {
-      await fetchWithAuth(`/api/ar/collections/${invoiceId}/note`, {
-        method: 'PATCH',
-        body: JSON.stringify({ note: state.note, collections_status: state.status }),
+      await sendWithAuth(`/api/ar/collections/${invoiceId}/note`, 'PATCH', {
+        note: state.note,
+        collections_status: state.status,
       });
       setSuccess('Note saved');
     } catch (err) { setError(String((err as Error).message)); }
