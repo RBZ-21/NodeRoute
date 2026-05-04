@@ -99,13 +99,9 @@ app.use(globalLimiter);
 app.use((req, res, next) => {
   const origin         = req.headers.origin || '';
   const allowedOrigins = config.CORS_ORIGINS;
-  if (allowedOrigins.length > 0) {
-    if (allowedOrigins.includes(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Vary', 'Origin');
-    }
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+  if (allowedOrigins.length > 0 && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,sentry-trace,baggage');
@@ -261,8 +257,11 @@ Sentry.setupExpressErrorHandler(app);
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   logger.error({ err, method: req.method, url: req.url }, 'Unhandled server error');
+  const message = config.NODE_ENV === 'production'
+    ? 'Internal server error'
+    : err.message;
   res.status(err.status || 500).json({
-    error: err.message || 'Internal server error',
+    error: message || 'Internal server error',
     sentry: res.sentry || undefined,
   });
 });

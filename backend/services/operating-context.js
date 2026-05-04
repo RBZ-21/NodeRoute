@@ -116,7 +116,6 @@ function buildRequestContext(req, user) {
   if (requestedCompanyId) {
     const canUseRequestedCompany =
       userContext.isGlobalOperator ||
-      !userContext.accessibleCompanyIds.length ||
       userContext.accessibleCompanyIds.includes(requestedCompanyId);
     if (canUseRequestedCompany) activeCompanyId = requestedCompanyId;
   }
@@ -132,7 +131,6 @@ function buildRequestContext(req, user) {
   if (requestedLocationId) {
     const canUseRequestedLocation =
       userContext.isGlobalOperator ||
-      !userContext.accessibleLocationIds.length ||
       userContext.accessibleLocationIds.includes(requestedLocationId);
     if (canUseRequestedLocation) activeLocationId = requestedLocationId;
   }
