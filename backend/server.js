@@ -10,8 +10,6 @@ const cookieParser = require('cookie-parser');
 const pinoHttp = require('pino-http');
 const fs = require('fs');
 const path = require('path');
-const bcrypt = require('bcryptjs');
-const { supabase } = require('./services/supabase');
 const { globalLimiter, authLimiter, aiLimiter } = require('./middleware/rateLimiter');
 
 // Route modules
@@ -41,6 +39,7 @@ const integrationsRouter  = require('./routes/integrations');
 const warehouseRouter     = require('./routes/warehouse');
 const superadminRouter    = require('./routes/superadmin');
 const waitlistRouter      = require('./routes/waitlist');
+const dwellRouter         = require('./routes/dwell');
 const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
 
 const app  = express();
@@ -144,34 +143,6 @@ app.use('/dashboard-v2', express.static(frontendV2DistDir, { index: false }));
 app.use('/driver-app', express.static(driverAppDistDir, { index: false }));
 app.use(express.static(landingV2DistDir, { index: false }));
 
-const ADMIN_EMAIL    = config.ADMIN_EMAIL;
-const ADMIN_PASSWORD = config.ADMIN_PASSWORD;
-
-function extractRows(result) {
-  if (Array.isArray(result)) return result;
-  if (Array.isArray(result?.data)) return result.data;
-  return [];
-}
-
-async function ensureAdminExists() {
-  const result = await supabase.from('users').select('*');
-  const users  = extractRows(result);
-  const error  = result?.error || null;
-  if (error) { logger.error({ err: error }, 'Could not check users table'); return; }
-  if (users.length === 0) {
-    const passwordHash = bcrypt.hashSync(ADMIN_PASSWORD, 10);
-    const insertResult = await supabase.from('users').insert([{
-      id: 'admin-001', name: 'Admin', email: ADMIN_EMAIL,
-      password_hash: passwordHash, role: 'admin', status: 'active',
-      invite_token: null, invite_expires: null, created_at: new Date().toISOString(),
-    }]);
-    const insertErr = insertResult?.error || null;
-    if (insertErr) logger.error({ err: insertErr }, 'Failed to create admin user');
-    else logger.info({ email: ADMIN_EMAIL }, 'Admin user created');
-  }
-}
-ensureAdminExists().catch(err => logger.error({ err }, 'ensureAdminExists failed'));
-
 // Mount routers
 app.use('/auth', authLimiter, authRouter);
 app.use('/api/users', usersRouter);
@@ -199,6 +170,7 @@ app.use('/api/integrations', integrationsRouter);
 app.use('/api/warehouse', warehouseRouter);
 app.use('/api/superadmin', superadminRouter);
 app.use('/api/waitlist', waitlistRouter);
+app.use('/api/dwell', dwellRouter);
 
 const { authenticateToken, requireRole } = require('./middleware/auth');
 
@@ -214,18 +186,6 @@ if (config.NODE_ENV !== 'production') {
     throw new Error('My first Sentry error!');
   });
 }
-
-app.get('/api/dwell', authenticateToken, async (req, res) => {
-  try {
-    let query = supabase.from('dwell_records').select('*');
-    if (req.user.role === 'driver') query = query.eq('driver_id', req.user.id);
-    const { data, error } = await query;
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data || []);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
 
 app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager'), (req, res, next) => {
   req.body.role = req.body.role || 'driver'; next();
