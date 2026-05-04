@@ -1,30 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
-
-type AgingRow = {
-  customer_name: string;
-  customer_email: string | null;
-  buckets: Record<string, number>;
-  total_open: number;
-  invoice_count: number;
-  oldest_due_date: string;
-};
-
-type CollectionRow = {
-  id: string;
-  invoice_number?: string;
-  customer_name?: string;
-  customer_email?: string;
-  total: number;
-  status?: string;
-  due_date?: string;
-  days_overdue: number;
-  collections_note?: string;
-  collections_status?: string;
-};
+import { useARAging, useARCollections, useSaveCollectionNote, useSendReminder } from '../hooks/useAR';
 
 const BUCKET_LABELS = ['Current', '1-30', '31-60', '61-90', '90+'];
 const COLLECTION_STATUSES = ['open', 'contacted', 'promise_to_pay', 'escalated', 'resolved'];
@@ -32,7 +10,6 @@ const COLLECTION_STATUSES = ['open', 'contacted', 'promise_to_pay', 'escalated',
 function money(v: number) {
   return v.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
-
 function statusBadgeClass(s?: string) {
   switch (s) {
     case 'resolved': return 'bg-green-100 text-green-800';
@@ -45,66 +22,42 @@ function statusBadgeClass(s?: string) {
 
 export function ARHubPage() {
   const [tab, setTab] = useState<'aging' | 'collections'>('aging');
-  const [aging, setAging] = useState<AgingRow[]>([]);
-  const [collections, setCollections] = useState<CollectionRow[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
-  const [success, setSuccess] = useState('');
   const [noteState, setNoteState] = useState<Record<string, { note: string; status: string }>>({});
 
-  async function loadAging() {
-    setLoading(true); setError('');
+  const { data: aging = [], isLoading: loadingAging } = useARAging();
+  const { data: collections = [], isLoading: loadingCollections } = useARCollections();
+  const sendReminder = useSendReminder();
+  const saveNote = useSaveCollectionNote();
+
+  // Seed noteState from collections data when it loads
+  const collectionNoteState = (id: string, field: 'note' | 'status', fallback: string) =>
+    noteState[id]?.[field] ?? fallback;
+
+  async function handleReminder(email: string | null, name: string) {
+    const id = email || name;
+    if (!id) { setError('No email or name to look up for this customer'); return; }
+    setError(''); setNotice('');
     try {
-      const data = await fetchWithAuth<{ aging: AgingRow[] }>('/api/ar/aging');
-      setAging(Array.isArray(data?.aging) ? data.aging : []);
-    } catch (err) { setError(String((err as Error).message)); }
-    finally { setLoading(false); }
+      const result = await sendReminder.mutateAsync(id);
+      setNotice(`Sent ${result.sent} reminder email${result.sent !== 1 ? 's' : ''} — ${money(result.total_owed)} owed`);
+    } catch (err) { setError(String((err as Error)?.message || 'Failed to send reminder')); }
   }
 
-  async function loadCollections() {
-    setLoading(true); setError('');
+  async function handleSaveNote(invoiceId: string, row: { collections_note?: string; collections_status?: string }) {
+    const note = collectionNoteState(invoiceId, 'note', row.collections_note || '');
+    const status = collectionNoteState(invoiceId, 'status', row.collections_status || 'open');
+    setError(''); setNotice('');
     try {
-      const data = await fetchWithAuth<CollectionRow[]>('/api/ar/collections');
-      setCollections(Array.isArray(data) ? data : []);
-      const initial: Record<string, { note: string; status: string }> = {};
-      (Array.isArray(data) ? data : []).forEach((r) => {
-        initial[r.id] = { note: r.collections_note || '', status: r.collections_status || 'open' };
-      });
-      setNoteState(initial);
-    } catch (err) { setError(String((err as Error).message)); }
-    finally { setLoading(false); }
-  }
-
-  useEffect(() => { tab === 'aging' ? loadAging() : loadCollections(); }, [tab]);
-
-  async function sendReminder(customer_email: string | null, customer_name: string) {
-    const id = customer_email || customer_name;
-    if (!id) return setError('No email or name to look up for this customer');
-    setSuccess(''); setError('');
-    try {
-      const result = await sendWithAuth<{ sent: number; total_owed: number }>(
-        `/api/ar/remind/${encodeURIComponent(id)}`,
-        'POST'
-      );
-      setSuccess(`Sent ${result.sent} reminder email${result.sent !== 1 ? 's' : ''} — ${money(result.total_owed)} owed`);
-    } catch (err) { setError(String((err as Error).message)); }
-  }
-
-  async function saveNote(invoiceId: string) {
-    const state = noteState[invoiceId];
-    if (!state) return;
-    setError(''); setSuccess('');
-    try {
-      await sendWithAuth(`/api/ar/collections/${invoiceId}/note`, 'PATCH', {
-        note: state.note,
-        collections_status: state.status,
-      });
-      setSuccess('Note saved');
-    } catch (err) { setError(String((err as Error).message)); }
+      await saveNote.mutateAsync({ invoiceId, note, status });
+      setNotice('Note saved');
+    } catch (err) { setError(String((err as Error)?.message || 'Failed to save note')); }
   }
 
   const totalOpen = aging.reduce((s, r) => s + r.total_open, 0);
   const total90Plus = aging.reduce((s, r) => s + (r.buckets['90+'] || 0), 0);
+  const loading = loadingAging || loadingCollections;
 
   return (
     <div className="space-y-5">
@@ -114,17 +67,12 @@ export function ARHubPage() {
       </div>
 
       {error && <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div>}
-      {success && <div className="rounded-md border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">{success}</div>}
+      {notice && <div className="rounded-md border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">{notice}</div>}
 
       <div className="flex gap-2 border-b border-border pb-2">
         {(['aging', 'collections'] as const).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
-            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${
-              tab === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'
-            }`}
-          >
+          <button key={t} onClick={() => setTab(t)}
+            className={`px-3 py-1.5 text-sm rounded-md transition-colors ${tab === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
             {t === 'aging' ? 'Aging Dashboard' : 'Collections'}
           </button>
         ))}
@@ -132,8 +80,7 @@ export function ARHubPage() {
 
       {loading && <div className="text-sm text-muted-foreground">Loading...</div>}
 
-      {/* AGING */}
-      {tab === 'aging' && !loading && (
+      {tab === 'aging' && (
         <div className="space-y-4">
           <div className="grid gap-3 sm:grid-cols-3">
             <SummaryCard title="Total Open AR" value={money(totalOpen)} />
@@ -152,9 +99,7 @@ export function ARHubPage() {
                     <TableRow>
                       <TableHead>Customer</TableHead>
                       {BUCKET_LABELS.map((b) => <TableHead key={b}>{b}</TableHead>)}
-                      <TableHead>Total Open</TableHead>
-                      <TableHead>Invoices</TableHead>
-                      <TableHead></TableHead>
+                      <TableHead>Total Open</TableHead><TableHead>Invoices</TableHead><TableHead></TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -169,9 +114,7 @@ export function ARHubPage() {
                         <TableCell className="font-semibold">{money(row.total_open)}</TableCell>
                         <TableCell>{row.invoice_count}</TableCell>
                         <TableCell>
-                          <Button size="sm" variant="outline" onClick={() => sendReminder(row.customer_email, row.customer_name)}>
-                            Send Reminder
-                          </Button>
+                          <Button size="sm" variant="outline" disabled={sendReminder.isPending} onClick={() => handleReminder(row.customer_email, row.customer_name)}>Send Reminder</Button>
                         </TableCell>
                       </TableRow>
                     )) : (
@@ -185,8 +128,7 @@ export function ARHubPage() {
         </div>
       )}
 
-      {/* COLLECTIONS */}
-      {tab === 'collections' && !loading && (
+      {tab === 'collections' && (
         <Card>
           <CardHeader>
             <CardTitle>Collections Workflow</CardTitle>
@@ -194,47 +136,37 @@ export function ARHubPage() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              {collections.length ? collections.map((row) => (
-                <div key={row.id} className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
-                  <div className="flex flex-wrap items-start justify-between gap-2">
-                    <div>
-                      <p className="font-semibold">{row.customer_name || 'Unknown'}</p>
-                      <p className="text-sm text-muted-foreground">{row.invoice_number} — {money(row.total)} — <span className="text-red-600">{row.days_overdue}d overdue</span></p>
+              {collections.length ? collections.map((row) => {
+                const currentStatus = collectionNoteState(row.id, 'status', row.collections_status || 'open');
+                const currentNote = collectionNoteState(row.id, 'note', row.collections_note || '');
+                return (
+                  <div key={row.id} className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
+                    <div className="flex flex-wrap items-start justify-between gap-2">
+                      <div>
+                        <p className="font-semibold">{row.customer_name || 'Unknown'}</p>
+                        <p className="text-sm text-muted-foreground">{row.invoice_number} — {money(row.total)} — <span className="text-red-600">{row.days_overdue}d overdue</span></p>
+                      </div>
+                      <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${statusBadgeClass(currentStatus)}`}>
+                        {currentStatus.replace(/_/g, ' ')}
+                      </span>
                     </div>
-                    <span className={`rounded-full px-2 py-0.5 text-xs font-medium capitalize ${statusBadgeClass(noteState[row.id]?.status)}`}>
-                      {(noteState[row.id]?.status || 'open').replace(/_/g, ' ')}
-                    </span>
+                    <div className="grid gap-2 sm:grid-cols-2">
+                      <label className="space-y-1 text-sm">Status
+                        <select value={currentStatus} onChange={(e) => setNoteState((p) => ({ ...p, [row.id]: { ...p[row.id], status: e.target.value } }))} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm">
+                          {COLLECTION_STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
+                        </select>
+                      </label>
+                      <label className="space-y-1 text-sm">Collections Note
+                        <input type="text" value={currentNote} onChange={(e) => setNoteState((p) => ({ ...p, [row.id]: { ...p[row.id], note: e.target.value } }))} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm" placeholder="Notes..." />
+                      </label>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button size="sm" disabled={saveNote.isPending} onClick={() => handleSaveNote(row.id, row)}>Save Note</Button>
+                      <Button size="sm" variant="outline" disabled={sendReminder.isPending} onClick={() => handleReminder(row.customer_email || null, row.customer_name || '')}>Send Reminder</Button>
+                    </div>
                   </div>
-                  <div className="grid gap-2 sm:grid-cols-2">
-                    <label className="space-y-1 text-sm">
-                      Status
-                      <select
-                        value={noteState[row.id]?.status || 'open'}
-                        onChange={(e) => setNoteState((prev) => ({ ...prev, [row.id]: { ...prev[row.id], status: e.target.value } }))}
-                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm"
-                      >
-                        {COLLECTION_STATUSES.map((s) => <option key={s} value={s}>{s.replace(/_/g, ' ')}</option>)}
-                      </select>
-                    </label>
-                    <label className="space-y-1 text-sm">
-                      Collections Note
-                      <input
-                        type="text"
-                        value={noteState[row.id]?.note || ''}
-                        onChange={(e) => setNoteState((prev) => ({ ...prev, [row.id]: { ...prev[row.id], note: e.target.value } }))}
-                        className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm"
-                        placeholder="Notes..."
-                      />
-                    </label>
-                  </div>
-                  <div className="flex gap-2">
-                    <Button size="sm" onClick={() => saveNote(row.id)}>Save Note</Button>
-                    <Button size="sm" variant="outline" onClick={() => sendReminder(row.customer_email || null, row.customer_name || '')}>
-                      Send Reminder
-                    </Button>
-                  </div>
-                </div>
-              )) : (
+                );
+              }) : (
                 <p className="text-sm text-muted-foreground">No overdue accounts in collections.</p>
               )}
             </div>
@@ -249,7 +181,7 @@ function SummaryCard({ title, value, highlight }: { title: string; value: string
   return (
     <Card className="shadow-none">
       <CardHeader className="space-y-1 pb-2">
-        <CardDescription>{title}</CardDescription>
+        <p className="text-sm text-muted-foreground">{title}</p>
         <p className={`text-2xl font-bold ${highlight ? 'text-red-600' : ''}`}>{value}</p>
       </CardHeader>
     </Card>
