@@ -53,6 +53,15 @@ app.use(express.json({ limit: config.JSON_BODY_LIMIT }));
 app.use(cookieParser());
 app.disable('x-powered-by');
 
+// Warn at startup if body limit is unusually large (potential DoS risk).
+(function warnBodyLimit() {
+  const raw = String(config.JSON_BODY_LIMIT || '1mb').toLowerCase();
+  const mb = raw.endsWith('mb') ? parseFloat(raw) : raw.endsWith('kb') ? parseFloat(raw) / 1024 : NaN;
+  if (!isNaN(mb) && mb > 1) {
+    logger.warn({ JSON_BODY_LIMIT: config.JSON_BODY_LIMIT }, 'JSON_BODY_LIMIT exceeds 1mb — verify this is intentional to avoid DoS risk');
+  }
+})();
+
 // ── Security headers ─────────────────────────────────────────────────────────
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -192,7 +201,9 @@ app.use('/api/superadmin', superadminRouter);
 app.use('/api/waitlist', waitlistRouter);
 
 const { authenticateToken, requireRole } = require('./middleware/auth');
-app.get('/api/config/maps-key', authenticateToken, (req, res) => {
+
+// Issue #6 fix: Maps key restricted to admin+ roles — drivers no longer have access.
+app.get('/api/config/maps-key', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
   res.json({ key: config.GOOGLE_MAPS_KEY });
 });
 
