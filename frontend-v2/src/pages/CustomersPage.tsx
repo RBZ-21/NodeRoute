@@ -55,7 +55,7 @@ export function CustomersPage() {
   const [lookingUpAddress, setLookingUpAddress] = useState(false);
   const [addressLookupError, setAddressLookupError] = useState('');
 
-  // AI: Risk scoring — not server state, kept as direct sendWithAuth calls
+  // AI: Risk scoring — keyed by customer id (primary key)
   type RiskResult = { risk_level: string; risk_score: number; risk_factors: string[]; recommended_action: string; summary: string };
   const [riskScores, setRiskScores] = useState<Record<string, RiskResult>>({});
   const [riskLoading, setRiskLoading] = useState<Record<string, boolean>>({});
@@ -222,20 +222,20 @@ export function CustomersPage() {
                   <TableCell>
                     <div className="flex flex-wrap items-center gap-1">
                       <Button size="sm" onClick={() => openCustomer(c)}>View / Edit</Button>
-                      {c.customer_number && (
+                      {c.id && (
                         <Button
                           size="sm"
                           variant="ghost"
-                          onClick={() => void scoreRisk(String(c.customer_number))}
-                          disabled={riskLoading[String(c.customer_number)]}
+                          onClick={() => void scoreRisk(String(c.id))}
+                          disabled={riskLoading[String(c.id)]}
                           title="AI risk score"
                         >
-                          {riskLoading[String(c.customer_number)] ? '…' : '✦ Risk'}
+                          {riskLoading[String(c.id)] ? '…' : '✦ Risk'}
                         </Button>
                       )}
-                      {c.customer_number && riskScores[String(c.customer_number)] && (
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${riskScores[String(c.customer_number)].risk_level === 'high' ? 'bg-red-100 text-red-700' : riskScores[String(c.customer_number)].risk_level === 'medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                          {riskScores[String(c.customer_number)].risk_level} {riskScores[String(c.customer_number)].risk_score}/100
+                      {c.id && riskScores[String(c.id)] && (
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${riskScores[String(c.id)].risk_level === 'high' ? 'bg-red-100 text-red-700' : riskScores[String(c.id)].risk_level === 'medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                          {riskScores[String(c.id)].risk_level} {riskScores[String(c.id)].risk_score}/100
                         </span>
                       )}
                     </div>
