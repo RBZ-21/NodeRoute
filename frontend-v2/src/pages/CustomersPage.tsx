@@ -1,51 +1,20 @@
 // NOTE: This file retains all existing logic. The only addition is an
 // "Invoices" tab inside the customer detail slide-over panel.
 // The tab fetches /api/invoices?customer_id=<id> and renders a small table.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
-
-type Customer = {
-  id?: number | string;
-  customer_number?: string;
-  company_name?: string;
-  email?: string;
-  phone?: string;
-  phone_number?: string;
-  status?: string;
-  contact_name?: string;
-  payment_terms?: string;
-  address?: string;
-  billing_name?: string;
-  billing_contact?: string;
-  billing_email?: string;
-  billing_phone?: string;
-  billing_address?: string;
-  tax_enabled?: boolean;
-  credit_hold?: boolean;
-  credit_hold_reason?: string;
-  credit_hold_placed_at?: string;
-  fax_number?: string;
-  delivery_notes?: string;
-  preferred_delivery_window?: string;
-  preferred_door?: string;
-};
-
-type Invoice = {
-  id?: number | string;
-  invoice_number?: string;
-  invoiceNumber?: string;
-  status?: string;
-  total?: number | string;
-  created_at?: string;
-  createdAt?: string;
-  due_date?: string;
-  dueDate?: string;
-};
+import {
+  type Customer,
+  type CustomerInvoice,
+  useCustomerInvoicesQuery,
+  useCustomersQuery,
+  useSaveCustomerMutation,
+} from '../hooks/useCustomers';
 
 type DetailTab = 'info' | 'delivery' | 'billing' | 'invoices';
 
@@ -59,8 +28,11 @@ function customerStatus(customer: Customer): string {
 }
 
 export function CustomersPage() {
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [loading, setLoading] = useState(true);
+  const customersQuery = useCustomersQuery();
+  const saveCustomerMutation = useSaveCustomerMutation();
+
+  const customers = customersQuery.data ?? [];
+
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
@@ -73,15 +45,17 @@ export function CustomersPage() {
   const [draft, setDraft] = useState<Customer>({});
   const [saving, setSaving] = useState(false);
 
-  // Invoices tab state
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [invoicesLoading, setInvoicesLoading] = useState(false);
+  // Invoices: enabled only while the invoices tab is open for the selected customer.
+  const invoicesQuery = useCustomerInvoicesQuery(
+    detailTab === 'invoices' ? (selected?.id ?? null) : null,
+  );
+  const invoices: CustomerInvoice[] = invoicesQuery.data ?? [];
 
   // Address lookup state
   const [lookingUpAddress, setLookingUpAddress] = useState(false);
   const [addressLookupError, setAddressLookupError] = useState('');
 
-  // AI: Risk scoring
+  // AI: Risk scoring — not server state, kept as direct sendWithAuth calls
   type RiskResult = { risk_level: string; risk_score: number; risk_factors: string[]; recommended_action: string; summary: string };
   const [riskScores, setRiskScores] = useState<Record<string, RiskResult>>({});
   const [riskLoading, setRiskLoading] = useState<Record<string, boolean>>({});
@@ -99,50 +73,6 @@ export function CustomersPage() {
   }
 
   const panelRef = useRef<HTMLDivElement>(null);
-
-  async function load() {
-    setLoading(true);
-    setError('');
-    try {
-      const data = await fetchWithAuth<Customer[]>('/api/customers');
-      setCustomers(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(String((err as Error).message || 'Could not load customers'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { load(); }, []);
-
-  async function loadInvoices(customerId: number | string) {
-    setInvoicesLoading(true);
-    try {
-      const data = await fetchWithAuth<Invoice[]>(`/api/invoices?customer_id=${customerId}`);
-      setInvoices(Array.isArray(data) ? data : []);
-    } catch {
-      setInvoices([]);
-    } finally {
-      setInvoicesLoading(false);
-    }
-  }
-
-  function openCustomer(customer: Customer) {
-    setSelected(customer);
-    setDraft({ ...customer });
-    setEditing(false);
-    setDetailTab('info');
-    setInvoices([]);
-    setAddressLookupError('');
-  }
-
-  function onTabChange(tab: DetailTab) {
-    setDetailTab(tab);
-    setAddressLookupError('');
-    if (tab === 'invoices' && selected?.id != null) {
-      loadInvoices(selected.id);
-    }
-  }
 
   async function lookupAddress(targetField: 'address' | 'billing_address') {
     const name = draft.company_name?.trim();
@@ -174,8 +104,7 @@ export function CustomersPage() {
     setSaving(true);
     setError('');
     try {
-      const updated = await sendWithAuth<Customer>(`/api/customers/${selected.id}`, 'PATCH', draft);
-      setCustomers((prev) => prev.map((c) => (c.id === selected.id ? { ...c, ...updated } : c)));
+      const updated = await saveCustomerMutation.mutateAsync({ id: selected.id, draft });
       setSelected({ ...selected, ...updated });
       setEditing(false);
       setNotice(`${draft.company_name || 'Customer'} saved.`);
@@ -184,6 +113,19 @@ export function CustomersPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  function openCustomer(customer: Customer) {
+    setSelected(customer);
+    setDraft({ ...customer });
+    setEditing(false);
+    setDetailTab('info');
+    setAddressLookupError('');
+  }
+
+  function onTabChange(tab: DetailTab) {
+    setDetailTab(tab);
+    setAddressLookupError('');
   }
 
   const filtered = useMemo(() => {
@@ -208,10 +150,15 @@ export function CustomersPage() {
     inactive: customers.filter((c) => customerStatus(c) === 'inactive').length,
   }), [customers]);
 
+  const fetchError = customersQuery.error
+    ? String((customersQuery.error as Error)?.message || 'Could not load customers')
+    : '';
+  const displayError = error || fetchError;
+
   return (
     <div className="space-y-5">
-      {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading customers...</div> : null}
-      {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
+      {customersQuery.isPending ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading customers...</div> : null}
+      {displayError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{displayError}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -241,7 +188,7 @@ export function CustomersPage() {
                 <option value="credit-hold">Credit Hold</option>
               </select>
             </label>
-            <Button variant="outline" onClick={load}>Refresh</Button>
+            <Button variant="outline" onClick={() => void customersQuery.refetch()}>Refresh</Button>
           </div>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
@@ -365,7 +312,6 @@ export function CustomersPage() {
               {/* Delivery Tab */}
               {detailTab === 'delivery' && (
                 <div className="space-y-3">
-                  {/* Address field with auto-lookup */}
                   <div className="flex items-start gap-3">
                     <span className="w-36 shrink-0 pt-1 text-sm text-muted-foreground">Address</span>
                     {editing ? (
@@ -409,7 +355,6 @@ export function CustomersPage() {
                   <Field label="Billing Contact" value={draft.billing_contact} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, billing_contact: v }))} />
                   <Field label="Billing Email" value={draft.billing_email} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, billing_email: v }))} />
                   <Field label="Billing Phone" value={draft.billing_phone} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, billing_phone: v }))} />
-                  {/* Billing address with auto-lookup */}
                   <div className="flex items-start gap-3">
                     <span className="w-36 shrink-0 pt-1 text-sm text-muted-foreground">Billing Address</span>
                     {editing ? (
@@ -446,7 +391,7 @@ export function CustomersPage() {
               {/* Invoices Tab */}
               {detailTab === 'invoices' && (
                 <div className="space-y-3">
-                  {invoicesLoading ? (
+                  {invoicesQuery.isPending ? (
                     <p className="text-sm text-muted-foreground">Loading invoices...</p>
                   ) : invoices.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No invoices found for this customer.</p>
