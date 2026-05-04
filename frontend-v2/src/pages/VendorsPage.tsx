@@ -1,32 +1,14 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { sendWithAuth } from '../lib/api';
+import { type Vendor, useSaveVendorMutation, useVendorsQuery } from '../hooks/useVendors';
 
 type VendorStatus = 'active' | 'inactive' | 'on-hold' | 'other';
-
-type Vendor = {
-  id?: string | number;
-  vendorId?: string;
-  vendor_id?: string;
-  name?: string;
-  contact?: string;
-  contactName?: string;
-  contact_name?: string;
-  email?: string;
-  phone?: string;
-  category?: string;
-  activePOs?: number | string;
-  active_pos?: number | string;
-  status?: string;
-  address?: string;
-  notes?: string;
-  payment_terms?: string;
-};
 
 const statusColors = {
   active: 'green',
@@ -65,8 +47,11 @@ function activePOs(vendor: Vendor): number {
 
 export function VendorsPage() {
   const navigate = useNavigate();
-  const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [loading, setLoading] = useState(true);
+  const vendorsQuery = useVendorsQuery();
+  const saveVendorMutation = useSaveVendorMutation();
+
+  const vendors = vendorsQuery.data ?? [];
+
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | VendorStatus>('all');
@@ -78,37 +63,22 @@ export function VendorsPage() {
   const [draft, setDraft] = useState<Vendor>({});
   const [saving, setSaving] = useState(false);
 
-  // AI: Vendor scoring
+  // AI: Vendor scoring — not server state, kept as direct sendWithAuth calls
   type VendorScore = { overall_grade: string; on_time_score: number; quality_score: number; price_consistency_score: number; summary: string; strengths: string[]; concerns: string[] };
   const [vendorScores, setVendorScores] = useState<Record<string, VendorScore>>({});
   const [scoreLoading, setScoreLoading] = useState<Record<string, boolean>>({});
 
-  async function scoreVendor(vendorId: string) {
-    setScoreLoading((prev) => ({ ...prev, [vendorId]: true }));
+  async function scoreVendor(id: string) {
+    setScoreLoading((prev) => ({ ...prev, [id]: true }));
     try {
-      const result = await sendWithAuth<VendorScore & { vendor_id: string }>('/api/ai/vendor-score', 'POST', { vendor_id: vendorId });
-      setVendorScores((prev) => ({ ...prev, [vendorId]: result }));
+      const result = await sendWithAuth<VendorScore & { vendor_id: string }>('/api/ai/vendor-score', 'POST', { vendor_id: id });
+      setVendorScores((prev) => ({ ...prev, [id]: result }));
     } catch (err) {
       setError(String((err as Error).message || 'Vendor scoring failed'));
     } finally {
-      setScoreLoading((prev) => ({ ...prev, [vendorId]: false }));
+      setScoreLoading((prev) => ({ ...prev, [id]: false }));
     }
   }
-
-  async function load() {
-    setLoading(true);
-    setError('');
-    try {
-      const data = await fetchWithAuth<Vendor[]>('/api/vendors');
-      setVendors(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(String((err as Error).message || 'Could not load vendors'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { load(); }, []);
 
   const categoryOptions = useMemo(() => {
     const options = new Set<string>();
@@ -140,8 +110,7 @@ export function VendorsPage() {
     setSaving(true);
     setError('');
     try {
-      const updated = await sendWithAuth<Vendor>(`/api/vendors/${id}`, 'PATCH', draft);
-      setVendors((prev) => prev.map((v) => String(v.id) === String(id) ? { ...v, ...updated } : v));
+      const updated = await saveVendorMutation.mutateAsync({ id, draft });
       setSelected({ ...selected!, ...updated });
       setEditing(false);
       setNotice(`${draft.name || vendorName(draft)} saved.`);
@@ -161,10 +130,15 @@ export function VendorsPage() {
     setNotice(`Opened new PO flow for ${vendorName(vendor)}.`);
   }
 
+  const fetchError = vendorsQuery.error
+    ? String((vendorsQuery.error as Error)?.message || 'Could not load vendors')
+    : '';
+  const displayError = error || fetchError;
+
   return (
     <div className="space-y-5">
-      {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading vendors...</div> : null}
-      {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
+      {vendorsQuery.isPending ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading vendors...</div> : null}
+      {displayError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{displayError}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
       <Card>
@@ -190,7 +164,7 @@ export function VendorsPage() {
                 {categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
               </select>
             </label>
-            <Button variant="outline" onClick={load}>Refresh</Button>
+            <Button variant="outline" onClick={() => void vendorsQuery.refetch()}>Refresh</Button>
           </div>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
