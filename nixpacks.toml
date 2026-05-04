@@ -1,2 +1,11 @@
 [phases.setup]
 aptPkgs = ["libatomic1"]
+
+[phases.install]
+cmds = ["npm run install:all"]
+
+[phases.build]
+cmds = ["VITE_MAP_API_KEY='' npm run build"]
+
+[start]
+cmd = "node backend/server.js"
