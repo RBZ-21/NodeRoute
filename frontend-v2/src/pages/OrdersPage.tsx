@@ -1,14 +1,34 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { getUserRole, sendWithAuth } from '../lib/api';
 import { useOrderForm } from '../hooks/useOrderForm';
-import { useOrdersData } from '../hooks/useOrdersData';
+import {
+  orderKeys,
+  useCustomersQuery,
+  useDeleteOrderMutation,
+  useFulfillOrderMutation,
+  useInventoryQuery,
+  useLotsCache,
+  useOrdersQuery,
+  useSaveWeightMutation,
+  useSendOrderMutation,
+  useSubmitOrderMutation,
+} from '../hooks/useOrders';
 import { OrderWeightsBoard } from './OrderWeightsBoard';
 import { OrderFormCard } from './OrderFormCard';
 import { OrdersWorkbench } from './OrdersWorkbench';
 import { WeightCaptureCard } from './WeightCaptureCard';
-import { asMoney, asNumber, calcOrderTotal, normalizedStatus, orderHasCapturedWeights, orderHasPendingWeights, orderItemQty } from './orders.types';
+import {
+  asMoney,
+  asNumber,
+  calcOrderTotal,
+  normalizedStatus,
+  orderHasCapturedWeights,
+  orderHasPendingWeights,
+  orderItemQty,
+} from './orders.types';
 import type { Order, OrderStatus } from './orders.types';
 
 function escapeHtml(value: unknown): string {
@@ -76,11 +96,32 @@ function printOrderSlip(order: Order, popup: Window | null) {
 }
 
 export function OrdersPage() {
-  const { orders, setOrders, customers, products, lotsCache, loading, error, setError, load, loadLotsForProduct, customerIdParam, orderIdParam } = useOrdersData();
-  const form = useOrderForm({ products, lotsCache });
   const [searchParams, setSearchParams] = useSearchParams();
+  const customerIdParam = String(searchParams.get('customerId') || '').trim();
+  const orderIdParam    = String(searchParams.get('orderId')    || '').trim();
+
+  // ── Queries ──────────────────────────────────────────────────────────────
+  const ordersQuery    = useOrdersQuery(customerIdParam);
+  const customersQuery = useCustomersQuery();
+  const productsQuery  = useInventoryQuery();
+  const { lotsCache, loadLotsForProduct } = useLotsCache();
+  const queryClient = useQueryClient();
+
+  const orders    = ordersQuery.data    ?? [];
+  const customers = customersQuery.data ?? [];
+  const products  = productsQuery.data  ?? [];
+
+  // ── Mutations ─────────────────────────────────────────────────────────────
+  const submitOrderMutation  = useSubmitOrderMutation();
+  const sendOrderMutation    = useSendOrderMutation();
+  const deleteOrderMutation  = useDeleteOrderMutation();
+  const fulfillOrderMutation = useFulfillOrderMutation();
+  const saveWeightMutation   = useSaveWeightMutation();
+
+  const form = useOrderForm({ products, lotsCache });
 
   const [notice, setNotice]   = useState('');
+  const [error, setError]     = useState('');
   const [search, setSearch]   = useState('');
   const [status, setStatus]   = useState<OrderStatus | 'all'>('all');
   const [submitting, setSubmitting] = useState(false);
@@ -118,7 +159,6 @@ export function OrdersPage() {
       const result = await sendWithAuth<IntakeResult>('/api/ai/order-intake', 'POST', { message: intakeText });
       if (result.customer_name_hint) form.setCustomerName(result.customer_name_hint);
       if (result.order_notes) form.setNotes(result.order_notes);
-      // Map parsed items into form lines
       type ParsedLine = { itemNumber: string; description: string; quantity: string; unit: string; unitPrice: string; notes: string };
       const matchedLines: ParsedLine[] = (result.items || []).map((item) => {
         const matched = products.find((p) =>
@@ -149,7 +189,6 @@ export function OrdersPage() {
         for (let i = 1; i < matchedLines.length; i++) {
           form.addLine();
         }
-        // updateLine refs are stable so we can fire after addLine in the same tick
         setTimeout(() => {
           for (let i = 1; i < matchedLines.length; i++) applyLine(i, matchedLines[i]);
         }, 50);
@@ -206,15 +245,14 @@ export function OrdersPage() {
     const printPopup = sendToProcessing ? openPrintWindow() : null;
     setSubmitting(true); setError(''); setNotice('');
     try {
-      let order: Order;
-      if (form.editingOrderId) {
-        order = await sendWithAuth<Order>(`/api/orders/${form.editingOrderId}`, 'PATCH', payload);
-      } else {
-        order = await sendWithAuth<Order>('/api/orders', 'POST', payload);
-      }
+      const order = await submitOrderMutation.mutateAsync({ editingOrderId: form.editingOrderId, payload });
       let printableOrder = order;
       if (sendToProcessing) {
-        const sentOrder = await sendWithAuth<Order>(`/api/orders/${order.id}/send`, 'POST', { taxEnabled: payload.taxEnabled, taxRate: payload.taxRate });
+        const sentOrder = await sendOrderMutation.mutateAsync({
+          orderId: order.id,
+          taxEnabled: payload.taxEnabled,
+          taxRate: payload.taxRate,
+        });
         printableOrder = { ...order, ...sentOrder, items: sentOrder.items || order.items };
         printOrderSlip(printableOrder, printPopup);
       }
@@ -224,7 +262,6 @@ export function OrdersPage() {
           : sendToProcessing ? 'Order created and sent to processing.' : 'Order created.',
       );
       form.reset();
-      await load();
     } catch (err) {
       printPopup?.close();
       setError(String((err as Error).message || 'Could not save order'));
@@ -236,9 +273,8 @@ export function OrdersPage() {
   async function deleteOrder(id: string) {
     if (!confirm('Delete this order?')) return;
     try {
-      await sendWithAuth(`/api/orders/${id}`, 'DELETE');
+      await deleteOrderMutation.mutateAsync(id);
       setNotice('Order deleted.');
-      await load();
     } catch (err) {
       setError(String((err as Error).message || 'Could not delete order'));
     }
@@ -247,10 +283,13 @@ export function OrdersPage() {
   async function sendOrder(order: Order) {
     const printPopup = openPrintWindow();
     try {
-      const sentOrder = await sendWithAuth<Order>(`/api/orders/${order.id}/send`, 'POST', { taxEnabled: !!order.tax_enabled, taxRate: asNumber(order.tax_rate) || 0.09 });
+      const sentOrder = await sendOrderMutation.mutateAsync({
+        orderId: order.id,
+        taxEnabled: !!order.tax_enabled,
+        taxRate: asNumber(order.tax_rate) || 0.09,
+      });
       printOrderSlip({ ...order, ...sentOrder, items: sentOrder.items || order.items }, printPopup);
       setNotice(`Order ${order.order_number || order.id.slice(0, 8)} sent to processing.`);
-      await load();
     } catch (err) {
       printPopup?.close();
       setError(String((err as Error).message || 'Could not send order to processing'));
@@ -260,11 +299,7 @@ export function OrdersPage() {
   async function quickFulfill(order: Order) {
     if (!confirm(`Quick fulfill ${order.order_number || order.id.slice(0, 8)} and generate invoice?`)) return;
     try {
-      const result = await sendWithAuth<{ emailSent?: boolean; emailError?: string | null }>(
-        `/api/orders/${order.id}/fulfill`,
-        'POST',
-        { items: order.items || [], driverName: null, routeId: null },
-      );
+      const result = await fulfillOrderMutation.mutateAsync({ orderId: order.id, items: order.items });
       const orderLabel = order.order_number || order.id.slice(0, 8);
       if (result.emailSent) {
         setNotice(`Order ${orderLabel} fulfilled and invoice emailed.`);
@@ -273,7 +308,6 @@ export function OrdersPage() {
       } else {
         setNotice(`Order ${orderLabel} fulfilled.`);
       }
-      await load();
     } catch (err) {
       setError(String((err as Error).message || 'Could not fulfill order'));
     }
@@ -286,8 +320,7 @@ export function OrdersPage() {
     setSavingWeight((s) => ({ ...s, [key]: true }));
     setError('');
     try {
-      const updated = await sendWithAuth<Order>(`/api/orders/${orderId}/items/${itemIndex}/actual-weight`, 'PATCH', { actual_weight: val });
-      setOrders((current) => current.map((o) => (o.id === orderId ? updated : o)));
+      const updated = await saveWeightMutation.mutateAsync({ orderId, itemIndex, actualWeight: val });
       if (weightCaptureOrder?.id === orderId) setWeightCaptureOrder(updated);
       setWeightInputs((wi) => { const next = { ...wi }; delete next[key]; return next; });
       setNotice('Actual weight saved. Order total recalculated.');
@@ -319,10 +352,15 @@ export function OrdersPage() {
     return false;
   });
 
+  const fetchError = ordersQuery.error
+    ? String((ordersQuery.error as Error)?.message || 'Could not load orders')
+    : '';
+  const displayError = error || fetchError;
+
   return (
     <div className="space-y-5">
-      {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading orders...</div> : null}
-      {error   ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
+      {ordersQuery.isPending ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading orders...</div> : null}
+      {displayError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{displayError}</div> : null}
       {notice  ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
       {customerIdParam ? (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700">
@@ -415,7 +453,7 @@ export function OrdersPage() {
         setStatus={setStatus}
         weightCaptureOrderId={weightCaptureOrder?.id ?? null}
         role={role}
-        onLoad={load}
+        onLoad={() => void queryClient.invalidateQueries({ queryKey: orderKeys.all })}
         onEdit={handleEditOrder}
         onSend={sendOrder}
         onFulfill={quickFulfill}
