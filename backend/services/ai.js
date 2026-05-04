@@ -985,9 +985,13 @@ function heuristicWalkthrough(feature, question = '') {
 
 function normalizeWalkthrough(result, feature, question) {
   const fallback = heuristicWalkthrough(feature, question);
+  const q = stringOr(question);
+  const aiSummary = stringOr(result && result.summary, '');
+  // When falling back to heuristic, append the user's question so it's surfaced in the summary
+  const fallbackSummary = q ? `${fallback.summary} Regarding your question: ${q}` : fallback.summary;
   return {
     title: stringOr(result && result.title, fallback.title),
-    summary: stringOr(result && result.summary, fallback.summary),
+    summary: aiSummary || fallbackSummary,
     steps: Array.isArray(result && result.steps) && result.steps.length ? result.steps.map((item) => stringOr(item)).filter(Boolean) : fallback.steps,
     tips: Array.isArray(result && result.tips) && result.tips.length ? result.tips.map((item) => stringOr(item)).filter(Boolean) : fallback.tips,
     warnings: Array.isArray(result && result.warnings) ? result.warnings.map((item) => stringOr(item)).filter(Boolean) : fallback.warnings,
