@@ -1,25 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
-
-type Delivery = {
-  id?: number;
-  userFacingId?: string;
-  orderDbId?: string;
-  orderId?: string;
-  restaurantName?: string;
-  driverName?: string;
-  status?: string;
-  routeId?: string | null;
-  expectedWindowEnd?: string;
-  createdAt?: string;
-  lat?: number | string | null;
-  lng?: number | string | null;
-};
+import { type Delivery, useDeliveries, useUpdateDeliveryStatus } from '../hooks/useDeliveries';
 
 type DeliveryViewStatus = 'active' | 'pending' | 'completed' | 'failed' | 'other';
 
@@ -32,10 +17,7 @@ function toDateKey(value: string | undefined): string {
   if (!value) return '';
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return '';
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function normalizeStatus(value: string | undefined): DeliveryViewStatus {
@@ -56,36 +38,15 @@ function statusBadge(status: DeliveryViewStatus) {
 }
 
 export function DeliveriesPage() {
-  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [updatingId, setUpdatingId] = useState<string | null>(null);
-  const [bulkUpdating, setBulkUpdating] = useState(false);
+  const { data: deliveries = [], isLoading, isError, error, refetch } = useDeliveries();
+  const updateStatus = useUpdateDeliveryStatus();
 
+  const [notice, setNotice] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | DeliveryViewStatus>('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
-
-  // Bulk selection
   const [selected, setSelected] = useState<Set<string>>(new Set());
-
-  async function load() {
-    setLoading(true);
-    setError('');
-    try {
-      const data = await fetchWithAuth<Delivery[]>('/api/deliveries');
-      const rows = Array.isArray(data) ? data : [];
-      setDeliveries(rows);
-      setSelected(new Set());
-    } catch (err) {
-      setError(String((err as Error).message || 'Could not load deliveries'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { load(); }, []);
+  const [bulkUpdating, setBulkUpdating] = useState(false);
 
   const filtered = useMemo(() => {
     return deliveries.filter((delivery) => {
@@ -105,68 +66,39 @@ export function DeliveriesPage() {
     failed: deliveries.filter((d) => normalizeStatus(d.status) === 'failed').length,
   }), [deliveries]);
 
-  const selectableIds = useMemo(() =>
-    filtered.filter((d) => d.orderDbId).map((d) => d.orderDbId!),
-  [filtered]);
-
+  const selectableIds = useMemo(() => filtered.filter((d) => d.orderDbId).map((d) => d.orderDbId!), [filtered]);
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
 
-  function toggleAll() {
-    if (allSelected) {
-      setSelected(new Set());
-    } else {
-      setSelected(new Set(selectableIds));
-    }
-  }
-
+  function toggleAll() { allSelected ? setSelected(new Set()) : setSelected(new Set(selectableIds)); }
   function toggleOne(id: string) {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      next.has(id) ? next.delete(id) : next.add(id);
-      return next;
-    });
+    setSelected((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
   }
 
-  async function setDeliveryStatus(delivery: Delivery, nextStatus: 'pending' | 'in-transit' | 'delivered') {
+  function setDeliveryStatus(delivery: Delivery, nextStatus: string) {
     if (!delivery.orderDbId) return;
-    setUpdatingId(delivery.orderDbId);
-    setError('');
-    setNotice('');
-    try {
-      await sendWithAuth(`/api/deliveries/${delivery.orderDbId}/status`, 'PATCH', { status: nextStatus });
-      setNotice(`Updated ${delivery.orderId || delivery.orderDbId.slice(0, 8)} to ${nextStatus}.`);
-      await load();
-    } catch (err) {
-      setError(String((err as Error).message || 'Could not update delivery status'));
-    } finally {
-      setUpdatingId(null);
-    }
+    updateStatus.mutate(
+      { id: delivery.orderDbId, status: nextStatus },
+      { onSuccess: () => setNotice(`Updated ${delivery.orderId || delivery.orderDbId!.slice(0, 8)} to ${nextStatus}.`) }
+    );
   }
 
-  async function bulkSetStatus(nextStatus: 'pending' | 'in-transit' | 'delivered') {
+  async function bulkSetStatus(nextStatus: string) {
     if (selected.size === 0) return;
     setBulkUpdating(true);
-    setError('');
-    setNotice('');
     const ids = Array.from(selected);
     let successCount = 0;
     for (const id of ids) {
-      try {
-        await sendWithAuth(`/api/deliveries/${id}/status`, 'PATCH', { status: nextStatus });
-        successCount++;
-      } catch {
-        // continue others
-      }
+      try { await updateStatus.mutateAsync({ id, status: nextStatus }); successCount++; } catch { /* continue */ }
     }
     setNotice(`Bulk updated ${successCount}/${ids.length} deliveries to ${nextStatus}.`);
+    setSelected(new Set());
     setBulkUpdating(false);
-    await load();
   }
 
   return (
     <div className="space-y-5">
-      {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading deliveries...</div> : null}
-      {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
+      {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading deliveries...</div> : null}
+      {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load deliveries')}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -201,11 +133,10 @@ export function DeliveriesPage() {
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">End Date</span>
               <Input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
             </label>
-            <Button variant="outline" onClick={load}>Refresh</Button>
+            <Button variant="outline" onClick={() => refetch()}>Refresh</Button>
           </div>
         </CardHeader>
 
-        {/* Bulk action bar — only shows when rows are checked */}
         {selected.size > 0 && (
           <div className="mx-6 mb-2 flex items-center gap-3 rounded-md border border-border bg-muted/50 px-4 py-2">
             <span className="text-sm font-medium">{selected.size} selected</span>
@@ -220,9 +151,7 @@ export function DeliveriesPage() {
           <Table>
             <TableHeader>
               <TableRow>
-                <TableHead className="w-10">
-                  <input type="checkbox" checked={allSelected} onChange={toggleAll} className="cursor-pointer" />
-                </TableHead>
+                <TableHead className="w-10"><input type="checkbox" checked={allSelected} onChange={toggleAll} className="cursor-pointer" /></TableHead>
                 <TableHead>Delivery ID</TableHead>
                 <TableHead>Order #</TableHead>
                 <TableHead>Customer</TableHead>
@@ -242,11 +171,7 @@ export function DeliveriesPage() {
                 const isChecked = !!delivery.orderDbId && selected.has(delivery.orderDbId);
                 return (
                   <TableRow key={deliveryId} className={isChecked ? 'bg-muted/30' : ''}>
-                    <TableCell>
-                      {delivery.orderDbId ? (
-                        <input type="checkbox" checked={isChecked} onChange={() => toggleOne(delivery.orderDbId!)} className="cursor-pointer" />
-                      ) : null}
-                    </TableCell>
+                    <TableCell>{delivery.orderDbId ? <input type="checkbox" checked={isChecked} onChange={() => toggleOne(delivery.orderDbId!)} className="cursor-pointer" /> : null}</TableCell>
                     <TableCell className="font-medium">{deliveryId}</TableCell>
                     <TableCell>{delivery.orderId || '-'}</TableCell>
                     <TableCell>{delivery.restaurantName || '-'}</TableCell>
@@ -256,12 +181,10 @@ export function DeliveriesPage() {
                     <TableCell>{eta ? new Date(eta).toLocaleString() : '-'}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        <Button variant="ghost" size="sm" disabled={!delivery.orderDbId || updatingId === delivery.orderDbId} onClick={() => setDeliveryStatus(delivery, 'pending')}>Pending</Button>
-                        <Button variant="secondary" size="sm" disabled={!delivery.orderDbId || updatingId === delivery.orderDbId} onClick={() => setDeliveryStatus(delivery, 'in-transit')}>Active</Button>
-                        <Button size="sm" disabled={!delivery.orderDbId || updatingId === delivery.orderDbId} onClick={() => setDeliveryStatus(delivery, 'delivered')}>Complete</Button>
-                        <a href={mapHref} target="_blank" rel="noreferrer" className="inline-flex">
-                          <Button variant="outline" size="sm">Map</Button>
-                        </a>
+                        <Button variant="ghost" size="sm" disabled={!delivery.orderDbId || updateStatus.isPending} onClick={() => setDeliveryStatus(delivery, 'pending')}>Pending</Button>
+                        <Button variant="secondary" size="sm" disabled={!delivery.orderDbId || updateStatus.isPending} onClick={() => setDeliveryStatus(delivery, 'in-transit')}>Active</Button>
+                        <Button size="sm" disabled={!delivery.orderDbId || updateStatus.isPending} onClick={() => setDeliveryStatus(delivery, 'delivered')}>Complete</Button>
+                        <a href={mapHref} target="_blank" rel="noreferrer" className="inline-flex"><Button variant="outline" size="sm">Map</Button></a>
                       </div>
                     </TableCell>
                   </TableRow>

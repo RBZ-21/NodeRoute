@@ -1,39 +1,11 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
-
-type StopStatus = 'pending' | 'arrived' | 'completed' | 'failed' | 'other';
-
-type StopRecord = {
-  id?: string | number;
-  stopNumber?: number | string;
-  stop_number?: number | string;
-  routeId?: string;
-  route_id?: string;
-  address?: string;
-  customer?: string;
-  customerName?: string;
-  customer_name?: string;
-  orderNumber?: string;
-  order_number?: string;
-  status?: string;
-  arrivalTime?: string;
-  arrival_time?: string;
-  driverNotes?: string;
-  driver_notes?: string;
-  door_code?: string;
-  mapUrl?: string;
-  map_url?: string;
-  lat?: number | string | null;
-  lng?: number | string | null;
-  createdAt?: string;
-  created_at?: string;
-};
+import { type StopRecord, type StopStatus, useStops, useUpdateStop } from '../hooks/useStops';
 
 const statusColors = {
   pending: 'yellow',
@@ -55,32 +27,24 @@ function toDateKey(value: string | undefined): string {
   if (!value) return '';
   const date = new Date(value);
   if (!Number.isFinite(date.getTime())) return '';
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
 }
 
 function stopKey(stop: StopRecord, index: number): string {
   return String(stop.id || stop.stopNumber || stop.stop_number || `STOP-${index + 1}`);
 }
-
 function stopNumberLabel(stop: StopRecord, index: number): string {
   return String(stop.stopNumber || stop.stop_number || index + 1);
 }
-
 function routeId(stop: StopRecord): string {
   return String(stop.routeId || stop.route_id || '-');
 }
-
 function customerName(stop: StopRecord): string {
   return String(stop.customer || stop.customerName || stop.customer_name || '-');
 }
-
 function orderNumber(stop: StopRecord): string {
   return String(stop.orderNumber || stop.order_number || '-');
 }
-
 function mapHref(stop: StopRecord): string {
   const explicit = String(stop.mapUrl || stop.map_url || '').trim();
   if (explicit) return explicit;
@@ -95,36 +59,16 @@ export function StopsPage() {
   const [searchParams] = useSearchParams();
   const routeIdParam = searchParams.get('routeId') || '';
 
-  const [stops, setStops] = useState<StopRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
+  const { data: stops = [], isLoading, isError, error, refetch } = useStops(routeIdParam || undefined);
+  const updateStop = useUpdateStop();
+
   const [notice, setNotice] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | StopStatus>('all');
-  const [routeFilter, setRouteFilter] = useState<'all' | string>('all');
+  const [routeFilter, setRouteFilter] = useState<'all' | string>(routeIdParam || 'all');
   const [dateFilter, setDateFilter] = useState('');
   const [statusOverrides, setStatusOverrides] = useState<Record<string, 'completed' | 'failed'>>({});
-
-  // Inline note/door edit state: key -> { notes, door_code }
   const [editingKey, setEditingKey] = useState<string | null>(null);
   const [noteDraft, setNoteDraft] = useState<{ driverNotes: string; door_code: string }>({ driverNotes: '', door_code: '' });
-  const [savingNote, setSavingNote] = useState(false);
-
-  async function load() {
-    setLoading(true);
-    setError('');
-    try {
-      const query = routeIdParam ? `?routeId=${encodeURIComponent(routeIdParam)}` : '';
-      const data = await fetchWithAuth<StopRecord[]>(`/api/stops${query}`);
-      setStops(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(String((err as Error).message || 'Could not load stops'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { load(); }, [routeIdParam]);
-  useEffect(() => { setRouteFilter(routeIdParam || 'all'); }, [routeIdParam]);
 
   const routeOptions = useMemo(() => {
     const unique = new Set<string>();
@@ -156,51 +100,33 @@ export function StopsPage() {
   }, [stops, statusOverrides]);
 
   function setStopStatus(stop: StopRecord, index: number, nextStatus: 'completed' | 'failed') {
-    const key = stopKey(stop, index);
-    setStatusOverrides((current) => ({ ...current, [key]: nextStatus }));
+    setStatusOverrides((current) => ({ ...current, [stopKey(stop, index)]: nextStatus }));
     setNotice(`Stop ${stopNumberLabel(stop, index)} marked ${nextStatus}.`);
   }
 
   function startEditNote(stop: StopRecord, index: number) {
     setEditingKey(stopKey(stop, index));
-    setNoteDraft({
-      driverNotes: String(stop.driverNotes || stop.driver_notes || ''),
-      door_code: String(stop.door_code || ''),
-    });
+    setNoteDraft({ driverNotes: String(stop.driverNotes || stop.driver_notes || ''), door_code: String(stop.door_code || '') });
   }
 
-  async function saveNote(stop: StopRecord, index: number) {
-    const id = stop.id;
-    if (!id) {
-      // Optimistic local save only if no id
-      setStops((prev) => prev.map((s, i) => i === index ? { ...s, driverNotes: noteDraft.driverNotes, door_code: noteDraft.door_code } : s));
-      setEditingKey(null);
+  function saveNote(stop: StopRecord, index: number) {
+    if (!stop.id) {
       setNotice(`Stop ${stopNumberLabel(stop, index)} notes updated locally.`);
+      setEditingKey(null);
       return;
     }
-    setSavingNote(true);
-    try {
-      await sendWithAuth(`/api/stops/${id}`, 'PATCH', { driver_notes: noteDraft.driverNotes, door_code: noteDraft.door_code });
-      setStops((prev) => prev.map((s) => String(s.id) === String(id) ? { ...s, driverNotes: noteDraft.driverNotes, driver_notes: noteDraft.driverNotes, door_code: noteDraft.door_code } : s));
-      setEditingKey(null);
-      setNotice(`Stop ${stopNumberLabel(stop, index)} notes saved.`);
-    } catch (err) {
-      setError(String((err as Error).message || 'Could not save notes'));
-    } finally {
-      setSavingNote(false);
-    }
+    updateStop.mutate(
+      { id: stop.id, patch: { driver_notes: noteDraft.driverNotes, door_code: noteDraft.door_code } },
+      { onSuccess: () => { setEditingKey(null); setNotice(`Stop ${stopNumberLabel(stop, index)} notes saved.`); } }
+    );
   }
 
   return (
     <div className="space-y-5">
-      {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading stops...</div> : null}
-      {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
+      {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading stops...</div> : null}
+      {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load stops')}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
-      {routeIdParam ? (
-        <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700">
-          Filtered by route from Routes page: <strong>{routeIdParam}</strong>
-        </div>
-      ) : null}
+      {routeIdParam ? <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700">Filtered by route from Routes page: <strong>{routeIdParam}</strong></div> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard label="Pending" value={summary.pending.toLocaleString()} />
@@ -237,7 +163,7 @@ export function StopsPage() {
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</span>
               <Input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} />
             </label>
-            <Button variant="outline" onClick={load}>Refresh</Button>
+            <Button variant="outline" onClick={() => refetch()}>Refresh</Button>
           </div>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
@@ -273,7 +199,7 @@ export function StopsPage() {
                           <Input placeholder="Driver notes..." value={noteDraft.driverNotes} onChange={(e) => setNoteDraft((d) => ({ ...d, driverNotes: e.target.value }))} className="text-xs" />
                           <Input placeholder="Door code..." value={noteDraft.door_code} onChange={(e) => setNoteDraft((d) => ({ ...d, door_code: e.target.value }))} className="text-xs" />
                           <div className="flex gap-1">
-                            <Button size="sm" disabled={savingNote} onClick={() => saveNote(stop, index)}>{savingNote ? '...' : 'Save'}</Button>
+                            <Button size="sm" disabled={updateStop.isPending} onClick={() => saveNote(stop, index)}>{updateStop.isPending ? '...' : 'Save'}</Button>
                             <Button size="sm" variant="ghost" onClick={() => setEditingKey(null)}>Cancel</Button>
                           </div>
                         </div>
