@@ -680,6 +680,195 @@ function heuristicWalkthrough(feature, question = '') {
   const title = `${feature} Walkthrough`;
   const q = stringOr(question);
   const key = String(feature || '').trim().toLowerCase();
+  if (key.includes('dashboard') || key.includes('home') || key.includes('overview')) {
+    return {
+      title,
+      summary: 'The Dashboard gives a real-time snapshot of today\'s orders, inventory alerts, overdue invoices, and active routes.',
+      steps: [
+        'Open the Dashboard from the main navigation.',
+        'Review the summary cards: open orders, low-stock alerts, overdue invoices, and active routes.',
+        'Click any card to navigate directly to the relevant section.',
+      ],
+      tips: [
+        'Use the Dashboard as a daily starting point before drilling into specific modules.',
+        'Alert counts update on page refresh — reload if counts look stale.',
+      ],
+      warnings: [
+        'Counts reflect your role\'s visibility scope; admin and manager views include more data.',
+      ],
+    };
+  }
+  if (key.includes('order') || key.includes('delivery') || key.includes('deliveries')) {
+    return {
+      title,
+      summary: 'Orders tracks all customer delivery requests from creation through fulfillment.',
+      steps: [
+        'Open the Orders section from the main navigation.',
+        'Create a new order by clicking New Order and filling in customer, items, and delivery date.',
+        'Track progress through statuses: pending → confirmed → dispatched → delivered.',
+        'Use filters to narrow by status, date range, or customer.',
+      ],
+      tips: [
+        'Confirm orders before dispatching to lock in quantities and prevent edits.',
+        'Bulk status updates save time when closing out a full route\'s deliveries.',
+      ],
+      warnings: [
+        'Canceling a dispatched order may require manual inventory adjustment.',
+      ],
+    };
+  }
+  if (key.includes('customer') || key.includes('account')) {
+    return {
+      title,
+      summary: 'Customers manages your buyer accounts including contact info, credit terms, and hold status.',
+      steps: [
+        'Open the Customers section from the main navigation.',
+        'Search for an existing customer or click Add Customer to create a new record.',
+        'Set payment terms, credit limit, and any credit hold reasons on the customer profile.',
+        'Use the activity tab to view order and invoice history for the account.',
+      ],
+      tips: [
+        'Keep credit hold reasons updated so the AR team has context when following up.',
+        'Customer numbers are used as keys in orders and invoices — set them carefully.',
+      ],
+      warnings: [
+        'Placing a customer on credit hold will block new orders from being confirmed.',
+      ],
+    };
+  }
+  if (key.includes('invoice') || key.includes('billing') || key.includes('receivable')) {
+    return {
+      title,
+      summary: 'Invoices tracks amounts owed by customers and supports follow-up workflows for overdue balances.',
+      steps: [
+        'Open Financials > Invoices.',
+        'Review statuses: draft, sent, partial, paid, overdue.',
+        'Use the AI Follow-Up Draft button to generate a collection email for overdue invoices.',
+        'Mark invoices as paid when payment is received.',
+      ],
+      tips: [
+        'Filter by "overdue" status to prioritize collections each week.',
+        'The AI follow-up tool adjusts tone automatically based on days overdue.',
+      ],
+      warnings: [
+        'Marking an invoice paid does not automatically release a credit hold — update the customer record separately.',
+      ],
+    };
+  }
+  if (key.includes('route') || key.includes('stop')) {
+    return {
+      title,
+      summary: 'Routes defines the sequence of delivery stops for each driver\'s run.',
+      steps: [
+        'Open the Routes section from the main navigation.',
+        'Create a route and add stops by customer and address.',
+        'Use AI Optimize Route to reorder stops for efficiency.',
+        'Assign a driver to the route and dispatch when ready.',
+      ],
+      tips: [
+        'Keep routes geographically compact to reduce drive time.',
+        'Re-run optimization after adding or removing stops.',
+      ],
+      warnings: [
+        'Changing stop order after a driver has started may cause confusion — communicate changes directly.',
+      ],
+    };
+  }
+  if (key.includes('driver')) {
+    return {
+      title,
+      summary: 'Driver management covers assigning drivers to routes and tracking delivery completion.',
+      steps: [
+        'Open Routes and use the Driver column to assign a driver to each route.',
+        'Use AI Driver Assignments for bulk workload-balanced suggestions.',
+        'Drivers update stop statuses in real time as deliveries complete.',
+        'Review delivery counts per driver in Analytics > Driver Performance.',
+      ],
+      tips: [
+        'Balance route stop counts across drivers to avoid overloading one person.',
+        'Drivers with higher completed-delivery counts are prioritized by the AI assignment tool.',
+      ],
+      warnings: [
+        'Reassigning a driver mid-route can cause status sync issues — do it before dispatch.',
+      ],
+    };
+  }
+  if (key.includes('inventor') || key.includes('stock') || key.includes('warehouse')) {
+    return {
+      title,
+      summary: 'Inventory tracks on-hand quantities, lot codes, and warehouse locations for all SKUs.',
+      steps: [
+        'Open Inventory (or Operations > Warehouse) from the main navigation.',
+        'Review on-hand quantities, filtering by category or low-stock threshold.',
+        'Use lot code tracking to monitor expiry dates and flag items for markdown.',
+        'Adjust quantities manually for receiving discrepancies or write-offs.',
+      ],
+      tips: [
+        'Set reorder thresholds per item so the Planning module surfaces suggestions automatically.',
+        'Sort by days-to-expiry to catch spoilage risk early.',
+      ],
+      warnings: [
+        'Manual quantity adjustments bypass receiving workflows — use them only for corrections.',
+      ],
+    };
+  }
+  if (key.includes('vendor') || key.includes('supplier')) {
+    return {
+      title,
+      summary: 'Vendors stores your supplier profiles and links to their purchase order history.',
+      steps: [
+        'Open the Vendors section and add or select a supplier.',
+        'Review the vendor\'s PO history, fulfillment rate, and performance score.',
+        'Use Operations > Purchasing to create and manage POs for this vendor.',
+        'Run AI Vendor Score for a data-driven performance grade.',
+      ],
+      tips: [
+        'Keep vendor payment terms accurate — they feed into cash flow reporting.',
+        'Vendors with low fulfillment rates are flagged automatically in Purchasing.',
+      ],
+      warnings: [
+        'Deleting a vendor does not remove their historical POs — reassign records first.',
+      ],
+    };
+  }
+  if (key.includes('forecast') || key.includes('reorder') || key.includes('demand')) {
+    return {
+      title,
+      summary: 'Demand forecasting suggests reorder quantities based on sales velocity and lead times.',
+      steps: [
+        'Open Operations > Planning.',
+        'Review the forecast table — items are ranked by urgency using usage history.',
+        'Adjust lead-time and coverage-day settings to tune suggestions.',
+        'Click Create Draft PO to convert suggestions into a purchase order draft.',
+      ],
+      tips: [
+        'Forecasts improve with more order history — results are stronger after 4+ weeks of data.',
+        'Override suggested quantities for seasonal adjustments before creating the PO.',
+      ],
+      warnings: [
+        'Forecasts do not account for promotions or known demand spikes — adjust manually when needed.',
+      ],
+    };
+  }
+  if (key.includes('scan') || key.includes('po scan') || key.includes('image')) {
+    return {
+      title,
+      summary: 'PO Image Scan uses AI vision to extract line items from a purchase order photo or PDF.',
+      steps: [
+        'Open Operations > Purchasing and click Scan PO Image.',
+        'Upload a clear JPEG, PNG, WEBP, or PDF of the purchase order.',
+        'Review the extracted vendor, PO number, date, and line items.',
+        'Edit any fields the scan missed before saving.',
+      ],
+      tips: [
+        'Clear, well-lit photos produce the most accurate extractions.',
+        'PDFs work best when the text is machine-readable rather than handwritten.',
+      ],
+      warnings: [
+        'Always verify extracted quantities and prices before confirming — AI can misread handwritten or low-contrast documents.',
+      ],
+    };
+  }
   if (key.includes('planning')) {
     return {
       title,
@@ -1006,37 +1195,45 @@ function normalizePOScan(result) {
 }
 
 async function parsePurchaseOrderImage(base64Image, mimeType = 'image/jpeg') {
-  const client = getClient();
-  const response = await client.chat.completions.create({
-    model: DEFAULT_VISION_MODEL,
-    max_tokens: 1800,
-    response_format: {
-      type: 'json_schema',
-      json_schema: {
-        name: PO_SCAN_SCHEMA.name,
-        strict: true,
-        schema: PO_SCAN_SCHEMA.schema,
+  try {
+    const client = getClient();
+    const response = await client.chat.completions.create({
+      model: DEFAULT_VISION_MODEL,
+      max_tokens: 1800,
+      response_format: {
+        type: 'json_schema',
+        json_schema: {
+          name: PO_SCAN_SCHEMA.name,
+          strict: true,
+          schema: PO_SCAN_SCHEMA.schema,
+        },
       },
-    },
-    messages: [{
-      role: 'user',
-      content: [
-        { type: 'text', text: PO_SCAN_PROMPT },
-        { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Image}`, detail: 'high' } },
-      ],
-    }],
-  });
+      messages: [{
+        role: 'user',
+        content: [
+          { type: 'text', text: PO_SCAN_PROMPT },
+          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Image}`, detail: 'high' } },
+        ],
+      }],
+    });
 
-  const choice = response.choices && response.choices[0];
-  const refusal = choice && choice.message && choice.message.refusal;
-  if (refusal) throw new Error(`Model refused request: ${refusal}`);
+    const choice = response.choices && response.choices[0];
+    const refusal = choice && choice.message && choice.message.refusal;
+    if (refusal) throw new Error(`Model refused request: ${refusal}`);
 
-  const raw = extractMessageContent(choice && choice.message && choice.message.content);
-  const parsed = safeJsonParse(raw);
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error('PO scan returned invalid structured JSON');
+    const raw = extractMessageContent(choice && choice.message && choice.message.content);
+    const parsed = safeJsonParse(raw);
+    if (!parsed || typeof parsed !== 'object') throw new Error('PO scan returned invalid structured JSON');
+    return normalizePOScan(parsed);
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    console.warn('PO scan AI fallback:', err.message);
+    return {
+      ...normalizePOScan(null),
+      _fallback: true,
+      _fallback_reason: 'AI vision service unavailable. Please enter PO details manually.',
+    };
   }
-  return normalizePOScan(parsed);
 }
 
 const chatRateLimiter = new Map();
@@ -1055,29 +1252,79 @@ function checkChatRateLimit(userId) {
   return true;
 }
 
+function heuristicChatReply(message, dbContext = {}) {
+  const msg = String(message || '').toLowerCase();
+  if (msg.includes('order') || msg.includes('delivery') || msg.includes('deliver')) {
+    const count = dbContext.recentOrders && dbContext.recentOrders.length;
+    return count
+      ? `There are ${count} recent order(s) in your account. Open the Orders section to review statuses and details.`
+      : 'Use the Orders section to view and manage delivery statuses and order details.';
+  }
+  if (msg.includes('inventory') || msg.includes('stock') || msg.includes('low stock')) {
+    const low = dbContext.lowInventory && dbContext.lowInventory.length;
+    return low
+      ? `${low} item(s) are currently low on stock. Open Inventory to review and reorder.`
+      : 'Check the Inventory section for current stock levels and reorder suggestions.';
+  }
+  if (msg.includes('invoice') || msg.includes('overdue') || msg.includes('payment')) {
+    const overdue = dbContext.overdueInvoices && dbContext.overdueInvoices.length;
+    return overdue
+      ? `${overdue} invoice(s) are currently overdue. Go to Financials > Invoices to review and follow up.`
+      : 'Open Financials > Invoices to track outstanding and overdue balances.';
+  }
+  if (msg.includes('route') || msg.includes('driver')) {
+    const routes = dbContext.activeRoutes && dbContext.activeRoutes.length;
+    return routes
+      ? `There are ${routes} active route(s) today. Open Routes to view stop sequences and driver assignments.`
+      : 'Open the Routes section to view and manage today\'s delivery routes.';
+  }
+  if (msg.includes('customer') || msg.includes('credit hold') || msg.includes('hold')) {
+    const holds = dbContext.creditHoldCustomers && dbContext.creditHoldCustomers.length;
+    return holds
+      ? `${holds} customer(s) are currently on credit hold. Open Customers to review account statuses.`
+      : 'Open the Customers section to manage accounts and credit hold statuses.';
+  }
+  if (msg.includes('vendor') || msg.includes('supplier') || msg.includes('purchase order')) {
+    return 'Open Operations > Purchasing to manage vendor POs and receiving. Use Planning to generate draft orders from demand projections.';
+  }
+  if (msg.includes('forecast') || msg.includes('reorder') || msg.includes('plan')) {
+    return 'Open Operations > Planning to review demand forecasts and generate draft purchase orders based on stock levels and usage history.';
+  }
+  if (msg.includes('analytic') || msg.includes('report') || msg.includes('performance')) {
+    return 'Open Financials > Analytics for unified performance rollups by customer, route, driver, and SKU.';
+  }
+  return 'I\'m having trouble connecting right now. Navigate to the relevant section in NodeRoute, or try again in a moment.';
+}
+
 async function generateChatReply(userName, userRole, message, history = []) {
-  const client = getClient();
-  const systemContent = CHAT_SYSTEM_PROMPT
-    .replace('{name}', stringOr(userName, 'User'))
-    .replace('{role}', stringOr(userRole, 'user'))
-    .replace('{knowledge}', NODEROUTE_KNOWLEDGE);
+  try {
+    const client = getClient();
+    const systemContent = CHAT_SYSTEM_PROMPT
+      .replace('{name}', stringOr(userName, 'User'))
+      .replace('{role}', stringOr(userRole, 'user'))
+      .replace('{knowledge}', NODEROUTE_KNOWLEDGE);
 
-  const cappedHistory = history.slice(-10);
-  const messages = [
-    { role: 'system', content: systemContent },
-    ...cappedHistory,
-    { role: 'user', content: String(message || '') },
-  ];
+    const cappedHistory = history.slice(-10);
+    const messages = [
+      { role: 'system', content: systemContent },
+      ...cappedHistory,
+      { role: 'user', content: String(message || '') },
+    ];
 
-  const response = await client.chat.completions.create({
-    model: DEFAULT_MODEL,
-    max_tokens: 600,
-    messages,
-  });
+    const response = await client.chat.completions.create({
+      model: DEFAULT_MODEL,
+      max_tokens: 600,
+      messages,
+    });
 
-  const choice = response.choices && response.choices[0];
-  const reply = extractMessageContent(choice && choice.message && choice.message.content);
-  return reply || 'I was unable to generate a response. Please try again.';
+    const choice = response.choices && response.choices[0];
+    const reply = extractMessageContent(choice && choice.message && choice.message.content);
+    return reply || 'I was unable to generate a response. Please try again.';
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    console.warn('Chat reply AI fallback:', err.message);
+    return heuristicChatReply(message);
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1109,13 +1356,19 @@ const ROUTE_OPTIMIZATION_SCHEMA = {
 };
 
 function heuristicRouteOptimization(stops) {
-  // Simple heuristic: sort by address alphabetically as a placeholder
-  const sorted = [...stops].sort((a, b) => String(a.address || '').localeCompare(String(b.address || '')));
+  // Sort by zip code prefix for rough geographic clustering, then by full address within zone
+  const withZip = stops.map((s) => {
+    const zip = String(s.address || '').match(/\b(\d{5})\b/);
+    return { ...s, _zipPrefix: zip ? zip[1].slice(0, 3) : 'zzz' };
+  });
+  const sorted = [...withZip].sort((a, b) =>
+    a._zipPrefix.localeCompare(b._zipPrefix) || String(a.address || '').localeCompare(String(b.address || ''))
+  );
   return {
     optimized_stop_ids: sorted.map((s) => String(s.id)),
-    key_changes: ['Stops grouped alphabetically by address as a fallback sequence.'],
+    key_changes: ['Stops grouped by zip code prefix for approximate geographic clustering.'],
     estimated_efficiency_gain: 'Unknown — AI unavailable',
-    reasoning: 'Heuristic fallback: stops sorted by address. Run again when AI is available for a proper geographic cluster.',
+    reasoning: 'Heuristic fallback: stops sorted by zip code zone. Run again when AI is available for optimal routing.',
   };
 }
 
@@ -1534,21 +1787,37 @@ const DRIVER_ASSIGNMENTS_SCHEMA = {
 
 function heuristicDriverAssignments(drivers, routes) {
   const assignments = [];
-  const driverList = [...(drivers || [])];
-  (routes || []).forEach((route, i) => {
-    const driver = driverList[i % Math.max(driverList.length, 1)];
+  // Track batch load so we don't pile routes onto one driver
+  const batchLoad = {};
+  (drivers || []).forEach((d) => { batchLoad[d.id || d.name] = d.active_count || 0; });
+
+  (routes || []).forEach((route) => {
+    const driverList = drivers || [];
+    // Prefer driver already named on the route
+    let best = driverList.find((d) => d.name && route.driver && d.name === route.driver);
+    const retained = !!best;
+    if (!best) {
+      // Pick driver with lowest total load (existing active + batch-assigned so far), experience as tiebreak
+      best = [...driverList].sort((a, b) => {
+        const loadDiff = (batchLoad[a.id || a.name] || 0) - (batchLoad[b.id || b.name] || 0);
+        return loadDiff !== 0 ? loadDiff : (b.completed_count || 0) - (a.completed_count || 0);
+      })[0];
+    }
+    if (best) batchLoad[best.id || best.name] = (batchLoad[best.id || best.name] || 0) + 1;
     assignments.push({
       route_id: String(route.id),
       route_name: stringOr(route.name, `Route ${route.id}`),
-      recommended_driver_name: driver ? stringOr(driver.name, 'Unknown') : 'Unassigned',
-      reasoning: 'Round-robin fallback assignment — AI unavailable.',
-      confidence: 'low',
+      recommended_driver_name: best ? stringOr(best.name, 'Unknown') : 'Unassigned',
+      reasoning: retained
+        ? 'Retained existing driver assignment.'
+        : 'Assigned to least-loaded available driver.',
+      confidence: best ? 'medium' : 'low',
     });
   });
   return {
     assignments,
     unassignable_routes: [],
-    summary: 'Assignments generated via round-robin fallback.',
+    summary: `Fallback: ${assignments.length} route(s) assigned by workload balancing.`,
   };
 }
 
@@ -1833,15 +2102,21 @@ async function generateChatReplyWithContext(userName, userRole, message, history
     { role: 'user', content: String(message || '') },
   ];
 
-  const response = await client.chat.completions.create({
-    model: DEFAULT_MODEL,
-    max_tokens: 600,
-    messages,
-  });
+  try {
+    const response = await client.chat.completions.create({
+      model: DEFAULT_MODEL,
+      max_tokens: 600,
+      messages,
+    });
 
-  const choice = response.choices && response.choices[0];
-  const reply = extractMessageContent(choice && choice.message && choice.message.content);
-  return reply || 'I was unable to generate a response. Please try again.';
+    const choice = response.choices && response.choices[0];
+    const reply = extractMessageContent(choice && choice.message && choice.message.content);
+    return reply || 'I was unable to generate a response. Please try again.';
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    console.warn('Chat (context) reply AI fallback:', err.message);
+    return heuristicChatReply(message, dbContext);
+  }
 }
 
 module.exports = {
