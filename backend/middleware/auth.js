@@ -33,21 +33,31 @@ function extractRows(result) {
 }
 
 async function findUserFromTokenPayload(payload) {
-  const tokenUserId = normalizeId(payload?.userId || payload?.id || payload?.sub || payload?.user_id);
-  const tokenEmail = normalizeEmail(payload?.email) || normalizeEmail(payload?.userEmail || payload?.user_email);
-  const usersResult = await supabase.from('users').select('*');
-  const users = extractRows(usersResult);
+  const tokenUserId = normalizeId(
+    payload?.userId || payload?.id || payload?.sub || payload?.user_id
+  );
+  const tokenEmail = normalizeEmail(
+    payload?.email || payload?.userEmail || payload?.user_email
+  );
 
+  // Fast path: query by ID directly — no full table scan.
   if (tokenUserId) {
-    const userById = users.find((user) => normalizeId(user?.id) === tokenUserId);
-    if (userById) return { user: userById, error: null };
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('id', tokenUserId)
+      .single();
+    if (!error && data) return { user: data, error: null };
   }
 
+  // Fallback: query by email (handles legacy tokens that lack a userId).
   if (tokenEmail) {
-    const matched = users.find(
-      (user) => normalizeEmail(user?.email) === tokenEmail
-    );
-    if (matched) return { user: matched, error: null };
+    const { data, error } = await supabase
+      .from('users')
+      .select('*')
+      .eq('email', tokenEmail)
+      .single();
+    if (!error && data) return { user: data, error: null };
   }
 
   return { user: null, error: null };
@@ -68,7 +78,7 @@ function extractToken(req) {
  * The frontend reads it and sends it back as X-CSRF-Token on every mutation.
  * We verify both values match using constant-time comparison.
  * Attackers on other origins cannot read the cookie due to SameSite=Strict
- * + same-origin policy, so they can't forge the header.
+ * + same-origin policy, so they can\'t forge the header.
  */
 function verifyCsrf(req) {
   if (!CSRF_METHODS.has(req.method)) return true;

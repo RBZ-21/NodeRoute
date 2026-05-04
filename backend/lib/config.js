@@ -6,6 +6,16 @@ const DEV_JWT_SECRET    = 'noderoute-dev-secret-change-in-production';
 const DEV_PORTAL_SECRET = 'noderoute-portal-dev-secret-change-in-production';
 const DEFAULT_ADMIN_PW  = 'Admin@123';
 
+// Minimum password strength: 12+ chars, upper, lower, digit, special char.
+const STRONG_PASSWORD_RE = /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z\d]).{12,}$/;
+
+function isWeakPassword(pw) {
+  if (!pw) return true;
+  if (pw === DEFAULT_ADMIN_PW) return true;
+  if (pw === 'ChangeMe@123') return true;
+  return !STRONG_PASSWORD_RE.test(pw);
+}
+
 const envSchema = z.object({
   NODE_ENV:                   z.string().optional().default('development'),
   PORT:                       z.preprocess(
@@ -93,14 +103,19 @@ function validate(logger) {
     if (!process.env.PORTAL_JWT_SECRET || PORTAL_JWT_SECRET === DEV_PORTAL_SECRET)
       fatal.push('PORTAL_JWT_SECRET must be set in production — the development fallback is not safe');
 
-    if (!process.env.ADMIN_PASSWORD || ADMIN_PASSWORD === DEFAULT_ADMIN_PW)
-      fatal.push('ADMIN_PASSWORD must be set in production — using the default credential is not safe');
+    if (!process.env.ADMIN_PASSWORD || isWeakPassword(ADMIN_PASSWORD))
+      fatal.push(
+        'ADMIN_PASSWORD is missing or too weak. Production requires a password that is at least ' +
+        '12 characters and includes uppercase, lowercase, a digit, and a special character.'
+      );
 
     if (!BASE_URL)
       errors.push('BASE_URL is not set — invite links and Stripe redirects will not work');
   } else {
-    if (ADMIN_PASSWORD === DEFAULT_ADMIN_PW)
-      warns.push('ADMIN_PASSWORD is the default — set it before deploying to production');
+    if (isWeakPassword(ADMIN_PASSWORD))
+      warns.push(
+        'ADMIN_PASSWORD is weak or is the default — set a strong password (12+ chars, mixed case, digit, special) before deploying to production'
+      );
     if (!BASE_URL)
       warns.push('BASE_URL is not set — invite links will use http://localhost');
     if (PORTAL_JWT_SECRET === DEV_PORTAL_SECRET)
