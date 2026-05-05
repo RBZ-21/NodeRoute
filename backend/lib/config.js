@@ -18,10 +18,7 @@ function isWeakPassword(pw) {
 
 const envSchema = z.object({
   NODE_ENV:                   z.string().optional().default('development'),
-  PORT:                       z.preprocess(
-    (v) => (v === undefined || v === null || v === '' ? 3001 : v),
-    z.coerce.number().int().positive().catch(3001)
-  ),
+  PORT:                       z.coerce.number().int().positive().catch(3001).optional().default(3001),
   JSON_BODY_LIMIT:            z.string().optional().default('1mb'),
   SUPABASE_URL:               z.string().optional().default(''),
   SUPABASE_SERVICE_KEY:       z.string().optional().default(''),
