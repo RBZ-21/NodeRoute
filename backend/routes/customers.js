@@ -131,8 +131,8 @@ router.get('/address-lookup', authenticateToken, requireRole('admin', 'manager')
   const name = String(req.query.name || '').trim();
   if (!name) return res.status(400).json({ error: 'name query param is required' });
 
-  const apiKey = process.env.GOOGLE_MAPS_API_KEY;
-  if (!apiKey) return res.status(503).json({ error: 'GOOGLE_MAPS_API_KEY is not configured on the server' });
+  const apiKey = process.env.VITE_MAP_API_KEY;
+  if (!apiKey) return res.status(503).json({ error: 'VITE_MAP_API_KEY is not configured on the server' });
 
   try {
     // Step 1: Find the place ID
