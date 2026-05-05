@@ -32,8 +32,10 @@ export function useVendorsQuery() {
 export function useSaveVendorMutation() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, draft }: { id: string | number; draft: unknown }) =>
-      sendWithAuth<Vendor>(`/api/vendors/${id}`, 'PATCH', draft),
+    mutationFn: ({ id, draft }: { id?: string | number; draft: unknown }) =>
+      id
+        ? sendWithAuth<Vendor>(`/api/vendors/${id}`, 'PATCH', draft)
+        : sendWithAuth<Vendor>('/api/vendors', 'POST', draft),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['vendors'] });
     },
