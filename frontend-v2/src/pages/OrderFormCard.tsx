@@ -5,6 +5,7 @@ import { Combobox } from '../components/ui/combobox';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { fetchWithAuth } from '../lib/api';
+import { useRoutes } from '../hooks/useRoutes';
 import { asMoney, asNumber, fmtDate } from './orders.types';
 import type { Customer, InventoryProduct, LotCode, OrderCharge, OrderLineDraft } from './orders.types';
 
@@ -14,6 +15,7 @@ type Props = {
   customerEmail: string; setCustomerEmail: (v: string) => void;
   customerAddress: string; setCustomerAddress: (v: string) => void;
   fulfillmentType: 'delivery' | 'pickup'; setFulfillmentType: (v: 'delivery' | 'pickup') => void;
+  routeId: string; setRouteId: (v: string) => void;
   customers: Customer[];
   notes: string; setNotes: (v: string) => void;
   taxEnabled: boolean; setTaxEnabled: (v: boolean) => void;
@@ -44,6 +46,7 @@ export function OrderFormCard({
   customerEmail, setCustomerEmail,
   customerAddress, setCustomerAddress,
   fulfillmentType, setFulfillmentType,
+  routeId, setRouteId,
   customers,
   notes, setNotes,
   taxEnabled, setTaxEnabled,
@@ -56,6 +59,8 @@ export function OrderFormCard({
   updateLine, toggleLineCatchWeight, addLine, removeLine,
   onSubmit, onCancel, submitting,
 }: Props) {
+  const { data: routes = [] } = useRoutes();
+
   // Prevent firing duplicate lookups for the same name
   const lookupInFlightRef = useRef<string | null>(null);
 
@@ -171,6 +176,23 @@ export function OrderFormCard({
               <option value="pickup">Pickup</option>
             </select>
           </label>
+          {fulfillmentType === 'delivery' && (
+            <label className="space-y-1 text-sm">
+              <span className="font-semibold text-muted-foreground">Assign to Route</span>
+              <select
+                value={routeId}
+                onChange={(e) => setRouteId(e.target.value)}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="">— No route —</option>
+                {routes.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name || r.id}{r.driver ? ` · ${r.driver}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="space-y-1 text-sm">
             <span className="font-semibold text-muted-foreground">Customer Email</span>
             <Input value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="buyer@customer.com" />

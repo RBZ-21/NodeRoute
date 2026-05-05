@@ -532,7 +532,7 @@ router.post('/', validate(orderCreateSchema), authenticateToken, requireRole('ad
     tax_enabled: taxEnabled,
     tax_rate: taxRate,
     driver_name: null,
-    route_id: null,
+    route_id: req.body.routeId || null,
     tracking_token: trackingToken,
     tracking_expires_at: trackingExpiry(),
   }, req.context);
