@@ -28,16 +28,6 @@ function runNodeCheck(file) {
 
 for (const file of walk(backendDir)) runNodeCheck(file);
 
-const html = fs.readFileSync(path.join(repoRoot, 'frontend', 'index.html'), 'utf8');
-const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
-for (const [index, script] of scripts.entries()) {
-  try {
-    new Function(script[1]);
-  } catch (error) {
-    throw new Error(`frontend/index.html script ${index} failed parse: ${error.message}`);
-  }
-}
-
 const routeFiles = ['customers', 'stops', 'routes', 'orders', 'invoices', 'inventory'];
 for (const name of routeFiles) {
   const source = fs.readFileSync(path.join(backendDir, 'routes', `${name}.js`), 'utf8');
@@ -45,9 +35,16 @@ for (const name of routeFiles) {
   assert(!/insert\(\[req\.body\]/.test(source), `${name}: raw req.body insert found`);
 }
 
-assert(html.includes('function normalizeRoute'), 'Route normalization helper missing');
-assert(html.includes('function customerName'), 'Customer field normalization helper missing');
-assert(html.includes('function submitInventoryCount'), 'Inventory count workflow missing');
-assert(html.includes("headers: { 'Content-Type': 'application/json', ...authHeaders.headers }"), 'JSON content-type hardening missing');
+// Frontend-v2 React source checks (replaced legacy frontend/index.html assertions)
+const frontendSrc = path.join(repoRoot, 'frontend-v2', 'src');
+const apiSrc        = fs.readFileSync(path.join(frontendSrc, 'lib', 'api.ts'), 'utf8');
+const invoicesSrc   = fs.readFileSync(path.join(frontendSrc, 'pages', 'InvoicesPage.tsx'), 'utf8');
+const inventorySrc  = fs.readFileSync(path.join(frontendSrc, 'pages', 'InventoryPage.tsx'), 'utf8');
+const navSrc        = fs.readFileSync(path.join(frontendSrc, 'lib', 'nav.ts'), 'utf8');
 
-console.log(`stress smoke passed: ${walk(backendDir).length} backend files, ${scripts.length} frontend script block`);
+assert(apiSrc.includes("'Content-Type': 'application/json'"), 'JSON content-type hardening missing in api.ts');
+assert(invoicesSrc.includes('function customerName'), 'Customer field normalization helper missing in InvoicesPage');
+assert(inventorySrc.includes('function downloadCsv'), 'Inventory CSV export helper missing in InventoryPage');
+assert(navSrc.includes("id: 'purchasing'"), 'Purchasing nav tab missing');
+
+console.log(`stress smoke passed: ${walk(backendDir).length} backend files, frontend-v2 React source checks passed`);
