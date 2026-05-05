@@ -148,44 +148,47 @@ export function InvoicesPage() {
             <Button variant="outline" onClick={() => refetch()}>Refresh</Button>
           </div>
         </CardHeader>
-        <CardContent className="rounded-lg border border-border bg-card p-2">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Invoice #</TableHead>
-                <TableHead>Customer</TableHead>
-                <TableHead>Order #</TableHead>
-                <TableHead>Amount</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Issued</TableHead>
-                <TableHead>Due</TableHead>
-                <TableHead>Paid</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {filtered.length ? filtered.map((inv) => {
-                const status = normalizeStatus(inv.status);
-                return (
-                  <TableRow key={invoiceId(inv)}>
-                    <TableCell className="font-medium">{invoiceId(inv)}</TableCell>
-                    <TableCell>{customerName(inv)}</TableCell>
-                    <TableCell>{inv.orderId || inv.order_id || '-'}</TableCell>
-                    <TableCell>{formatAmount(inv.amount)}</TableCell>
-                    <TableCell><StatusBadge status={status === 'other' ? 'unknown' : status} colorMap={statusColors} fallbackLabel="Unknown" /></TableCell>
-                    <TableCell>{formatDate(inv.issuedDate || inv.issued_date)}</TableCell>
-                    <TableCell>{formatDate(inv.dueDate || inv.due_date)}</TableCell>
-                    <TableCell>{formatDate(inv.paidDate || inv.paid_date)}</TableCell>
-                    <TableCell>
-                      <Button size="sm" onClick={() => openInvoice(inv)}>View / Edit</Button>
-                    </TableCell>
-                  </TableRow>
-                );
-              }) : (
-                <TableRow><TableCell colSpan={9} className="text-muted-foreground">No invoices found.</TableCell></TableRow>
-              )}
-            </TableBody>
-          </Table>
+        <CardContent className="p-0 sm:p-2">
+          {/* Horizontally scrollable wrapper for mobile */}
+          <div className="overflow-x-auto rounded-lg border border-border">
+            <Table className="min-w-[600px]">
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Invoice #</TableHead>
+                  <TableHead>Customer</TableHead>
+                  <TableHead className="hidden sm:table-cell">Order #</TableHead>
+                  <TableHead>Amount</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead className="hidden md:table-cell">Issued</TableHead>
+                  <TableHead className="hidden md:table-cell">Due</TableHead>
+                  <TableHead className="hidden md:table-cell">Paid</TableHead>
+                  <TableHead className="text-right">Actions</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {filtered.length ? filtered.map((inv) => {
+                  const status = normalizeStatus(inv.status);
+                  return (
+                    <TableRow key={invoiceId(inv)}>
+                      <TableCell className="font-medium whitespace-nowrap">{invoiceId(inv)}</TableCell>
+                      <TableCell className="max-w-[140px] truncate">{customerName(inv)}</TableCell>
+                      <TableCell className="hidden sm:table-cell">{inv.orderId || inv.order_id || '-'}</TableCell>
+                      <TableCell className="whitespace-nowrap">{formatAmount(inv.amount)}</TableCell>
+                      <TableCell><StatusBadge status={status === 'other' ? 'unknown' : status} colorMap={statusColors} fallbackLabel="Unknown" /></TableCell>
+                      <TableCell className="hidden md:table-cell whitespace-nowrap">{formatDate(inv.issuedDate || inv.issued_date)}</TableCell>
+                      <TableCell className="hidden md:table-cell whitespace-nowrap">{formatDate(inv.dueDate || inv.due_date)}</TableCell>
+                      <TableCell className="hidden md:table-cell whitespace-nowrap">{formatDate(inv.paidDate || inv.paid_date)}</TableCell>
+                      <TableCell className="text-right">
+                        <Button size="sm" className="whitespace-nowrap" onClick={() => openInvoice(inv)}>View / Edit</Button>
+                      </TableCell>
+                    </TableRow>
+                  );
+                }) : (
+                  <TableRow><TableCell colSpan={9} className="text-muted-foreground">No invoices found.</TableCell></TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </CardContent>
       </Card>
 
@@ -198,7 +201,7 @@ export function InvoicesPage() {
                 <h2 className="text-lg font-semibold">{invoiceId(selected)}</h2>
                 <p className="text-sm text-muted-foreground">{customerName(selected)}</p>
               </div>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 {!editing && !confirmDelete && (
                   <>
                     <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
@@ -213,9 +216,9 @@ export function InvoicesPage() {
                 )}
                 {confirmDelete && (
                   <>
-                    <span className="self-center text-sm text-destructive">Delete this invoice?</span>
+                    <span className="self-center text-sm text-destructive">Delete?</span>
                     <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>No</Button>
-                    <Button size="sm" disabled={deleteInvoice.isPending} onClick={handleDelete}>{deleteInvoice.isPending ? 'Deleting...' : 'Yes, Delete'}</Button>
+                    <Button size="sm" disabled={deleteInvoice.isPending} onClick={handleDelete}>{deleteInvoice.isPending ? 'Deleting...' : 'Yes'}</Button>
                   </>
                 )}
                 <Button size="sm" variant="ghost" onClick={() => { setSelected(null); setConfirmDelete(false); }}>✕</Button>
