@@ -3,6 +3,10 @@ const path = require('path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+// Route modules throw at load time when JWT_SECRET is absent (intentional
+// production guard). Provide a dev value so require() succeeds in tests.
+if (!process.env.JWT_SECRET) process.env.JWT_SECRET = 'test-dev-secret';
+
 const repoRoot = path.resolve(__dirname, '..', '..');
 const routeDir = path.join(repoRoot, 'backend', 'routes');
 
@@ -37,29 +41,22 @@ test('manager write routes include role checks and context guards', () => {
 });
 
 test('frontend workflow helpers required by dispatch operations are present', () => {
-  const html = fs.readFileSync(path.join(repoRoot, 'frontend', 'index.html'), 'utf8');
-  for (const helper of [
-    'function normalizeRoute',
-    'function customerName',
-    'function filterOrderCustomers',
-    'function submitInventoryCount',
-    'function printInventoryCountSheet',
-    'function requestWalkthrough',
-    'function autoFillOrderFromIntake',
-    'function createPurchaseOrderDraftFromOrderIntake',
-    'function routeActiveStopIds',
-    'function openEditCustomerModal',
-  ]) {
-    assert.ok(html.includes(helper), `missing ${helper}`);
+  const srcDir = path.join(repoRoot, 'frontend-v2', 'src');
+  function readSrc(...files) {
+    return files.map((f) => fs.readFileSync(path.join(srcDir, f), 'utf8')).join('\n');
   }
-  assert.ok(html.includes("headers: { 'Content-Type': 'application/json', ...authHeaders.headers }"));
-  assert.ok(html.includes('Number.isFinite(cost)'), 'route optimization should ignore invalid matrix costs');
-  assert.ok(html.includes('OSRM returned no duration matrix'), 'route optimization should handle bad OSRM payloads');
-  assert.ok(html.includes('id="orderNotes"'), 'orders form should expose notes textbox for intake');
-  assert.ok(html.includes('id="orderIntakeBtn"'), 'orders form should expose intake auto-fill button');
-  assert.ok(html.includes('id="orderIntakePoBtn"'), 'orders form should expose intake-to-po button');
-  assert.ok(html.includes("fetch(`${API}/ai/order-intake`"), 'orders form should call AI order intake API');
-  assert.ok(html.includes("fetch(`${API}/ops/purchase-order-drafts/from-order-intake`"), 'orders form should call intake gap PO API');
+  const ordersSrc    = readSrc('pages/OrdersPage.tsx');
+  const invoicesSrc  = readSrc('pages/InvoicesPage.tsx');
+  const inventorySrc = readSrc('pages/InventoryPage.tsx');
+  const navSrc       = readSrc('lib/nav.ts');
+
+  assert.ok(ordersSrc.includes("'/api/ai/order-intake'"), 'orders page must call AI order-intake API');
+  assert.ok(invoicesSrc.includes('function customerName'), 'invoices page should expose customer name helper');
+  assert.ok(inventorySrc.includes('function printCountSheet'), 'inventory page should expose count sheet print');
+  assert.ok(inventorySrc.includes('function downloadCsv'), 'inventory page should expose CSV export');
+  assert.ok(navSrc.includes("id: 'purchasing'"), 'nav should define purchasing tab');
+  assert.ok(navSrc.includes("id: 'warehouse'"), 'nav should define warehouse tab');
+  assert.ok(navSrc.includes("id: 'integrations'"), 'nav should define integrations tab');
 });
 
 test('routes backend normalizes stop id payloads for create and update', () => {

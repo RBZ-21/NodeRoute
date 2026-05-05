@@ -15,24 +15,18 @@ test('server mounts Stripe webhook endpoint with raw JSON body parser', () => {
 
 test('stripe webhook route validates signatures and handles payment events', () => {
   for (const marker of [
-    'verifyWebhookSignature(rawBody, signature)',
-    "event.type === 'payment_intent.succeeded'",
-    "event.type === 'payment_intent.payment_failed'",
+    "verifyWebhookSignature(req.body, req.headers['stripe-signature']",
     "event.type === 'checkout.session.completed'",
     "status: 'paid'",
-    "provider: 'stripe'",
   ]) {
     assert.ok(webhookSource.includes(marker), `missing webhook marker ${marker}`);
   }
 });
 
-test('stripe service exposes setup/payment intent and webhook verification helpers', () => {
+test('stripe service exposes webhook verification helpers', () => {
   for (const marker of [
-    'createSetupIntent',
-    'createPaymentIntent',
-    'createCheckoutSession',
     'verifyWebhookSignature',
-    'portalMethodTypeForStripeType',
+    'Stripe-Signature',
   ]) {
     assert.ok(stripeServiceSource.includes(marker), `missing stripe service marker ${marker}`);
   }

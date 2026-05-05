@@ -20,6 +20,7 @@ import { OrderWeightsBoard } from './OrderWeightsBoard';
 import { OrderFormCard } from './OrderFormCard';
 import { OrdersWorkbench } from './OrdersWorkbench';
 import { WeightCaptureCard } from './WeightCaptureCard';
+import { WeightStationPanel } from './WeightStationPanel';
 import {
   asMoney,
   asNumber,
@@ -127,6 +128,7 @@ export function OrdersPage() {
   const [submitting, setSubmitting] = useState(false);
   const [weightCaptureOrder, setWeightCaptureOrder] = useState<Order | null>(null);
   const [weightInputs, setWeightInputs]             = useState<Record<string, string>>({});
+  const [showWeightStation, setShowWeightStation]   = useState(false);
   const [savingWeight, setSavingWeight]             = useState<Record<string, boolean>>({});
   const openedOrderIdRef = useRef<string | null>(null);
   const dashboardAction = String(searchParams.get('action') || '').trim().toLowerCase();
@@ -368,12 +370,35 @@ export function OrdersPage() {
         </div>
       ) : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard title="Orders"               value={orders.length.toLocaleString()} />
-        <SummaryCard title="Pending"              value={summary.pending.toLocaleString()} />
-        <SummaryCard title="In Process"           value={summary.inProcess.toLocaleString()} />
-        <SummaryCard title="Total Pipeline Value" value={asMoney(summary.totalValue)} />
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <SummaryCard title="Orders"               value={orders.length.toLocaleString()} />
+          <SummaryCard title="Pending"              value={summary.pending.toLocaleString()} />
+          <SummaryCard title="In Process"           value={summary.inProcess.toLocaleString()} />
+          <SummaryCard title="Total Pipeline Value" value={asMoney(summary.totalValue)} />
+        </div>
+        <button
+          onClick={() => setShowWeightStation((v) => !v)}
+          className={[
+            'shrink-0 rounded-md border px-4 py-2 text-sm font-medium transition-colors',
+            showWeightStation
+              ? 'border-primary bg-primary text-primary-foreground hover:bg-primary/90'
+              : 'border-border bg-background hover:bg-muted',
+          ].join(' ')}
+        >
+          {showWeightStation ? '✕ Close Weight Station' : '⚖ Weight Station'}
+        </button>
       </div>
+
+      {showWeightStation && (
+        <WeightStationPanel
+          orders={orders}
+          weightInputs={weightInputs}
+          savingWeight={savingWeight}
+          onWeightInputChange={(key, val) => setWeightInputs((wi) => ({ ...wi, [key]: val }))}
+          onSaveWeight={saveActualWeight}
+        />
+      )}
 
       {/* ── AI Order Intake modal ── */}
       {(role === 'admin' || role === 'manager') && (

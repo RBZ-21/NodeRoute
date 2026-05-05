@@ -49,7 +49,8 @@
       "Bash(git rebase *)",
       "Bash(git stash *)",
       "Bash(GIT_EDITOR=true git rebase --continue)",
-      "Bash(GIT_EDITOR=\"true\" git -c core.editor=true rebase --continue)"
+      "Bash(GIT_EDITOR=\"true\" git -c core.editor=true rebase --continue)",
+      "mcp__353f4a27-95a1-42cf-8678-7887beda8a8d__apply_migration"
     ]
   }
 }

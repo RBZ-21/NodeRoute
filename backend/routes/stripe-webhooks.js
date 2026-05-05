@@ -41,7 +41,7 @@ async function handleCheckoutSessionCompleted(session) {
     // Portal checkout: pay the oldest open invoices up to the amount paid
     const { data: invoices, error } = await supabase
       .from('invoices')
-      .select('id, total_amount, company_id, status')
+      .select('id, total, company_id, status')
       .eq('company_id', company_id)
       .in('status', ['open', 'pending'])
       .order('created_at', { ascending: true });
@@ -55,7 +55,7 @@ async function handleCheckoutSessionCompleted(session) {
     }
 
     // Aggregate balance check
-    const balance = invoices.reduce((s, inv) => s + Number(inv.total_amount || 0), 0);
+    const balance = invoices.reduce((s, inv) => s + Number(inv.total || 0), 0);
     if (Math.abs(amountPaid - balance) > 0.01) {
       logger.warn({ amountPaid, balance, company_id }, 'portal_checkout: paid amount does not match open balance — skipping');
       return;
@@ -79,7 +79,7 @@ async function handleCheckoutSessionCompleted(session) {
 
   const { data: inv, error: invErr } = await supabase
     .from('invoices')
-    .select('id, total_amount, company_id, status')
+    .select('id, total, company_id, status')
     .eq('id', invoice_id)
     .single();
 
@@ -95,7 +95,7 @@ async function handleCheckoutSessionCompleted(session) {
   }
 
   // Amount check
-  const expected = Number(inv.total_amount || 0);
+  const expected = Number(inv.total || 0);
   if (Math.abs(amountPaid - expected) > 0.01) {
     logger.warn({ amountPaid, expected, invoice_id }, 'checkout.session.completed: paid amount mismatch — skipping');
     return;

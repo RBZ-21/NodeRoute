@@ -66,8 +66,8 @@ test('purchase orders are tenant-scoped with company and location context', () =
     'filterRowsByContext,',
     'insertRecordWithOptionalScope,',
     ".select('item_number, description, on_hand_qty, cost, unit, is_ftl_product, company_id, location_id')",
-    ".select('id, po_number, vendor, total_cost, items, confirmed_by, created_at, company_id, location_id')",
-    "filterRowsByContext(data || [], req.context)",
+    "'id, po_number, vendor, total_cost, items, confirmed_by, created_at, company_id, location_id'",
+    "filterRowsByContext(result.data || [], req.context)",
     "const poInsert = await insertRecordWithOptionalScope(supabase, 'purchase_orders', {",
     "...buildScopeFields(req.context)",
   ]) {

@@ -18,10 +18,7 @@ const {
 
 const router = express.Router();
 
-if (!process.env.JWT_SECRET) {
-  throw new Error('FATAL: JWT_SECRET environment variable is not set. Server cannot start without it.');
-}
-const JWT_SECRET = process.env.JWT_SECRET;
+const { JWT_SECRET } = require('../lib/config');
 const JWT_EXPIRY = '24h';
 const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 h in ms
 
