@@ -29,10 +29,12 @@ const authLimiter = rateLimit({
   handler: jsonMessage('Too many authentication attempts. Please wait 15 minutes before trying again.'),
 });
 
-// 5 attempts per 15 minutes per IP — strict brute-force protection on login.
+// 20 attempts per 15 minutes per IP — raised from 5 to prevent false triggers.
+// skipSuccessfulRequests ensures legitimate logins don't count against the limit.
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 5,
+  max: 20,
+  skipSuccessfulRequests: true,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   skip: () => isTest,
