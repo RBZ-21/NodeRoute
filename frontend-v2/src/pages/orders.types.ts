@@ -70,6 +70,7 @@ export type InventoryProduct = {
   description: string;
   is_ftl_product?: boolean;
   is_catch_weight?: boolean;
+  is_active?: boolean;
   default_price_per_lb?: number | string;
   unit?: string;
   cost?: number | string;
