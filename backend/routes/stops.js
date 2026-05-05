@@ -274,7 +274,7 @@ router.post('/:id/signature', authenticateToken, async (req, res) => {
   }
 });
 
-// POST /api/stops/:id/weight — save captured weight
+// POST /api/stops/:id/weight — save captured weight at delivery
 router.post('/:id/weight', authenticateToken, async (req, res) => {
   try {
     if (req.user.role === 'driver') {
@@ -301,6 +301,79 @@ router.post('/:id/weight', authenticateToken, async (req, res) => {
       .single();
     if (error) return res.status(500).json({ error: error.message });
     res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /api/stops/:id/defer — QA Step 16 fix
+ * Moves a stop to the end of the route's active_stop_ids queue.
+ * Accessible by the assigned driver (own route only) and admins/managers.
+ *
+ * Response:
+ *   { route_id, active_stop_ids, deferred: true, deferred_stop_id }
+ *   or { deferred: false, reason } if already last.
+ */
+router.post('/:id/defer', authenticateToken, async (req, res) => {
+  try {
+    // Load stop
+    const { data: stop, error: stopErr } = await supabase
+      .from('stops').select('*').eq('id', req.params.id).single();
+    if (stopErr || !stop) return res.status(404).json({ error: 'Stop not found' });
+    if (!stop.route_id) return res.status(400).json({ error: 'Stop is not assigned to a route' });
+
+    // Load route
+    const { data: route, error: routeErr } = await supabase
+      .from('routes').select('*').eq('id', stop.route_id).single();
+    if (routeErr || !route) return res.status(404).json({ error: 'Route not found' });
+
+    // Drivers may only defer stops on their assigned route
+    if (req.user.role === 'driver') {
+      if (!isRouteAssignedToUser(route, req.user)) {
+        return res.status(403).json({ error: 'Route is not assigned to this driver' });
+      }
+      if (String(stop.driver_id) !== String(req.user.id)) {
+        return res.status(403).json({ error: 'Access denied' });
+      }
+    }
+
+    // Resolve active queue — prefer active_stop_ids, fall back to stop_ids
+    const activeIds = Array.isArray(route.active_stop_ids) && route.active_stop_ids.length
+      ? [...route.active_stop_ids]
+      : (Array.isArray(route.stop_ids) ? [...route.stop_ids] : []);
+
+    const stopId = req.params.id;
+    const currentIndex = activeIds.indexOf(stopId);
+
+    if (currentIndex === -1) {
+      return res.status(400).json({ error: 'Stop is not in the active queue for this route' });
+    }
+    if (currentIndex === activeIds.length - 1) {
+      return res.json({
+        route_id: route.id,
+        active_stop_ids: activeIds,
+        deferred: false,
+        reason: 'Stop is already last in queue',
+      });
+    }
+
+    // Move stop to end of active queue
+    activeIds.splice(currentIndex, 1);
+    activeIds.push(stopId);
+
+    const { error: updateErr } = await supabase
+      .from('routes')
+      .update({ active_stop_ids: activeIds })
+      .eq('id', route.id);
+    if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+    res.json({
+      route_id: route.id,
+      active_stop_ids: activeIds,
+      deferred: true,
+      deferred_stop_id: stopId,
+    });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
