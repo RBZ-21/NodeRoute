@@ -38,3 +38,11 @@ export function useUpdateInvoice() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['invoices'] }),
   });
 }
+
+export function useDeleteInvoice() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string | number) => sendWithAuth(`/api/invoices/${id}`, 'DELETE'),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['invoices'] }),
+  });
+}

@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { type Invoice, useInvoices, useUpdateInvoice } from '../hooks/useInvoices';
+import { type Invoice, useDeleteInvoice, useInvoices, useUpdateInvoice } from '../hooks/useInvoices';
 
 type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled' | 'other';
 
@@ -45,6 +45,7 @@ function formatDate(val: string | undefined): string {
 export function InvoicesPage() {
   const { data: invoices = [], isLoading, isError, error, refetch } = useInvoices();
   const updateInvoice = useUpdateInvoice();
+  const deleteInvoice = useDeleteInvoice();
 
   const [notice, setNotice] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | InvoiceStatus>('all');
@@ -52,6 +53,7 @@ export function InvoicesPage() {
   const [selected, setSelected] = useState<Invoice | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Partial<Invoice>>({});
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   const filtered = useMemo(() => {
     return invoices.filter((inv) => {
@@ -79,6 +81,18 @@ export function InvoicesPage() {
     setSelected(inv);
     setDraft({ ...inv });
     setEditing(false);
+  }
+
+  function handleDelete() {
+    const id = selected?.id;
+    if (!id) return;
+    deleteInvoice.mutate(id, {
+      onSuccess: () => {
+        setNotice(`Invoice ${invoiceId(selected!)} deleted.`);
+        setSelected(null);
+        setConfirmDelete(false);
+      },
+    });
   }
 
   function saveInvoice() {
@@ -185,15 +199,26 @@ export function InvoicesPage() {
                 <p className="text-sm text-muted-foreground">{customerName(selected)}</p>
               </div>
               <div className="flex gap-2">
-                {!editing ? (
-                  <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
-                ) : (
+                {!editing && !confirmDelete && (
+                  <>
+                    <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
+                    <Button size="sm" variant="outline" onClick={() => setConfirmDelete(true)}>Delete</Button>
+                  </>
+                )}
+                {editing && (
                   <>
                     <Button size="sm" variant="outline" onClick={() => { setEditing(false); setDraft({ ...selected }); }}>Cancel</Button>
                     <Button size="sm" disabled={updateInvoice.isPending} onClick={saveInvoice}>{updateInvoice.isPending ? 'Saving...' : 'Save'}</Button>
                   </>
                 )}
-                <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>✕</Button>
+                {confirmDelete && (
+                  <>
+                    <span className="self-center text-sm text-destructive">Delete this invoice?</span>
+                    <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>No</Button>
+                    <Button size="sm" disabled={deleteInvoice.isPending} onClick={handleDelete}>{deleteInvoice.isPending ? 'Deleting...' : 'Yes, Delete'}</Button>
+                  </>
+                )}
+                <Button size="sm" variant="ghost" onClick={() => { setSelected(null); setConfirmDelete(false); }}>✕</Button>
               </div>
             </div>
             <div className="flex-1 space-y-4 p-6">
