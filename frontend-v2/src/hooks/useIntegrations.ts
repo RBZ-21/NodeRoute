@@ -76,6 +76,7 @@ export function useIntegrations() {
   return useQuery({
     queryKey: ['integrations'],
     queryFn: fetchIntegrations,
+    staleTime: 30_000,
   });
 }
 

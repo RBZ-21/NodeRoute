@@ -71,6 +71,7 @@ export function usePlanningRules() {
   return useQuery({
     queryKey: ['planning-rules'],
     queryFn: fetchRules,
+    staleTime: 30_000,
   });
 }
 

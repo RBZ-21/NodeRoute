@@ -46,6 +46,7 @@ export function useTrackingData(token: string) {
     queryFn: () => fetchTrackingData(token),
     enabled: !!token,
     refetchInterval: 30_000,
+    staleTime: 0,
     retry: false,
   });
 }

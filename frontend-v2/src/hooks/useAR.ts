@@ -28,6 +28,7 @@ export function useARAging() {
     queryKey: ['ar-aging'],
     queryFn: () => fetchWithAuth<{ aging: AgingRow[] }>('/api/ar/aging'),
     select: (data) => (Array.isArray(data?.aging) ? data.aging : []),
+    staleTime: 30_000,
   });
 }
 
@@ -36,6 +37,7 @@ export function useARCollections() {
     queryKey: ['ar-collections'],
     queryFn: () => fetchWithAuth<CollectionRow[]>('/api/ar/collections'),
     select: (data) => (Array.isArray(data) ? data : []),
+    staleTime: 30_000,
   });
 }
 
