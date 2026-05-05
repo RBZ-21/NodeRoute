@@ -63,8 +63,6 @@ export function InventoryPage() {
   const inventoryQuery = useInventoryQuery();
   const items = inventoryQuery.data ?? [];
 
-  // Ledger uses a "committed" params object so filters only apply on explicit
-  // Apply/Refresh — not on every keystroke.
   const [ledgerCommitted, setLedgerCommitted] = useState<LedgerParams>({
     itemFilter: '',
     typeFilter: '',
@@ -89,6 +87,9 @@ export function InventoryPage() {
   // ── Local UI state ────────────────────────────────────────────────────────
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  // Inline feedback for the Inventory Actions card specifically
+  const [actionError, setActionError] = useState('');
+  const [actionNotice, setActionNotice] = useState('');
   const [selectedItemNumber, setSelectedItemNumber] = useState('');
   const [restockQty, setRestockQty] = useState('');
   const [adjustDelta, setAdjustDelta] = useState('');
@@ -107,7 +108,6 @@ export function InventoryPage() {
   const [countCategoryFilter, setCountCategoryFilter] = useState('all');
   const [includeZeroStockInCounts, setIncludeZeroStockInCounts] = useState(true);
 
-  // Draft ledger filter values — committed to ledgerCommitted on Apply/Refresh.
   const [ledgerItemFilter, setLedgerItemFilter] = useState('');
   const [ledgerTypeFilter, setLedgerTypeFilter] = useState('');
   const [ledgerLimit, setLedgerLimit] = useState('75');
@@ -125,17 +125,21 @@ export function InventoryPage() {
   const [markdownSummary, setMarkdownSummary] = useState('');
 
   // Initialise selector dropdowns once the first inventory load completes.
+  // Use the first item whose item_number is truthy so we never silently
+  // pre-select a blank value and disable the action buttons unexpectedly.
   const selectorInitialized = useRef(false);
   useEffect(() => {
     if (selectorInitialized.current || !items.length) return;
     selectorInitialized.current = true;
-    setSelectedItemNumber(items[0].item_number || '');
-    setSpoilageItem(items[0].item_number || '');
-    setTransferFrom(items[0].item_number || '');
-    if (items.length > 1) setTransferTo(items[1].item_number || '');
+    const firstValidItem = items.find((i) => i.item_number) ?? items[0];
+    setSelectedItemNumber(firstValidItem?.item_number || '');
+    setSpoilageItem(firstValidItem?.item_number || '');
+    setTransferFrom(firstValidItem?.item_number || '');
+    const secondValidItem = items.find((i) => i.item_number && i.item_number !== firstValidItem?.item_number);
+    if (secondValidItem) setTransferTo(secondValidItem.item_number || '');
   }, [items]);
 
-  // ── AI calls (not cached server state — kept as direct sendWithAuth) ──────
+  // ── AI calls ──────────────────────────────────────────────────────────────
   async function runAiHealthAnalysis() {
     setAiLoading(true); setAiError(''); setAiAnalysis(null);
     try {
@@ -161,44 +165,51 @@ export function InventoryPage() {
   }
 
   // ── Inventory action helpers ───────────────────────────────────────────────
-  // Patches a single item in the cached list — accepts a partial so toggle
-  // components that only return changed fields (e.g. { item_number, is_ftl_product })
-  // can call this without providing the full InventoryItem shape.
   function patchCachedItem(updated: Pick<InventoryItem, 'item_number'> & Partial<InventoryItem>) {
     queryClient.setQueryData<InventoryItem[]>(['inventory'], (old) =>
       old?.map((it) => it.item_number === updated.item_number ? { ...it, ...updated } : it) ?? old,
     );
   }
 
-  // Commits draft ledger filter values and triggers a re-fetch.
   function commitLedgerFilters() {
     setLedgerCommitted({ itemFilter: ledgerItemFilter, typeFilter: ledgerTypeFilter, limit: ledgerLimit });
   }
 
+  // Helper to reset inline action feedback before each submission
+  function clearActionFeedback() { setActionError(''); setActionNotice(''); }
+
   // ── Mutations ─────────────────────────────────────────────────────────────
   async function submitRestock() {
-    if (!selectedItemNumber) return;
+    clearActionFeedback();
+    if (!selectedItemNumber) {
+      setActionError('Please select an item before restocking.');
+      return;
+    }
     const qty = asNumber(restockQty);
-    if (qty <= 0) { setError('Restock quantity must be greater than 0.'); return; }
-    setSubmitting(true); setError(''); setNotice('');
+    if (qty <= 0) { setActionError('Restock quantity must be greater than 0.'); return; }
+    setSubmitting(true);
     try {
       await restockMutation.mutateAsync({ itemNumber: selectedItemNumber, qty, notes: actionNotes || undefined });
       setRestockQty(''); setActionNotes('');
-      setNotice(`Restocked ${selectedItemNumber} by ${qty.toLocaleString()}.`);
-    } catch (err) { setError(String((err as Error).message || 'Restock failed')); }
+      setActionNotice(`Restocked ${selectedItemNumber} by ${qty.toLocaleString()}.`);
+    } catch (err) { setActionError(String((err as Error).message || 'Restock failed')); }
     finally { setSubmitting(false); }
   }
 
   async function submitAdjustment() {
-    if (!selectedItemNumber) return;
+    clearActionFeedback();
+    if (!selectedItemNumber) {
+      setActionError('Please select an item before applying an adjustment.');
+      return;
+    }
     const delta = asNumber(adjustDelta);
-    if (delta === 0) { setError('Adjustment delta must be non-zero.'); return; }
-    setSubmitting(true); setError(''); setNotice('');
+    if (delta === 0) { setActionError('Adjustment delta must be non-zero.'); return; }
+    setSubmitting(true);
     try {
       await adjustMutation.mutateAsync({ itemNumber: selectedItemNumber, delta, notes: actionNotes || undefined });
       setAdjustDelta(''); setActionNotes('');
-      setNotice(`Adjusted ${selectedItemNumber} by ${delta > 0 ? '+' : ''}${delta.toLocaleString()}.`);
-    } catch (err) { setError(String((err as Error).message || 'Adjustment failed')); }
+      setActionNotice(`Adjusted ${selectedItemNumber} by ${delta > 0 ? '+' : ''}${delta.toLocaleString()}.`);
+    } catch (err) { setActionError(String((err as Error).message || 'Adjustment failed')); }
     finally { setSubmitting(false); }
   }
 
@@ -377,11 +388,27 @@ export function InventoryPage() {
         )}
       </Card>
 
+      {/* ── Inventory Actions ─────────────────────────────────────────────── */}
       <Card>
         <CardHeader><CardTitle>Inventory Actions</CardTitle><CardDescription>Restock and adjust item quantities through existing inventory APIs.</CardDescription></CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-4">
+          {/* Inline feedback — shown right here in the card, not at the top of the page */}
+          {actionError && (
+            <div className="md:col-span-4 rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">
+              {actionError}
+            </div>
+          )}
+          {actionNotice && (
+            <div className="md:col-span-4 rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
+              {actionNotice}
+            </div>
+          )}
           <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Item</span>
-            <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={selectedItemNumber} onChange={(e) => setSelectedItemNumber(e.target.value)}>
+            <select
+              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              value={selectedItemNumber}
+              onChange={(e) => { setSelectedItemNumber(e.target.value); clearActionFeedback(); }}
+            >
               <option value="">Select item...</option>{items.map((i) => <option key={i.id} value={i.item_number || ''}>{i.item_number} - {i.description}</option>)}
             </select>
           </label>
@@ -389,8 +416,8 @@ export function InventoryPage() {
           <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Adjustment Delta</span><Input type="number" step="0.01" value={adjustDelta} onChange={(e) => setAdjustDelta(e.target.value)} placeholder="e.g. -2.5" /></label>
           <label className="space-y-1 text-sm md:col-span-4"><span className="font-semibold text-muted-foreground">Notes</span><Input value={actionNotes} onChange={(e) => setActionNotes(e.target.value)} placeholder="Optional movement notes" /></label>
           <div className="md:col-span-4 flex flex-wrap gap-2">
-            <Button onClick={submitRestock} disabled={submitting || !selectedItemNumber}>Restock Item</Button>
-            <Button variant="secondary" onClick={submitAdjustment} disabled={submitting || !selectedItemNumber}>Apply Adjustment</Button>
+            <Button onClick={submitRestock} disabled={submitting}>Restock Item</Button>
+            <Button variant="secondary" onClick={submitAdjustment} disabled={submitting}>Apply Adjustment</Button>
             {selectedItem && <div className="ml-auto rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">Current: <strong>{asNumber(selectedItem.on_hand_qty).toLocaleString()}</strong> {selectedItem.unit || ''}</div>}
           </div>
         </CardContent>
