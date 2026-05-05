@@ -305,41 +305,49 @@ export function OrderFormCard({
                           // inventory query hasn't resolved yet (or failed),
                           // fall back to the data already encoded in the option.
                           const p = products.find((x) => x.item_number === opt.value);
-
-                          if (p) {
-                            const isCatchWeight = !!p.is_catch_weight;
-                            updateLine(index, 'name', p.description);
-                            updateLine(index, 'itemNumber', p.item_number);
-                            updateLine(index, 'lotId', '');
-                            if (isCatchWeight) {
-                              updateLine(index, 'isCatchWeight', 'true');
-                              if (p.default_price_per_lb != null) updateLine(index, 'pricePerLb', String(asNumber(p.default_price_per_lb)));
+                          try {
+                            if (p) {
+                              const isCatchWeight = !!p.is_catch_weight;
+                              updateLine(index, 'name', p.description);
+                              updateLine(index, 'itemNumber', p.item_number);
+                              updateLine(index, 'lotId', '');
+                              if (isCatchWeight) {
+                                updateLine(index, 'isCatchWeight', 'true');
+                                if (p.default_price_per_lb != null) updateLine(index, 'pricePerLb', String(asNumber(p.default_price_per_lb)));
+                              } else {
+                                updateLine(index, 'unit', String(p.unit ?? 'lb').toLowerCase() === 'lb' ? 'lb' : 'each');
+                                if (asNumber(p.cost) > 0) updateLine(index, 'unitPrice', String(asNumber(p.cost)));
+                                updateLine(index, 'estimatedWeight', '');
+                                updateLine(index, 'pricePerLb', '');
+                              }
                             } else {
-                              updateLine(index, 'unit', String(p.unit ?? 'lb').toLowerCase() === 'lb' ? 'lb' : 'each');
-                              if (asNumber(p.cost) > 0) updateLine(index, 'unitPrice', String(asNumber(p.cost)));
-                              updateLine(index, 'estimatedWeight', '');
-                              updateLine(index, 'pricePerLb', '');
-                            }
-                          } else {
-                            // Fallback: populate from what the combobox option already knows.
-                            // The sublabel format is: "#ITEM_NUM · UNIT · $COST"
-                            updateLine(index, 'name', opt.label);
-                            updateLine(index, 'itemNumber', opt.value);
-                            updateLine(index, 'lotId', '');
-                            // Parse unit and cost out of sublabel when possible
-                            if (opt.sublabel) {
-                              const parts = opt.sublabel.split(' · ');
-                              // parts[0] = "#ITEM_NUM", parts[1] = unit (optional), parts[2] = "$cost" (optional)
-                              const unitPart = parts[1];
-                              const costPart = parts.find((s) => s.startsWith('$'));
-                              if (unitPart && (unitPart === 'lb' || unitPart === 'each')) {
-                                updateLine(index, 'unit', unitPart);
+                              // Fallback: populate from what the combobox option already knows.
+                              // The sublabel format is: "#ITEM_NUM · UNIT · $COST"
+                              updateLine(index, 'name', opt.label);
+                              // Only set itemNumber if a valid value exists
+                              if (opt.value) {
+                                updateLine(index, 'itemNumber', opt.value);
                               }
-                              if (costPart) {
-                                const cost = parseFloat(costPart.replace('$', ''));
-                                if (cost > 0) updateLine(index, 'unitPrice', String(cost));
+                              updateLine(index, 'lotId', '');
+                              // Parse unit and cost out of sublabel when possible
+                              if (opt.sublabel) {
+                                const parts = opt.sublabel.split(' · ');
+                                // parts[0] = "#ITEM_NUM", parts[1] = unit (optional), parts[2] = "$cost" (optional)
+                                const unitPart = parts[1];
+                                const costPart = parts.find((s) => s.startsWith('$'));
+                                if (unitPart && (unitPart === 'lb' || unitPart === 'each')) {
+                                  updateLine(index, 'unit', unitPart);
+                                }
+                                if (costPart) {
+                                  const cost = parseFloat(costPart.replace('$', ''));
+                                  if (cost > 0) updateLine(index, 'unitPrice', String(cost));
+                                }
                               }
                             }
+                          } catch (err) {
+                            // Fail-safe: do not crash the UI if item selection fails
+                            // eslint-disable-next-line no-console
+                            console.error('[orders] item-select-failure', err);
                           }
                         }}
                         options={productOptions}

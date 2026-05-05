@@ -8,6 +8,8 @@ const {
   orderCreateSchema, orderUpdateSchema, orderActualWeightSchema,
   orderSendSchema, orderFulfillSchema,
 } = require('../lib/schemas');
+const { triggerPrintJob } = require('../services/printer');
+const printRouter = require('./print');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 const { sendInvoiceEmail } = require('../services/invoice-email');
 const {
@@ -486,6 +488,9 @@ router.get('/', authenticateToken, async (req, res) => {
   res.json(filterRowsByContext(data || [], req.context));
 });
 
+// Mount basic print endpoint under /print
+router.use('/print', printRouter);
+
 router.post('/', validate(orderCreateSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { customerName, customerEmail, customerAddress, items, charges, notes } = req.body;
   const fulfillmentType = normalizeFulfillmentType(req.body.fulfillmentType ?? req.body.fulfillment_type);
@@ -539,6 +544,14 @@ router.post('/', validate(orderCreateSchema), authenticateToken, requireRole('ad
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
   if (!data) return;
+  // Trigger print job for the newly created order (best-effort, non-fatal if printing fails)
+  try {
+    await triggerPrintJob(data, enrichedItems, req.context);
+  } catch (printErr) {
+    // Do not fail the request due to print errors; log for investigation
+    // eslint-disable-next-line no-console
+    console.error('[print-trigger] failed', printErr?.message || printErr);
+  }
   try {
     await syncOrderStop({ ...data, fulfillment_type: fulfillmentType }, req);
   } catch (stopErr) {
