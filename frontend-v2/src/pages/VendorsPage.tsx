@@ -63,6 +63,11 @@ export function VendorsPage() {
   const [draft, setDraft] = useState<Vendor>({});
   const [saving, setSaving] = useState(false);
 
+  // Add Vendor panel
+  const [addingNew, setAddingNew] = useState(false);
+  const [newDraft, setNewDraft] = useState<Vendor>({});
+  const [newSaving, setNewSaving] = useState(false);
+
   // AI: Vendor scoring — not server state, kept as direct sendWithAuth calls
   type VendorScore = { overall_grade: string; on_time_score: number; quality_score: number; price_consistency_score: number; summary: string; strengths: string[]; concerns: string[] };
   const [vendorScores, setVendorScores] = useState<Record<string, VendorScore>>({});
@@ -121,6 +126,22 @@ export function VendorsPage() {
     }
   }
 
+  async function createVendor() {
+    setNewSaving(true);
+    setError('');
+    try {
+      await saveVendorMutation.mutateAsync({ id: null, draft: newDraft });
+      setAddingNew(false);
+      setNewDraft({});
+      setNotice(`Vendor "${newDraft.name || 'New Vendor'}" created.`);
+      await vendorsQuery.refetch();
+    } catch (err) {
+      setError(String((err as Error).message || 'Create failed'));
+    } finally {
+      setNewSaving(false);
+    }
+  }
+
   function viewPOs(vendor: Vendor) {
     navigate(`/purchasing?vendor=${encodeURIComponent(vendorName(vendor))}`);
   }
@@ -165,6 +186,7 @@ export function VendorsPage() {
               </select>
             </label>
             <Button variant="outline" onClick={() => void vendorsQuery.refetch()}>Refresh</Button>
+            <Button onClick={() => { setNewDraft({ status: 'active' }); setAddingNew(true); }}>+ Add Vendor</Button>
           </div>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
@@ -221,6 +243,44 @@ export function VendorsPage() {
           </Table>
         </CardContent>
       </Card>
+
+      {/* ── Add Vendor Slide-Over ── */}
+      {addingNew ? (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setAddingNew(false)} />
+          <div className="relative z-10 flex h-full w-full max-w-md flex-col overflow-y-auto bg-background shadow-xl">
+            <div className="flex items-center justify-between border-b px-6 py-4">
+              <div>
+                <h2 className="text-lg font-semibold">New Vendor</h2>
+                <p className="text-sm text-muted-foreground">Fill in the details below to add a vendor.</p>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => setAddingNew(false)}>Cancel</Button>
+                <Button size="sm" disabled={newSaving} onClick={createVendor}>{newSaving ? 'Saving...' : 'Save'}</Button>
+                <Button size="sm" variant="ghost" onClick={() => setAddingNew(false)}>✕</Button>
+              </div>
+            </div>
+            <div className="flex-1 space-y-4 p-6">
+              <VendorField label="Name" value={newDraft.name} editing onChange={(v) => setNewDraft((d) => ({ ...d, name: v }))} />
+              <VendorField label="Contact" value={newDraft.contact} editing onChange={(v) => setNewDraft((d) => ({ ...d, contact: v }))} />
+              <VendorField label="Email" value={newDraft.email} editing onChange={(v) => setNewDraft((d) => ({ ...d, email: v }))} />
+              <VendorField label="Phone" value={newDraft.phone} editing onChange={(v) => setNewDraft((d) => ({ ...d, phone: v }))} />
+              <VendorField label="Category" value={newDraft.category} editing onChange={(v) => setNewDraft((d) => ({ ...d, category: v }))} />
+              <VendorField label="Address" value={newDraft.address} editing onChange={(v) => setNewDraft((d) => ({ ...d, address: v }))} />
+              <VendorField label="Payment Terms" value={newDraft.payment_terms} editing onChange={(v) => setNewDraft((d) => ({ ...d, payment_terms: v }))} />
+              <div className="flex items-start gap-3">
+                <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Status</span>
+                <select value={newDraft.status || 'active'} onChange={(e) => setNewDraft((d) => ({ ...d, status: e.target.value }))} className="flex-1 h-10 rounded-md border border-input bg-background px-3 text-sm">
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="on-hold">On Hold</option>
+                </select>
+              </div>
+              <VendorField label="Notes" value={newDraft.notes} editing onChange={(v) => setNewDraft((d) => ({ ...d, notes: v }))} multiline />
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       {/* ── Vendor Edit Slide-Over ── */}
       {selected ? (
