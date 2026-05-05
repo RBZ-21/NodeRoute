@@ -1,4 +1,4 @@
-import { useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Combobox } from '../components/ui/combobox';
@@ -63,6 +63,12 @@ export function OrderFormCard({
 
   // Prevent firing duplicate lookups for the same name
   const lookupInFlightRef = useRef<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [addressLookupLoading, setAddressLookupLoading] = useState(false);
+
+  useEffect(() => () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, []);
 
   function normalizedCustomerName(value: string) {
     return value.trim().toLowerCase();
@@ -80,23 +86,23 @@ export function OrderFormCard({
     ).trim();
   }
 
-  // Silently look up the address from Google Places if the customer has none stored
+  // Look up the address from Google Places if the customer has none stored
   async function maybeLookupAddress(name: string) {
     const trimmed = name.trim();
     if (!trimmed) return;
     if (lookupInFlightRef.current === trimmed) return; // already running for this name
     lookupInFlightRef.current = trimmed;
+    setAddressLookupLoading(true);
     try {
       const result = await fetchWithAuth<{ address?: string }>(
         `/api/customers/address-lookup?name=${encodeURIComponent(trimmed)}`
       );
-      if (result?.address) {
-        setCustomerAddress(result.address);
-      }
+      if (result?.address) setCustomerAddress(result.address);
     } catch {
       // Silently ignore — address field stays empty, user can type it in manually
     } finally {
       lookupInFlightRef.current = null;
+      setAddressLookupLoading(false);
     }
   }
 
@@ -154,7 +160,16 @@ export function OrderFormCard({
               value={customerName}
               onChange={(nextValue) => {
                 setCustomerName(nextValue);
-                hydrateCustomerByName(nextValue);
+                const matched = hydrateCustomerByName(nextValue);
+                if (!matched) {
+                  // No DB match — schedule a Google Places lookup after the user pauses
+                  if (debounceRef.current) clearTimeout(debounceRef.current);
+                  if (nextValue.trim()) {
+                    debounceRef.current = setTimeout(() => {
+                      void maybeLookupAddress(nextValue);
+                    }, 800);
+                  }
+                }
               }}
               onSelect={(opt) => {
                 const c = customers.find((x) => x.id === opt.value);
@@ -198,7 +213,12 @@ export function OrderFormCard({
             <Input value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="buyer@customer.com" />
           </label>
           <label className="space-y-1 text-sm">
-            <span className="font-semibold text-muted-foreground">Customer Address</span>
+            <span className="font-semibold text-muted-foreground">
+              Customer Address
+              {addressLookupLoading && (
+                <span className="ml-1.5 text-xs font-normal text-muted-foreground animate-pulse">Looking up…</span>
+              )}
+            </span>
             <Input
               value={customerAddress}
               onChange={(e) => setCustomerAddress(e.target.value)}
