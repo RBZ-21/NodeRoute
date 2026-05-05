@@ -16,6 +16,78 @@ function normalizeStopIds(value) {
   return [];
 }
 
+/**
+ * Haversine distance in miles between two lat/lng points.
+ */
+function haversineMiles(lat1, lng1, lat2, lng2) {
+  const R = 3958.8;
+  const toRad = (d) => (d * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+/**
+ * Nearest-neighbor geo-sort for a list of stop IDs.
+ * Fetches lat/lng for each stop from the stops table and returns a
+ * re-ordered array. Falls back to original order if coordinates are
+ * unavailable or fewer than 2 stops have valid coords.
+ *
+ * @param {string[]} stopIds
+ * @param {{ lat?: number, lng?: number }} origin  - warehouse / depot origin
+ * @returns {Promise<string[]>}
+ */
+async function geoSortStopIds(stopIds, origin = { lat: 0, lng: 0 }) {
+  if (!stopIds || stopIds.length < 2) return stopIds || [];
+
+  const { data: stops, error } = await supabase
+    .from('stops')
+    .select('id, lat, lng')
+    .in('id', stopIds);
+
+  if (error || !stops || !stops.length) return stopIds;
+
+  // Build id → coords map; skip stops with no valid coordinates
+  const coordMap = {};
+  for (const s of stops) {
+    const lat = parseFloat(s.lat);
+    const lng = parseFloat(s.lng);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && (lat !== 0 || lng !== 0)) {
+      coordMap[s.id] = { lat, lng };
+    }
+  }
+
+  const sortable = stopIds.filter((id) => coordMap[id]);
+  if (sortable.length < 2) return stopIds; // not enough coords to re-order
+
+  // Greedy nearest-neighbor pass starting from origin
+  const remaining = [...sortable];
+  const sorted   = [];
+  let curLat = parseFloat(origin.lat) || 0;
+  let curLng = parseFloat(origin.lng) || 0;
+
+  while (remaining.length) {
+    let nearest     = null;
+    let nearestDist = Infinity;
+    for (const id of remaining) {
+      const { lat, lng } = coordMap[id];
+      const dist = haversineMiles(curLat, curLng, lat, lng);
+      if (dist < nearestDist) { nearestDist = dist; nearest = id; }
+    }
+    sorted.push(nearest);
+    curLat = coordMap[nearest].lat;
+    curLng = coordMap[nearest].lng;
+    remaining.splice(remaining.indexOf(nearest), 1);
+  }
+
+  // Append stops with no coords at the end in their original relative order
+  const unsortable = stopIds.filter((id) => !coordMap[id]);
+  return [...sorted, ...unsortable];
+}
+
 // ── ROUTES (Supabase) ───────────────────────────────────
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const data = await dbQuery(supabase.from('routes').select('*').order('created_at', { ascending: true }), res);
@@ -24,15 +96,23 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { name, stopIds, activeStopIds, driver, driverId, driverName, notes } = req.body;
+  const { name, stopIds, activeStopIds, driver, driverId, driverName, notes, originLat, originLng } = req.body;
   const templateStopIds = normalizeStopIds(stopIds);
   const routeName = String(name || '').trim();
   if (!routeName) return res.status(400).json({ error: 'Route name required' });
   const assignedDriverName = driverName || driver || '';
+
+  // QA Step 11: auto-sort stop_ids by nearest-neighbor geography on route creation
+  const origin = { lat: originLat || 0, lng: originLng || 0 };
+  const sortedStopIds = await geoSortStopIds(templateStopIds, origin);
+  const sortedActiveStopIds = activeStopIds !== undefined
+    ? await geoSortStopIds(normalizeStopIds(activeStopIds), origin)
+    : sortedStopIds;
+
   const payload = {
     name: routeName,
-    stop_ids: templateStopIds,
-    active_stop_ids: activeStopIds === undefined ? templateStopIds : normalizeStopIds(activeStopIds),
+    stop_ids: sortedStopIds,
+    active_stop_ids: sortedActiveStopIds,
     driver: assignedDriverName,
     notes: notes || '',
   };
@@ -50,20 +130,28 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const payload = {};
   if (req.body.name !== undefined) payload.name = String(req.body.name || '').trim();
+
+  // QA Step 11: geo-sort any updated stop lists on PATCH as well
+  const origin = { lat: req.body.originLat || 0, lng: req.body.originLng || 0 };
+
   if (req.body.stopIds !== undefined) {
-    payload.stop_ids = normalizeStopIds(req.body.stopIds);
+    payload.stop_ids = await geoSortStopIds(normalizeStopIds(req.body.stopIds), origin);
     if (req.body.activeStopIds === undefined && req.body.active_stop_ids === undefined) {
       payload.active_stop_ids = payload.stop_ids;
     }
   }
   if (req.body.stop_ids !== undefined) {
-    payload.stop_ids = normalizeStopIds(req.body.stop_ids);
+    payload.stop_ids = await geoSortStopIds(normalizeStopIds(req.body.stop_ids), origin);
     if (req.body.activeStopIds === undefined && req.body.active_stop_ids === undefined) {
       payload.active_stop_ids = payload.stop_ids;
     }
   }
-  if (req.body.activeStopIds !== undefined) payload.active_stop_ids = normalizeStopIds(req.body.activeStopIds);
-  if (req.body.active_stop_ids !== undefined) payload.active_stop_ids = normalizeStopIds(req.body.active_stop_ids);
+  if (req.body.activeStopIds !== undefined) {
+    payload.active_stop_ids = await geoSortStopIds(normalizeStopIds(req.body.activeStopIds), origin);
+  }
+  if (req.body.active_stop_ids !== undefined) {
+    payload.active_stop_ids = await geoSortStopIds(normalizeStopIds(req.body.active_stop_ids), origin);
+  }
   if (req.body.driverName !== undefined) payload.driver = req.body.driverName || '';
   if (req.body.driver !== undefined) payload.driver = req.body.driver || '';
   if (req.body.driverId !== undefined) payload.driver_id = req.body.driverId || null;
@@ -102,3 +190,4 @@ router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async 
 
 module.exports = router;
 module.exports.normalizeStopIds = normalizeStopIds;
+module.exports.geoSortStopIds = geoSortStopIds;
