@@ -42,7 +42,7 @@ export function useCompanySettings() {
 export function useSaveProfile() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ userId, name }: { userId, name }: { userId: string; name: string }) =>
+    mutationFn: ({ userId, name }: { userId: string; name: string }) =>
       sendWithAuth(`/api/users/${userId}`, 'PATCH', { name }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['current-user'] }),
   });
