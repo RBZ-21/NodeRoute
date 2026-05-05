@@ -9,10 +9,11 @@ function jsonMessage(message) {
   return (_req, res) => res.status(429).json({ error: message });
 }
 
-// 200 requests per 15 minutes per IP — baseline protection for all routes.
+// 1000 requests per 15 minutes per IP — raised from 200 to support high-volume
+// order entry (approx. 100 orders/day, heavy traffic 5am-7am).
 const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 200,
+  max: 1000,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   skip: () => isTest,
