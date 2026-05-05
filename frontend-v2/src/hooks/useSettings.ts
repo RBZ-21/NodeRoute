@@ -27,6 +27,7 @@ export function useCurrentUser() {
   return useQuery({
     queryKey: ['current-user'],
     queryFn: () => fetchCurrentUser<CurrentUser>(),
+    staleTime: 30_000,
   });
 }
 
@@ -34,13 +35,14 @@ export function useCompanySettings() {
   return useQuery({
     queryKey: ['company-settings'],
     queryFn: () => fetchWithAuth<CompanySettings>('/api/settings/company'),
+    staleTime: 30_000,
   });
 }
 
 export function useSaveProfile() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ userId, name }: { userId: string; name: string }) =>
+    mutationFn: ({ userId, name }: { userId, name }: { userId: string; name: string }) =>
       sendWithAuth(`/api/users/${userId}`, 'PATCH', { name }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['current-user'] }),
   });

@@ -40,6 +40,7 @@ export function useSalesRepCustomers() {
     queryKey: ['salesrep-customers'],
     queryFn: () => fetchWithAuth<Customer[]>('/api/sales-reps/customers'),
     select: (data) => (Array.isArray(data) ? data : []),
+    staleTime: 30_000,
   });
 }
 
@@ -48,6 +49,7 @@ export function useVisitLogs() {
     queryKey: ['salesrep-visits'],
     queryFn: () => fetchWithAuth<VisitLog[]>('/api/sales-reps/visit-logs'),
     select: (data) => (Array.isArray(data) ? data : []),
+    staleTime: 30_000,
   });
 }
 
@@ -56,6 +58,7 @@ export function useUpsellAlerts() {
     queryKey: ['salesrep-upsell'],
     queryFn: () => fetchWithAuth<UpsellAlert[]>('/api/sales-reps/upsell-alerts'),
     select: (data) => (Array.isArray(data) ? data : []),
+    staleTime: 30_000,
   });
 }
 
@@ -65,6 +68,7 @@ export function useOrderHistory(customerId: string | number | null) {
     queryFn: () => fetchWithAuth<Order[]>(`/api/sales-reps/order-history/${customerId}`),
     enabled: customerId !== null,
     select: (data) => (Array.isArray(data) ? data : []),
+    staleTime: 30_000,
   });
 }
 

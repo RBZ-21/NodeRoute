@@ -29,6 +29,7 @@ export function useUsers() {
     queryKey: ['users'],
     queryFn: () => fetchWithAuth<UserRecord[]>('/api/users'),
     select: (data) => (Array.isArray(data) ? data : []),
+    staleTime: 30_000,
   });
 }
 
