@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { apiFetch } from '../lib/api';
+import { fetchWithAuth } from '../lib/api';
 
 export interface DSROverview {
   order_count: number;
@@ -46,7 +46,7 @@ function localDateKey(date: Date): string {
 }
 
 async function fetchRollups(start: string, end: string) {
-  return apiFetch<{
+  return fetchWithAuth<{
     overview: DSROverview;
     customer: DSRRow[];
     driver: DSRRow[];
@@ -56,13 +56,13 @@ async function fetchRollups(start: string, end: string) {
 }
 
 async function fetchSalesSummary(start: string, end: string) {
-  return apiFetch<{ overview: DSRSalesOverview }>(
+  return fetchWithAuth<{ overview: DSRSalesOverview }>(
     `/api/reporting/sales-summary?preset=range&start=${start}&end=${end}`
   );
 }
 
 async function fetchOrders(start: string, end: string) {
-  return apiFetch<Array<{ status: string; total: number }>>(
+  return fetchWithAuth<Array<{ status: string; total: number }>>(
     `/api/orders?start=${start}&end=${end}`
   );
 }
@@ -86,7 +86,6 @@ export function useDSR(dateKey: string) {
     staleTime: 60_000,
   });
 
-  // Compute order status breakdown from orders array
   const orderStatusCounts: OrderStatusCount[] = (() => {
     const orders = Array.isArray(ordersQ.data) ? ordersQ.data : [];
     const map = new Map<string, { count: number; total: number }>();

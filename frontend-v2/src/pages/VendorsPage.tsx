@@ -57,18 +57,15 @@ export function VendorsPage() {
   const [statusFilter, setStatusFilter] = useState<'all' | VendorStatus>('all');
   const [categoryFilter, setCategoryFilter] = useState<'all' | string>('all');
 
-  // Edit panel
   const [selected, setSelected] = useState<Vendor | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Vendor>({});
   const [saving, setSaving] = useState(false);
 
-  // Add Vendor panel
   const [addingNew, setAddingNew] = useState(false);
   const [newDraft, setNewDraft] = useState<Vendor>({});
   const [newSaving, setNewSaving] = useState(false);
 
-  // AI: Vendor scoring — not server state, kept as direct sendWithAuth calls
   type VendorScore = { overall_grade: string; on_time_score: number; quality_score: number; price_consistency_score: number; summary: string; strengths: string[]; concerns: string[] };
   const [vendorScores, setVendorScores] = useState<Record<string, VendorScore>>({});
   const [scoreLoading, setScoreLoading] = useState<Record<string, boolean>>({});
@@ -115,7 +112,7 @@ export function VendorsPage() {
     setSaving(true);
     setError('');
     try {
-      const updated = await saveVendorMutation.mutateAsync({ id, draft });
+      const updated = await saveVendorMutation.mutateAsync({ id: String(id), draft });
       setSelected({ ...selected!, ...updated });
       setEditing(false);
       setNotice(`${draft.name || vendorName(draft)} saved.`);
@@ -130,7 +127,7 @@ export function VendorsPage() {
     setNewSaving(true);
     setError('');
     try {
-      await saveVendorMutation.mutateAsync({ id: null, draft: newDraft });
+      await saveVendorMutation.mutateAsync({ id: undefined, draft: newDraft });
       setAddingNew(false);
       setNewDraft({});
       setNotice(`Vendor "${newDraft.name || 'New Vendor'}" created.`);
@@ -244,7 +241,6 @@ export function VendorsPage() {
         </CardContent>
       </Card>
 
-      {/* ── Add Vendor Slide-Over ── */}
       {addingNew ? (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/30" onClick={() => setAddingNew(false)} />
@@ -282,7 +278,6 @@ export function VendorsPage() {
         </div>
       ) : null}
 
-      {/* ── Vendor Edit Slide-Over ── */}
       {selected ? (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/30" onClick={() => setSelected(null)} />
