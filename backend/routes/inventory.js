@@ -33,7 +33,7 @@ const inventoryCreateBodySchema = z.object({
   category: z.string().optional(),
   unit: z.string().optional(),
   cost: z.union([z.number(), z.string()]).optional(),
-  on_hand_qty: z.coerce.number().finite().min(0, 'on_hand_qty must be a finite number ≥ 0'),
+  on_hand_qty: z.coerce.number().finite().min(0, 'on_hand_qty must be a finite number \u2265 0'),
   on_hand_weight: z.union([z.number(), z.string()]).optional(),
   lot_item: z.string().optional(),
   notes: z.any().optional(),
@@ -103,14 +103,14 @@ const inventoryYieldBodySchema = z.object({
 //   is_active boolean DEFAULT true
 
 router.get('/', authenticateToken, async (req, res) => {
-  // Filter inactive items at the DB level so seasonal/off-season products are
-  // never sent over the wire. is_active IS NULL is treated as active (legacy rows
-  // predating the column get the safe default).
+  // Treat is_active = NULL as active so legacy rows (predating the column) and
+  // newly inserted rows that land with a null value are never hidden.
+  // Only explicit false = inactive (seasonal/off-season).
   const data = await dbQuery(
     supabase
       .from('seafood_inventory')
       .select('*')
-      .neq('is_active', false)
+      .or('is_active.is.null,is_active.eq.true')
       .order('category', { ascending: true }),
     res,
   );
@@ -120,6 +120,8 @@ router.get('/', authenticateToken, async (req, res) => {
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryCreateBodySchema), async (req, res) => {
   const { description, category, item_number, unit, cost, on_hand_qty, on_hand_weight, lot_item, notes } = req.validated.body;
+  // Always set is_active: true explicitly so the GET filter never hides the
+  // new row (Postgres neq/or logic excludes NULLs in certain drivers).
   const insertResult = await insertRecordWithOptionalScope(supabase, 'seafood_inventory', {
     description,
     category:       category       || 'Other',
@@ -130,6 +132,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
     on_hand_weight: parseFloat(on_hand_weight) || 0,
     lot_item:       needsLot(description) ? 'Y' : (lot_item || 'N'),
     notes:          notes || null,
+    is_active:      true,
   }, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
