@@ -7,7 +7,7 @@ import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { sendWithAuth } from '../lib/api';
 import type { CountSheetRow, InventoryItem, LedgerEntry, LedgerSummary } from '../types/inventory.types';
-import { CatchWeightPriceInput, CatchWeightToggle, FtlToggle, InventoryLedger } from '../components/inventory';
+import { ActiveToggle, CatchWeightPriceInput, CatchWeightToggle, FtlToggle, InventoryLedger } from '../components/inventory';
 import {
   type LedgerParams,
   useAdjustMutation,
@@ -103,6 +103,7 @@ export function InventoryPage() {
   const [spoilageNotes, setSpoilageNotes] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
+  const [showInactive, setShowInactive] = useState(false);
   const [countCategoryFilter, setCountCategoryFilter] = useState('all');
   const [includeZeroStockInCounts, setIncludeZeroStockInCounts] = useState(true);
 
@@ -229,7 +230,12 @@ export function InventoryPage() {
   }
 
   // ── Count sheet helpers ───────────────────────────────────────────────────
-  const filtered = useMemo(() => { const n = search.trim().toLowerCase(); if (!n) return items; return items.filter((i) => [i.item_number, i.description, i.category].filter(Boolean).some((p) => String(p).toLowerCase().includes(n))); }, [items, search]);
+  const filtered = useMemo(() => {
+    const n = search.trim().toLowerCase();
+    return items
+      .filter((i) => showInactive || i.is_active !== false)
+      .filter((i) => !n || [i.item_number, i.description, i.category].filter(Boolean).some((p) => String(p).toLowerCase().includes(n)));
+  }, [items, search, showInactive]);
   const summary = useMemo(() => ({ totalSkus: items.length, lowStock: items.filter((i) => asNumber(i.on_hand_qty) > 0 && asNumber(i.on_hand_qty) <= 10).length, outOfStock: items.filter((i) => asNumber(i.on_hand_qty) <= 0).length, inventoryValue: items.reduce((s, i) => s + asNumber(i.on_hand_qty) * asNumber(i.cost), 0) }), [items]);
   const selectedItem = useMemo(() => items.find((i) => i.item_number === selectedItemNumber) ?? null, [items, selectedItemNumber]);
   const countSheetRows = useMemo(() => {
@@ -463,23 +469,43 @@ export function InventoryPage() {
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
           <div><CardTitle>Inventory Overview</CardTitle><CardDescription>Live stock visibility. Toggle <strong>FTL</strong> (FDA Traceability List) to require lot assignment on every order for that product.</CardDescription></div>
-          <div className="flex gap-2"><Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search item/category" /><Button variant="outline" onClick={() => void inventoryQuery.refetch()}>Refresh</Button></div>
+          <div className="flex flex-wrap gap-2 items-center">
+            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search item/category" className="w-56" />
+            <Button
+              variant={showInactive ? 'secondary' : 'outline'}
+              onClick={() => setShowInactive((v) => !v)}
+              title={showInactive ? 'Currently showing all items including inactive — click to hide inactive' : 'Inactive (seasonal/off-season) items are hidden — click to show them'}
+            >
+              {showInactive ? '🙈 Hide Inactive' : '👁 Show Inactive'}
+            </Button>
+            {showInactive && (
+              <span className="text-xs text-muted-foreground">
+                {items.filter((i) => i.is_active === false).length} inactive item{items.filter((i) => i.is_active === false).length !== 1 ? 's' : ''} visible
+              </span>
+            )}
+            <Button variant="outline" onClick={() => void inventoryQuery.refetch()} className="ml-auto">Refresh</Button>
+          </div>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
           <Table>
-            <TableHeader><TableRow><TableHead>Item #</TableHead><TableHead>Description</TableHead><TableHead>Category</TableHead><TableHead>On Hand</TableHead><TableHead>Cost</TableHead><TableHead>Status</TableHead><TableHead title="FDA Food Traceability List">FTL</TableHead><TableHead title="Sold by actual measured weight">Catch Wt</TableHead><TableHead title="Default price per pound">$/lb</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Item #</TableHead><TableHead>Description</TableHead><TableHead>Category</TableHead><TableHead>On Hand</TableHead><TableHead>Cost</TableHead><TableHead>Status</TableHead><TableHead title="Active items appear in orders and counts; inactive = seasonal/off-season">Active</TableHead><TableHead title="FDA Food Traceability List">FTL</TableHead><TableHead title="Sold by actual measured weight">Catch Wt</TableHead><TableHead title="Default price per pound">$/lb</TableHead></TableRow></TableHeader>
             <TableBody>
               {filtered.length ? filtered.map((item) => {
                 const qty = asNumber(item.on_hand_qty);
+                const isInactive = item.is_active === false;
                 const status = qty <= 0 ? <Badge variant="warning">Out</Badge> : qty <= 10 ? <Badge variant="secondary">Low</Badge> : <Badge variant="success">Healthy</Badge>;
                 return (
-                  <TableRow key={item.id}>
-                    <TableCell className="font-medium">{item.item_number ?? '-'}</TableCell>
+                  <TableRow key={item.id} className={isInactive ? 'opacity-50' : ''}>
+                    <TableCell className="font-medium">
+                      {item.item_number ?? '-'}
+                      {isInactive && <span className="ml-1.5 rounded bg-gray-200 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">Inactive</span>}
+                    </TableCell>
                     <TableCell>{item.description ?? '-'}</TableCell>
                     <TableCell>{item.category ?? '-'}</TableCell>
                     <TableCell>{qty.toLocaleString()} {item.unit ?? ''}</TableCell>
                     <TableCell>{money(asNumber(item.cost))}</TableCell>
                     <TableCell>{status}</TableCell>
+                    <TableCell><ActiveToggle item={item} onToggled={patchCachedItem} /></TableCell>
                     <TableCell><FtlToggle item={item} onToggled={patchCachedItem} /></TableCell>
                     <TableCell><CatchWeightToggle item={item} onToggled={patchCachedItem} /></TableCell>
                     <TableCell>{item.is_catch_weight ? <CatchWeightPriceInput item={item} onSaved={patchCachedItem} /> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>

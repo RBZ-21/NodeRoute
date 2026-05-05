@@ -157,6 +157,7 @@ const inventoryProductPatchBodySchema = z.object({
   on_hand_qty:         z.optional(z.preprocess(coerceOptionalNum, z.union([z.undefined(), z.number().nonnegative()]))),
   default_price_per_lb: z.optional(z.preprocess(coerceOptionalNum, z.union([z.undefined(), z.number().nonnegative()]))),
   is_catch_weight:     z.optional(z.preprocess(coerceBool, z.boolean())),
+  is_active:           z.optional(z.preprocess(coerceBool, z.boolean())),
   notes: z.optional(z.preprocess(
     (v) => (v === '' || v === null ? null : v),
     z.union([z.string(), z.null()])
