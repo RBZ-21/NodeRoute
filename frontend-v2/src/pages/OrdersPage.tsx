@@ -110,7 +110,7 @@ export function OrdersPage() {
 
   const orders    = ordersQuery.data    ?? [];
   const customers = customersQuery.data ?? [];
-  const products  = productsQuery.data  ?? [];
+  const products  = (productsQuery.data ?? []).filter((p) => p.is_active !== false);
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const submitOrderMutation  = useSubmitOrderMutation();
