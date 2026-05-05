@@ -420,6 +420,7 @@ export function OrdersPage() {
         customerEmail={form.customerEmail}      setCustomerEmail={form.setCustomerEmail}
         customerAddress={form.customerAddress}  setCustomerAddress={form.setCustomerAddress}
         fulfillmentType={form.fulfillmentType}  setFulfillmentType={form.setFulfillmentType}
+        routeId={form.routeId}                  setRouteId={form.setRouteId}
         customers={customers}
         notes={form.notes}                      setNotes={form.setNotes}
         taxEnabled={form.taxEnabled}            setTaxEnabled={form.setTaxEnabled}

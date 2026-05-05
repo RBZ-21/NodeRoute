@@ -49,6 +49,7 @@ export type Order = {
   created_at?: string;
   items?: OrderItem[];
   charges?: OrderCharge[];
+  route_id?: string | null;
 };
 
 export type Customer = {

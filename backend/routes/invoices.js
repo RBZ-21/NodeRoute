@@ -336,6 +336,16 @@ router.post('/:id/resend', authenticateToken, requireRole('admin', 'manager'), a
   }
 });
 
+router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const inv = await dbQuery(supabase.from('invoices').select('id').eq('id', req.params.id).single(), res);
+  if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!rowMatchesContext(inv, req.context)) return res.status(403).json({ error: 'Forbidden' });
+
+  const { error } = await supabase.from('invoices').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ deleted: true, id: req.params.id });
+});
+
 router.get('/:id/pdf', authenticateToken, async (req, res) => {
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });

@@ -21,6 +21,7 @@ export function useOrderForm({
   const [servicePercent, setServicePercent]   = useState('');
   const [minimumFlat, setMinimumFlat]         = useState('');
   const [lines, setLines]                     = useState<OrderLineDraft[]>([emptyLine()]);
+  const [routeId, setRouteId]                 = useState('');
 
   const subtotal = useMemo(() => draftSubtotal(lines), [lines]);
 
@@ -88,6 +89,7 @@ export function useOrderForm({
     setFulfillmentType('delivery');
     setNotes(''); setTaxEnabled(false); setTaxRate('0.09');
     setFuelPercent(''); setServicePercent(''); setMinimumFlat('');
+    setRouteId('');
     setLines([emptyLine()]);
   }
 
@@ -127,6 +129,7 @@ export function useOrderForm({
       estimatedWeight: item.is_catch_weight ? String(asNumber(item.estimated_weight) || '') : '',
       pricePerLb:      item.is_catch_weight ? String(asNumber(item.price_per_lb) || '') : '',
     }));
+    setRouteId(String(order.route_id || ''));
     setLines(draftLines.length ? draftLines : [emptyLine()]);
   }
 
@@ -176,6 +179,7 @@ export function useOrderForm({
       taxRate: asNumber(taxRate) || 0.09,
       charges,
       items,
+      routeId: routeId || null,
     };
   }
 
@@ -206,6 +210,7 @@ export function useOrderForm({
     customerEmail, setCustomerEmail,
     customerAddress, setCustomerAddress,
     fulfillmentType, setFulfillmentType,
+    routeId, setRouteId,
     notes, setNotes,
     taxEnabled, setTaxEnabled,
     taxRate, setTaxRate,
