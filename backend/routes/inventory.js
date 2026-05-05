@@ -1,3 +1,4 @@
+'use strict';
 const express = require('express');
 const { z } = require('zod');
 const { supabase, dbQuery } = require('../services/supabase');
@@ -98,9 +99,21 @@ const inventoryYieldBodySchema = z.object({
 //   lot_item text, created_at timestamptz DEFAULT now()
 // Analytics columns (migration 20260415_inventory_enhancements):
 //   avg_yield numeric, yield_count integer, updated_at timestamptz, alert_sent_at timestamptz
+// Active/inactive column (migration 20260505_inventory_active_flag):
+//   is_active boolean DEFAULT true
 
 router.get('/', authenticateToken, async (req, res) => {
-  const data = await dbQuery(supabase.from('seafood_inventory').select('*').order('category', { ascending: true }), res);
+  // Filter inactive items at the DB level so seasonal/off-season products are
+  // never sent over the wire. is_active IS NULL is treated as active (legacy rows
+  // predating the column get the safe default).
+  const data = await dbQuery(
+    supabase
+      .from('seafood_inventory')
+      .select('*')
+      .neq('is_active', false)
+      .order('category', { ascending: true }),
+    res,
+  );
   if (!data) return;
   res.json(filterRowsByContext(data, req.context));
 });
@@ -304,10 +317,10 @@ router.get('/ai-analysis', authenticateToken, requireRole('admin', 'manager'), a
 
 // GET /api/inventory/lots — all lots, enriched with product description
 router.get('/lots', authenticateToken, async (req, res) => {
-  const { data: lots, error } = await supabase
-    .from('inventory_lots')
-    .select('*')
-    .order('created_at', { ascending: false });
+  const { active_only } = req.query;
+  let query = supabase.from('inventory_lots').select('*').order('created_at', { ascending: false });
+  if (active_only === 'true') query = query.eq('status', 'active');
+  const { data: lots, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
 
   // Enrich with product descriptions in one extra query
