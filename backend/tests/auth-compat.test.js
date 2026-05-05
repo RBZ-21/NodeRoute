@@ -41,7 +41,7 @@ test('authenticateToken accepts legacy email-only token claims when user id look
     { expiresIn: '1h' }
   );
 
-  const req = { headers: { authorization: `Bearer ${token}` } };
+  const req = { cookies: { token }, headers: {} };
   let statusCode = 0;
   const res = {
     status(code) {
