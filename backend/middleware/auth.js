@@ -5,10 +5,9 @@ const jwt = require('jsonwebtoken');
 const { supabase } = require('../services/supabase');
 const { buildRequestContext } = require('../services/operating-context');
 
-if (!process.env.JWT_SECRET) {
-  throw new Error('FATAL: JWT_SECRET environment variable is not set. Server cannot start without it.');
-}
-const JWT_SECRET = process.env.JWT_SECRET;
+// Use the config module which provides a dev fallback. In production, config.js
+// already validates that JWT_SECRET is set to a non-default value.
+const { JWT_SECRET } = require('../lib/config');
 
 // Methods that mutate state — CSRF check is enforced on these.
 const CSRF_METHODS = new Set(['POST', 'PATCH', 'DELETE', 'PUT']);
