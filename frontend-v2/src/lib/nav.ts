@@ -7,6 +7,7 @@ import {
   DollarSign, FileText, BarChart2, Package, TrendingUp,
   ShoppingBag, ScanLine, Store, Warehouse, CalendarCog, Plug,
   ClipboardList, Bot, Building2, ListChecks, ShieldCheck,
+  FileBarChart2,
 } from 'lucide-react';
 import type { Role } from './api';
 
@@ -17,7 +18,7 @@ export type TabId =
   | 'invoices' | 'analytics' | 'inventory' | 'forecast' | 'financials'
   | 'purchasing' | 'vendors' | 'warehouse' | 'planning' | 'integrations'
   | 'aihelp' | 'settings' | 'traceability' | 'companies' | 'waitlist'
-  | 'compliance';
+  | 'compliance' | 'dsr';
 
 export type GroupId =
   | 'top' | 'logistics' | 'people' | 'financials'
@@ -187,7 +188,8 @@ export const navGroups: NavGroup[] = [
     id: 'reports',
     label: 'Reports',
     items: [
-      { id: 'reports', label: 'Reports', path: '/reports', icon: ClipboardList, allowedRoles: SA_ADMIN_MGR, component: lazyNamed(() => import('../pages/ReportsPage'), 'ReportsPage') },
+      { id: 'dsr',     label: 'Daily Sales Report', path: '/dsr',     icon: FileBarChart2, allowedRoles: SA_ADMIN_MGR, component: lazyNamed(() => import('../pages/DSRPage'), 'DSRPage') },
+      { id: 'reports', label: 'Reports',            path: '/reports', icon: ClipboardList, allowedRoles: SA_ADMIN_MGR, component: lazyNamed(() => import('../pages/ReportsPage'), 'ReportsPage') },
     ],
   },
 
