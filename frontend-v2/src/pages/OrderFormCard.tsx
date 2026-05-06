@@ -65,6 +65,7 @@ export function OrderFormCard({
   const lookupInFlightRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [addressLookupLoading, setAddressLookupLoading] = useState(false);
+  const [customerPhone, setCustomerPhone] = useState('');
 
   useEffect(() => () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -108,6 +109,7 @@ export function OrderFormCard({
   function hydrateCustomerDetails(customer: Customer) {
     setCustomerName(customer.company_name || '');
     setCustomerEmail(customer.billing_email || '');
+    setCustomerPhone(customer.phone_number || '');
     const addr = customerAddressValue(customer);
     setCustomerAddress(addr);
     if (!addr && customer.company_name) {
@@ -208,6 +210,7 @@ export function OrderFormCard({
           <label className="space-y-1 text-sm">
             <span className="font-semibold text-muted-foreground">Customer Email</span>
             <Input value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="buyer@customer.com" />
+            {customerPhone && <p className="text-xs text-muted-foreground pt-0.5">📞 {customerPhone}</p>}
           </label>
           <label className="space-y-1 text-sm">
             <span className="font-semibold text-muted-foreground">

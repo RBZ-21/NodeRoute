@@ -1,6 +1,6 @@
 // Shared types and pure helpers for the Orders feature.
 
-export type OrderStatus = 'pending' | 'in_process' | 'invoiced' | 'cancelled' | 'unknown';
+export type OrderStatus = 'pending' | 'in_process' | 'processed' | 'invoiced' | 'cancelled' | 'unknown';
 
 export type OrderItem = {
   name?: string;
@@ -164,13 +164,14 @@ export function calcOrderTotal(order: Order): number {
 
 export function normalizedStatus(value: string | undefined): OrderStatus {
   const status = String(value || '').toLowerCase();
-  if (status === 'pending' || status === 'in_process' || status === 'invoiced' || status === 'cancelled') return status;
+  if (status === 'pending' || status === 'in_process' || status === 'processed' || status === 'invoiced' || status === 'cancelled') return status;
   return 'unknown';
 }
 
 export function statusVariant(status: OrderStatus): 'warning' | 'secondary' | 'success' | 'neutral' {
   if (status === 'pending')    return 'warning';
   if (status === 'in_process') return 'secondary';
+  if (status === 'processed')  return 'secondary';
   if (status === 'invoiced')   return 'success';
   return 'neutral';
 }
