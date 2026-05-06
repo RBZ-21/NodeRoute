@@ -46,7 +46,9 @@ async function findUserFromTokenPayload(payload) {
       .select('*')
       .eq('id', tokenUserId)
       .single();
-    if (!error && data) return { user: data, error: null };
+    if (!error && data) return { user: data, dbError: null, notFound: false };
+    // PGRST116 = no rows — genuine missing user, not an infrastructure failure.
+    if (error && error.code !== 'PGRST116') return { user: null, dbError: error, notFound: false };
   }
 
   // Fallback: query by email (handles legacy tokens that lack a userId).
@@ -56,10 +58,11 @@ async function findUserFromTokenPayload(payload) {
       .select('*')
       .eq('email', tokenEmail)
       .single();
-    if (!error && data) return { user: data, error: null };
+    if (!error && data) return { user: data, dbError: null, notFound: false };
+    if (error && error.code !== 'PGRST116') return { user: null, dbError: error, notFound: false };
   }
 
-  return { user: null, error: null };
+  return { user: null, dbError: null, notFound: true };
 }
 
 /**
@@ -106,8 +109,9 @@ async function authenticateToken(req, res, next) {
     return res.status(401).json({ error: 'Invalid or expired session' });
   }
 
-  const { user, error } = await findUserFromTokenPayload(payload);
-  if (error || !user) return res.status(401).json({ error: 'User not found' });
+  const { user, dbError, notFound } = await findUserFromTokenPayload(payload);
+  if (dbError) return res.status(503).json({ error: 'Authentication service temporarily unavailable' });
+  if (notFound || !user) return res.status(401).json({ error: 'User not found' });
 
   if (!verifyCsrf(req)) {
     return res.status(403).json({ error: 'Invalid CSRF token' });
