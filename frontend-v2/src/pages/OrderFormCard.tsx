@@ -38,6 +38,7 @@ type Props = {
   onSubmit: (sendToProcessing: boolean) => void;
   onCancel: () => void;
   submitting: boolean;
+  productsLoading?: boolean;
 };
 
 export function OrderFormCard({
@@ -57,7 +58,7 @@ export function OrderFormCard({
   lines, products, lotsCache, ftlSet, catchWeightSet,
   subtotal, charges, draftTotal,
   updateLine, toggleLineCatchWeight, addLine, removeLine,
-  onSubmit, onCancel, submitting,
+  onSubmit, onCancel, submitting, productsLoading = false,
 }: Props) {
   const { data: routes = [] } = useRoutes();
 
@@ -346,7 +347,8 @@ export function OrderFormCard({
                           }
                         }}
                         options={productOptions}
-                        placeholder="Atlantic Salmon"
+                        disabled={productsLoading}
+                        placeholder={productsLoading ? 'Loading products…' : 'Atlantic Salmon'}
                       />
                     </TableCell>
                     <TableCell>

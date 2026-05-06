@@ -244,12 +244,12 @@ export function OrdersPage() {
     if (!payload.customerName) { setError('Customer name is required.'); return; }
     if (!payload.items.length) { setError('Add at least one order item.'); return; }
 
-    const printPopup = sendToProcessing ? openPrintWindow() : null;
     setSubmitting(true); setError(''); setNotice('');
     try {
       const order = await submitOrderMutation.mutateAsync({ editingOrderId: form.editingOrderId, payload });
       let printableOrder = order;
       if (sendToProcessing) {
+        const printPopup = openPrintWindow();
         const sentOrder = await sendOrderMutation.mutateAsync({
           orderId: order.id,
           taxEnabled: payload.taxEnabled,
@@ -265,7 +265,6 @@ export function OrdersPage() {
       );
       form.reset();
     } catch (err) {
-      printPopup?.close();
       setError(String((err as Error).message || 'Could not save order'));
     } finally {
       setSubmitting(false);
@@ -455,6 +454,7 @@ export function OrdersPage() {
         minimumFlat={form.minimumFlat}          setMinimumFlat={form.setMinimumFlat}
         lines={form.lines}
         products={products}
+        productsLoading={productsQuery.isPending}
         lotsCache={lotsCache}
         ftlSet={form.ftlSet}
         catchWeightSet={form.catchWeightSet}
