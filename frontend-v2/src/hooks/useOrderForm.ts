@@ -41,26 +41,48 @@ export function useOrderForm({
     [subtotal, charges]
   );
 
+  // updateLine handles both plain string fields and the special itemNumber hydration.
+  // When itemNumber is set, it looks up the matching product and fills in name, unit,
+  // price, and catch-weight fields automatically — so callers only need one updateLine call.
   function updateLine(index: number, key: keyof OrderLineDraft, value: string) {
     setLines((current) => current.map((line, i) => {
       if (i !== index) return line;
-      const updated: OrderLineDraft = { ...line, [key]: value };
+
       if (key === 'itemNumber') {
-        updated.lotId = '';
         const trimmed = value.trim();
         const prod = products.find((p) => p.item_number === trimmed);
+        const updated: OrderLineDraft = {
+          ...line,
+          itemNumber: value,
+          lotId: '',
+        };
         if (prod) {
+          updated.name = prod.description;
           updated.isCatchWeight = !!prod.is_catch_weight;
-          if (prod.is_catch_weight && prod.default_price_per_lb != null) {
-            updated.pricePerLb = String(asNumber(prod.default_price_per_lb));
-          }
-          if (!prod.is_catch_weight) {
+          if (prod.is_catch_weight) {
+            updated.unit = 'lb';
+            if (prod.default_price_per_lb != null) {
+              updated.pricePerLb = String(asNumber(prod.default_price_per_lb));
+            }
+            updated.estimatedWeight = updated.estimatedWeight || '';
+            // clear non-CW fields
+            updated.quantity = '';
+            updated.requestedWeight = '';
+            updated.unitPrice = '';
+          } else {
+            updated.unit = String(prod.unit ?? 'lb').toLowerCase() === 'lb' ? 'lb' : 'each';
+            if (asNumber(prod.cost) > 0) updated.unitPrice = String(asNumber(prod.cost));
             updated.estimatedWeight = '';
             updated.pricePerLb = '';
           }
         }
+        return updated;
       }
-      return updated;
+
+      // For all other string fields, spread the value normally.
+      // isCatchWeight is boolean and must not be set via this path —
+      // use toggleLineCatchWeight instead.
+      return { ...line, [key]: value };
     }));
   }
 
@@ -204,7 +226,6 @@ export function useOrderForm({
   }, [products]);
 
   return {
-    // field state
     editingOrderId,
     customerName, setCustomerName,
     customerEmail, setCustomerEmail,
@@ -218,11 +239,9 @@ export function useOrderForm({
     servicePercent, setServicePercent,
     minimumFlat, setMinimumFlat,
     lines,
-    // derived
     subtotal, charges, draftTotal,
     ftlSet, catchWeightSet, defaultPriceMap,
     lotsCache,
-    // actions
     updateLine, toggleLineCatchWeight, addLine, removeLine,
     reset, populate, buildPayload,
   };

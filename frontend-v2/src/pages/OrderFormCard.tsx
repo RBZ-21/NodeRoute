@@ -61,7 +61,6 @@ export function OrderFormCard({
 }: Props) {
   const { data: routes = [] } = useRoutes();
 
-  // Prevent firing duplicate lookups for the same name
   const lookupInFlightRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [addressLookupLoading, setAddressLookupLoading] = useState(false);
@@ -86,11 +85,10 @@ export function OrderFormCard({
     ).trim();
   }
 
-  // Look up the address from Google Places if the customer has none stored
   async function maybeLookupAddress(name: string) {
     const trimmed = name.trim();
     if (!trimmed) return;
-    if (lookupInFlightRef.current === trimmed) return; // already running for this name
+    if (lookupInFlightRef.current === trimmed) return;
     lookupInFlightRef.current = trimmed;
     setAddressLookupLoading(true);
     try {
@@ -99,7 +97,7 @@ export function OrderFormCard({
       );
       if (result?.address) setCustomerAddress(result.address);
     } catch {
-      // Silently ignore — address field stays empty, user can type it in manually
+      // Silently ignore
     } finally {
       lookupInFlightRef.current = null;
       setAddressLookupLoading(false);
@@ -111,7 +109,6 @@ export function OrderFormCard({
     setCustomerEmail(customer.billing_email || '');
     const addr = customerAddressValue(customer);
     setCustomerAddress(addr);
-    // If no address is stored in Supabase, pull it from Google automatically
     if (!addr && customer.company_name) {
       void maybeLookupAddress(customer.company_name);
     }
@@ -162,7 +159,6 @@ export function OrderFormCard({
                 setCustomerName(nextValue);
                 const matched = hydrateCustomerByName(nextValue);
                 if (!matched) {
-                  // No DB match — schedule a Google Places lookup after the user pauses
                   if (debounceRef.current) clearTimeout(debounceRef.current);
                   if (nextValue.trim()) {
                     debounceRef.current = setTimeout(() => {
@@ -265,7 +261,6 @@ export function OrderFormCard({
           </label>
         </div>
 
-        {/* table-scroll-container gives mobile users the right-edge fade hint */}
         <div className="table-scroll-container overflow-x-auto rounded-lg border border-border">
           <Table>
             <TableHeader>
