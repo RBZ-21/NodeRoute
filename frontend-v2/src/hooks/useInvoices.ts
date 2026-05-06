@@ -28,6 +28,7 @@ export type Invoice = {
   paidDate?: string;
   paid_date?: string;
   notes?: string;
+  created_at?: string;
   lot_numbers?: InvoiceLotEntry[];
 };
 
@@ -35,7 +36,8 @@ export function useInvoices() {
   return useQuery<Invoice[]>({
     queryKey: ['invoices'],
     queryFn: () => fetchWithAuth<Invoice[]>('/api/invoices').then((d) => (Array.isArray(d) ? d : [])),
-    staleTime: 30_000,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
   });
 }
 

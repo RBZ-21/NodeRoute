@@ -137,7 +137,8 @@ export function useStatsQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardKeys.stats,
     queryFn: () => fetchWithAuth<DashboardStats>('/api/stats'),
-    staleTime: 30_000,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
     enabled,
   });
 }
@@ -146,7 +147,7 @@ export function useAnalyticsQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardKeys.analytics,
     queryFn: () => fetchWithAuth<DashboardAnalytics>('/api/analytics'),
-    staleTime: 30_000,
+    staleTime: 10_000,
     enabled,
   });
 }
@@ -156,7 +157,8 @@ export function useDeliveriesQuery(enabled = true) {
     queryKey: dashboardKeys.deliveries,
     queryFn: () =>
       fetchWithAuth<Delivery[]>('/api/deliveries').then((d) => (Array.isArray(d) ? d : [])),
-    staleTime: 30_000,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
     enabled,
   });
 }
@@ -166,7 +168,8 @@ export function useDriversQuery(enabled = true) {
     queryKey: dashboardKeys.drivers,
     queryFn: () =>
       fetchWithAuth<DriverSummary[]>('/api/drivers').then((d) => (Array.isArray(d) ? d : [])),
-    staleTime: 30_000,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
     enabled,
   });
 }
@@ -176,7 +179,8 @@ export function useRoutesQuery(enabled = true) {
     queryKey: dashboardKeys.routes,
     queryFn: () =>
       fetchWithAuth<RouteRecord[]>('/api/routes').then((d) => (Array.isArray(d) ? d : [])),
-    staleTime: 30_000,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
     enabled,
   });
 }
@@ -188,7 +192,8 @@ export function useDashboardOrdersQuery(enabled = true) {
     queryKey: dashboardKeys.orders,
     queryFn: () =>
       fetchWithAuth<OrderRecord[]>('/api/orders').then((d) => (Array.isArray(d) ? d : [])),
-    staleTime: 30_000,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
     enabled,
   });
 }
@@ -200,7 +205,7 @@ export function usePurchaseOrdersQuery(enabled = true) {
       fetchWithAuth<VendorPurchaseOrder[]>('/api/ops/vendor-purchase-orders').then((d) =>
         Array.isArray(d) ? d : [],
       ),
-    staleTime: 30_000,
+    staleTime: 10_000,
     enabled,
   });
 }

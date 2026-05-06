@@ -85,6 +85,7 @@ function printOrderSlip(order: Order, popup: Window | null) {
   <div class="print-actions"><button class="print-btn" onclick="window.print()">Print</button></div>
   <h1>Order ${escapeHtml(orderNumber)}</h1>
   <div class="muted">${escapeHtml(order.customer_name || 'No customer')} · ${escapeHtml(order.customer_address || '')}</div>
+  <div class="muted" style="font-size:12px;margin-top:2px">${escapeHtml(new Date().toLocaleString())}</div>
   <table>
     <thead><tr><th>Item</th><th>Notes</th><th>Quantity</th><th>Price</th></tr></thead>
     <tbody>${rows || '<tr><td colspan="4" style="text-align:center">No line items</td></tr>'}</tbody>

@@ -235,6 +235,10 @@ export function InvoicesPage() {
             <div className="flex-1 space-y-4 p-6">
               <InvoiceField label="Invoice #" value={draft.invoiceNumber || draft.invoice_number} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, invoiceNumber: v }))} />
               <InvoiceField label="Customer" value={draft.customerName || draft.customer_name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, customerName: v }))} />
+              <div className="flex items-start gap-3">
+                <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Order Date</span>
+                <span className="text-sm">{formatDate(selected.created_at || selected.issuedDate || selected.issued_date)}</span>
+              </div>
               <InvoiceField label="Amount" value={String(draft.amount ?? '')} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, amount: v }))} />
               <div className="flex items-start gap-3">
                 <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Status</span>

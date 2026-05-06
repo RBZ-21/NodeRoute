@@ -149,11 +149,14 @@ export function RoutesPage() {
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
+  const [showOptimizeHint, setShowOptimizeHint] = useState(false);
+
   async function patchRouteStops(routeId: string, nextIds: string[]) {
     const dedupedIds = Array.from(new Set(nextIds));
     await updateRoute.mutateAsync({ id: routeId, patch: { stopIds: dedupedIds, activeStopIds: dedupedIds } });
     setEditRoute((prev) => prev ? { ...prev, active_stop_ids: dedupedIds, stop_ids: dedupedIds } : null);
     await refetchStops();
+    if (dedupedIds.length > 1) setShowOptimizeHint(true);
   }
 
   function openEdit(route: RouteRecord) {
@@ -390,6 +393,17 @@ export function RoutesPage() {
               <Button variant="ghost" className="ml-auto text-destructive hover:text-destructive" onClick={() => handleDeleteRoute(editRoute)}>Delete Route</Button>
             </div>
 
+            {/* Optimize hint */}
+            {showOptimizeHint && (
+              <div className="flex items-center justify-between rounded-md border border-primary/40 bg-primary/5 px-4 py-2 text-sm">
+                <span>Stops changed — run optimization to find the most efficient order.</span>
+                <div className="flex gap-2 ml-4">
+                  <Button size="sm" onClick={() => { handleRunOptimize(editRoute.id); setShowOptimizeHint(false); }}>❆ Optimize Now</Button>
+                  <Button size="sm" variant="ghost" onClick={() => setShowOptimizeHint(false)}>Dismiss</Button>
+                </div>
+              </div>
+            )}
+
             {/* Add Stop */}
             <div className="space-y-2">
               <p className="text-sm font-semibold text-muted-foreground">Add Stop</p>
@@ -606,6 +620,17 @@ export function RoutesPage() {
                         <Button variant="ghost" size="sm" onClick={() => handleRunOptimize(route.id)} disabled={optimizeRoute.isPending && optimizeRouteId === route.id} title="AI optimize stop order">
                           {optimizeRoute.isPending && optimizeRouteId === route.id ? '…' : '❆ Optimize'}
                         </Button>
+                        {status !== 'active' && status !== 'completed' && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            title="Mark route as dispatched — driver has left the dock"
+                            onClick={() => updateRoute.mutate({ id: route.id, patch: { status: 'active', dispatched_at: new Date().toISOString() } })}
+                            disabled={updateRoute.isPending}
+                          >
+                            🚚 Dispatch
+                          </Button>
+                        )}
                         <a href={`https://maps.google.com/?q=${encodeURIComponent(route.name || '')}`} target="_blank" rel="noreferrer">
                           <Button variant="secondary" size="sm">Map</Button>
                         </a>
