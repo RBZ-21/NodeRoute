@@ -157,6 +157,8 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   if (req.body.driverId !== undefined) payload.driver_id = req.body.driverId || null;
   if (req.body.driver_id !== undefined) payload.driver_id = req.body.driver_id || null;
   if (req.body.notes !== undefined) payload.notes = req.body.notes || '';
+  if (req.body.status !== undefined) payload.status = String(req.body.status || 'pending');
+  if (req.body.dispatched_at !== undefined) payload.dispatched_at = req.body.dispatched_at || null;
   if (!Object.keys(payload).length) return res.status(400).json({ error: 'No valid route fields provided' });
   if (payload.name === '') return res.status(400).json({ error: 'Route name required' });
   const requestedActiveStopsUpdate = payload.active_stop_ids !== undefined;

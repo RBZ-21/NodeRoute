@@ -15,7 +15,8 @@ export function useOrdersQuery(customerIdParam?: string) {
       const query = customerIdParam ? `?customerId=${encodeURIComponent(customerIdParam)}` : '';
       return fetchWithAuth<Order[]>(`/api/orders${query}`).then((d) => (Array.isArray(d) ? d : []));
     },
-    staleTime: 30_000,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
     retry: 1,
     retryDelay: 5000,
   });
@@ -25,7 +26,7 @@ export function useCustomersQuery() {
   return useQuery({
     queryKey: ['customers'] as const,
     queryFn: () => fetchWithAuth<Customer[]>('/api/customers').then((d) => (Array.isArray(d) ? d : [])),
-    staleTime: 30_000,
+    staleTime: 10_000,
     retry: 1,
     retryDelay: 5000,
   });
@@ -36,7 +37,7 @@ export function useInventoryQuery() {
     queryKey: ['inventory'] as const,
     queryFn: () =>
       fetchWithAuth<InventoryProduct[]>('/api/inventory').then((d) => (Array.isArray(d) ? d : [])),
-    staleTime: 30_000,
+    staleTime: 10_000,
     retry: 1,
     retryDelay: 5000,
   });

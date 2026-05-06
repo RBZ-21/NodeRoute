@@ -85,6 +85,7 @@ function printOrderSlip(order: Order, popup: Window | null) {
   <div class="print-actions"><button class="print-btn" onclick="window.print()">Print</button></div>
   <h1>Order ${escapeHtml(orderNumber)}</h1>
   <div class="muted">${escapeHtml(order.customer_name || 'No customer')} · ${escapeHtml(order.customer_address || '')}</div>
+  <div class="muted" style="font-size:12px;margin-top:2px">${escapeHtml(new Date().toLocaleString())}</div>
   <table>
     <thead><tr><th>Item</th><th>Notes</th><th>Quantity</th><th>Price</th></tr></thead>
     <tbody>${rows || '<tr><td colspan="4" style="text-align:center">No line items</td></tr>'}</tbody>
@@ -244,12 +245,12 @@ export function OrdersPage() {
     if (!payload.customerName) { setError('Customer name is required.'); return; }
     if (!payload.items.length) { setError('Add at least one order item.'); return; }
 
-    const printPopup = sendToProcessing ? openPrintWindow() : null;
     setSubmitting(true); setError(''); setNotice('');
     try {
       const order = await submitOrderMutation.mutateAsync({ editingOrderId: form.editingOrderId, payload });
       let printableOrder = order;
       if (sendToProcessing) {
+        const printPopup = openPrintWindow();
         const sentOrder = await sendOrderMutation.mutateAsync({
           orderId: order.id,
           taxEnabled: payload.taxEnabled,
@@ -265,7 +266,6 @@ export function OrdersPage() {
       );
       form.reset();
     } catch (err) {
-      printPopup?.close();
       setError(String((err as Error).message || 'Could not save order'));
     } finally {
       setSubmitting(false);
@@ -455,6 +455,7 @@ export function OrdersPage() {
         minimumFlat={form.minimumFlat}          setMinimumFlat={form.setMinimumFlat}
         lines={form.lines}
         products={products}
+        productsLoading={productsQuery.isPending}
         lotsCache={lotsCache}
         ftlSet={form.ftlSet}
         catchWeightSet={form.catchWeightSet}

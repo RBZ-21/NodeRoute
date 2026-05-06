@@ -1,6 +1,14 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
 
+export type InvoiceLotEntry = {
+  item_number?: string;
+  description?: string;
+  lot_number: string;
+  qty?: number | string;
+  weight?: number | string;
+};
+
 export type Invoice = {
   id?: string | number;
   invoiceNumber?: string;
@@ -20,13 +28,16 @@ export type Invoice = {
   paidDate?: string;
   paid_date?: string;
   notes?: string;
+  created_at?: string;
+  lot_numbers?: InvoiceLotEntry[];
 };
 
 export function useInvoices() {
   return useQuery<Invoice[]>({
     queryKey: ['invoices'],
     queryFn: () => fetchWithAuth<Invoice[]>('/api/invoices').then((d) => (Array.isArray(d) ? d : [])),
-    staleTime: 30_000,
+    staleTime: 10_000,
+    refetchInterval: 15_000,
   });
 }
 

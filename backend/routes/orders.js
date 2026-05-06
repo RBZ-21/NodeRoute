@@ -654,7 +654,7 @@ router.patch('/:id/items/:itemIndex/actual-weight', validate(orderActualWeightSc
   );
   if (!invoice) return;
 
-  const orderStatus = allWeightsCaptured(updatedItems) ? 'in_process' : 'in_process';
+  const orderStatus = allWeightsCaptured(updatedItems) ? 'processed' : 'in_process';
   const orderWithInvoice = await updateRecord('orders', req.params.id, {
     invoice_id: invoice.id,
     status: orderStatus,
