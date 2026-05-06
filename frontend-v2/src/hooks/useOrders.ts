@@ -17,8 +17,7 @@ export function useOrdersQuery(customerIdParam?: string) {
     },
     staleTime: 10_000,
     refetchInterval: 15_000,
-    retry: 1,
-    retryDelay: 5000,
+    retry: false,
   });
 }
 
@@ -27,8 +26,7 @@ export function useCustomersQuery() {
     queryKey: ['customers'] as const,
     queryFn: () => fetchWithAuth<Customer[]>('/api/customers').then((d) => (Array.isArray(d) ? d : [])),
     staleTime: 10_000,
-    retry: 1,
-    retryDelay: 5000,
+    retry: false,
   });
 }
 
@@ -38,8 +36,7 @@ export function useInventoryQuery() {
     queryFn: () =>
       fetchWithAuth<InventoryProduct[]>('/api/inventory').then((d) => (Array.isArray(d) ? d : [])),
     staleTime: 10_000,
-    retry: 1,
-    retryDelay: 5000,
+    retry: false,
   });
 }
 

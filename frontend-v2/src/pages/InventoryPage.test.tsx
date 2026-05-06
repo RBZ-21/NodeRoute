@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { InventoryPage } from './InventoryPage';
+import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
 const { fetchWithAuthMock, sendWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
@@ -101,6 +102,10 @@ function mockInventoryApi() {
   });
 }
 
+function renderInventoryPage() {
+  return renderWithQueryClient(<InventoryPage />);
+}
+
 describe('InventoryPage', () => {
   beforeEach(() => {
     fetchWithAuthMock.mockReset();
@@ -109,7 +114,7 @@ describe('InventoryPage', () => {
   });
 
   it('renders inventory summaries and filters the inventory overview table', async () => {
-    render(<InventoryPage />);
+    renderInventoryPage();
 
     expect(await screen.findByText('Fresh Salmon')).toBeInTheDocument();
     expect(screen.getByText('$120.00')).toBeInTheDocument();
@@ -126,7 +131,7 @@ describe('InventoryPage', () => {
   it('validates and submits a restock action, then refreshes inventory data', async () => {
     sendWithAuthMock.mockResolvedValueOnce({});
 
-    render(<InventoryPage />);
+    renderInventoryPage();
 
     expect(await screen.findByText('Fresh Salmon')).toBeInTheDocument();
 
@@ -151,7 +156,7 @@ describe('InventoryPage', () => {
       .mockResolvedValueOnce({ transfer_ref: 'TR-100' })
       .mockResolvedValueOnce({});
 
-    render(<InventoryPage />);
+    renderInventoryPage();
 
     expect(await screen.findByText('Fresh Salmon')).toBeInTheDocument();
 
@@ -163,7 +168,7 @@ describe('InventoryPage', () => {
     fireEvent.change(within(transferCard).getByLabelText('Quantity'), { target: { value: '4' } });
     fireEvent.click(within(transferCard).getByRole('button', { name: 'Transfer Stock' }));
 
-    expect(await screen.findByText('Transfer source and destination must be different.')).toBeInTheDocument();
+    expect(await screen.findByText('Source and destination must be different.')).toBeInTheDocument();
 
     fireEvent.change(within(transferCard).getByLabelText('To Item'), { target: { value: 'TUN-1' } });
     fireEvent.change(within(transferCard).getByLabelText('Notes'), { target: { value: 'Move to backup stock' } });
@@ -212,7 +217,7 @@ describe('InventoryPage', () => {
       return null;
     });
 
-    render(<InventoryPage />);
+    renderInventoryPage();
 
     expect(await screen.findByText('Fresh Salmon')).toBeInTheDocument();
 
@@ -279,7 +284,7 @@ describe('InventoryPage', () => {
       print: printMock,
     } as unknown as Window);
 
-    render(<InventoryPage />);
+    renderInventoryPage();
 
     expect(await screen.findByText('Fresh Salmon')).toBeInTheDocument();
 
@@ -318,7 +323,7 @@ describe('InventoryPage', () => {
       print: printMock,
     } as unknown as Window);
 
-    render(<InventoryPage />);
+    renderInventoryPage();
 
     expect(await screen.findByText('Fresh Salmon')).toBeInTheDocument();
 
@@ -331,6 +336,9 @@ describe('InventoryPage', () => {
       expect(fetchWithAuthMock).toHaveBeenCalledWith('/api/reporting/recent-sold-items?days=30');
     });
 
+    await waitFor(() => {
+      expect(within(reportCard).getByRole('button', { name: 'Print Count Sheet' })).not.toBeDisabled();
+    });
     fireEvent.click(within(reportCard).getByRole('button', { name: 'Print Count Sheet' }));
 
     const printedHtml = String(writeMock.mock.calls[0]?.[0] || '');

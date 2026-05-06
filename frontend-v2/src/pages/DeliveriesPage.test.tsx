@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DeliveriesPage } from './DeliveriesPage';
+import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
 const { fetchWithAuthMock, sendWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
@@ -69,7 +70,7 @@ describe('DeliveriesPage', () => {
   });
 
   it('renders summaries and applies the current status/date filters', async () => {
-    const { container } = render(<DeliveriesPage />);
+    const { container } = renderWithQueryClient(<DeliveriesPage />);
 
     expect(await screen.findByText('DEL-100')).toBeInTheDocument();
     expect(screen.getByText('DEL-200')).toBeInTheDocument();
@@ -95,7 +96,7 @@ describe('DeliveriesPage', () => {
   it('updates delivery status and refreshes the dispatch feed', async () => {
     sendWithAuthMock.mockResolvedValueOnce({});
 
-    render(<DeliveriesPage />);
+    renderWithQueryClient(<DeliveriesPage />);
 
     const blueFinRow = (await screen.findByText('DEL-100')).closest('tr') as HTMLElement | null;
     if (!blueFinRow) throw new Error('Expected Blue Fin delivery row');
@@ -117,7 +118,7 @@ describe('DeliveriesPage', () => {
       return [];
     });
 
-    const { unmount } = render(<DeliveriesPage />);
+    const { unmount } = renderWithQueryClient(<DeliveriesPage />);
 
     expect(await screen.findByText('Dispatch feed unavailable')).toBeInTheDocument();
     unmount();
@@ -126,7 +127,7 @@ describe('DeliveriesPage', () => {
     sendWithAuthMock.mockRejectedValueOnce(new Error('Status service unavailable'));
     mockDeliveriesApi();
 
-    render(<DeliveriesPage />);
+    renderWithQueryClient(<DeliveriesPage />);
 
     const blueFinRow = (await screen.findByText('DEL-100')).closest('tr') as HTMLElement | null;
     if (!blueFinRow) throw new Error('Expected Blue Fin delivery row');

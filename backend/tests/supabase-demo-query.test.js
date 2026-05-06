@@ -9,7 +9,9 @@ const fs = require('node:fs');
 function freshSupabase() {
   const backupPath = fs.mkdtempSync(path.join(os.tmpdir(), 'noderoute-sdb-'));
   const prev = process.env.NODEROUTE_BACKUP_PATH;
+  const prevForceDemoMode = process.env.NODEROUTE_FORCE_DEMO_MODE;
   process.env.NODEROUTE_BACKUP_PATH = backupPath;
+  process.env.NODEROUTE_FORCE_DEMO_MODE = 'true';
   for (const key of Object.keys(require.cache)) {
     if (key.includes(`${path.sep}services${path.sep}supabase.js`)) delete require.cache[key];
   }
@@ -19,6 +21,8 @@ function freshSupabase() {
     cleanup() {
       if (prev === undefined) delete process.env.NODEROUTE_BACKUP_PATH;
       else process.env.NODEROUTE_BACKUP_PATH = prev;
+      if (prevForceDemoMode === undefined) delete process.env.NODEROUTE_FORCE_DEMO_MODE;
+      else process.env.NODEROUTE_FORCE_DEMO_MODE = prevForceDemoMode;
       for (const key of Object.keys(require.cache)) {
         if (key.includes(`${path.sep}services${path.sep}supabase.js`)) delete require.cache[key];
       }

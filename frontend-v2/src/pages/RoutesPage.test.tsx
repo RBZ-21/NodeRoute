@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RoutesPage } from './RoutesPage';
+import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
 const { fetchWithAuthMock, sendWithAuthMock, navigateMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
@@ -79,11 +80,9 @@ function mockRoutesApi({
 }
 
 function renderRoutesPage() {
-  return render(
-    <MemoryRouter>
-      <RoutesPage />
-    </MemoryRouter>
-  );
+  return renderWithQueryClient(<RoutesPage />, {
+    wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter>,
+  });
 }
 
 describe('RoutesPage', () => {
@@ -122,9 +121,14 @@ describe('RoutesPage', () => {
   });
 
   it('opens the edit panel, saves changes, adds a stop from a customer, and adds stops from pending orders', async () => {
+    mockRoutesApi({
+      orders: [
+        { id: 'order-3', order_number: 'ORD-102', customer_name: 'Dockside Grill', customer_address: '9 Bay Rd', status: 'pending' },
+      ],
+    });
     sendWithAuthMock
       .mockResolvedValueOnce({})
-      .mockResolvedValueOnce({ id: 'stop-3' })
+      .mockResolvedValueOnce({})
       .mockResolvedValueOnce({ id: 'stop-4' })
       .mockResolvedValueOnce({});
 
@@ -150,44 +154,37 @@ describe('RoutesPage', () => {
     });
     expect(await screen.findByText('Route updated.')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText('Search customers by name or address'), { target: { value: 'Harbor' } });
+    fireEvent.change(screen.getByPlaceholderText('Search customers or orders…'), { target: { value: 'Harbor' } });
     fireEvent.mouseDown(await screen.findByText('Harbor Wholesale'));
-    fireEvent.click(screen.getByRole('button', { name: 'Add Customer Stop' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Route' }));
 
-    await waitFor(() => {
-      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/stops', 'POST', {
-        name: 'Harbor Wholesale',
-        address: '77 Pier Ave',
-        notes: 'Customer route stop',
-      });
-    });
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-1', 'PATCH', {
-        stopIds: ['stop-1', 'stop-3'],
-        activeStopIds: ['stop-1', 'stop-3'],
+        stopIds: ['stop-1', 'stop-2'],
+        activeStopIds: ['stop-1', 'stop-2'],
       });
     });
-    expect(await screen.findByText('Customer "Harbor Wholesale" added to route.')).toBeInTheDocument();
+    expect(await screen.findByText('"Harbor Wholesale" added to route.')).toBeInTheDocument();
 
-    const pendingOrdersSection = screen.getByText('Add Stops from Pending Orders').closest('div');
+    const pendingOrdersSection = screen.getByText('Batch Add from Pending Orders').closest('div');
     if (!pendingOrdersSection) throw new Error('Expected pending orders section');
     fireEvent.click(within(pendingOrdersSection).getAllByRole('checkbox')[0]);
     fireEvent.click(screen.getByRole('button', { name: 'Add 1 Stop to Route' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/stops', 'POST', {
-        name: 'Blue Fin',
-        address: '1 Dock St',
-        notes: 'Order ORD-100',
+        name: 'Dockside Grill',
+        address: '9 Bay Rd',
+        notes: 'Order ORD-102',
       });
     });
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-1', 'PATCH', {
-        stopIds: ['stop-1', 'stop-3', 'stop-4'],
-        activeStopIds: ['stop-1', 'stop-3', 'stop-4'],
+        stopIds: ['stop-1', 'stop-2', 'stop-4'],
+        activeStopIds: ['stop-1', 'stop-2', 'stop-4'],
       });
     });
-    expect(await screen.findByText('1 stop added to route.')).toBeInTheDocument();
+    expect(await screen.findByText('1 stop added.')).toBeInTheDocument();
   });
 
   it('filters the route list and deletes a route after confirmation', async () => {

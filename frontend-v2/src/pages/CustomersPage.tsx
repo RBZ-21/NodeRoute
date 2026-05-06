@@ -37,6 +37,12 @@ export function CustomersPage() {
   const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | string>('all');
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
+  const [newCustomer, setNewCustomer] = useState<Customer>({ status: 'active' });
+  const [holdTarget, setHoldTarget] = useState<Customer | null>(null);
+  const [holdReason, setHoldReason] = useState('');
+  const [holdSaving, setHoldSaving] = useState(false);
 
   // Detail panel
   const [selected, setSelected] = useState<Customer | null>(null);
@@ -128,6 +134,71 @@ export function CustomersPage() {
     setAddressLookupError('');
   }
 
+  function resetCreateForm() {
+    setNewCustomer({ status: 'active' });
+    setShowCreateForm(false);
+  }
+
+  async function createCustomer() {
+    const companyName = String(newCustomer.company_name || '').trim();
+    if (!companyName) {
+      setError('Company name is required to create a customer.');
+      return;
+    }
+
+    setCreatingCustomer(true);
+    setError('');
+    try {
+      await sendWithAuth('/api/customers', 'POST', {
+        company_name: companyName,
+        contact_name: newCustomer.contact_name?.trim() || null,
+        email: newCustomer.email?.trim() || null,
+        phone: newCustomer.phone_number?.trim() || newCustomer.phone?.trim() || null,
+        address: newCustomer.address?.trim() || null,
+        payment_terms: newCustomer.payment_terms?.trim() || null,
+        status: newCustomer.status || 'active',
+      });
+      await customersQuery.refetch();
+      setNotice(`Customer ${companyName} added.`);
+      resetCreateForm();
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not create customer.'));
+    } finally {
+      setCreatingCustomer(false);
+    }
+  }
+
+  async function placeCreditHold() {
+    if (!holdTarget?.id) return;
+    setHoldSaving(true);
+    setError('');
+    try {
+      await sendWithAuth(`/api/customers/${holdTarget.id}/hold`, 'POST', {
+        reason: holdReason.trim() || null,
+      });
+      await customersQuery.refetch();
+      setNotice(`Credit hold placed on ${holdTarget.company_name || 'customer'}.`);
+      setHoldTarget(null);
+      setHoldReason('');
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not place credit hold.'));
+    } finally {
+      setHoldSaving(false);
+    }
+  }
+
+  async function liftCreditHold(customer: Customer) {
+    if (!customer.id) return;
+    setError('');
+    try {
+      await sendWithAuth(`/api/customers/${customer.id}/hold`, 'DELETE');
+      await customersQuery.refetch();
+      setNotice(`Credit hold lifted for ${customer.company_name || 'customer'}.`);
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not lift credit hold.'));
+    }
+  }
+
   const filtered = useMemo(() => {
     const q = search.toLowerCase().trim();
     return customers.filter((c) => {
@@ -188,9 +259,68 @@ export function CustomersPage() {
                 <option value="credit-hold">Credit Hold</option>
               </select>
             </label>
+            <Button variant="outline" onClick={() => setShowCreateForm((current) => !current)}>
+              {showCreateForm ? 'Close' : 'Add Customer'}
+            </Button>
             <Button variant="outline" onClick={() => void customersQuery.refetch()}>Refresh</Button>
           </div>
         </CardHeader>
+        {showCreateForm ? (
+          <CardContent className="border-t border-border bg-muted/10">
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <div className="text-base font-semibold text-foreground">Create a new customer directly from the customer dashboard.</div>
+                <div className="text-sm text-muted-foreground">Set up the account details now and fine-tune delivery, billing, and tax settings later.</div>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <Input
+                  placeholder="Blue Fin Seafood"
+                  value={newCustomer.company_name || ''}
+                  onChange={(e) => setNewCustomer((current) => ({ ...current, company_name: e.target.value }))}
+                  disabled={creatingCustomer}
+                />
+                <Input
+                  placeholder="Receiving Manager"
+                  value={newCustomer.contact_name || ''}
+                  onChange={(e) => setNewCustomer((current) => ({ ...current, contact_name: e.target.value }))}
+                  disabled={creatingCustomer}
+                />
+                <Input
+                  placeholder="ops@example.com"
+                  value={newCustomer.email || ''}
+                  onChange={(e) => setNewCustomer((current) => ({ ...current, email: e.target.value }))}
+                  disabled={creatingCustomer}
+                />
+                <Input
+                  placeholder="555-0103"
+                  value={newCustomer.phone_number || newCustomer.phone || ''}
+                  onChange={(e) => setNewCustomer((current) => ({ ...current, phone_number: e.target.value, phone: e.target.value }))}
+                  disabled={creatingCustomer}
+                />
+                <Input
+                  placeholder="123 Dock Street"
+                  value={newCustomer.address || ''}
+                  onChange={(e) => setNewCustomer((current) => ({ ...current, address: e.target.value }))}
+                  disabled={creatingCustomer}
+                />
+                <Input
+                  placeholder="Net 30"
+                  value={newCustomer.payment_terms || ''}
+                  onChange={(e) => setNewCustomer((current) => ({ ...current, payment_terms: e.target.value }))}
+                  disabled={creatingCustomer}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => void createCustomer()} disabled={creatingCustomer}>
+                  {creatingCustomer ? 'Adding Customer...' : 'Add Customer'}
+                </Button>
+                <Button variant="outline" onClick={resetCreateForm} disabled={creatingCustomer}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        ) : null}
         <CardContent className="rounded-lg border border-border bg-card p-2">
           <Table>
             <TableHeader>
@@ -214,14 +344,35 @@ export function CustomersPage() {
                   <TableCell>{phone(c)}</TableCell>
                   <TableCell>{c.email || '-'}</TableCell>
                   <TableCell>
-                    <Badge variant={c.credit_hold ? 'warning' : customerStatus(c) === 'active' ? 'success' : 'secondary'}>
-                      {c.credit_hold ? 'Credit Hold' : c.status || 'Active'}
-                    </Badge>
+                    <div className="space-y-1">
+                      <Badge variant={c.credit_hold ? 'warning' : customerStatus(c) === 'active' ? 'success' : 'secondary'}>
+                        {c.credit_hold ? 'Credit Hold' : c.status || 'Active'}
+                      </Badge>
+                      {c.credit_hold_reason ? (
+                        <div className="text-xs text-muted-foreground">{c.credit_hold_reason}</div>
+                      ) : null}
+                    </div>
                   </TableCell>
                   <TableCell>{c.payment_terms || '-'}</TableCell>
                   <TableCell>
                     <div className="flex flex-wrap items-center gap-1">
                       <Button size="sm" onClick={() => openCustomer(c)}>View / Edit</Button>
+                      {c.credit_hold ? (
+                        <Button size="sm" variant="outline" onClick={() => void liftCreditHold(c)}>
+                          Lift Hold
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setHoldTarget(c);
+                            setHoldReason(c.credit_hold_reason || '');
+                          }}
+                        >
+                          Place Hold
+                        </Button>
+                      )}
                       {c.id && (
                         <Button
                           size="sm"
@@ -250,6 +401,39 @@ export function CustomersPage() {
       </Card>
 
       {/* ── Detail Slide-Over ── */}
+      {holdTarget ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30" onClick={() => !holdSaving && setHoldTarget(null)} />
+          <div role="dialog" aria-modal="true" aria-labelledby="customer-hold-title" className="relative z-10 w-full max-w-md rounded-xl bg-background p-6 shadow-xl">
+            <div className="space-y-1">
+              <h2 id="customer-hold-title" className="text-lg font-semibold">Place Credit Hold</h2>
+              <p className="text-sm text-muted-foreground">
+                Prevent new deliveries for {holdTarget.company_name || 'this customer'} until the hold is lifted.
+              </p>
+            </div>
+            <div className="mt-4 space-y-2">
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-foreground">Reason</span>
+                <Input
+                  placeholder="Overdue balance"
+                  value={holdReason}
+                  onChange={(e) => setHoldReason(e.target.value)}
+                  disabled={holdSaving}
+                />
+              </label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setHoldTarget(null)} disabled={holdSaving}>
+                Cancel
+              </Button>
+              <Button onClick={() => void placeCreditHold()} disabled={holdSaving}>
+                {holdSaving ? 'Placing Hold...' : 'Place Hold'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {selected ? (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/30" onClick={() => setSelected(null)} />

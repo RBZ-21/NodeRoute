@@ -110,7 +110,11 @@ test('invoice, inventory, and purchase-order routes enforce shared Zod validatio
 
   assert.ok(inventory.includes('validateBody(inventoryCreateBodySchema)'), 'inventory should use shared body validation');
   assert.ok(inventory.includes('item_number required'), 'inventory should require item_number');
-  assert.ok(inventory.includes('on_hand_qty must be a finite number ≥ 0'), 'inventory should validate non-negative on_hand_qty');
+  assert.ok(
+    inventory.includes('on_hand_qty must be a finite number ≥ 0')
+    || inventory.includes('on_hand_qty must be a finite number \\u2265 0'),
+    'inventory should validate non-negative on_hand_qty'
+  );
 
   assert.ok(purchaseOrders.includes('validateBody(purchaseOrderConfirmSchema)'), 'purchase orders should use shared body validation');
   assert.ok(purchaseOrders.includes('vendor is required'), 'purchase orders should require vendor');

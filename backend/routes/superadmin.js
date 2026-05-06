@@ -11,10 +11,10 @@
 const express = require('express');
 const jwt     = require('jsonwebtoken');
 const { supabase } = require('../services/supabase');
+const { JWT_SECRET } = require('../lib/config');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
-const JWT_SECRET = process.env.JWT_SECRET || 'noderoute-dev-secret-change-in-production';
 
 // All superadmin routes require authentication + the 'superadmin' role.
 router.use(authenticateToken);

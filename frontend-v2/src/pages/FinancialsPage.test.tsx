@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FinancialsPage } from './FinancialsPage';
+import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
 const { fetchWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
@@ -59,11 +60,11 @@ describe('FinancialsPage', () => {
       return [];
     });
 
-    render(<FinancialsPage />);
+    renderWithQueryClient(<FinancialsPage />);
 
     expect(await screen.findByText('Accounts Receivable')).toBeInTheDocument();
-    expect(screen.getByText('$205.00')).toBeInTheDocument();
-    expect(screen.getByText('Blue Fin')).toBeInTheDocument();
+    expect(await screen.findByText('Blue Fin')).toBeInTheDocument();
+    expect(screen.getAllByText('$205.00').length).toBeGreaterThan(0);
     expect(screen.getByText('Harbor Cafe')).toBeInTheDocument();
     expect(screen.getByText('$125.00')).toBeInTheDocument();
     expect(screen.getByText('$80.00')).toBeInTheDocument();

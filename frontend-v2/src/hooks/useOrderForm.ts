@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import type { InventoryProduct, LotCode, Order, OrderCharge, OrderLineDraft } from '../pages/orders.types';
-import { asNumber, draftSubtotal, emptyLine, orderItemQty } from '../pages/orders.types';
+import { asNumber, draftSubtotal, emptyLine, normalizeText, orderItemQty, productSelectionKey } from '../pages/orders.types';
 
 export function useOrderForm({
   products,
@@ -41,6 +41,37 @@ export function useOrderForm({
     [subtotal, charges]
   );
 
+  function hydrateLineFromProduct(line: OrderLineDraft, product: InventoryProduct | undefined): OrderLineDraft {
+    if (!product) return { ...line, productId: '', itemNumber: normalizeText(line.itemNumber) };
+
+    const updated: OrderLineDraft = {
+      ...line,
+      productId: normalizeText(product.id),
+      itemNumber: normalizeText(product.item_number),
+      name: normalizeText(product.description) || line.name,
+      lotId: '',
+      isCatchWeight: !!product.is_catch_weight,
+    };
+
+    if (product.is_catch_weight) {
+      updated.unit = 'lb';
+      if (product.default_price_per_lb != null) {
+        updated.pricePerLb = String(asNumber(product.default_price_per_lb));
+      }
+      updated.estimatedWeight = updated.estimatedWeight || '';
+      updated.quantity = '';
+      updated.requestedWeight = '';
+      updated.unitPrice = '';
+      return updated;
+    }
+
+    updated.unit = normalizeText(product.unit).toLowerCase() === 'lb' ? 'lb' : 'each';
+    if (asNumber(product.cost) > 0) updated.unitPrice = String(asNumber(product.cost));
+    updated.estimatedWeight = '';
+    updated.pricePerLb = '';
+    return updated;
+  }
+
   // updateLine handles both plain string fields and the special itemNumber hydration.
   // When itemNumber is set, it looks up the matching product and fills in name, unit,
   // price, and catch-weight fields automatically — so callers only need one updateLine call.
@@ -48,35 +79,23 @@ export function useOrderForm({
     setLines((current) => current.map((line, i) => {
       if (i !== index) return line;
 
+      if (key === 'productId') {
+        const trimmed = normalizeText(value);
+        const prod = products.find((p) => productSelectionKey(p) === trimmed || normalizeText(p.id) === trimmed);
+        if (!prod) return { ...line, productId: '', lotId: '' };
+        return hydrateLineFromProduct(line, prod);
+      }
+
       if (key === 'itemNumber') {
-        const trimmed = value.trim();
-        const prod = products.find((p) => p.item_number === trimmed);
-        const updated: OrderLineDraft = {
+        const trimmed = normalizeText(value);
+        const prod = products.find((p) => normalizeText(p.item_number) === trimmed);
+        const updated = hydrateLineFromProduct({
           ...line,
-          itemNumber: value,
+          productId: prod ? normalizeText(prod.id) : '',
+          itemNumber: trimmed,
           lotId: '',
-        };
-        if (prod) {
-          updated.name = prod.description;
-          updated.isCatchWeight = !!prod.is_catch_weight;
-          if (prod.is_catch_weight) {
-            updated.unit = 'lb';
-            if (prod.default_price_per_lb != null) {
-              updated.pricePerLb = String(asNumber(prod.default_price_per_lb));
-            }
-            updated.estimatedWeight = updated.estimatedWeight || '';
-            // clear non-CW fields
-            updated.quantity = '';
-            updated.requestedWeight = '';
-            updated.unitPrice = '';
-          } else {
-            updated.unit = String(prod.unit ?? 'lb').toLowerCase() === 'lb' ? 'lb' : 'each';
-            if (asNumber(prod.cost) > 0) updated.unitPrice = String(asNumber(prod.cost));
-            updated.estimatedWeight = '';
-            updated.pricePerLb = '';
-          }
-        }
-        return updated;
+        }, prod);
+        return prod ? updated : { ...updated, itemNumber: trimmed, productId: '' };
       }
 
       // For all other string fields, spread the value normally.
@@ -133,6 +152,13 @@ export function useOrderForm({
     setMinimumFlat(existingMinimum    ? String(existingMinimum.value  ?? '') : '');
 
     const draftLines = (order.items || []).map<OrderLineDraft>((item) => ({
+      productId:       normalizeText(
+        item.product_id
+        || products.find((product) =>
+          (normalizeText(item.product_id) && normalizeText(product.id) === normalizeText(item.product_id))
+          || (normalizeText(item.item_number) && normalizeText(product.item_number) === normalizeText(item.item_number))
+        )?.id
+      ),
       name:            String(item.name || item.description || ''),
       itemNumber:      String(item.item_number || ''),
       unit:            item.is_catch_weight ? 'lb' : (String(item.unit || '').toLowerCase() === 'lb' ? 'lb' : 'each'),
@@ -167,24 +193,26 @@ export function useOrderForm({
       if (line.isCatchWeight) {
         return {
           name:             line.name.trim(),
+          product_id:       normalizeText(line.productId) || undefined,
           item_number:      line.itemNumber.trim() || undefined,
           unit:             'lb' as const,
           is_catch_weight:  true,
           estimated_weight: asNumber(line.estimatedWeight),
           price_per_lb:     asNumber(line.pricePerLb),
           notes:            line.notes.trim() || undefined,
-          lot_id:           line.lotId ? parseInt(line.lotId, 10) : undefined,
+          lot_id:           normalizeText(line.lotId) || undefined,
         };
       }
       const qty = asNumber(line.quantity);
       const base = {
         name:        line.name.trim(),
+        product_id:  normalizeText(line.productId) || undefined,
         item_number: line.itemNumber.trim() || undefined,
         unit:        line.unit,
         quantity:    qty,
         unit_price:  asNumber(line.unitPrice),
         notes:       line.notes.trim() || undefined,
-        lot_id:      line.lotId ? parseInt(line.lotId, 10) : undefined,
+        lot_id:      normalizeText(line.lotId) || undefined,
       };
       return line.unit === 'lb'
         ? { ...base, requested_qty: qty || undefined, requested_weight: asNumber(line.requestedWeight) }
@@ -206,12 +234,32 @@ export function useOrderForm({
   }
 
   const ftlSet = useMemo(
-    () => new Set(products.filter((p) => p.is_ftl_product).map((p) => p.item_number)),
+    () => {
+      const set = new Set<string>();
+      for (const product of products) {
+        if (!product.is_ftl_product) continue;
+        const productId = normalizeText(product.id);
+        const itemNumber = normalizeText(product.item_number);
+        if (productId) set.add(productId);
+        if (itemNumber) set.add(itemNumber);
+      }
+      return set;
+    },
     [products]
   );
 
   const catchWeightSet = useMemo(
-    () => new Set(products.filter((p) => p.is_catch_weight).map((p) => p.item_number)),
+    () => {
+      const set = new Set<string>();
+      for (const product of products) {
+        if (!product.is_catch_weight) continue;
+        const productId = normalizeText(product.id);
+        const itemNumber = normalizeText(product.item_number);
+        if (productId) set.add(productId);
+        if (itemNumber) set.add(itemNumber);
+      }
+      return set;
+    },
     [products]
   );
 
@@ -219,7 +267,10 @@ export function useOrderForm({
     const map: Record<string, number> = {};
     for (const p of products) {
       if (p.is_catch_weight && p.default_price_per_lb != null) {
-        map[p.item_number] = asNumber(p.default_price_per_lb);
+        const productId = normalizeText(p.id);
+        const itemNumber = normalizeText(p.item_number);
+        if (productId) map[productId] = asNumber(p.default_price_per_lb);
+        if (itemNumber) map[itemNumber] = asNumber(p.default_price_per_lb);
       }
     }
     return map;
