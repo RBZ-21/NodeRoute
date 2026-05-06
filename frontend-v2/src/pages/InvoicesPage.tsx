@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { type Invoice, useDeleteInvoice, useInvoices, useUpdateInvoice } from '../hooks/useInvoices';
+import { type Invoice, type InvoiceLotEntry, useDeleteInvoice, useInvoices, useUpdateInvoice } from '../hooks/useInvoices';
 
 type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled' | 'other';
 
@@ -41,6 +41,10 @@ function formatDate(val: string | undefined): string {
   const d = new Date(val);
   return Number.isFinite(d.getTime()) ? d.toLocaleDateString() : '-';
 }
+function lotSummary(lots: InvoiceLotEntry[] | undefined): string {
+  if (!lots || lots.length === 0) return '-';
+  return lots.map((l) => l.lot_number).filter(Boolean).join(', ');
+}
 
 export function InvoicesPage() {
   const { data: invoices = [], isLoading, isError, error, refetch } = useInvoices();
@@ -60,10 +64,12 @@ export function InvoicesPage() {
       if (statusFilter !== 'all' && normalizeStatus(inv.status) !== statusFilter) return false;
       if (search) {
         const q = search.toLowerCase();
+        const lotMatch = (inv.lot_numbers || []).some((l) => l.lot_number?.toLowerCase().includes(q));
         const matches =
           invoiceId(inv).toLowerCase().includes(q) ||
           customerName(inv).toLowerCase().includes(q) ||
-          String(inv.orderId || inv.order_id || '').toLowerCase().includes(q);
+          String(inv.orderId || inv.order_id || '').toLowerCase().includes(q) ||
+          lotMatch;
         if (!matches) return false;
       }
       return true;
@@ -143,7 +149,7 @@ export function InvoicesPage() {
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Search</span>
-              <Input placeholder="Invoice #, customer..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-44" />
+              <Input placeholder="Invoice #, customer, lot #..." value={search} onChange={(e) => setSearch(e.target.value)} className="w-52" />
             </label>
             <Button variant="outline" onClick={() => refetch()}>Refresh</Button>
           </div>
@@ -151,12 +157,13 @@ export function InvoicesPage() {
         <CardContent className="p-0 sm:p-2">
           {/* Horizontally scrollable wrapper for mobile */}
           <div className="overflow-x-auto rounded-lg border border-border">
-            <Table className="min-w-[600px]">
+            <Table className="min-w-[700px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Invoice #</TableHead>
                   <TableHead>Customer</TableHead>
                   <TableHead className="hidden sm:table-cell">Order #</TableHead>
+                  <TableHead className="hidden sm:table-cell">Lot #(s)</TableHead>
                   <TableHead>Amount</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead className="hidden md:table-cell">Issued</TableHead>
@@ -173,6 +180,7 @@ export function InvoicesPage() {
                       <TableCell className="font-medium whitespace-nowrap">{invoiceId(inv)}</TableCell>
                       <TableCell className="max-w-[140px] truncate">{customerName(inv)}</TableCell>
                       <TableCell className="hidden sm:table-cell">{inv.orderId || inv.order_id || '-'}</TableCell>
+                      <TableCell className="hidden sm:table-cell font-mono text-xs">{lotSummary(inv.lot_numbers)}</TableCell>
                       <TableCell className="whitespace-nowrap">{formatAmount(inv.amount)}</TableCell>
                       <TableCell><StatusBadge status={status === 'other' ? 'unknown' : status} colorMap={statusColors} fallbackLabel="Unknown" /></TableCell>
                       <TableCell className="hidden md:table-cell whitespace-nowrap">{formatDate(inv.issuedDate || inv.issued_date)}</TableCell>
@@ -184,7 +192,7 @@ export function InvoicesPage() {
                     </TableRow>
                   );
                 }) : (
-                  <TableRow><TableCell colSpan={9} className="text-muted-foreground">No invoices found.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={10} className="text-muted-foreground">No invoices found.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -244,6 +252,37 @@ export function InvoicesPage() {
               </div>
               <InvoiceField label="Due Date" value={draft.dueDate || draft.due_date} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, dueDate: v }))} />
               <InvoiceField label="Notes" value={draft.notes} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} multiline />
+
+              {/* Lot Numbers Section */}
+              {(selected.lot_numbers && selected.lot_numbers.length > 0) && (
+                <div className="space-y-2">
+                  <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Lot Numbers</span>
+                  <div className="rounded-md border border-border overflow-hidden">
+                    <table className="w-full text-xs">
+                      <thead className="bg-muted/50">
+                        <tr>
+                          <th className="px-3 py-2 text-left font-semibold">Item #</th>
+                          <th className="px-3 py-2 text-left font-semibold">Description</th>
+                          <th className="px-3 py-2 text-left font-semibold">Lot #</th>
+                          <th className="px-3 py-2 text-right font-semibold">Qty</th>
+                          <th className="px-3 py-2 text-right font-semibold">Weight</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {selected.lot_numbers.map((lot, i) => (
+                          <tr key={i} className="border-t border-border">
+                            <td className="px-3 py-2 font-mono">{lot.item_number || '-'}</td>
+                            <td className="px-3 py-2">{lot.description || '-'}</td>
+                            <td className="px-3 py-2 font-mono font-semibold text-amber-700">{lot.lot_number}</td>
+                            <td className="px-3 py-2 text-right">{lot.qty ?? '-'}</td>
+                            <td className="px-3 py-2 text-right">{lot.weight != null ? `${lot.weight} lbs` : '-'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         </div>
