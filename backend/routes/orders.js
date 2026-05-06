@@ -8,6 +8,34 @@ const {
   orderCreateSchema, orderUpdateSchema, orderActualWeightSchema,
   orderSendSchema, orderFulfillSchema,
 } = require('../lib/schemas');
+// Driver-invoices endpoint (Step 14) - best placed here to avoid extra mounting.
+// This endpoint serves both drivers (restricted to their route) and admins/managers.
+async function fetchInvoicesForRoute(routeId, user) {
+  if (!routeId) return { invoices: [], orders: [] };
+  const role = String(user?.role || '').toLowerCase();
+  if (role === 'driver') {
+    // Enforce route ownership when possible
+    try {
+      const { data: route, error: routeErr } = await supabase.from('routes').select('id, driver_id').eq('id', routeId).single();
+      if (routeErr) throw routeErr;
+      if (route?.driver_id && String(route.driver_id) !== String(user?.id)) {
+        return { invoices: [], orders: [], error: 'Not authorized for this route' };
+      }
+    } catch (e) {
+      return { invoices: [], orders: [], error: (e && e.message) || 'Authorization failed' };
+    }
+  }
+  const { data: orders, error: oErr } = await supabase.from('orders').select('id, order_number, invoice_id, route_id').eq('route_id', routeId);
+  if (oErr) throw oErr;
+  const invoiceIds = (orders || []).map((o) => o.invoice_id).filter((id) => id);
+  let invoices = [];
+  if (invoiceIds.length) {
+    const { data: invs, error: iErr } = await supabase.from('invoices').select('*').in('id', invoiceIds);
+    if (iErr) throw iErr;
+    invoices = invs;
+  }
+  return { invoices, orders };
+}
 const { triggerPrintJob } = require('../services/printer');
 const printRouter = require('./print');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
@@ -486,6 +514,17 @@ router.get('/', authenticateToken, async (req, res) => {
   const data = await dbQuery(supabase.from('orders').select('*').order('created_at', { ascending: false }), res);
   if (!data) return;
   res.json(filterRowsByContext(data || [], req.context));
+});
+
+// Driver-visible invoices for a specific route (consolidated path for Step 14)
+router.get('/driver-invoices', authenticateToken, async (req, res) => {
+  const routeId = req.query.routeId;
+  if (!routeId) return res.status(400).json({ error: 'routeId is required' });
+  const user = req.user || {};
+  const { invoices, orders, error } = await fetchInvoicesForRoute(routeId, user)
+    .catch((err) => ({ invoices: [], orders: [], error: err?.message || 'Failed to fetch invoices' }));
+  if (error) return res.status(403).json({ error });
+  res.json({ invoices, orders });
 });
 
 // Mount basic print endpoint under /print
