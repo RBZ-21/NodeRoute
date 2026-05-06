@@ -13,6 +13,7 @@ import {
 } from 'react-router-dom';
 
 let replayLoaded = false;
+const dsn = import.meta.env.VITE_SENTRY_DSN as string | undefined;
 
 function loadReplayIntegration() {
   if (replayLoaded || typeof window === 'undefined') {
@@ -56,33 +57,35 @@ function scheduleReplayIntegration() {
   }, 0);
 }
 
-init({
-  dsn: 'https://e41c57859bf084be8bccc53816fcc3bf@o4511304951791616.ingest.us.sentry.io/4511305050423296',
-  environment: import.meta.env.MODE,
-  release: import.meta.env.VITE_APP_VERSION,
-  sendDefaultPii: true,
-  sampleRate: 1.0,
-  debug: import.meta.env.DEV,
-  integrations: [
-    reactRouterV6BrowserTracingIntegration({
-      useEffect: React.useEffect,
-      useLocation,
-      useNavigationType,
-      createRoutesFromChildren,
-      matchRoutes,
-    }),
-  ],
-  tracesSampleRate: 1.0,
-  tracePropagationTargets: ['localhost', '127.0.0.1', /^\//, window.location.origin],
-  replaysSessionSampleRate: 0.1,
-  replaysOnErrorSampleRate: 1.0,
-  enableLogs: true,
-  beforeSend(event) {
-    if (import.meta.env.DEV) {
-      console.info('[Sentry] beforeSend', event.event_id, event);
-    }
-    return event;
-  },
-});
+if (dsn) {
+  init({
+    dsn,
+    environment: import.meta.env.MODE,
+    release: import.meta.env.VITE_APP_VERSION,
+    sendDefaultPii: false,
+    sampleRate: 0.25,
+    debug: import.meta.env.DEV,
+    integrations: [
+      reactRouterV6BrowserTracingIntegration({
+        useEffect: React.useEffect,
+        useLocation,
+        useNavigationType,
+        createRoutesFromChildren,
+        matchRoutes,
+      }),
+    ],
+    tracesSampleRate: 0.1,
+    tracePropagationTargets: ['localhost', '127.0.0.1', /^\//, window.location.origin],
+    replaysSessionSampleRate: 0.05,
+    replaysOnErrorSampleRate: 1.0,
+    enableLogs: import.meta.env.DEV,
+    beforeSend(event) {
+      if (import.meta.env.DEV) {
+        console.info('[Sentry] beforeSend', event.event_id, event);
+      }
+      return event;
+    },
+  });
 
-scheduleReplayIntegration();
+  scheduleReplayIntegration();
+}

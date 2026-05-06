@@ -3,6 +3,7 @@
 // This module is intentionally lightweight to integrate quickly with existing code.
 
 const fetch = global.fetch; // Node 18+ has global fetch; otherwise, this will be undefined
+const config = require('../lib/config');
 const { renderOrderSlip } = require('./print-template');
 
 async function triggerExternalPrint(order, items, context = {}) {
@@ -38,8 +39,11 @@ async function triggerExternalPrint(order, items, context = {}) {
 }
 
 async function enqueuePrintJob(order, items, context = {}) {
-  // Minimal queue: store to a hypothetical printer_queue table if available.
-  // We avoid failing order creation if queueing is not possible.
+  if (!config.PRINTER_QUEUE_ENABLED) {
+    return { ok: false, reason: 'Printer queue fallback is disabled' };
+  }
+
+  // Optional queue fallback for deployments that provision a printer_queue table.
   try {
     const { supabase } = require('../services/supabase');
     if (!supabase) return { ok: false, reason: 'Supabase client unavailable' };

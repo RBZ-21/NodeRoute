@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { fetchWithAuth } from '../lib/api';
 import { useRoutes } from '../hooks/useRoutes';
-import { asMoney, asNumber, fmtDate } from './orders.types';
+import { asMoney, asNumber, fmtDate, normalizeText, productSelectionKey } from './orders.types';
 import type { Customer, InventoryProduct, LotCode, OrderCharge, OrderLineDraft } from './orders.types';
 
 type Props = {
@@ -70,6 +70,12 @@ export function OrderFormCard({
   useEffect(() => () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
   }, []);
+
+  useEffect(() => {
+    if (!customerName.trim()) return;
+    if (customerEmail.trim() || customerAddress.trim() || customerPhone.trim()) return;
+    hydrateCustomerByName(customerName);
+  }, [customerName, customerEmail, customerAddress, customerPhone, customers]);
 
   function normalizedCustomerName(value: string) {
     return value.trim().toLowerCase();
@@ -138,8 +144,8 @@ export function OrderFormCard({
   const productOptions = useMemo(
     () => products.map((p) => ({
       label: p.description,
-      sublabel: `#${p.item_number}${p.unit ? ' · ' + p.unit : ''}${asNumber(p.cost) > 0 ? ' · $' + asNumber(p.cost).toFixed(2) : ''}`,
-      value: p.item_number,
+      sublabel: `${normalizeText(p.item_number) ? '#' + normalizeText(p.item_number) : 'No item #'}${p.unit ? ' · ' + p.unit : ''}${asNumber(p.cost) > 0 ? ' · $' + asNumber(p.cost).toFixed(2) : ''}`,
+      value: productSelectionKey(p),
     })),
     [products],
   );
@@ -286,8 +292,9 @@ export function OrderFormCard({
             </TableHeader>
             <TableBody>
               {lines.map((line, index) => {
-                const isFtl    = ftlSet.has(line.itemNumber.trim());
-                const isCw     = line.isCatchWeight || catchWeightSet.has(line.itemNumber.trim());
+                const productLookupKey = normalizeText(line.productId) || line.itemNumber.trim();
+                const isFtl    = ftlSet.has(productLookupKey);
+                const isCw     = line.isCatchWeight || catchWeightSet.has(productLookupKey);
                 const lots     = lotsCache[line.itemNumber.trim()] || [];
                 const needsLot = isFtl && !line.lotId;
                 const lineTotal = isCw
@@ -300,54 +307,14 @@ export function OrderFormCard({
                         value={line.name}
                         onChange={(v) => updateLine(index, 'name', v)}
                         onSelect={(opt) => {
-                          // Try to find the full product record first; if the
-                          // inventory query hasn't resolved yet (or failed),
-                          // fall back to the data already encoded in the option.
-                          const p = products.find((x) => x.item_number === opt.value);
-                          try {
-                            if (p) {
-                              const isCatchWeight = !!p.is_catch_weight;
-                              updateLine(index, 'name', p.description);
-                              updateLine(index, 'itemNumber', p.item_number);
-                              updateLine(index, 'lotId', '');
-                              if (isCatchWeight) {
-                                updateLine(index, 'isCatchWeight', 'true');
-                                if (p.default_price_per_lb != null) updateLine(index, 'pricePerLb', String(asNumber(p.default_price_per_lb)));
-                              } else {
-                                updateLine(index, 'unit', String(p.unit ?? 'lb').toLowerCase() === 'lb' ? 'lb' : 'each');
-                                if (asNumber(p.cost) > 0) updateLine(index, 'unitPrice', String(asNumber(p.cost)));
-                                updateLine(index, 'estimatedWeight', '');
-                                updateLine(index, 'pricePerLb', '');
-                              }
-                            } else {
-                              // Fallback: populate from what the combobox option already knows.
-                              // The sublabel format is: "#ITEM_NUM · UNIT · $COST"
-                              updateLine(index, 'name', opt.label);
-                              // Only set itemNumber if a valid value exists
-                              if (opt.value) {
-                                updateLine(index, 'itemNumber', opt.value);
-                              }
-                              updateLine(index, 'lotId', '');
-                              // Parse unit and cost out of sublabel when possible
-                              if (opt.sublabel) {
-                                const parts = opt.sublabel.split(' · ');
-                                // parts[0] = "#ITEM_NUM", parts[1] = unit (optional), parts[2] = "$cost" (optional)
-                                const unitPart = parts[1];
-                                const costPart = parts.find((s) => s.startsWith('$'));
-                                if (unitPart && (unitPart === 'lb' || unitPart === 'each')) {
-                                  updateLine(index, 'unit', unitPart);
-                                }
-                                if (costPart) {
-                                  const cost = parseFloat(costPart.replace('$', ''));
-                                  if (cost > 0) updateLine(index, 'unitPrice', String(cost));
-                                }
-                              }
-                            }
-                          } catch (err) {
-                            // Fail-safe: do not crash the UI if item selection fails
-                            // eslint-disable-next-line no-console
-                            console.error('[orders] item-select-failure', err);
+                          const matched = products.find((product) => productSelectionKey(product) === opt.value);
+                          if (matched) {
+                            updateLine(index, 'productId', opt.value);
+                            return;
                           }
+                          updateLine(index, 'name', opt.label);
+                          updateLine(index, 'itemNumber', '');
+                          updateLine(index, 'productId', '');
                         }}
                         options={productOptions}
                         disabled={productsLoading}
@@ -355,7 +322,7 @@ export function OrderFormCard({
                       />
                     </TableCell>
                     <TableCell>
-                      <Input value={line.itemNumber} onChange={(e) => updateLine(index, 'itemNumber', e.target.value)} placeholder="SAL-01" />
+                      <Input value={line.itemNumber} onChange={(e) => updateLine(index, 'itemNumber', e.target.value)} placeholder="Optional item #" />
                     </TableCell>
                     <TableCell>
                       {isCw ? (
