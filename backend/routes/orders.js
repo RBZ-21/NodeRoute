@@ -445,6 +445,7 @@ async function syncOrderStop(order, req, removeOnly = false) {
     lat: parseFloat(order?.customer_lat) || 0,
     lng: parseFloat(order?.customer_lng) || 0,
     notes: stopNotes,
+    route_id: order?.route_id || null,
   };
 
   if (existingStop?.id) {
