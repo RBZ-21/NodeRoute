@@ -66,7 +66,7 @@ export function SignatureModal({ stopId, onClose, onSaved }: SignatureModalProps
     blank.width = canvas.width;
     blank.height = canvas.height;
     if (signatureData === blank.toDataURL('image/png')) {
-      setError('Please draw a signature before saving.');
+      setError('Please capture a customer signature first.');
       return;
     }
     setSaving(true);
@@ -89,7 +89,7 @@ export function SignatureModal({ stopId, onClose, onSaved }: SignatureModalProps
     <div className="fixed inset-0 z-50 flex items-center justify-center">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
       <div className="relative z-10 w-full max-w-sm rounded-xl bg-background p-6 shadow-xl space-y-4">
-        <h2 className="text-lg font-semibold">Delivery Signature</h2>
+        <h2 className="text-lg font-semibold">Capture Customer Signature</h2>
         <p className="text-sm text-muted-foreground">Sign below to confirm delivery for stop #{stopId}.</p>
 
         {error ? (

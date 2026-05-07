@@ -65,6 +65,7 @@ export function UsersPage() {
   const removeUser = useRemoveUser();
 
   const [notice, setNotice] = useState('');
+  const [errorMessage, setErrorMessage] = useState('');
   const [inviteUrl, setInviteUrl] = useState('');
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
@@ -99,35 +100,58 @@ export function UsersPage() {
 
   async function submitInvite() {
     const name = inviteName.trim(); const email = inviteEmail.trim();
-    if (!name || !email) return;
+    if (!name || !email) {
+      setErrorMessage('Name and email are required to send an invite.');
+      return;
+    }
     try {
+      setErrorMessage('');
       const data = await inviteUser.mutateAsync({ name, email, role: inviteRole });
       setNotice(inviteStatusMessage(data));
       setInviteUrl(data.inviteUrl || '');
       setInviteName(''); setInviteEmail(''); setInviteRole('driver');
-    } catch (err) { setNotice(String((err as Error)?.message || 'Failed to send invite')); }
+    } catch (err) {
+      setErrorMessage(String((err as Error)?.message || 'Failed to send invite'));
+    }
   }
 
   async function submitAddUser() {
     const name = addName.trim(); const email = addEmail.trim(); const password = addPassword.trim();
-    if (!name || !email || !password || password.length < 8) return;
+    if (!name || !email || !password) {
+      setErrorMessage('Name, email, and password are all required.');
+      return;
+    }
+    if (password.length < 8) {
+      setErrorMessage('Password must be at least 8 characters.');
+      return;
+    }
     try {
+      setErrorMessage('');
       await addUser.mutateAsync({ name, email, password, role: addRole });
       setNotice(`User ${email} created and set to active.`);
       setAddName(''); setAddEmail(''); setAddPassword(''); setAddRole('driver');
-    } catch (err) { setNotice(String((err as Error)?.message || 'Failed to create user')); }
+    } catch (err) {
+      setErrorMessage(String((err as Error)?.message || 'Failed to create user'));
+    }
   }
 
   async function copyInviteUrl() {
     if (!inviteUrl) return;
-    try { await navigator.clipboard.writeText(inviteUrl); setNotice('Invite link copied to clipboard.'); }
-    catch { setNotice('Invite link is available below; clipboard copy is not available in this browser context.'); }
+    try {
+      await navigator.clipboard.writeText(inviteUrl);
+      setErrorMessage('');
+      setNotice('Invite link copied to clipboard.');
+    } catch {
+      setErrorMessage('');
+      setNotice('Invite link is available below; clipboard copy is not available in this browser context.');
+    }
   }
 
   return (
     <div className="space-y-5">
       {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading users...</div> : null}
       {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load users')}</div> : null}
+      {errorMessage ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{errorMessage}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

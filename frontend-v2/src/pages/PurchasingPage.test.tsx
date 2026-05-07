@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PurchasingPage } from './PurchasingPage';
+import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
 const { fetchWithAuthMock, sendWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
@@ -66,11 +67,16 @@ function mockPurchasingApi({
 }
 
 function renderPurchasingPage(initialEntry = '/purchasing') {
-  return render(
-    <MemoryRouter initialEntries={[initialEntry]}>
-      <PurchasingPage />
-    </MemoryRouter>
-  );
+  return renderWithQueryClient(<PurchasingPage />, {
+    wrapper: ({ children }) => <MemoryRouter initialEntries={[initialEntry]}>{children}</MemoryRouter>,
+  });
+}
+
+function confirmPoCard() {
+  const heading = screen.getByRole('heading', { name: 'Confirm Purchase Order' });
+  const card = heading.closest('div.rounded-lg') as HTMLElement | null;
+  if (!card) throw new Error('Expected confirm purchase order card');
+  return card;
 }
 
 describe('PurchasingPage', () => {
@@ -83,10 +89,10 @@ describe('PurchasingPage', () => {
   it('renders purchasing summaries, respects vendor query filtering, and filters the history table', async () => {
     renderPurchasingPage('/purchasing?vendor=Blue%20Ocean%20Seafood');
 
+    expect(await screen.findByText('PO-100')).toBeInTheDocument();
     expect(await screen.findByText('Filtered by vendor from Vendors page:')).toBeInTheDocument();
     expect(screen.getAllByText('Blue Ocean Seafood').length).toBeGreaterThan(0);
-    expect(screen.getByText('$345.50')).toBeInTheDocument();
-    expect(screen.getByText('PO-100')).toBeInTheDocument();
+    expect(screen.getAllByText('$345.50').length).toBeGreaterThan(0);
     expect(screen.queryByText('PO-200')).not.toBeInTheDocument();
 
     fireEvent.change(screen.getByDisplayValue('Blue Ocean Seafood'), { target: { value: 'Harbor Supply' } });
@@ -110,17 +116,20 @@ describe('PurchasingPage', () => {
     fireEvent.change(screen.getByPlaceholderText('Blue Ocean Seafood'), { target: { value: 'Blue Ocean Seafood' } });
     fireEvent.change(screen.getByPlaceholderText('PO-2026-044'), { target: { value: 'PO-300' } });
     fireEvent.change(screen.getByPlaceholderText('Dock B receiving'), { target: { value: 'Cold storage intake' } });
-    fireEvent.change(screen.getByPlaceholderText('Atlantic Salmon'), { target: { value: 'Fresh Salmon' } });
-    fireEvent.change(screen.getByPlaceholderText('SAL-01'), { target: { value: 'SAL-1' } });
+    const lineRow = within(confirmPoCard()).getAllByRole('row')[1];
+    fireEvent.change(within(lineRow).getByPlaceholderText('Atlantic Salmon'), { target: { value: 'Fresh Salmon' } });
+    fireEvent.change(within(lineRow).getByPlaceholderText('SAL-01'), { target: { value: 'SAL-1' } });
 
-    const spinbuttons = screen.getAllByRole('spinbutton');
+    const spinbuttons = within(lineRow).getAllByRole('spinbutton');
     fireEvent.change(spinbuttons[0], { target: { value: '4' } });
     fireEvent.change(spinbuttons[1], { target: { value: '12.5' } });
 
-    fireEvent.change(screen.getByDisplayValue('lb'), { target: { value: 'lb' } });
-    fireEvent.change(screen.getByDisplayValue('Other'), { target: { value: 'Seafood' } });
-    fireEvent.change(screen.getByPlaceholderText('e.g. SAL-2026-001'), { target: { value: 'SAL-LOT-1' } });
-    fireEvent.change(screen.getByDisplayValue(''), { target: { value: '2026-05-10' } });
+    fireEvent.change(within(lineRow).getByDisplayValue('lb'), { target: { value: 'lb' } });
+    fireEvent.change(within(lineRow).getByDisplayValue('Other'), { target: { value: 'Seafood' } });
+    fireEvent.change(within(lineRow).getByPlaceholderText('e.g. SAL-2026-001'), { target: { value: 'SAL-LOT-1' } });
+    const expirationInput = lineRow.querySelector('input[type="date"]') as HTMLInputElement | null;
+    if (!expirationInput) throw new Error('Expected expiration date input');
+    fireEvent.change(expirationInput, { target: { value: '2026-05-10' } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Confirm PO' }));
 

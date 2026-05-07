@@ -1,8 +1,14 @@
+require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
+
 const Sentry = require('@sentry/node');
 
-Sentry.init({
-  dsn: 'https://317cacbec786f35eb01791f520912ab3@o4511304951791616.ingest.us.sentry.io/4511304980299776',
-  sendDefaultPii: true,
-});
+const dsn = String(process.env.SENTRY_DSN || '').trim();
+if (dsn) {
+  Sentry.init({
+    dsn,
+    sendDefaultPii: false,
+    tracesSampleRate: 0.1,
+  });
+}
 
 module.exports = Sentry;

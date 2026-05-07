@@ -295,7 +295,7 @@ router.post('/anomalies', authenticateToken, requireRole('admin', 'manager'), ai
   try {
     const since = new Date(Date.now() - 7 * 86400000).toISOString();
     const [{ data: deliveries }, { data: orders }] = await Promise.all([
-      supabase.from('deliveries').select('id,status,created_at,driver_id').gte('created_at', since),
+      supabase.from('stops').select('id,status,created_at,driver_id').gte('created_at', since),
       supabase.from('orders').select('id,status,customer_name,created_at').gte('created_at', since),
     ]);
 
