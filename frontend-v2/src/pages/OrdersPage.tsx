@@ -165,11 +165,11 @@ export function OrdersPage() {
       if (result.customer_name_hint) form.setCustomerName(result.customer_name_hint);
       if (result.order_notes) form.setNotes(result.order_notes);
       type ParsedLine = { itemNumber: string; description: string; quantity: string; unit: string; unitPrice: string; notes: string };
-        const matchedLines: ParsedLine[] = (result.items || []).map((item) => {
-          const matched = products.find((p) =>
-            p.description?.toLowerCase().includes(item.name.toLowerCase()) ||
-            (item.item_number && normalizeText(p.item_number) === normalizeText(item.item_number))
-          );
+      const matchedLines: ParsedLine[] = (result.items || []).map((item) => {
+        const matched = products.find((p) =>
+          p.description?.toLowerCase().includes(item.name.toLowerCase()) ||
+          (item.item_number && normalizeText(p.item_number) === normalizeText(item.item_number))
+        );
         return {
           itemNumber: matched?.item_number || item.item_number || '',
           description: matched?.description || item.name,

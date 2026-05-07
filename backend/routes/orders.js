@@ -51,6 +51,10 @@ function normalizeText(value) {
   return String(value ?? '').trim();
 }
 
+function lotMapKey(value) {
+  return normalizeText(value);
+}
+
 function isMissingFtlColumnError(error) {
   return !!error?.message && error.message.includes('seafood_inventory.is_ftl_product does not exist');
 }
@@ -109,13 +113,16 @@ async function validateFtlLots(items) {
 
   if (lotErr) return `Could not verify lot assignments: ${lotErr.message}`;
 
-  const lotMap = {};
-  (lots || []).forEach((l) => { lotMap[l.id] = l; });
+  const lotMap = Object.create(null);
+  (lots || []).forEach((l) => {
+    const key = lotMapKey(l?.id);
+    if (key) lotMap[key] = l;
+  });
 
   for (const item of items) {
     const itemNum = normalizeText(item.item_number);
     if (!ftlSet.has(itemNum) || !item.lot_id) continue;
-    const lotId = normalizeText(item.lot_id);
+    const lotId = lotMapKey(item.lot_id);
     const lot = lotMap[lotId];
     if (!lot) return `Lot ID ${item.lot_id} not found.`;
     if (lot.product_id && lot.product_id !== itemNum) {
@@ -140,11 +147,14 @@ async function enrichItemsWithLotData(items) {
     .select('id, lot_number, expiration_date')
     .in('id', lotIds);
 
-  const lotMap = {};
-  (lots || []).forEach((l) => { lotMap[l.id] = l; });
+  const lotMap = Object.create(null);
+  (lots || []).forEach((l) => {
+    const key = lotMapKey(l?.id);
+    if (key) lotMap[key] = l;
+  });
 
   return items.map((item) => {
-    const lotId = normalizeText(item.lot_id);
+    const lotId = lotMapKey(item.lot_id);
     if (!lotId || !lotMap[lotId]) return item;
     const lot = lotMap[lotId];
     const qtyFromLot = parseFloat(item.quantity_from_lot ?? item.requested_weight ?? item.quantity ?? 0) || 0;
@@ -910,3 +920,4 @@ router.post('/:id/tracking-link', authenticateToken, requireRole('admin', 'manag
 module.exports = router;
 module.exports.validateFtlLots = validateFtlLots;
 module.exports.enrichItemsWithLotData = enrichItemsWithLotData;
+module.exports.findInventoryMatchForFulfillment = findInventoryMatchForFulfillment;
