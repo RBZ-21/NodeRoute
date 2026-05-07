@@ -155,8 +155,7 @@ export function useOrderForm({
       productId:       normalizeText(
         item.product_id
         || products.find((product) =>
-          (normalizeText(item.product_id) && normalizeText(product.id) === normalizeText(item.product_id))
-          || (normalizeText(item.item_number) && normalizeText(product.item_number) === normalizeText(item.item_number))
+          normalizeText(item.item_number) && normalizeText(product.item_number) === normalizeText(item.item_number)
         )?.id
       ),
       name:            String(item.name || item.description || ''),

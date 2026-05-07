@@ -652,8 +652,9 @@ if (shouldUseCloudSupabase) {
     console.warn('Running in forced demo mode with local persistent backup data.');
   } else if (isTestMode && hasSupabaseConfig && !allowLiveSupabaseInTests) {
     console.warn('Ignoring Supabase cloud credentials during tests. Set NODEROUTE_ALLOW_LIVE_SUPABASE_TESTS=true to opt into live integration tests.');
+  } else {
+    console.warn('Running in demo mode with local persistent backup data.');
   }
-  console.warn('Running in demo mode with local persistent backup data.');
 }
 
 async function dbQuery(promise, res) {
