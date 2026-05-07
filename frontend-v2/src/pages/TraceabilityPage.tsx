@@ -76,7 +76,20 @@ export function TraceabilityPage() {
   }
 
   function runReport(page = 1) {
-    setReportParams({ lot: reportLot, product: reportProduct, dateFrom: reportDateFrom, dateTo: reportDateTo, page });
+    const nextParams = { lot: reportLot, product: reportProduct, dateFrom: reportDateFrom, dateTo: reportDateTo, page };
+    const sameParams =
+      reportParams.lot === nextParams.lot &&
+      reportParams.product === nextParams.product &&
+      reportParams.dateFrom === nextParams.dateFrom &&
+      reportParams.dateTo === nextParams.dateTo &&
+      reportParams.page === nextParams.page;
+
+    if (sameParams) {
+      void reportQuery.refetch();
+      return;
+    }
+
+    setReportParams(nextParams);
   }
 
   const traceResult = traceQuery.data ?? null;
@@ -240,9 +253,12 @@ export function TraceabilityPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => runReport(1)} disabled={reportLoading}>
-              {reportLoading ? 'Loading…' : 'Run Report'}
+            <Button onClick={() => runReport(1)} aria-busy={reportLoading}>
+              Run Report
             </Button>
+            {reportLoading ? (
+              <span className="inline-flex items-center text-sm text-muted-foreground">Loading…</span>
+            ) : null}
             {report && report.rows.length > 0 && (
               <Button variant="outline" onClick={() => exportCsv(report.rows, 'lot-movements.csv')}>
                 Export CSV ({report.rows.length} rows)

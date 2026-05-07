@@ -32,7 +32,7 @@ test('inventory ledger service provides shared posting primitives', () => {
     'async function applyInventoryLedgerEntry',
     'async function transferInventoryLedgerEntry',
     "change_type: String(changeType || 'adjustment').trim() || 'adjustment'",
-    "on_hand_weight: nextQty",
+    'on_hand_weight is a separate physical measurement',
   ]) {
     assert.ok(ledgerServiceSource.includes(marker), `missing ledger marker ${marker}`);
   }

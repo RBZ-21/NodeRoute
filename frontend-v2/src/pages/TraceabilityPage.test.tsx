@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TraceabilityPage } from './TraceabilityPage';
+import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
 const { fetchWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
@@ -63,7 +64,7 @@ describe('TraceabilityPage', () => {
   });
 
   it('runs a lot trace lookup and renders receiving, order, and stop history', async () => {
-    render(<TraceabilityPage />);
+    renderWithQueryClient(<TraceabilityPage />);
 
     expect(await screen.findByText(/Showing 1 of 2 lots/)).toBeInTheDocument();
 
@@ -77,7 +78,7 @@ describe('TraceabilityPage', () => {
   });
 
   it('runs the report with filters and surfaces report errors', async () => {
-    render(<TraceabilityPage />);
+    renderWithQueryClient(<TraceabilityPage />);
 
     expect(await screen.findByText(/Showing 1 of 2 lots/)).toBeInTheDocument();
 
@@ -93,12 +94,16 @@ describe('TraceabilityPage', () => {
       ).toBe(true);
     });
 
+    const callsBeforeRetry = fetchWithAuthMock.mock.calls.length;
     fetchWithAuthMock.mockImplementation(async (url: string) => {
       if (String(url).startsWith('/api/lots/traceability/report?')) throw new Error('Report backend unavailable');
       return [];
     });
 
     fireEvent.click(screen.getByRole('button', { name: 'Run Report' }));
+    await waitFor(() => {
+      expect(fetchWithAuthMock.mock.calls.length).toBeGreaterThan(callsBeforeRetry);
+    });
     expect(await screen.findByText('Report backend unavailable')).toBeInTheDocument();
   });
 });

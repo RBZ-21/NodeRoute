@@ -26,9 +26,11 @@ import {
   asNumber,
   calcOrderTotal,
   normalizedStatus,
+  normalizeText,
   orderHasCapturedWeights,
   orderHasPendingWeights,
   orderItemQty,
+  productSelectionKey,
 } from './orders.types';
 import type { Order, OrderStatus } from './orders.types';
 
@@ -166,7 +168,7 @@ export function OrdersPage() {
       const matchedLines: ParsedLine[] = (result.items || []).map((item) => {
         const matched = products.find((p) =>
           p.description?.toLowerCase().includes(item.name.toLowerCase()) ||
-          (item.item_number && p.item_number === item.item_number)
+          (item.item_number && normalizeText(p.item_number) === normalizeText(item.item_number))
         );
         return {
           itemNumber: matched?.item_number || item.item_number || '',
@@ -179,7 +181,15 @@ export function OrdersPage() {
       });
 
       function applyLine(idx: number, line: ParsedLine) {
-        if (line.itemNumber) form.updateLine(idx, 'itemNumber', line.itemNumber);
+        const matched = products.find((product) =>
+          normalizeText(product.item_number) === normalizeText(line.itemNumber)
+          || product.description?.toLowerCase() === line.description.toLowerCase()
+        );
+        if (matched) {
+          form.updateLine(idx, 'productId', productSelectionKey(matched));
+        } else if (line.itemNumber) {
+          form.updateLine(idx, 'itemNumber', line.itemNumber);
+        }
         form.updateLine(idx, 'quantity', line.quantity);
         const safeUnit = line.unit === 'lb' || line.unit === 'each' ? line.unit : 'each';
         form.updateLine(idx, 'unit', safeUnit);

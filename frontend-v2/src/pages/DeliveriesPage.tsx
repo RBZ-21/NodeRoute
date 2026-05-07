@@ -42,6 +42,7 @@ export function DeliveriesPage() {
   const updateStatus = useUpdateDeliveryStatus();
 
   const [notice, setNotice] = useState('');
+  const [actionError, setActionError] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | DeliveryViewStatus>('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -76,9 +77,13 @@ export function DeliveriesPage() {
 
   function setDeliveryStatus(delivery: Delivery, nextStatus: string) {
     if (!delivery.orderDbId) return;
+    setActionError('');
     updateStatus.mutate(
       { id: delivery.orderDbId, status: nextStatus },
-      { onSuccess: () => setNotice(`Updated ${delivery.orderId || delivery.orderDbId!.slice(0, 8)} to ${nextStatus}.`) }
+      {
+        onSuccess: () => setNotice(`Updated ${delivery.orderId || delivery.orderDbId!.slice(0, 8)} to ${nextStatus}.`),
+        onError: (err) => setActionError(String((err as Error).message || 'Could not update delivery status')),
+      }
     );
   }
 
@@ -99,6 +104,7 @@ export function DeliveriesPage() {
     <div className="space-y-5">
       {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading deliveries...</div> : null}
       {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load deliveries')}</div> : null}
+      {actionError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{actionError}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">

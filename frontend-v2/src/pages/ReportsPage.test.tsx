@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ReportsPage } from './ReportsPage';
+import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
 const { fetchWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
@@ -11,7 +12,7 @@ vi.mock('../lib/api', () => ({
 }));
 
 function renderReportsPage() {
-  return render(<ReportsPage />);
+  return renderWithQueryClient(<ReportsPage />);
 }
 
 describe('ReportsPage', () => {

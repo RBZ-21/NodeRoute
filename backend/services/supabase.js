@@ -1,12 +1,20 @@
-require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
-
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
+const isNodeTestRunner = process.argv.includes('--test') || process.execArgv.includes('--test');
+const nodeEnv = String(process.env.NODE_ENV || '').toLowerCase();
+const isTestMode = nodeEnv === 'test' || isNodeTestRunner;
+const forceDemoMode = String(process.env.NODEROUTE_FORCE_DEMO_MODE || '').toLowerCase() === 'true';
+const allowLiveSupabaseInTests = isTestMode && String(process.env.NODEROUTE_ALLOW_LIVE_SUPABASE_TESTS || '').toLowerCase() === 'true';
+if (!isTestMode || allowLiveSupabaseInTests) {
+  require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+}
+
 const hasSupabaseConfig = !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY);
-const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-const isDemoMode = !hasSupabaseConfig;
+const isProduction = nodeEnv === 'production';
+const shouldUseCloudSupabase = hasSupabaseConfig && !forceDemoMode && (!isTestMode || allowLiveSupabaseInTests);
+const isDemoMode = !shouldUseCloudSupabase;
 
 const backupRoot = process.env.NODEROUTE_BACKUP_PATH
   ? path.resolve(process.env.NODEROUTE_BACKUP_PATH)
@@ -628,7 +636,7 @@ function createResilientSupabaseClient(cloudClient) {
 
 let supabase;
 
-if (hasSupabaseConfig) {
+if (shouldUseCloudSupabase) {
   const { createClient } = require('@supabase/supabase-js');
   const cloudSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
   supabase = createResilientSupabaseClient(cloudSupabase);
@@ -640,7 +648,13 @@ if (hasSupabaseConfig) {
     stateRef: localState,
     onWrite: persistLocalState,
   });
-  console.warn('Supabase env vars are missing. Running in demo mode with local persistent backup data.');
+  if (forceDemoMode) {
+    console.warn('Running in forced demo mode with local persistent backup data.');
+  } else if (isTestMode && hasSupabaseConfig && !allowLiveSupabaseInTests) {
+    console.warn('Ignoring Supabase cloud credentials during tests. Set NODEROUTE_ALLOW_LIVE_SUPABASE_TESTS=true to opt into live integration tests.');
+  } else {
+    console.warn('Running in demo mode with local persistent backup data.');
+  }
 }
 
 async function dbQuery(promise, res) {

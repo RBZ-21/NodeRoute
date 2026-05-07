@@ -47,6 +47,14 @@ const {
   rowMatchesContext,
 } = require('../services/operating-context');
 
+function normalizeText(value) {
+  return String(value ?? '').trim();
+}
+
+function lotMapKey(value) {
+  return normalizeText(value);
+}
+
 function isMissingFtlColumnError(error) {
   return !!error?.message && error.message.includes('seafood_inventory.is_ftl_product does not exist');
 }
@@ -59,7 +67,7 @@ async function validateFtlLots(items) {
 
   // Collect item_numbers that appear in this order
   const itemNumbers = items
-    .map((it) => String(it.item_number || '').trim())
+    .map((it) => normalizeText(it.item_number))
     .filter(Boolean);
 
   if (!itemNumbers.length) return null;
@@ -81,13 +89,13 @@ async function validateFtlLots(items) {
 
   // Collect lot_ids that need to be validated
   const lotIds = items
-    .filter((it) => ftlSet.has(String(it.item_number || '').trim()) && it.lot_id)
-    .map((it) => parseInt(it.lot_id, 10))
-    .filter((id) => Number.isFinite(id));
+    .filter((it) => ftlSet.has(normalizeText(it.item_number)) && normalizeText(it.lot_id))
+    .map((it) => normalizeText(it.lot_id))
+    .filter(Boolean);
 
   // Check each FTL item has a lot_id
   for (const item of items) {
-    const itemNum = String(item.item_number || '').trim();
+    const itemNum = normalizeText(item.item_number);
     if (!ftlSet.has(itemNum)) continue;
     if (!item.lot_id) {
       const prodName = (products || []).find((p) => p.item_number === itemNum)?.description || itemNum;
@@ -105,13 +113,16 @@ async function validateFtlLots(items) {
 
   if (lotErr) return `Could not verify lot assignments: ${lotErr.message}`;
 
-  const lotMap = {};
-  (lots || []).forEach((l) => { lotMap[l.id] = l; });
+  const lotMap = Object.create(null);
+  (lots || []).forEach((l) => {
+    const key = lotMapKey(l?.id);
+    if (key) lotMap[key] = l;
+  });
 
   for (const item of items) {
-    const itemNum = String(item.item_number || '').trim();
+    const itemNum = normalizeText(item.item_number);
     if (!ftlSet.has(itemNum) || !item.lot_id) continue;
-    const lotId = parseInt(item.lot_id, 10);
+    const lotId = lotMapKey(item.lot_id);
     const lot = lotMap[lotId];
     if (!lot) return `Lot ID ${item.lot_id} not found.`;
     if (lot.product_id && lot.product_id !== itemNum) {
@@ -127,7 +138,7 @@ async function enrichItemsWithLotData(items) {
   if (!Array.isArray(items) || !items.length) return items || [];
 
   const lotIds = [...new Set(
-    items.map((it) => parseInt(it.lot_id, 10)).filter((id) => Number.isFinite(id))
+    items.map((it) => normalizeText(it.lot_id)).filter(Boolean)
   )];
   if (!lotIds.length) return items;
 
@@ -136,12 +147,15 @@ async function enrichItemsWithLotData(items) {
     .select('id, lot_number, expiration_date')
     .in('id', lotIds);
 
-  const lotMap = {};
-  (lots || []).forEach((l) => { lotMap[l.id] = l; });
+  const lotMap = Object.create(null);
+  (lots || []).forEach((l) => {
+    const key = lotMapKey(l?.id);
+    if (key) lotMap[key] = l;
+  });
 
   return items.map((item) => {
-    const lotId = parseInt(item.lot_id, 10);
-    if (!Number.isFinite(lotId) || !lotMap[lotId]) return item;
+    const lotId = lotMapKey(item.lot_id);
+    if (!lotId || !lotMap[lotId]) return item;
     const lot = lotMap[lotId];
     const qtyFromLot = parseFloat(item.quantity_from_lot ?? item.requested_weight ?? item.quantity ?? 0) || 0;
     return {
@@ -215,21 +229,31 @@ function allWeightsCaptured(items) {
 }
 
 async function findInventoryMatchForFulfillment(item) {
-  const explicitItemNumber = String(item?.item_number || '').trim();
+  const explicitProductId = normalizeText(item?.product_id);
+  if (explicitProductId) {
+    const byId = await supabase
+      .from('seafood_inventory')
+      .select('id,item_number,description,on_hand_qty,cost')
+      .eq('id', explicitProductId)
+      .single();
+    if (!byId.error && byId.data) return byId.data;
+  }
+
+  const explicitItemNumber = normalizeText(item?.item_number);
   if (explicitItemNumber) {
     const byNumber = await supabase
       .from('seafood_inventory')
-      .select('item_number,description,on_hand_qty,cost')
+      .select('id,item_number,description,on_hand_qty,cost')
       .eq('item_number', explicitItemNumber)
       .single();
     if (!byNumber.error && byNumber.data) return byNumber.data;
   }
 
-  const name = String(item?.name || item?.description || '').trim();
+  const name = normalizeText(item?.name || item?.description);
   if (!name) return null;
   const byName = await supabase
     .from('seafood_inventory')
-    .select('item_number,description,on_hand_qty,cost')
+    .select('id,item_number,description,on_hand_qty,cost')
     .ilike('description', name)
     .limit(1);
   if (byName.error || !Array.isArray(byName.data) || !byName.data.length) return null;
@@ -894,3 +918,6 @@ router.post('/:id/tracking-link', authenticateToken, requireRole('admin', 'manag
 });
 
 module.exports = router;
+module.exports.validateFtlLots = validateFtlLots;
+module.exports.enrichItemsWithLotData = enrichItemsWithLotData;
+module.exports.findInventoryMatchForFulfillment = findInventoryMatchForFulfillment;

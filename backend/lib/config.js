@@ -35,11 +35,17 @@ const envSchema = z.object({
   ADMIN_EMAIL:                z.string().optional().default('admin@noderoutesystems.com'),
   ADMIN_PASSWORD:             z.string().optional().default(DEFAULT_ADMIN_PW),
   GOOGLE_MAPS_KEY:            z.string().optional().default(''),
+  SENTRY_DSN:                 z.string().optional().default(''),
   CORS_ORIGINS:               z.string().optional().default(''),
   CORS_ORIGIN:                z.string().optional().default(''),
   PORTAL_PAYMENT_ENABLED:     z.string().optional().default('false'),
   PORTAL_PAYMENT_PROVIDER:    z.string().optional().default('manual'),
   STRIPE_WEBHOOK_TOLERANCE_SECONDS: z.string().optional().default('300'),
+  DEFAULT_COMPANY_ID:         z.string().optional().default(''),
+  DEFAULT_COMPANY_NAME:       z.string().optional().default(''),
+  DEFAULT_LOCATION_ID:        z.string().optional().default(''),
+  DEFAULT_LOCATION_NAME:      z.string().optional().default(''),
+  PRINTER_QUEUE_ENABLED:      z.string().optional().default('false'),
   // SMS / Daily Fish Blast
   TWILIO_ACCOUNT_SID:         z.string().optional().default(''),
   TWILIO_AUTH_TOKEN:          z.string().optional().default(''),
@@ -67,6 +73,7 @@ const OPENAI_API_KEY  = rawEnv.OPENAI_API_KEY;
 const ADMIN_EMAIL     = rawEnv.ADMIN_EMAIL;
 const ADMIN_PASSWORD  = rawEnv.ADMIN_PASSWORD;
 const GOOGLE_MAPS_KEY = rawEnv.GOOGLE_MAPS_KEY;
+const SENTRY_DSN      = rawEnv.SENTRY_DSN;
 const _corsRaw        = rawEnv.CORS_ORIGINS || rawEnv.CORS_ORIGIN || '';
 const CORS_ORIGINS    = _corsRaw.split(',').map((s) => s.trim()).filter(Boolean);
 const _rawPaymentEnabled = String(rawEnv.PORTAL_PAYMENT_ENABLED || 'false');
@@ -78,6 +85,11 @@ const STRIPE_WEBHOOK_TOLERANCE_SECONDS = Math.max(
   1,
   z.coerce.number().int().positive().catch(300).parse(rawEnv.STRIPE_WEBHOOK_TOLERANCE_SECONDS)
 );
+const DEFAULT_COMPANY_ID = rawEnv.DEFAULT_COMPANY_ID;
+const DEFAULT_COMPANY_NAME = rawEnv.DEFAULT_COMPANY_NAME;
+const DEFAULT_LOCATION_ID = rawEnv.DEFAULT_LOCATION_ID;
+const DEFAULT_LOCATION_NAME = rawEnv.DEFAULT_LOCATION_NAME;
+const PRINTER_QUEUE_ENABLED = z.enum(['true', 'false']).catch('false').parse(String(rawEnv.PRINTER_QUEUE_ENABLED || 'false').toLowerCase()) === 'true';
 const TWILIO_ACCOUNT_SID  = rawEnv.TWILIO_ACCOUNT_SID;
 const TWILIO_AUTH_TOKEN   = rawEnv.TWILIO_AUTH_TOKEN;
 const TWILIO_FROM_NUMBER  = rawEnv.TWILIO_FROM_NUMBER;
@@ -178,10 +190,16 @@ module.exports = {
   ADMIN_EMAIL,
   ADMIN_PASSWORD,
   GOOGLE_MAPS_KEY,
+  SENTRY_DSN,
   PORTAL_PAYMENT_ENABLED,
   PORTAL_PAYMENT_PROVIDER,
   CORS_ORIGINS,
   STRIPE_WEBHOOK_TOLERANCE_SECONDS,
+  DEFAULT_COMPANY_ID,
+  DEFAULT_COMPANY_NAME,
+  DEFAULT_LOCATION_ID,
+  DEFAULT_LOCATION_NAME,
+  PRINTER_QUEUE_ENABLED,
   TWILIO_ACCOUNT_SID,
   TWILIO_AUTH_TOKEN,
   TWILIO_FROM_NUMBER,

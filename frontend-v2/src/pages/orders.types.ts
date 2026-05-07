@@ -5,6 +5,7 @@ export type OrderStatus = 'pending' | 'in_process' | 'processed' | 'invoiced' | 
 export type OrderItem = {
   name?: string;
   description?: string;
+  product_id?: string;
   item_number?: string;
   unit?: string;
   requested_qty?: number | string;
@@ -13,7 +14,7 @@ export type OrderItem = {
   quantity?: number | string;
   unit_price?: number | string;
   notes?: string;
-  lot_id?: number | string;
+  lot_id?: string;
   lot_number?: string;
   quantity_from_lot?: number | string;
   is_catch_weight?: boolean;
@@ -66,7 +67,8 @@ export type Customer = {
 };
 
 export type InventoryProduct = {
-  item_number: string;
+  id?: string;
+  item_number?: string | null;
   description: string;
   is_ftl_product?: boolean;
   is_catch_weight?: boolean;
@@ -74,10 +76,11 @@ export type InventoryProduct = {
   default_price_per_lb?: number | string;
   unit?: string;
   cost?: number | string;
+  on_hand_qty?: number | string;
 };
 
 export type LotCode = {
-  id: number;
+  id: string;
   lot_number: string;
   product_id?: string;
   quantity_received?: number;
@@ -86,6 +89,7 @@ export type LotCode = {
 };
 
 export type OrderLineDraft = {
+  productId: string;
   name: string;
   itemNumber: string;
   unit: 'lb' | 'each';
@@ -102,7 +106,19 @@ export type OrderLineDraft = {
 // ── Pure helpers ──────────────────────────────────────────────────────────────
 
 export function emptyLine(): OrderLineDraft {
-  return { name: '', itemNumber: '', unit: 'lb', quantity: '', requestedWeight: '', unitPrice: '', notes: '', lotId: '', isCatchWeight: false, estimatedWeight: '', pricePerLb: '' };
+  return { productId: '', name: '', itemNumber: '', unit: 'lb', quantity: '', requestedWeight: '', unitPrice: '', notes: '', lotId: '', isCatchWeight: false, estimatedWeight: '', pricePerLb: '' };
+}
+
+export function normalizeText(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+export function productSelectionKey(product: Pick<InventoryProduct, 'id' | 'item_number' | 'description'>): string {
+  const id = normalizeText(product.id);
+  if (id) return id;
+  const itemNumber = normalizeText(product.item_number);
+  if (itemNumber) return `item:${itemNumber}`;
+  return `desc:${normalizeText(product.description).toLowerCase()}`;
 }
 
 export function asNumber(value: unknown): number {

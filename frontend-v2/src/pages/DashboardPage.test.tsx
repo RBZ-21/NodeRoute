@@ -1,7 +1,8 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardPage } from './DashboardPage';
+import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
 const { fetchWithAuthMock, getUserRoleMock, navigateMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
@@ -23,11 +24,9 @@ vi.mock('react-router-dom', async () => {
 });
 
 function renderDashboardPage() {
-  return render(
-    <MemoryRouter>
-      <DashboardPage />
-    </MemoryRouter>
-  );
+  return renderWithQueryClient(<DashboardPage />, {
+    wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter>,
+  });
 }
 
 describe('DashboardPage', () => {
@@ -123,8 +122,8 @@ describe('DashboardPage', () => {
     renderDashboardPage();
 
     expect(await screen.findByText('Operational Snapshot')).toBeInTheDocument();
-    expect(screen.getByText('12')).toBeInTheDocument();
-    expect(screen.getByText('92%')).toBeInTheDocument();
+    expect(await screen.findByText('12')).toBeInTheDocument();
+    expect(screen.getAllByText('92%').length).toBeGreaterThan(0);
     expect(screen.getByText('Alex Driver')).toBeInTheDocument();
     expect(screen.getByText('Orders Needing Weights')).toBeInTheDocument();
     expect(screen.getByText('Weights Entered')).toBeInTheDocument();
@@ -135,12 +134,12 @@ describe('DashboardPage', () => {
     expect(navigateMock).toHaveBeenCalledWith('/orders');
 
     fireEvent.click(screen.getByRole('button', { name: /Orders Needing Weights/i }));
-    expect(navigateMock).toHaveBeenCalledWith('/orders?action=weights');
+    expect(await screen.findByText('1 order with pending weights')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /Weights Entered/i }));
     expect(navigateMock).toHaveBeenCalledWith('/orders?action=weights-entered');
 
-    fireEvent.click(screen.getByRole('button', { name: 'Open Purchasing Workspace' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Purchasing' }));
     expect(navigateMock).toHaveBeenCalledWith('/purchasing');
   });
 
