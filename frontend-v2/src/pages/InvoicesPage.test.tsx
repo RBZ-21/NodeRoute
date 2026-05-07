@@ -95,7 +95,8 @@ describe('InvoicesPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     fireEvent.change(screen.getByDisplayValue('125'), { target: { value: '150' } });
     fireEvent.change(screen.getByDisplayValue('2026-04-15'), { target: { value: '2026-04-20' } });
-    fireEvent.change(screen.getAllByRole('combobox').at(-1) as HTMLSelectElement, { target: { value: 'paid' } });
+    const statusSelect = screen.getAllByRole('combobox')[screen.getAllByRole('combobox').length - 1] as HTMLSelectElement;
+    fireEvent.change(statusSelect, { target: { value: 'paid' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
