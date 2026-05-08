@@ -66,7 +66,7 @@ app.disable('x-powered-by');
 // ── Security headers ─────────────────────────────────────────────────────────
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
   res.setHeader(
@@ -77,11 +77,11 @@ app.use((req, res, next) => {
     'Content-Security-Policy',
     [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://maps.googleapis.com",
       "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
       "font-src 'self' https://fonts.gstatic.com",
       "img-src 'self' data: blob: https:",
-      "connect-src 'self' https://*.supabase.co https://api.openai.com https://api.stripe.com https://api.resend.com wss://*.supabase.co",
+      "connect-src 'self' https://*.supabase.co https://api.openai.com https://api.stripe.com https://api.resend.com https://maps.googleapis.com https://*.googleapis.com https://maps.gstatic.com https://*.gstatic.com wss://*.supabase.co",
       "frame-src https://js.stripe.com",
       "object-src 'none'",
       "base-uri 'self'",

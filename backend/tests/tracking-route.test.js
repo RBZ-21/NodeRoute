@@ -152,6 +152,13 @@ test('tracking API response includes customerEmail and customerPhone fields', ()
   assert.ok(src.includes('order.customer_phone'), 'customerPhone must come from order');
 });
 
+test('tracking API response exposes outing dispatch state and pauses ETA before departure', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'tracking.js'), 'utf8');
+  assert.ok(src.includes('outingStarted'), 'response must include outingStarted');
+  assert.ok(src.includes('routeDispatchedAt'), 'response must include routeDispatchedAt');
+  assert.ok(src.includes('delivered || !outingStarted ? null : buildEta'), 'ETA must stay null until the outing has started');
+});
+
 test('tracking route validates token expiry and returns 410 for expired links', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'tracking.js'), 'utf8');
   assert.ok(src.includes('tracking_expires_at'), 'route must check tracking_expires_at');

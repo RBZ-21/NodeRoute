@@ -28,6 +28,13 @@ function downloadCsv(filename: string, rows: string[][]) {
   const a = document.createElement('a'); a.href = href; a.download = filename; a.click(); URL.revokeObjectURL(href);
 }
 function sanitizeHtml(v: string) { return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function inventoryActionLabel(item: Pick<InventoryItem, 'item_number' | 'description'> | null | undefined): string {
+  if (!item) return '';
+  const itemNumber = String(item.item_number || '').trim();
+  const description = String(item.description || '').trim();
+  if (itemNumber && description) return `${itemNumber} - ${description}`;
+  return itemNumber || description || 'Unnamed item';
+}
 function SummaryCard({ label, value }: { label: string; value: string }) {
   return <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className="text-2xl">{value}</CardTitle></CardHeader></Card>;
 }
@@ -90,15 +97,15 @@ export function InventoryPage() {
   // Inline feedback for the Inventory Actions card specifically
   const [actionError, setActionError] = useState('');
   const [actionNotice, setActionNotice] = useState('');
-  const [selectedItemNumber, setSelectedItemNumber] = useState('');
+  const [selectedItemId, setSelectedItemId] = useState('');
   const [restockQty, setRestockQty] = useState('');
   const [adjustDelta, setAdjustDelta] = useState('');
   const [actionNotes, setActionNotes] = useState('');
-  const [transferFrom, setTransferFrom] = useState('');
-  const [transferTo, setTransferTo] = useState('');
+  const [transferFromId, setTransferFromId] = useState('');
+  const [transferToId, setTransferToId] = useState('');
   const [transferQty, setTransferQty] = useState('');
   const [transferNotes, setTransferNotes] = useState('');
-  const [spoilageItem, setSpoilageItem] = useState('');
+  const [spoilageItemId, setSpoilageItemId] = useState('');
   const [spoilageQty, setSpoilageQty] = useState('');
   const [spoilageReason, setSpoilageReason] = useState('');
   const [spoilageNotes, setSpoilageNotes] = useState('');
@@ -131,12 +138,12 @@ export function InventoryPage() {
   useEffect(() => {
     if (selectorInitialized.current || !items.length) return;
     selectorInitialized.current = true;
-    const firstValidItem = items.find((i) => i.item_number) ?? items[0];
-    setSelectedItemNumber(firstValidItem?.item_number || '');
-    setSpoilageItem(firstValidItem?.item_number || '');
-    setTransferFrom(firstValidItem?.item_number || '');
-    const secondValidItem = items.find((i) => i.item_number && i.item_number !== firstValidItem?.item_number);
-    if (secondValidItem) setTransferTo(secondValidItem.item_number || '');
+    const firstItem = items[0];
+    setSelectedItemId(firstItem?.id || '');
+    setSpoilageItemId(firstItem?.id || '');
+    setTransferFromId(firstItem?.id || '');
+    const secondItem = items.find((i) => i.id !== firstItem?.id);
+    if (secondItem) setTransferToId(secondItem.id);
   }, [items]);
 
   // ── AI calls ──────────────────────────────────────────────────────────────
@@ -178,64 +185,87 @@ export function InventoryPage() {
   // Helper to reset inline action feedback before each submission
   function clearActionFeedback() { setActionError(''); setActionNotice(''); }
 
+  function requireItemNumber(item: InventoryItem | null, actionLabel: string) {
+    if (!item) {
+      setActionError(`Please select an item before ${actionLabel}.`);
+      return null;
+    }
+    const itemNumber = String(item.item_number || '').trim();
+    if (!itemNumber) {
+      setActionError(`"${inventoryActionLabel(item)}" is missing an item number, so ${actionLabel} cannot be posted yet.`);
+      return null;
+    }
+    return itemNumber;
+  }
+
   // ── Mutations ─────────────────────────────────────────────────────────────
   async function submitRestock() {
     clearActionFeedback();
-    if (!selectedItemNumber) {
-      setActionError('Please select an item before restocking.');
-      return;
-    }
+    const itemNumber = requireItemNumber(selectedItem, 'restocking');
+    if (!itemNumber) return;
     const qty = asNumber(restockQty);
     if (qty <= 0) { setActionError('Restock quantity must be greater than 0.'); return; }
     setSubmitting(true);
     try {
-      await restockMutation.mutateAsync({ itemNumber: selectedItemNumber, qty, notes: actionNotes || undefined });
+      await restockMutation.mutateAsync({ itemNumber, qty, notes: actionNotes || undefined });
       setRestockQty(''); setActionNotes('');
-      setActionNotice(`Restocked ${selectedItemNumber} by ${qty.toLocaleString()}.`);
+      setActionNotice(`Restocked ${inventoryActionLabel(selectedItem)} by ${qty.toLocaleString()}.`);
     } catch (err) { setActionError(String((err as Error).message || 'Restock failed')); }
     finally { setSubmitting(false); }
   }
 
   async function submitAdjustment() {
     clearActionFeedback();
-    if (!selectedItemNumber) {
-      setActionError('Please select an item before applying an adjustment.');
-      return;
-    }
+    const itemNumber = requireItemNumber(selectedItem, 'applying an adjustment');
+    if (!itemNumber) return;
     const delta = asNumber(adjustDelta);
     if (delta === 0) { setActionError('Adjustment delta must be non-zero.'); return; }
     setSubmitting(true);
     try {
-      await adjustMutation.mutateAsync({ itemNumber: selectedItemNumber, delta, notes: actionNotes || undefined });
+      await adjustMutation.mutateAsync({ itemNumber, delta, notes: actionNotes || undefined });
       setAdjustDelta(''); setActionNotes('');
-      setActionNotice(`Adjusted ${selectedItemNumber} by ${delta > 0 ? '+' : ''}${delta.toLocaleString()}.`);
+      setActionNotice(`Adjusted ${inventoryActionLabel(selectedItem)} by ${delta > 0 ? '+' : ''}${delta.toLocaleString()}.`);
     } catch (err) { setActionError(String((err as Error).message || 'Adjustment failed')); }
     finally { setSubmitting(false); }
   }
 
   async function submitTransfer() {
     const qty = asNumber(transferQty);
-    if (!transferFrom || !transferTo) { setError('Select both source and destination items.'); return; }
-    if (transferFrom === transferTo) { setError('Source and destination must be different.'); return; }
+    const fromItem = items.find((item) => item.id === transferFromId) ?? null;
+    const toItem = items.find((item) => item.id === transferToId) ?? null;
+    if (!fromItem || !toItem) { setError('Select both source and destination items.'); return; }
+    if (transferFromId === transferToId) { setError('Source and destination must be different.'); return; }
     if (qty <= 0) { setError('Transfer quantity must be greater than 0.'); return; }
+    const fromItemNumber = String(fromItem.item_number || '').trim();
+    const toItemNumber = String(toItem.item_number || '').trim();
+    if (!fromItemNumber || !toItemNumber) {
+      setError('Both transfer items must have item numbers before stock can be moved.');
+      return;
+    }
     setSubmitting(true); setError(''); setNotice('');
     try {
-      const res = await transferMutation.mutateAsync({ fromItem: transferFrom, toItem: transferTo, qty, notes: transferNotes || undefined });
+      const res = await transferMutation.mutateAsync({ fromItem: fromItemNumber, toItem: toItemNumber, qty, notes: transferNotes || undefined });
       setTransferQty(''); setTransferNotes('');
-      setNotice(`Transfer completed (${res.transfer_ref ?? 'ref unavailable'}).`);
+      setNotice(`Transfer completed for ${inventoryActionLabel(fromItem)} -> ${inventoryActionLabel(toItem)} (${res.transfer_ref ?? 'ref unavailable'}).`);
     } catch (err) { setError(String((err as Error).message || 'Transfer failed')); }
     finally { setSubmitting(false); }
   }
 
   async function submitSpoilage() {
     const qty = asNumber(spoilageQty);
+    const spoilageItem = items.find((item) => item.id === spoilageItemId) ?? null;
     if (!spoilageItem) { setError('Select an item for spoilage.'); return; }
     if (qty <= 0) { setError('Spoilage quantity must be greater than 0.'); return; }
+    const itemNumber = String(spoilageItem.item_number || '').trim();
+    if (!itemNumber) {
+      setError(`"${inventoryActionLabel(spoilageItem)}" is missing an item number, so spoilage cannot be posted yet.`);
+      return;
+    }
     setSubmitting(true); setError(''); setNotice('');
     try {
-      await spoilageMutation.mutateAsync({ itemNumber: spoilageItem, qty, reason: spoilageReason || undefined, notes: spoilageNotes || undefined });
+      await spoilageMutation.mutateAsync({ itemNumber, qty, reason: spoilageReason || undefined, notes: spoilageNotes || undefined });
       setSpoilageQty(''); setSpoilageReason(''); setSpoilageNotes('');
-      setNotice(`Spoilage recorded for ${spoilageItem}.`);
+      setNotice(`Spoilage recorded for ${inventoryActionLabel(spoilageItem)}.`);
     } catch (err) { setError(String((err as Error).message || 'Could not record spoilage')); }
     finally { setSubmitting(false); }
   }
@@ -248,7 +278,7 @@ export function InventoryPage() {
       .filter((i) => !n || [i.item_number, i.description, i.category].filter(Boolean).some((p) => String(p).toLowerCase().includes(n)));
   }, [items, search, showInactive]);
   const summary = useMemo(() => ({ totalSkus: items.length, lowStock: items.filter((i) => asNumber(i.on_hand_qty) > 0 && asNumber(i.on_hand_qty) <= 10).length, outOfStock: items.filter((i) => asNumber(i.on_hand_qty) <= 0).length, inventoryValue: items.reduce((s, i) => s + asNumber(i.on_hand_qty) * asNumber(i.cost), 0) }), [items]);
-  const selectedItem = useMemo(() => items.find((i) => i.item_number === selectedItemNumber) ?? null, [items, selectedItemNumber]);
+  const selectedItem = useMemo(() => items.find((i) => i.id === selectedItemId) ?? null, [items, selectedItemId]);
   const countSheetRows = useMemo(() => {
     const rows = items.map((item) => ({ id: item.id, item_number: String(item.item_number || '').trim(), description: String(item.description || '').trim() || 'Unnamed item', category: String(item.category || 'Uncategorized').trim() || 'Uncategorized', on_hand_qty: asNumber(item.on_hand_qty), unit: String(item.unit || '').trim() })).filter((i) => i.item_number || i.description);
     return rows.filter((i) => countCategoryFilter === 'all' || i.category === countCategoryFilter).filter((i) => includeZeroStockInCounts || i.on_hand_qty > 0).filter((i) => { if (recentSalesExclusionWindow === 'all' || !recentSoldItemKeys) return true; return recentSoldItemKeys.has(i.item_number.trim().toLowerCase()) || recentSoldItemKeys.has(i.description.trim().toLowerCase()); }).sort((a, b) => itemCategoryCompare(a, b) || a.description.localeCompare(b.description) || a.item_number.localeCompare(b.item_number));
@@ -261,7 +291,7 @@ export function InventoryPage() {
     downloadCsv(`inventory-count-sheet-${scope}.csv`, [['Category','Item #','Description','Current On Hand','Unit','Physical Count'], ...countSheetRows.map((i) => [i.category, i.item_number, i.description, i.on_hand_qty.toLocaleString(), i.unit, ''])]);
   }
   function printCountSheet() {
-    const popup = window.open('', '_blank', 'noopener,noreferrer');
+    const popup = window.open('', '_blank', 'width=1100,height=800');
     if (!popup) { setError('Could not open the print view. Please allow pop-ups and try again.'); return; }
     const scopeLabel = countCategoryFilter === 'all' ? 'All Categories' : countCategoryFilter;
     const sections = countSheetGroups.map((g) => `<section class="category-block"><h2>${sanitizeHtml(g.category)}</h2><table><thead><tr><th>Item #</th><th>Description</th><th>Current On Hand</th><th>Unit</th><th>Physical Count</th></tr></thead><tbody>${g.rows.map((i) => `<tr><td>${sanitizeHtml(i.item_number||'-')}</td><td>${sanitizeHtml(i.description)}</td><td>${sanitizeHtml(i.on_hand_qty.toLocaleString())}</td><td>${sanitizeHtml(i.unit||'-')}</td><td class="blank-cell"></td></tr>`).join('')}</tbody></table></section>`).join('');
@@ -390,7 +420,7 @@ export function InventoryPage() {
 
       {/* ── Inventory Actions ─────────────────────────────────────────────── */}
       <Card>
-        <CardHeader><CardTitle>Inventory Actions</CardTitle><CardDescription>Restock and adjust item quantities through existing inventory APIs.</CardDescription></CardHeader>
+        <CardHeader><CardTitle>Inventory Actions</CardTitle><CardDescription>Select by item name, then post restocks and adjustments against the matching inventory SKU.</CardDescription></CardHeader>
         <CardContent className="grid gap-3 md:grid-cols-4">
           {/* Inline feedback — shown right here in the card, not at the top of the page */}
           {actionError && (
@@ -406,10 +436,10 @@ export function InventoryPage() {
           <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Item</span>
             <select
               className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={selectedItemNumber}
-              onChange={(e) => { setSelectedItemNumber(e.target.value); clearActionFeedback(); }}
+              value={selectedItemId}
+              onChange={(e) => { setSelectedItemId(e.target.value); clearActionFeedback(); }}
             >
-              <option value="">Select item...</option>{items.map((i) => <option key={i.id} value={i.item_number || ''}>{i.item_number} - {i.description}</option>)}
+              <option value="">Select item...</option>{items.map((i) => <option key={i.id} value={i.id}>{inventoryActionLabel(i)}</option>)}
             </select>
           </label>
           <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Restock Qty</span><Input type="number" min="0" step="0.01" value={restockQty} onChange={(e) => setRestockQty(e.target.value)} placeholder="e.g. 25" /></label>
@@ -453,10 +483,10 @@ export function InventoryPage() {
         <Card>
           <CardHeader><CardTitle>Transfer Inventory</CardTitle><CardDescription>Move stock between inventory SKUs.</CardDescription></CardHeader>
           <CardContent className="space-y-3">
-            {([['From Item', transferFrom, setTransferFrom], ['To Item', transferTo, setTransferTo]] as const).map(([label, val, setter]) => (
+            {([['From Item', transferFromId, setTransferFromId], ['To Item', transferToId, setTransferToId]] as const).map(([label, val, setter]) => (
               <label key={label} className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">{label}</span>
                 <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={val} onChange={(e) => setter(e.target.value)}>
-                  <option value="">Select...</option>{items.map((i) => <option key={i.id} value={i.item_number || ''}>{i.item_number} - {i.description}</option>)}
+                  <option value="">Select...</option>{items.map((i) => <option key={i.id} value={i.id}>{inventoryActionLabel(i)}</option>)}
                 </select>
               </label>
             ))}
@@ -469,8 +499,8 @@ export function InventoryPage() {
           <CardHeader><CardTitle>Record Spoilage</CardTitle><CardDescription>Post waste/spoilage movements with reason and notes.</CardDescription></CardHeader>
           <CardContent className="space-y-3">
             <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Item</span>
-              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={spoilageItem} onChange={(e) => setSpoilageItem(e.target.value)}>
-                <option value="">Select item...</option>{items.map((i) => <option key={i.id} value={i.item_number || ''}>{i.item_number} - {i.description}</option>)}
+              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={spoilageItemId} onChange={(e) => setSpoilageItemId(e.target.value)}>
+                <option value="">Select item...</option>{items.map((i) => <option key={i.id} value={i.id}>{inventoryActionLabel(i)}</option>)}
               </select>
             </label>
             <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Quantity</span><Input type="number" min="0" step="0.01" value={spoilageQty} onChange={(e) => setSpoilageQty(e.target.value)} placeholder="e.g. 2" /></label>

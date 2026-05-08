@@ -130,10 +130,10 @@ export function WeightStationPanel({
     : false;
 
   return (
-    <div className="flex flex-col rounded-lg border border-border overflow-hidden bg-background" style={{ minHeight: '560px' }}>
+    <div className="weight-station-shell flex flex-col" style={{ minHeight: '560px' }}>
 
       {/* ── Filter bar ─────────────────────────────────────────────────────── */}
-      <div className="flex items-center gap-3 border-b border-border bg-muted/40 px-3 py-2">
+      <div className="weight-station-topbar flex items-center gap-3 px-3 py-2">
         <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground shrink-0">
           Weight Station
         </span>
@@ -151,8 +151,8 @@ export function WeightStationPanel({
 
       {/* ── Top panel: order queue ─────────────────────────────────────────── */}
       <div className="overflow-auto border-b border-border" style={{ maxHeight: '230px' }}>
-        <table className="w-full text-sm border-collapse">
-          <thead className="sticky top-0 z-10 bg-muted">
+        <table className="weight-station-table w-full border-collapse text-sm">
+          <thead className="sticky top-0 z-10">
             <tr className="text-xs text-muted-foreground uppercase tracking-wide">
               {['Order #', 'Date', 'Route', 'Cust #', 'Ship-To Company', 'Items', 'Wts Needed', 'Status'].map((h) => (
                 <th key={h} className="px-3 py-2 text-left font-semibold border-b border-border whitespace-nowrap">{h}</th>
@@ -177,7 +177,7 @@ export function WeightStationPanel({
                   className={[
                     'cursor-pointer border-b border-border/40 transition-colors select-none',
                     sel
-                      ? 'bg-blue-600 text-white'
+                      ? 'weight-station-row-selected'
                       : 'hover:bg-muted/60',
                   ].join(' ')}
                 >
@@ -203,22 +203,22 @@ export function WeightStationPanel({
                     {needsWt > 0 ? (
                       <span className={[
                         'inline-flex items-center justify-center rounded-full px-2 py-0.5 text-xs font-bold',
-                        sel ? 'bg-white/25 text-white' : 'bg-amber-100 text-amber-700',
+                        sel ? 'bg-blue-950/15 text-inherit dark:bg-white/10' : 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200',
                       ].join(' ')}>
                         {needsWt}
                       </span>
                     ) : (
-                      <span className={sel ? 'text-white/70 text-xs' : 'text-emerald-600 text-xs font-bold'}>✓</span>
+                      <span className={sel ? 'text-inherit/80 text-xs' : 'text-emerald-700 text-xs font-bold dark:text-emerald-300'}>✓</span>
                     )}
                   </td>
                   <td className="px-3 py-1.5">
                     <span className={[
                       'inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium capitalize',
                       sel
-                        ? 'bg-white/20 text-white'
+                        ? 'bg-blue-950/15 text-inherit dark:bg-white/10'
                         : order.status === 'pending'
-                          ? 'bg-amber-100 text-amber-700'
-                          : 'bg-blue-100 text-blue-700',
+                          ? 'bg-amber-100 text-amber-800 dark:bg-amber-900/30 dark:text-amber-200'
+                          : 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-200',
                     ].join(' ')}>
                       {order.status}
                     </span>
@@ -284,8 +284,8 @@ export function WeightStationPanel({
                         className={[
                           'border-b border-border/40 transition-colors',
                           needsWt ? 'cursor-pointer' : '',
-                          isActive ? 'bg-blue-50 ring-1 ring-inset ring-blue-300' : '',
-                          !isActive && needsWt && !actual ? 'bg-amber-50/40 hover:bg-amber-50/70' : '',
+                          isActive ? 'weight-station-row-selected ring-1 ring-inset ring-blue-400 dark:ring-blue-500' : '',
+                          !isActive && needsWt && !actual ? 'weight-station-row-pending' : '',
                           !isActive && (!needsWt || actual > 0) ? 'hover:bg-muted/40' : '',
                         ].join(' ')}
                       >
@@ -303,9 +303,9 @@ export function WeightStationPanel({
                         </td>
                         <td className="px-3 py-2 text-right text-xs tabular-nums font-semibold">
                           {actual > 0
-                            ? <span className="text-emerald-700">{actual.toFixed(2)}</span>
+                            ? <span className="text-emerald-700 dark:text-emerald-300">{actual.toFixed(2)}</span>
                             : needsWt
-                              ? <span className="text-amber-500">—</span>
+                              ? <span className="text-amber-600 dark:text-amber-300">—</span>
                               : '—'}
                         </td>
                         <td className="px-3 py-2 text-right text-xs tabular-nums">
@@ -319,7 +319,7 @@ export function WeightStationPanel({
             </div>
 
             {/* ── Weight entry widget ─────────────────────────────────────── */}
-            <div className="w-56 shrink-0 border-l border-border flex flex-col bg-muted/10">
+            <div className="weight-station-widget flex w-56 shrink-0 flex-col">
 
               {/* Header */}
               <div className="border-b border-border px-3 py-2 bg-muted/30 text-center">
@@ -359,7 +359,7 @@ export function WeightStationPanel({
                       min="0"
                       step="0.01"
                       placeholder="0.00"
-                      className="w-full rounded border-2 border-blue-400 bg-blue-50 px-3 py-3 text-center text-2xl font-bold tabular-nums text-blue-800 focus:outline-none focus:border-blue-600 focus:ring-2 focus:ring-blue-200"
+                      className="weight-station-input"
                       value={activeInputVal}
                       onChange={(e) => onWeightInputChange(activeKey, e.target.value)}
                       onKeyDown={(e) => {
@@ -384,7 +384,7 @@ export function WeightStationPanel({
                     {/* Navigate pending items */}
                     {weightItems.filter(({ item }) => !asNumber(item.actual_weight)).length > 1 && (
                       <button
-                        className="text-xs text-blue-600 hover:underline"
+                        className="text-xs font-medium text-blue-700 hover:underline dark:text-blue-300"
                         onClick={goNextPendingWeight}
                       >
                         Skip to next →
@@ -417,7 +417,7 @@ export function WeightStationPanel({
                         onClick={() => setActiveItemIdx(idx)}
                         className={[
                           'h-3 w-3 rounded-full border transition-colors',
-                          isActive ? 'bg-blue-500 border-blue-600' : captured ? 'bg-emerald-400 border-emerald-500' : 'bg-amber-300 border-amber-400',
+                          isActive ? 'bg-blue-500 border-blue-600 dark:bg-blue-400 dark:border-blue-300' : captured ? 'bg-emerald-500 border-emerald-600 dark:bg-emerald-400 dark:border-emerald-300' : 'bg-amber-400 border-amber-500 dark:bg-amber-300 dark:border-amber-200',
                         ].join(' ')}
                       />
                     );

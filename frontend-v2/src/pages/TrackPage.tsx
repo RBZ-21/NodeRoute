@@ -1,9 +1,12 @@
+/// <reference types="vite/client" />
 import { Bell, BellOff, CheckCircle2, Clock, Loader2, MapPin, Navigation, Package, Truck } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { useTrackingData } from '../hooks/useTrack';
+
+const ENV_MAP_KEY = import.meta.env.VITE_MAP_API_KEY as string | undefined;
 
 function getToken(): string {
   const params = new URLSearchParams(window.location.search);
@@ -18,8 +21,9 @@ function statusLabel(status: string, delivered: boolean): string {
     default: return 'On the Way';
   }
 }
-function statusColor(status: string, delivered: boolean): string {
+function statusColor(status: string, delivered: boolean, outingStarted: boolean): string {
   if (delivered) return 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300';
+  if (!outingStarted) return 'bg-slate-200 text-slate-800 dark:bg-slate-800 dark:text-slate-200';
   if (status === 'pending') return 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-300';
   return 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300';
 }
@@ -41,6 +45,12 @@ function etaCountdown(etaIso: string): string {
   if (totalMin < 60) return `${totalMin} min`;
   const h = Math.floor(totalMin / 60); const m = totalMin % 60;
   return m ? `${h}h ${m}m` : `${h}h`;
+}
+
+function trackingHeadline(status: string, delivered: boolean, outingStarted: boolean): string {
+  if (delivered) return 'Delivered';
+  if (!outingStarted) return 'Route Scheduled';
+  return statusLabel(status, delivered);
 }
 
 declare global {
@@ -66,6 +76,18 @@ function loadMapsScript(apiKey: string): Promise<void> {
     script.onerror = () => reject(new Error('Failed to load Google Maps'));
     document.head.appendChild(script);
   });
+}
+
+async function resolveTrackingMapKey(): Promise<string> {
+  if (ENV_MAP_KEY) return ENV_MAP_KEY;
+  try {
+    const res = await fetch('/api/config/maps-key');
+    if (!res.ok) return '';
+    const data = await res.json() as { key?: string; api_key?: string };
+    return data.key || data.api_key || '';
+  } catch {
+    return '';
+  }
 }
 
 const TIMELINE_STEPS = ['Order Placed', 'Preparing', 'Out for Delivery', 'Delivered'];
@@ -104,10 +126,7 @@ export function TrackPage() {
     if (!data || !mapRef.current) return;
     try {
       if (!mapsApiKey.current) {
-        const res = await fetch('/api/config/maps-key');
-        if (!res.ok) return;
-        const j = await res.json() as { key?: string };
-        mapsApiKey.current = j.key || '';
+        mapsApiKey.current = await resolveTrackingMapKey();
       }
       if (!mapsApiKey.current) return;
       await loadMapsScript(mapsApiKey.current);
@@ -152,6 +171,7 @@ export function TrackPage() {
 
   const d = data!;
   const delivered = d.status === 'delivered' || d.status === 'invoiced';
+  const outingStarted = d.outingStarted !== false;
   const step = timelineStep(d.status, delivered);
   const progressPct = d.totalRouteStops > 1 && !delivered
     ? Math.round(((d.totalRouteStops - d.stopsBeforeYou - 1) / (d.totalRouteStops - 1)) * 100)
@@ -174,12 +194,12 @@ export function TrackPage() {
               <div className="space-y-1">
                 <p className="text-sm text-muted-foreground">Order #{d.orderNumber}</p>
                 <h1 className="text-2xl font-semibold tracking-tight text-foreground">{d.customerName}</h1>
-                <div className={`inline-flex items-center gap-1.5 rounded-full px-3 py-0.5 text-sm font-medium ${statusColor(d.status, delivered)}`}>
+                <div className={`inline-flex items-center gap-1.5 rounded-full px-3 py-0.5 text-sm font-medium ${statusColor(d.status, delivered, outingStarted)}`}>
                   {!delivered && <span className="h-2 w-2 animate-pulse rounded-full bg-current" />}
-                  {statusLabel(d.status, delivered)}
+                  {trackingHeadline(d.status, delivered, outingStarted)}
                 </div>
               </div>
-              {!delivered && d.eta ? (
+              {!delivered && outingStarted && d.eta ? (
                 <div className="text-right">
                   <p className="text-3xl font-bold tabular-nums text-foreground">{countdown || etaCountdown(d.eta.etaTime)}</p>
                   <p className="text-xs text-muted-foreground">Est. arrival {formatEtaTime(d.eta.etaTime)}</p>
@@ -189,7 +209,12 @@ export function TrackPage() {
                   <CheckCircle2 className="h-8 w-8" />
                   <span className="text-sm font-medium">Delivered</span>
                 </div>
-              ) : null}
+              ) : (
+                <div className="text-right">
+                  <p className="text-sm font-semibold text-foreground">Waiting to depart</p>
+                  <p className="text-xs text-muted-foreground">ETA will appear once this outing leaves the shop.</p>
+                </div>
+              )}
             </div>
             <div className="pt-2">
               <div className="relative flex items-center justify-between">
@@ -208,7 +233,7 @@ export function TrackPage() {
           </CardContent>
         </Card>
 
-        {!delivered && d.totalRouteStops > 1 && (
+        {!delivered && outingStarted && d.totalRouteStops > 1 && (
           <Card className="border-border/80 bg-card/95 shadow-panel">
             <CardContent className="space-y-3 pt-5">
               <div className="flex items-center justify-between text-sm">
@@ -232,7 +257,12 @@ export function TrackPage() {
               <span className="font-medium text-foreground">{d.driver.name}</span>
               <span className="text-xs text-muted-foreground">{freshnessLabel(d.driver.updatedAt)}</span>
             </div>
-            {!delivered && d.eta && (
+            {!outingStarted && !delivered ? (
+              <div className="rounded-md border border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+                The order is assigned to a route, but that outing has not been marked as departed yet. Customer ETA updates stay paused until dispatch starts.
+              </div>
+            ) : null}
+            {!delivered && outingStarted && d.eta && (
               <div className="grid grid-cols-2 gap-2 pt-1">
                 <div className="rounded-md border border-border bg-muted/20 p-2 text-center">
                   <div className="text-lg font-semibold tabular-nums text-foreground">{d.eta.driveMinutes}m</div>
@@ -251,16 +281,22 @@ export function TrackPage() {
           <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><MapPin className="h-4 w-4 text-primary" />Delivery Address</CardTitle></CardHeader>
           <CardContent className="space-y-1 text-sm">
             <p className="font-medium text-foreground">{d.deliveryAddress || 'Address on file'}</p>
-            {!delivered && d.eta && (
+            {!delivered && outingStarted && d.eta && (
               <div className="flex items-center gap-1.5 pt-1 text-xs text-muted-foreground">
                 <Clock className="h-3.5 w-3.5" />
                 Estimated delivery by {formatEtaTime(d.eta.etaTime)}
               </div>
             )}
+            {!delivered && !outingStarted && (
+              <div className="flex items-center gap-1.5 pt-1 text-xs text-muted-foreground">
+                <Clock className="h-3.5 w-3.5" />
+                ETA will appear after dispatch leaves the shop.
+              </div>
+            )}
           </CardContent>
         </Card>
 
-        {d.destination.lat !== null && d.destination.lng !== null && (
+        {outingStarted && d.destination.lat !== null && d.destination.lng !== null && (
           <Card className="overflow-hidden border-border/80 bg-card/95 shadow-panel">
             <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><Navigation className="h-4 w-4 text-primary" />Live Map</CardTitle></CardHeader>
             <CardContent className="p-0">
@@ -269,6 +305,15 @@ export function TrackPage() {
                   <Package className="mr-2 h-4 w-4" />Loading map…
                 </div>
               </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {!outingStarted && !delivered && (
+          <Card className="border-border/80 bg-card/95 shadow-panel">
+            <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><Navigation className="h-4 w-4 text-primary" />Live Map</CardTitle></CardHeader>
+            <CardContent className="text-sm text-muted-foreground">
+              Live map tracking turns on after this route is dispatched, so future second-outing deliveries do not receive an early “driver is on the way” ETA.
             </CardContent>
           </Card>
         )}
