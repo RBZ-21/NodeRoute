@@ -348,4 +348,25 @@ describe('InventoryPage', () => {
 
     openMock.mockRestore();
   });
+
+  it('explains why count sheets are empty when filters exclude every row', async () => {
+    renderInventoryPage();
+
+    expect(await screen.findByText('Fresh Salmon')).toBeInTheDocument();
+
+    const reportCard = screen.getByRole('heading', { name: 'Inventory Count Reports' }).closest('div.rounded-lg') as HTMLElement | null;
+    if (!reportCard) throw new Error('Expected inventory count reports card');
+
+    fireEvent.change(within(reportCard).getByLabelText('Category Scope'), { target: { value: 'Seafood' } });
+    fireEvent.change(within(reportCard).getByLabelText('Recent Sales Filter'), { target: { value: '30' } });
+    fireEvent.click(within(reportCard).getByLabelText('Include zero-stock items'));
+
+    await waitFor(() => {
+      expect(fetchWithAuthMock).toHaveBeenCalledWith('/api/reporting/recent-sold-items?days=30');
+    });
+
+    expect(await within(reportCard).findByText('No count-sheet rows match the current filters.')).toBeInTheDocument();
+    expect(within(reportCard).getByText(/category scope is limited to Seafood/i)).toBeInTheDocument();
+    expect(within(reportCard).getByRole('button', { name: 'Print Count Sheet' })).toBeDisabled();
+  });
 });

@@ -30,9 +30,9 @@ function normalizeStatus(value: string | undefined): DeliveryViewStatus {
 }
 
 function statusBadge(status: DeliveryViewStatus) {
-  if (status === 'active') return <Badge variant="success">Active</Badge>;
-  if (status === 'pending') return <Badge variant="warning">Pending</Badge>;
-  if (status === 'completed') return <Badge variant="neutral">Completed</Badge>;
+  if (status === 'active') return <Badge variant="success">Out for Delivery</Badge>;
+  if (status === 'pending') return <Badge variant="warning">Ready at Shop</Badge>;
+  if (status === 'completed') return <Badge variant="neutral">Delivered</Badge>;
   if (status === 'failed') return <Badge variant="neutral" className="bg-red-100 text-red-700">Failed</Badge>;
   return <Badge variant="secondary">Other</Badge>;
 }
@@ -119,6 +119,7 @@ export function DeliveriesPage() {
           <div className="space-y-1">
             <CardTitle>Deliveries</CardTitle>
             <CardDescription>Active and scheduled deliveries from the dispatch backend feed.</CardDescription>
+            <p className="text-sm text-muted-foreground">Customer ETA and live tracking should only go live after a delivery is marked out for delivery.</p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
@@ -146,8 +147,8 @@ export function DeliveriesPage() {
         {selected.size > 0 && (
           <div className="mx-6 mb-2 flex items-center gap-3 rounded-md border border-border bg-muted/50 px-4 py-2">
             <span className="text-sm font-medium">{selected.size} selected</span>
-            <Button size="sm" variant="outline" disabled={bulkUpdating} onClick={() => bulkSetStatus('pending')}>Mark Pending</Button>
-            <Button size="sm" variant="secondary" disabled={bulkUpdating} onClick={() => bulkSetStatus('in-transit')}>Mark Active</Button>
+            <Button size="sm" variant="outline" disabled={bulkUpdating} onClick={() => bulkSetStatus('pending')}>Mark Ready at Shop</Button>
+            <Button size="sm" variant="secondary" disabled={bulkUpdating} onClick={() => bulkSetStatus('in-transit')}>Mark Out for Delivery</Button>
             <Button size="sm" disabled={bulkUpdating} onClick={() => bulkSetStatus('delivered')}>{bulkUpdating ? 'Updating...' : 'Mark Delivered'}</Button>
             <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear</Button>
           </div>
@@ -187,9 +188,9 @@ export function DeliveriesPage() {
                     <TableCell>{eta ? new Date(eta).toLocaleString() : '-'}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        <Button variant="ghost" size="sm" disabled={!delivery.orderDbId || updateStatus.isPending} onClick={() => setDeliveryStatus(delivery, 'pending')}>Pending</Button>
-                        <Button variant="secondary" size="sm" disabled={!delivery.orderDbId || updateStatus.isPending} onClick={() => setDeliveryStatus(delivery, 'in-transit')}>Active</Button>
-                        <Button size="sm" disabled={!delivery.orderDbId || updateStatus.isPending} onClick={() => setDeliveryStatus(delivery, 'delivered')}>Complete</Button>
+                        <Button variant="ghost" size="sm" disabled={!delivery.orderDbId || updateStatus.isPending} onClick={() => setDeliveryStatus(delivery, 'pending')}>Ready at Shop</Button>
+                        <Button variant="secondary" size="sm" disabled={!delivery.orderDbId || updateStatus.isPending} onClick={() => setDeliveryStatus(delivery, 'in-transit')}>Out for Delivery</Button>
+                        <Button size="sm" disabled={!delivery.orderDbId || updateStatus.isPending} onClick={() => setDeliveryStatus(delivery, 'delivered')}>Delivered</Button>
                         <a href={mapHref} target="_blank" rel="noreferrer" className="inline-flex"><Button variant="outline" size="sm">Map</Button></a>
                       </div>
                     </TableCell>

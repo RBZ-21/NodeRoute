@@ -165,7 +165,7 @@ async function createCustomerViaUi(page: Page, customer: {
   await page.getByPlaceholder('Blue Fin Seafood').fill(customer.company);
   await page.getByPlaceholder('Receiving Manager').fill(customer.contact);
   await page.getByPlaceholder('ops@example.com').fill(customer.email);
-  await page.getByPlaceholder('555-0103').fill(customer.phone);
+  await page.getByPlaceholder('(555) 010-0103').fill(customer.phone);
   await page.getByPlaceholder('123 Dock Street').fill(customer.address);
   await page.getByPlaceholder('Net 30').fill(customer.terms);
   await page.getByRole('button', { name: /^Add Customer$/ }).click();
@@ -225,14 +225,14 @@ async function createOrderViaUi(page: Page, order: {
 
   if (order.sendToProcessing) {
     const popupPromise = page.waitForEvent('popup');
-    await page.getByRole('button', { name: 'Create + Send' }).click();
+    await page.getByRole('button', { name: 'Create + Send to Processing' }).click();
     const popup = await popupPromise;
     await expect(page.getByText('Order created and sent to processing.')).toBeVisible();
     await popup.waitForLoadState('domcontentloaded');
     await expect(popup.getByText('Print')).toBeVisible();
     await expect(popup.getByText(order.customerName)).toBeVisible();
   } else {
-    await page.getByRole('button', { name: 'Create Order' }).click();
+    await page.getByRole('button', { name: 'Create Draft Order' }).click();
     await expect(page.getByText('Order created.')).toBeVisible();
   }
 }
