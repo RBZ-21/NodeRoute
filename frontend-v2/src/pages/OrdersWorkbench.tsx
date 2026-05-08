@@ -53,7 +53,7 @@ export function OrdersWorkbench({
       <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="space-y-1">
           <CardTitle>Orders Workbench</CardTitle>
-          <CardDescription>Includes edit, send-to-processing, quick fulfill, and delete actions.</CardDescription>
+          <CardDescription>Move orders from intake to processing, capture weights, and keep the next action obvious for the team.</CardDescription>
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">
@@ -121,12 +121,12 @@ export function OrdersWorkbench({
                       <TableCell>{order.created_at ? new Date(order.created_at).toLocaleDateString() : '-'}</TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
-                          <Button variant="ghost" size="sm" onClick={() => onEdit(order)}>Edit</Button>
+                          <Button variant="ghost" size="sm" onClick={() => onEdit(order)}>Edit Order</Button>
                           {parsedStatus === 'pending' ? (
-                            <Button variant="secondary" size="sm" onClick={() => onSend(order)}>Send</Button>
+                            <Button variant="secondary" size="sm" onClick={() => onSend(order)}>Send to Processing</Button>
                           ) : null}
                           {parsedStatus === 'in_process' ? (
-                            <Button variant="secondary" size="sm" onClick={() => onFulfill(order)}>Fulfill</Button>
+                            <Button variant="secondary" size="sm" onClick={() => onFulfill(order)}>Quick Fulfill</Button>
                           ) : null}
                           {(order.items || []).some((it) => isWeightManagedItem(it)) && (role === 'admin' || role === 'manager' || role === 'superadmin') ? (
                             <Button
@@ -134,10 +134,10 @@ export function OrdersWorkbench({
                               size="sm"
                               onClick={() => onToggleWeightCapture(order)}
                             >
-                              Weights
+                              Enter Weights
                             </Button>
                           ) : null}
-                          <Button variant="ghost" size="sm" onClick={() => onDelete(order.id)}>Delete</Button>
+                          <Button variant="ghost" size="sm" onClick={() => onDelete(order.id)}>Delete Order</Button>
                         </div>
                       </TableCell>
                     </TableRow>

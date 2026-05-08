@@ -8,6 +8,8 @@ export type TrackingData = {
   customerName: string;
   customerEmail: string | null;
   customerPhone: string | null;
+  outingStarted?: boolean;
+  routeDispatchedAt?: string | null;
   stopsBeforeYou: number;
   totalRouteStops: number;
   driver: {

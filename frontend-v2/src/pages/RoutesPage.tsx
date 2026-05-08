@@ -48,6 +48,10 @@ function resolvedStopIds(route: RouteRecord, allStops: StopRecord[]) {
   return (route.active_stop_ids || route.stop_ids || []).filter((id) => stopMap.has(String(id)));
 }
 
+function normalizedLocationKey(name: string | undefined, address: string | undefined) {
+  return `${String(name || '').trim().toLowerCase()}|${String(address || '').trim().toLowerCase()}`;
+}
+
 export function RoutesPage() {
   const navigate = useNavigate();
 
@@ -122,30 +126,43 @@ export function RoutesPage() {
 
   const stopOptions = useMemo(() => {
     const seen = new Set<string>();
-    const opts: { value: string; label: string; sublabel: string; source: 'customer' | 'order' }[] = [];
+    const routeStopIdentitySet = new Set(editRouteStops.map((stop) => normalizedLocationKey(stop.name, stop.address)));
+    const opts: { value: string; label: string; sublabel: string; address: string; entityId: string; source: 'customer' | 'order' }[] = [];
     for (const c of customers) {
       const address = String((c as Customer).address || (c as Customer).billing_address || '').trim();
       if (!address) continue;
       const name = String((c as Customer).company_name || (c as Customer).name || (c as Customer).customerName || (c as Customer).customer_name || '').trim();
       if (!name) continue;
-      const key = name.toLowerCase();
-      if (seen.has(key)) continue;
+      const key = normalizedLocationKey(name, address);
+      if (seen.has(key) || routeStopIdentitySet.has(key)) continue;
       seen.add(key);
       const id = String((c as Customer).id || (c as Customer).customerId || (c as Customer).customer_id || name);
-      opts.push({ value: `customer:${id}`, label: name, sublabel: address, source: 'customer' });
+      opts.push({ value: `customer:${id}`, label: name, sublabel: address, address, entityId: id, source: 'customer' });
     }
     for (const o of pendingOrders) {
       const address = String(o.customer_address || '').trim();
       if (!address) continue;
       const name = String(o.customer_name || o.order_number || '').trim();
       if (!name) continue;
-      const key = name.toLowerCase();
-      if (seen.has(key)) continue;
+      const key = normalizedLocationKey(name, address);
+      if (seen.has(key) || routeStopIdentitySet.has(key)) continue;
       seen.add(key);
-      opts.push({ value: `order:${o.id}`, label: name, sublabel: `${address} — Order ${o.order_number || o.id.slice(0, 8)}`, source: 'order' });
+      opts.push({
+        value: `order:${o.id}`,
+        label: name,
+        sublabel: `${address} — Order ${o.order_number || o.id.slice(0, 8)}`,
+        address,
+        entityId: o.id,
+        source: 'order',
+      });
     }
     return opts;
-  }, [customers, pendingOrders]);
+  }, [customers, editRouteStops, pendingOrders]);
+
+  const batchPendingOrders = useMemo(() => {
+    const routeStopIdentitySet = new Set(editRouteStops.map((stop) => normalizedLocationKey(stop.name, stop.address)));
+    return pendingOrders.filter((order) => !routeStopIdentitySet.has(normalizedLocationKey(order.customer_name || order.order_number, order.customer_address)));
+  }, [editRouteStops, pendingOrders]);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -227,15 +244,16 @@ export function RoutesPage() {
     try {
       const opt = stopOptions.find((o) => o.value === selectedStopCustomerId);
       if (!opt) throw new Error('Could not find selected customer');
-      const existingStop = allStops.find((s) => String(s.name || '').toLowerCase() === opt.label.toLowerCase());
+      const existingStop = allStops.find((s) => normalizedLocationKey(s.name, s.address) === normalizedLocationKey(opt.label, opt.address));
       let stopId: string;
       if (existingStop && !routeStopIds.includes(existingStop.id)) {
         stopId = existingStop.id;
       } else if (!existingStop) {
         const newStop = await createStop.mutateAsync({
           name: opt.label,
-          address: opt.sublabel.split(' — Order ')[0],
+          address: opt.address,
           notes: opt.source === 'order' ? `Order ${opt.sublabel.split('Order ')[1] || ''}`.trim() : '',
+          customer_id: opt.source === 'customer' ? opt.entityId : undefined,
         });
         if (!newStop?.id) throw new Error('Stop could not be created');
         stopId = newStop.id;
@@ -266,7 +284,7 @@ export function RoutesPage() {
         const name = order.customer_name || order.order_number || order.id;
         const address = order.customer_address || '';
         if (!address) { failed.push(name); continue; }
-        const existingStop = allStops.find((s) => String(s.name || '').toLowerCase() === name.toLowerCase());
+        const existingStop = allStops.find((s) => normalizedLocationKey(s.name, s.address) === normalizedLocationKey(name, address));
         if (existingStop && !routeStopIds.includes(existingStop.id)) { newStopIds.push(existingStop.id); continue; }
         if (existingStop && routeStopIds.includes(existingStop.id)) continue;
         const stop = await createStop.mutateAsync({ name, address, notes: `Order ${order.order_number || order.id}` });
@@ -315,6 +333,17 @@ export function RoutesPage() {
 
   function toggleOrder(orderId: string) {
     setSelectedOrderIds((prev) => { const next = new Set(prev); next.has(orderId) ? next.delete(orderId) : next.add(orderId); return next; });
+  }
+
+  function handleDispatchRoute(route: RouteRecord) {
+    setActionError('');
+    updateRoute.mutate(
+      { id: route.id, patch: { status: 'active', dispatched_at: new Date().toISOString() } },
+      {
+        onSuccess: () => setNotice(`Route "${route.name || route.id.slice(0, 8)}" marked as departed. Customer ETA and live tracking can now begin.`),
+        onError: (err) => setActionError(String((err as Error).message || 'Could not dispatch route')),
+      },
+    );
   }
 
   // ── Render ─────────────────────────────────────────────────────────────────
@@ -462,32 +491,40 @@ export function RoutesPage() {
             {pendingOrders.length > 0 && (
               <div className="space-y-2">
                 <p className="text-sm font-semibold text-muted-foreground">Batch Add from Pending Orders</p>
-                <p className="text-xs text-muted-foreground">Check multiple orders to add them all at once.</p>
-                <div className="rounded-lg border border-border">
-                  <Table>
-                    <TableHeader>
-                      <TableRow>
-                        <TableHead className="w-8" />
-                        <TableHead>Order #</TableHead>
-                        <TableHead>Customer</TableHead>
-                        <TableHead>Address</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {pendingOrders.map((order) => (
-                        <TableRow key={order.id} className={selectedOrderIds.has(order.id) ? 'bg-primary/5' : 'cursor-pointer hover:bg-muted/40'} onClick={() => toggleOrder(order.id)}>
-                          <TableCell><input type="checkbox" readOnly checked={selectedOrderIds.has(order.id)} className="h-4 w-4 cursor-pointer accent-primary" /></TableCell>
-                          <TableCell className="font-medium">{order.order_number || order.id.slice(0, 8)}</TableCell>
-                          <TableCell>{order.customer_name || '-'}</TableCell>
-                          <TableCell className={order.customer_address ? '' : 'text-muted-foreground italic'}>{order.customer_address || 'No address on order'}</TableCell>
-                        </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </div>
-                <Button onClick={handleAddOrdersAsStops} disabled={!selectedOrderIds.size || addingStops}>
-                  {addingStops ? 'Adding…' : `Add ${selectedOrderIds.size || ''} Stop${selectedOrderIds.size !== 1 ? 's' : ''} to Route`}
-                </Button>
+                <p className="text-xs text-muted-foreground">Orders already represented by a stop on this route are hidden so the batch list only shows work that still needs dispatching.</p>
+                {batchPendingOrders.length > 0 ? (
+                  <>
+                    <div className="rounded-lg border border-border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="w-8" />
+                            <TableHead>Order #</TableHead>
+                            <TableHead>Customer</TableHead>
+                            <TableHead>Address</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {batchPendingOrders.map((order) => (
+                            <TableRow key={order.id} className={selectedOrderIds.has(order.id) ? 'bg-primary/5' : 'cursor-pointer hover:bg-muted/40'} onClick={() => toggleOrder(order.id)}>
+                              <TableCell><input type="checkbox" readOnly checked={selectedOrderIds.has(order.id)} className="h-4 w-4 cursor-pointer accent-primary" /></TableCell>
+                              <TableCell className="font-medium">{order.order_number || order.id.slice(0, 8)}</TableCell>
+                              <TableCell>{order.customer_name || '-'}</TableCell>
+                              <TableCell className={order.customer_address ? '' : 'text-muted-foreground italic'}>{order.customer_address || 'No address on order'}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    <Button onClick={handleAddOrdersAsStops} disabled={!selectedOrderIds.size || addingStops}>
+                      {addingStops ? 'Adding…' : `Add ${selectedOrderIds.size || ''} Stop${selectedOrderIds.size !== 1 ? 's' : ''} to Route`}
+                    </Button>
+                  </>
+                ) : (
+                  <div className="rounded-md border border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+                    Every pending order with a delivery address is already represented on this route.
+                  </div>
+                )}
               </div>
             )}
           </CardContent>
@@ -570,6 +607,7 @@ export function RoutesPage() {
           <div className="space-y-1">
             <CardTitle>Routes</CardTitle>
             <CardDescription>Click Edit to manage stops and assign drivers.</CardDescription>
+            <p className="text-sm text-muted-foreground">Dispatch Route should only be used once that outing has actually left the shop. That is what unlocks customer ETA and live tracking.</p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
@@ -625,10 +663,10 @@ export function RoutesPage() {
                             variant="outline"
                             size="sm"
                             title="Mark route as dispatched — driver has left the dock"
-                            onClick={() => updateRoute.mutate({ id: route.id, patch: { status: 'active', dispatched_at: new Date().toISOString() } })}
+                            onClick={() => handleDispatchRoute(route)}
                             disabled={updateRoute.isPending}
                           >
-                            🚚 Dispatch
+                            Dispatch Route
                           </Button>
                         )}
                         <a href={`https://maps.google.com/?q=${encodeURIComponent(route.name || '')}`} target="_blank" rel="noreferrer">

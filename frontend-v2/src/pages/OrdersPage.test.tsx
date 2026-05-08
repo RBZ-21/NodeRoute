@@ -92,9 +92,9 @@ describe('OrdersPage', () => {
     sendWithAuthMock.mockResolvedValueOnce({ id: 'new-order-id' });
 
     renderOrdersPage();
-    await screen.findByRole('button', { name: 'Create Order' });
+    await screen.findByRole('button', { name: 'Create Draft Order' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create Order' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Draft Order' }));
     expect(await screen.findByText('Customer name is required.')).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview' } });
@@ -102,7 +102,7 @@ describe('OrdersPage', () => {
     expect(screen.getByDisplayValue('buyer@oceanview.test')).toBeInTheDocument();
     expect(screen.getByDisplayValue('123 Harbor St')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create Order' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Draft Order' }));
     expect(await screen.findByText('Add at least one order item.')).toBeInTheDocument();
 
     const productInput = screen.getByPlaceholderText('Atlantic Salmon');
@@ -112,7 +112,7 @@ describe('OrdersPage', () => {
     if (!lineRow) throw new Error('Expected order line row');
     fireEvent.change(within(lineRow).getAllByRole('spinbutton')[0], { target: { value: '3' } });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create Order' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Draft Order' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith(
@@ -132,7 +132,7 @@ describe('OrdersPage', () => {
 
   it('hydrates address and email when the typed customer name exactly matches a saved customer', async () => {
     renderOrdersPage();
-    await screen.findByRole('button', { name: 'Create Order' });
+    await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview Market' } });
 
@@ -146,7 +146,7 @@ describe('OrdersPage', () => {
     sendWithAuthMock.mockResolvedValueOnce({ id: 'pickup-order-id' });
 
     renderOrdersPage();
-    await screen.findByRole('button', { name: 'Create Order' });
+    await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview' } });
     fireEvent.mouseDown(await screen.findByText('Oceanview Market'));
@@ -159,7 +159,7 @@ describe('OrdersPage', () => {
     if (!lineRow) throw new Error('Expected order line row');
     fireEvent.change(within(lineRow).getAllByRole('spinbutton')[0], { target: { value: '2' } });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create Order' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Draft Order' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith(
@@ -184,7 +184,7 @@ describe('OrdersPage', () => {
     sendWithAuthMock.mockResolvedValueOnce({ id: 'lobster-order-id' });
 
     renderOrdersPage();
-    await screen.findByRole('button', { name: 'Create Order' });
+    await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview Market' } });
     fireEvent.change(screen.getByPlaceholderText('Atlantic Salmon'), { target: { value: 'Live Lobster' } });
@@ -197,7 +197,7 @@ describe('OrdersPage', () => {
     fireEvent.change(inputs[1], { target: { value: '24.5' } });
     fireEvent.change(inputs[2], { target: { value: '18' } });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create Order' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Draft Order' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith(
@@ -253,7 +253,7 @@ describe('OrdersPage', () => {
     sendWithAuthMock.mockResolvedValueOnce({ id: 'halibut-order-id' });
 
     renderOrdersPage();
-    await screen.findByRole('button', { name: 'Create Order' });
+    await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview Market' } });
 
@@ -265,7 +265,7 @@ describe('OrdersPage', () => {
     if (!row) throw new Error('Expected halibut row');
     fireEvent.change(within(row).getAllByRole('spinbutton')[0], { target: { value: '1' } });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create Order' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Draft Order' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith(
@@ -312,12 +312,12 @@ describe('OrdersPage', () => {
     renderOrdersPage();
 
     expect(await screen.findByText('ORD-100')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Order' }));
 
     expect(await screen.findByText('Editing ORD-100')).toBeInTheDocument();
     expect(screen.getByDisplayValue('Blue Fin')).toBeInTheDocument();
     fireEvent.change(screen.getByDisplayValue('Call on arrival'), { target: { value: 'Leave at front desk' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Update Order' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Update Draft Order' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith(
@@ -368,7 +368,7 @@ describe('OrdersPage', () => {
     renderOrdersPage();
 
     expect(await screen.findByText('ORD-200')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Order' }));
 
     const row = screen.getByDisplayValue('Lobsters').closest('tr');
     if (!row) throw new Error('Expected lobster row');
@@ -378,7 +378,7 @@ describe('OrdersPage', () => {
     fireEvent.change(inputs[1], { target: { value: '24.5' } });
     fireEvent.change(inputs[2], { target: { value: '18' } });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Update Order' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Update Draft Order' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith(
@@ -444,7 +444,7 @@ describe('OrdersPage', () => {
     expect(await screen.findByText('ORD-CW')).toBeInTheDocument();
     expect(screen.getByText((content) => content.includes('Weight Pending'))).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Weights' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Enter Weights' }));
     expect(await screen.findByText(/Weight Entry/)).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText('lbs'), { target: { value: '10.250' } });
@@ -562,7 +562,7 @@ describe('OrdersPage', () => {
     renderOrdersPage();
 
     expect(await screen.findByText('ORD-SEND')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Processing' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith(
