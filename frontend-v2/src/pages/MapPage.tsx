@@ -41,8 +41,14 @@ function driverName(d: DriverLocation) { return d.name || d.full_name || d.fullN
 function driverId(d: DriverLocation, i: number) { return String(d.driver_id || d.driverId || d.id || `DRV-${i + 1}`); }
 function currentStop(d: DriverLocation) { return d.current_stop || d.currentStop || '—'; }
 function toLatLng(val: number | string | null | undefined): number | null {
+  if (val === null || val === undefined) return null;
+  if (typeof val === 'string' && !val.trim()) return null;
   const n = Number(val);
   return Number.isFinite(n) ? n : null;
+}
+
+function hasCoordinates(lat: number | string | null | undefined, lng: number | string | null | undefined) {
+  return toLatLng(lat) !== null && toLatLng(lng) !== null;
 }
 
 async function resolveMapKey(): Promise<string> {
@@ -157,6 +163,16 @@ export function MapPage() {
     const status = String(d.status || '').toLowerCase();
     return status === 'active' || status === 'on-duty';
   });
+  const mappableActiveDrivers = activeDrivers.filter((d) => hasCoordinates(d.lat, d.lng));
+  const unmappedActiveDrivers = activeDrivers.filter((d) => !hasCoordinates(d.lat, d.lng));
+  const mappedStops = stops.filter((s) => hasCoordinates(s.lat, s.lng));
+  const mapGuidance = mapError
+    ? mapError
+    : !activeDrivers.length
+      ? 'No dispatched drivers are live right now. Dispatch a route once the truck leaves the shop to start live tracking.'
+      : !mappableActiveDrivers.length
+        ? 'Drivers are marked on duty, but no GPS coordinates are flowing yet. Confirm the driver app is open and location sharing is enabled.'
+        : null;
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row">
@@ -167,9 +183,17 @@ export function MapPage() {
             {lastUpdated && <span className="text-xs text-muted-foreground">Updated {lastUpdated}</span>}
           </CardHeader>
           <CardContent className="p-0">
-            {mapError ? (
+            {mapGuidance ? (
               <div className="flex h-[520px] items-center justify-center bg-muted/20 p-6 text-center">
-                <p className="text-sm text-muted-foreground max-w-sm">{mapError}</p>
+                <div className="max-w-md space-y-3">
+                  <p className="text-base font-semibold text-foreground">Live map waiting on route movement</p>
+                  <p className="text-sm text-muted-foreground">{mapGuidance}</p>
+                  <div className="rounded-md border border-border bg-background/80 px-4 py-3 text-left text-sm text-muted-foreground">
+                    <div><strong>Drivers on duty:</strong> {activeDrivers.length}</div>
+                    <div><strong>Drivers sending GPS:</strong> {mappableActiveDrivers.length}</div>
+                    <div><strong>Stops with coordinates:</strong> {mappedStops.length}</div>
+                  </div>
+                </div>
               </div>
             ) : (
               <div ref={mapRef} className="h-[520px] w-full" />
@@ -209,7 +233,7 @@ export function MapPage() {
           <CardHeader className="py-3 px-4"><CardTitle className="text-sm">Active Drivers ({activeDrivers.length})</CardTitle></CardHeader>
           <CardContent className="pt-0 px-2 pb-2">
             {activeDrivers.length === 0 ? (
-              <p className="px-2 py-2 text-xs text-muted-foreground">No active drivers.</p>
+              <p className="px-2 py-2 text-xs text-muted-foreground">No active drivers. Dispatch a route once an outing leaves the shop to start the live map.</p>
             ) : (
               <ul className="divide-y divide-border">
                 {activeDrivers.map((d, i) => (
@@ -217,6 +241,7 @@ export function MapPage() {
                     <div className="min-w-0">
                       <p className="text-sm font-medium truncate">{driverName(d)}</p>
                       <p className="text-xs text-muted-foreground truncate">{currentStop(d)}</p>
+                      {!hasCoordinates(d.lat, d.lng) && <p className="text-xs text-amber-600">Waiting on GPS from driver app</p>}
                     </div>
                     <StatusBadge status={d.status} colorMap={{ active: 'green', 'on-duty': 'green', 'off-duty': 'gray', 'on-break': 'yellow' }} />
                   </li>

@@ -39,6 +39,22 @@ function SummaryCard({ label, value }: { label: string; value: string }) {
   return <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className="text-2xl">{value}</CardTitle></CardHeader></Card>;
 }
 function itemCategoryCompare(a: CountSheetRow, b: CountSheetRow) { return a.category.localeCompare(b.category); }
+function countSheetEmptyMessage({
+  countCategoryFilter,
+  recentSalesExclusionWindow,
+  includeZeroStockInCounts,
+}: {
+  countCategoryFilter: string;
+  recentSalesExclusionWindow: string;
+  includeZeroStockInCounts: boolean;
+}) {
+  const reasons: string[] = [];
+  if (countCategoryFilter !== 'all') reasons.push(`category scope is limited to ${countCategoryFilter}`);
+  if (recentSalesExclusionWindow !== 'all') reasons.push(`items not sold in the last ${recentSalesExclusionWindow} days are excluded`);
+  if (!includeZeroStockInCounts) reasons.push('zero-stock items are hidden');
+  if (!reasons.length) return 'No inventory rows are available for a count sheet yet.';
+  return `No inventory rows match the current count-sheet filters because ${reasons.join(', ')}.`;
+}
 
 // ── AI Health Analysis types ──────────────────────────────────────────────────
 type AiActionItem = {
@@ -285,6 +301,11 @@ export function InventoryPage() {
   }, [items, countCategoryFilter, includeZeroStockInCounts, recentSalesExclusionWindow, recentSoldItemKeys]);
   const countCategories = useMemo(() => [...new Set(items.map((i) => String(i.category || 'Uncategorized').trim() || 'Uncategorized'))].sort((a, b) => a.localeCompare(b)), [items]);
   const countSheetGroups = useMemo(() => { const g = new Map<string, CountSheetRow[]>(); for (const r of countSheetRows) { const l = g.get(r.category) ?? []; l.push(r); g.set(r.category, l); } return [...g.entries()].map(([category, rows]) => ({ category, rows })); }, [countSheetRows]);
+  const countSheetEmptyState = useMemo(() => countSheetEmptyMessage({
+    countCategoryFilter,
+    recentSalesExclusionWindow,
+    includeZeroStockInCounts,
+  }), [countCategoryFilter, recentSalesExclusionWindow, includeZeroStockInCounts]);
 
   function exportCountSheetCsv() {
     const scope = countCategoryFilter === 'all' ? 'all-categories' : countCategoryFilter.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -474,6 +495,13 @@ export function InventoryPage() {
               <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm"><div className="font-semibold text-muted-foreground">Rows In Sheet</div><div className="mt-1 text-lg font-semibold">{countSheetRows.length.toLocaleString()}</div></div>
             </div>
             {recentSalesExclusionWindow !== 'all' && <div className="text-sm text-muted-foreground">{recentSoldQuery.isFetching ? `Checking sold items from the last ${recentSalesExclusionWindow} days...` : `Excluding items not sold in the last ${recentSalesExclusionWindow} days.`}</div>}
+            {!recentSoldQuery.isFetching && !countSheetRows.length && (
+              <div className="rounded-md border border-amber-300/80 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                <div className="font-semibold">No count-sheet rows match the current filters.</div>
+                <div className="mt-1">{countSheetEmptyState}</div>
+                <div className="mt-1">Try switching Category Scope to `All Categories`, re-enabling zero-stock items, or widening the recent-sales filter.</div>
+              </div>
+            )}
             <div className="flex flex-wrap gap-2">
               <Button onClick={printCountSheet} disabled={!countSheetRows.length || recentSoldQuery.isFetching}>Print Count Sheet</Button>
               <Button variant="outline" onClick={exportCountSheetCsv} disabled={!countSheetRows.length || recentSoldQuery.isFetching}>Export Count Sheet CSV</Button>

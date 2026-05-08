@@ -335,6 +335,17 @@ export function RoutesPage() {
     setSelectedOrderIds((prev) => { const next = new Set(prev); next.has(orderId) ? next.delete(orderId) : next.add(orderId); return next; });
   }
 
+  function handleDispatchRoute(route: RouteRecord) {
+    setActionError('');
+    updateRoute.mutate(
+      { id: route.id, patch: { status: 'active', dispatched_at: new Date().toISOString() } },
+      {
+        onSuccess: () => setNotice(`Route "${route.name || route.id.slice(0, 8)}" marked as departed. Customer ETA and live tracking can now begin.`),
+        onError: (err) => setActionError(String((err as Error).message || 'Could not dispatch route')),
+      },
+    );
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -596,6 +607,7 @@ export function RoutesPage() {
           <div className="space-y-1">
             <CardTitle>Routes</CardTitle>
             <CardDescription>Click Edit to manage stops and assign drivers.</CardDescription>
+            <p className="text-sm text-muted-foreground">Dispatch Route should only be used once that outing has actually left the shop. That is what unlocks customer ETA and live tracking.</p>
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
@@ -651,10 +663,10 @@ export function RoutesPage() {
                             variant="outline"
                             size="sm"
                             title="Mark route as dispatched — driver has left the dock"
-                            onClick={() => updateRoute.mutate({ id: route.id, patch: { status: 'active', dispatched_at: new Date().toISOString() } })}
+                            onClick={() => handleDispatchRoute(route)}
                             disabled={updateRoute.isPending}
                           >
-                            🚚 Dispatch
+                            Dispatch Route
                           </Button>
                         )}
                         <a href={`https://maps.google.com/?q=${encodeURIComponent(route.name || '')}`} target="_blank" rel="noreferrer">

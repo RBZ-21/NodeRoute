@@ -216,4 +216,26 @@ describe('RoutesPage', () => {
     });
     expect(await screen.findByText('Route deleted.')).toBeInTheDocument();
   });
+
+  it('dispatches a pending route and explains that ETA is now allowed to go live', async () => {
+    mockRoutesApi({
+      routes: [
+        { id: 'route-3', name: 'Dock Run', driver: 'Jamie Driver', status: 'pending', stop_ids: [], active_stop_ids: [], created_at: '2026-04-11T00:00:00Z' },
+      ],
+    });
+    sendWithAuthMock.mockResolvedValueOnce({});
+
+    renderRoutesPage();
+
+    expect(await screen.findByText('Dock Run')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Dispatch Route' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-3', 'PATCH', {
+        status: 'active',
+        dispatched_at: expect.any(String),
+      });
+    });
+    expect(await screen.findByText(/marked as departed/i)).toBeInTheDocument();
+  });
 });
