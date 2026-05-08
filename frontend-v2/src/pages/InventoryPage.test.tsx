@@ -148,7 +148,7 @@ describe('InventoryPage', () => {
         notes: 'Dock delivery',
       });
     });
-    expect(await screen.findByText('Restocked SAL-1 by 25.')).toBeInTheDocument();
+    expect(await screen.findByText('Restocked SAL-1 - Fresh Salmon by 25.')).toBeInTheDocument();
   });
 
   it('validates transfer input and supports successful transfer and spoilage actions', async () => {
@@ -163,14 +163,14 @@ describe('InventoryPage', () => {
     const transferCard = screen.getByRole('heading', { name: 'Transfer Inventory' }).closest('div.rounded-lg') as HTMLElement | null;
     if (!transferCard) throw new Error('Expected transfer card');
 
-    fireEvent.change(within(transferCard).getByLabelText('From Item'), { target: { value: 'SAL-1' } });
-    fireEvent.change(within(transferCard).getByLabelText('To Item'), { target: { value: 'SAL-1' } });
+    fireEvent.change(within(transferCard).getByLabelText('From Item'), { target: { value: '1' } });
+    fireEvent.change(within(transferCard).getByLabelText('To Item'), { target: { value: '1' } });
     fireEvent.change(within(transferCard).getByLabelText('Quantity'), { target: { value: '4' } });
     fireEvent.click(within(transferCard).getByRole('button', { name: 'Transfer Stock' }));
 
     expect(await screen.findByText('Source and destination must be different.')).toBeInTheDocument();
 
-    fireEvent.change(within(transferCard).getByLabelText('To Item'), { target: { value: 'TUN-1' } });
+    fireEvent.change(within(transferCard).getByLabelText('To Item'), { target: { value: '2' } });
     fireEvent.change(within(transferCard).getByLabelText('Notes'), { target: { value: 'Move to backup stock' } });
     fireEvent.click(within(transferCard).getByRole('button', { name: 'Transfer Stock' }));
 
@@ -182,12 +182,12 @@ describe('InventoryPage', () => {
         notes: 'Move to backup stock',
       });
     });
-    expect(await screen.findByText('Transfer completed (TR-100).')).toBeInTheDocument();
+    expect(await screen.findByText('Transfer completed for SAL-1 - Fresh Salmon -> TUN-1 - Tuna Steaks (TR-100).')).toBeInTheDocument();
 
     const spoilageCard = screen.getByRole('heading', { name: 'Record Spoilage' }).closest('div.rounded-lg') as HTMLElement | null;
     if (!spoilageCard) throw new Error('Expected spoilage card');
 
-    fireEvent.change(within(spoilageCard).getByLabelText('Item'), { target: { value: 'TUN-1' } });
+    fireEvent.change(within(spoilageCard).getByLabelText('Item'), { target: { value: '2' } });
     fireEvent.change(within(spoilageCard).getByLabelText('Quantity'), { target: { value: '2' } });
     fireEvent.change(within(spoilageCard).getByLabelText('Reason'), { target: { value: 'Temperature excursion' } });
     fireEvent.change(within(spoilageCard).getByLabelText('Notes'), { target: { value: 'Walk-in issue' } });
@@ -200,7 +200,7 @@ describe('InventoryPage', () => {
         notes: 'Walk-in issue',
       });
     });
-    expect(await screen.findByText('Spoilage recorded for TUN-1.')).toBeInTheDocument();
+    expect(await screen.findByText('Spoilage recorded for TUN-1 - Tuna Steaks.')).toBeInTheDocument();
   });
 
   it('applies ledger filters and updates inline FTL and catch-weight settings', async () => {

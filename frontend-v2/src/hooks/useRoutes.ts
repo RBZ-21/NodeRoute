@@ -137,7 +137,7 @@ export function useDeleteRoute() {
 export function useCreateStop() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { name: string; address: string; notes?: string }) =>
+    mutationFn: (payload: { name: string; address: string; notes?: string; customer_id?: string }) =>
       sendWithAuth<StopRecord>('/api/stops', 'POST', payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['stops'] }),
   });

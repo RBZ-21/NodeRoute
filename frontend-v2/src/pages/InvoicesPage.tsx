@@ -41,9 +41,23 @@ function formatDate(val: string | undefined): string {
   const d = new Date(val);
   return Number.isFinite(d.getTime()) ? d.toLocaleDateString() : '-';
 }
+function escapeHtml(value: unknown): string {
+  return String(value ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 function lotSummary(lots: InvoiceLotEntry[] | undefined): string {
   if (!lots || lots.length === 0) return '-';
   return lots.map((l) => l.lot_number).filter(Boolean).join(', ');
+}
+function totalLotQuantity(lots: InvoiceLotEntry[] | undefined): number {
+  return (lots || []).reduce((sum, lot) => sum + Number(lot.qty || 0), 0);
+}
+function totalLotWeight(lots: InvoiceLotEntry[] | undefined): number {
+  return (lots || []).reduce((sum, lot) => sum + Number(lot.weight || 0), 0);
 }
 
 export function InvoicesPage() {
@@ -87,6 +101,77 @@ export function InvoicesPage() {
     setSelected(inv);
     setDraft({ ...inv });
     setEditing(false);
+  }
+
+  function printInvoiceSummary(invoice: Invoice) {
+    const popup = window.open('', '_blank', 'width=1100,height=900');
+    if (!popup) return;
+    const merged = { ...invoice, ...draft };
+    const lots = merged.lot_numbers || [];
+    const rows = lots.length
+      ? lots.map((lot) => `
+        <tr>
+          <td>${escapeHtml(lot.item_number || '-')}</td>
+          <td>${escapeHtml(lot.description || '-')}</td>
+          <td>${escapeHtml(lot.lot_number || '-')}</td>
+          <td class="num">${escapeHtml(lot.qty ?? '-')}</td>
+          <td class="num">${lot.weight != null ? `${escapeHtml(lot.weight)} lbs` : '-'}</td>
+        </tr>
+      `).join('')
+      : '<tr><td colspan="5" class="empty">No lot details were recorded for this invoice.</td></tr>';
+
+    popup.document.write(`<!DOCTYPE html>
+      <html lang="en">
+        <head>
+          <meta charset="utf-8" />
+          <title>Invoice ${escapeHtml(invoiceId(merged))}</title>
+          <style>
+            body { font-family: Arial, sans-serif; margin: 28px; color: #111827; }
+            h1 { margin: 0 0 6px; font-size: 28px; }
+            .subtitle { color: #4b5563; margin-bottom: 20px; }
+            .summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 24px; }
+            .card { border: 1px solid #d1d5db; border-radius: 10px; padding: 12px 14px; background: #f9fafb; }
+            .label { font-size: 11px; font-weight: 700; color: #6b7280; text-transform: uppercase; letter-spacing: .04em; }
+            .value { margin-top: 4px; font-size: 18px; font-weight: 700; color: #111827; }
+            .notes { margin: 20px 0; padding: 14px; border-radius: 10px; border: 1px solid #d1d5db; background: #f9fafb; }
+            table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+            th, td { border: 1px solid #d1d5db; padding: 10px 12px; text-align: left; font-size: 12px; }
+            th { background: #eef2ff; }
+            .num { text-align: right; }
+            .empty { color: #6b7280; text-align: center; }
+            @media print { body { margin: 14px; } }
+          </style>
+        </head>
+        <body>
+          <h1>Invoice ${escapeHtml(invoiceId(merged))}</h1>
+          <div class="subtitle">${escapeHtml(customerName(merged))} · Order ${escapeHtml(merged.orderId || merged.order_id || '-')}</div>
+          <div class="summary">
+            <div class="card"><div class="label">Status</div><div class="value">${escapeHtml(String(merged.status || 'draft'))}</div></div>
+            <div class="card"><div class="label">Amount</div><div class="value">${escapeHtml(formatAmount(merged.amount))}</div></div>
+            <div class="card"><div class="label">Issued / Due</div><div class="value">${escapeHtml(formatDate(merged.issuedDate || merged.issued_date))} / ${escapeHtml(formatDate(merged.dueDate || merged.due_date))}</div></div>
+            <div class="card"><div class="label">Lots</div><div class="value">${lots.length.toLocaleString()}</div></div>
+            <div class="card"><div class="label">Requested Qty</div><div class="value">${totalLotQuantity(lots).toLocaleString()}</div></div>
+            <div class="card"><div class="label">Weight Total</div><div class="value">${totalLotWeight(lots).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} lbs</div></div>
+          </div>
+          <div class="notes"><strong>Notes:</strong> ${escapeHtml(merged.notes || 'No invoice notes recorded.')}</div>
+          <h2>Lot Summary</h2>
+          <table>
+            <thead>
+              <tr>
+                <th>Item #</th>
+                <th>Description</th>
+                <th>Lot #</th>
+                <th class="num">Qty</th>
+                <th class="num">Weight</th>
+              </tr>
+            </thead>
+            <tbody>${rows}</tbody>
+          </table>
+        </body>
+      </html>`);
+    popup.document.close();
+    popup.focus();
+    popup.print();
   }
 
   function handleDelete() {
@@ -210,6 +295,11 @@ export function InvoicesPage() {
                 <p className="text-sm text-muted-foreground">{customerName(selected)}</p>
               </div>
               <div className="flex flex-wrap gap-2">
+                {!confirmDelete && (
+                  <Button size="sm" variant="outline" onClick={() => printInvoiceSummary(selected)}>
+                    Print / Save PDF
+                  </Button>
+                )}
                 {!editing && !confirmDelete && (
                   <>
                     <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
@@ -233,6 +323,26 @@ export function InvoicesPage() {
               </div>
             </div>
             <div className="flex-1 space-y-4 p-6">
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-lg border border-border bg-muted/20 px-4 py-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Invoice Summary</div>
+                  <div className="mt-2 space-y-1 text-sm">
+                    <div>Status: <strong className="capitalize">{String(selected.status || 'draft').replace('_', ' ')}</strong></div>
+                    <div>Amount: <strong>{formatAmount(draft.amount)}</strong></div>
+                    <div>Issued: <strong>{formatDate(selected.created_at || selected.issuedDate || selected.issued_date)}</strong></div>
+                    <div>Due: <strong>{formatDate(draft.dueDate || draft.due_date)}</strong></div>
+                  </div>
+                </div>
+                <div className="rounded-lg border border-border bg-muted/20 px-4 py-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fulfillment Summary</div>
+                  <div className="mt-2 space-y-1 text-sm">
+                    <div>Lots tracked: <strong>{(selected.lot_numbers || []).length.toLocaleString()}</strong></div>
+                    <div>Total lot qty: <strong>{totalLotQuantity(selected.lot_numbers).toLocaleString()}</strong></div>
+                    <div>Total weight: <strong>{totalLotWeight(selected.lot_numbers).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} lbs</strong></div>
+                    <div>Printable record: <strong>Ready</strong></div>
+                  </div>
+                </div>
+              </div>
               <InvoiceField label="Invoice #" value={draft.invoiceNumber || draft.invoice_number} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, invoiceNumber: v }))} />
               <InvoiceField label="Customer" value={draft.customerName || draft.customer_name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, customerName: v }))} />
               <div className="flex items-start gap-3">

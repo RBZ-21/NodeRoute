@@ -112,6 +112,25 @@ describe('TrackPage', () => {
     });
   });
 
+  it('holds ETA and live-map messaging until the route has actually departed', async () => {
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse({
+        ...baseTrackingData,
+        outingStarted: false,
+        eta: null,
+      }),
+    );
+
+    renderWithQueryClient(<TrackPage />);
+
+    expect(await screen.findByText('Route Scheduled')).toBeInTheDocument();
+    expect(screen.getByText('Waiting to depart')).toBeInTheDocument();
+    expect(screen.getByText('ETA will appear once this outing leaves the shop.')).toBeInTheDocument();
+    expect(screen.getByText(/Customer ETA updates stay paused until dispatch starts/i)).toBeInTheDocument();
+    expect(screen.getByText(/Live map tracking turns on after this route is dispatched/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Estimated delivery by/)).not.toBeInTheDocument();
+  });
+
   it('toggles delivery notifications and persists the preference to localStorage', async () => {
     fetchMock.mockResolvedValueOnce(mockJsonResponse(baseTrackingData));
 
