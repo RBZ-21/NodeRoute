@@ -9,10 +9,14 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import {
   type PoScanResult,
   type PurchaseOrder,
+  type VendorPoReceiptRules,
+  type VendorPurchaseOrder,
   scanPoFile,
   useConfirmPurchaseOrder,
   useInventoryProducts,
   usePurchaseOrders,
+  useReceiveVendorPurchaseOrder,
+  useVendorPurchaseOrders,
 } from '../hooks/usePurchasing';
 
 type PurchaseItemDraft = {
@@ -26,6 +30,12 @@ type PurchaseItemDraft = {
   expiration_date: string;
 };
 
+type ReceiveLineDraft = {
+  line_no: number;
+  qty_received: string;
+  unit_cost: string;
+};
+
 function money(value: number): string {
   return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
@@ -33,6 +43,24 @@ function asNumber(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
 }
+
+function remainingQty(line: { ordered_qty?: number | string; received_qty?: number | string; backordered_qty?: number | string; waived_backorder_qty?: number | string }) {
+  const backordered = asNumber(line.backordered_qty);
+  const waived = asNumber(line.waived_backorder_qty);
+  if (waived > 0) return Math.max(0, backordered);
+  const ordered = asNumber(line.ordered_qty);
+  const receivedTowardOrdered = Math.min(asNumber(line.received_qty), ordered);
+  return Math.max(0, ordered - receivedTowardOrdered);
+}
+
+function statusTone(status: string | undefined): 'success' | 'warning' | 'secondary' | 'neutral' {
+  const normalized = String(status || '').trim().toLowerCase();
+  if (normalized === 'received') return 'success';
+  if (normalized === 'backordered') return 'warning';
+  if (normalized === 'partial_received') return 'secondary';
+  return 'neutral';
+}
+
 const emptyLine = (): PurchaseItemDraft => ({
   description: '', item_number: '', quantity: '', unit_price: '',
   unit: 'lb', category: 'Other', lot_number: '', expiration_date: '',
@@ -43,8 +71,10 @@ export function PurchasingPage() {
   const vendorParam = String(searchParams.get('vendor') || '').trim();
 
   const { data: orders = [], isLoading, isError, error, refetch } = usePurchaseOrders(vendorParam || undefined);
+  const { data: vendorPurchaseOrders = [], isLoading: vendorPoLoading, isError: vendorPoError, error: vendorPoErrorValue, refetch: refetchVendorPos } = useVendorPurchaseOrders();
   const { data: products = [] } = useInventoryProducts();
   const confirmPo = useConfirmPurchaseOrder();
+  const receiveVendorPo = useReceiveVendorPurchaseOrder();
 
   const [notice, setNotice] = useState('');
   const [formError, setFormError] = useState('');
@@ -57,6 +87,13 @@ export function PurchasingPage() {
   const [scanLoading, setScanLoading] = useState(false);
   const [scanError, setScanError] = useState('');
   const [scanResult, setScanResult] = useState<PoScanResult | null>(null);
+  const [activeReceivePo, setActiveReceivePo] = useState<VendorPurchaseOrder | null>(null);
+  const [receiveNotes, setReceiveNotes] = useState('');
+  const [receiveLines, setReceiveLines] = useState<ReceiveLineDraft[]>([]);
+  const [receiveRules, setReceiveRules] = useState<VendorPoReceiptRules>({
+    over_receipt_policy: 'cap',
+    backorder_policy: 'open',
+  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
@@ -91,12 +128,40 @@ export function PurchasingPage() {
     [orders, vendorFilter],
   );
 
+  const openVendorPurchaseOrders = useMemo(
+    () =>
+      vendorPurchaseOrders.filter((po) => {
+        const status = String(po.status || '').trim().toLowerCase();
+        return status !== 'received' && status !== 'cancelled';
+      }),
+    [vendorPurchaseOrders],
+  );
+
   function updateLine(index: number, key: keyof PurchaseItemDraft, value: string) {
     setLines((cur) => cur.map((l, i) => (i === index ? { ...l, [key]: value } : l)));
+  }
+  function updateReceiveLine(index: number, key: keyof ReceiveLineDraft, value: string) {
+    setReceiveLines((cur) => cur.map((l, i) => (i === index ? { ...l, [key]: value } : l)));
   }
   function addLine() { setLines((cur) => [...cur, emptyLine()]); }
   function removeLine(index: number) {
     setLines((cur) => (cur.length === 1 ? cur : cur.filter((_, i) => i !== index)));
+  }
+
+  function loadReceiveDraft(po: VendorPurchaseOrder) {
+    setActiveReceivePo(po);
+    setReceiveNotes('');
+    setReceiveRules({
+      over_receipt_policy: po.receipt_rules?.over_receipt_policy || 'cap',
+      backorder_policy: po.receipt_rules?.backorder_policy || 'open',
+    });
+    setReceiveLines(
+      (po.lines || []).map((line) => ({
+        line_no: line.line_no,
+        qty_received: remainingQty(line) > 0 ? String(remainingQty(line)) : '',
+        unit_cost: asNumber(line.unit_cost) > 0 ? String(asNumber(line.unit_cost)) : '',
+      })),
+    );
   }
 
   function applyScanResult(result: PoScanResult) {
@@ -173,10 +238,61 @@ export function PurchasingPage() {
     );
   }
 
+  function submitReceipt() {
+    if (!activeReceivePo) {
+      setFormError('Select a vendor PO to receive first.');
+      return;
+    }
+
+    const payloadLines = receiveLines
+      .map((line) => {
+        const source = (activeReceivePo.lines || []).find((poLine) => poLine.line_no === line.line_no);
+        return {
+          line_no: line.line_no,
+          qty_received: asNumber(line.qty_received),
+          unit_cost: asNumber(line.unit_cost) > 0 ? asNumber(line.unit_cost) : undefined,
+          item_number: source?.item_number || undefined,
+          product_name: source?.product_name || undefined,
+        };
+      })
+      .filter((line) => line.qty_received > 0);
+
+    if (!payloadLines.length) {
+      setFormError('Enter at least one received quantity before posting the receipt.');
+      return;
+    }
+
+    setFormError('');
+    receiveVendorPo.mutate(
+      {
+        id: activeReceivePo.id,
+        payload: {
+          lines: payloadLines,
+          notes: receiveNotes.trim() || null,
+          receiptRules: receiveRules,
+        },
+      },
+      {
+        onSuccess: (updatedPo) => {
+          const latestReceipt = updatedPo.receipts?.[0];
+          const acceptedQty = asNumber(latestReceipt?.variance_audit?.total_accepted_qty);
+          const rejectedQty = asNumber(latestReceipt?.variance_audit?.total_rejected_qty);
+          const backorderedQty = asNumber(latestReceipt?.variance_audit?.total_backordered_qty_after_receipt);
+          setNotice(
+            `Receipt posted for ${updatedPo.po_number || updatedPo.id.slice(0, 8)}. Accepted ${acceptedQty.toFixed(2)} unit(s), rejected ${rejectedQty.toFixed(2)}, backordered ${backorderedQty.toFixed(2)}.`
+          );
+          loadReceiveDraft(updatedPo);
+        },
+        onError: (err) => setFormError(String((err as Error).message || 'Could not post receipt')),
+      },
+    );
+  }
+
   return (
     <div className="space-y-5">
-      {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading purchasing data...</div> : null}
+      {isLoading || vendorPoLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading purchasing data...</div> : null}
       {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load purchase orders')}</div> : null}
+      {vendorPoError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((vendorPoErrorValue as Error)?.message || 'Could not load vendor PO receiving data')}</div> : null}
       {formError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{formError}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
       {vendorParam ? (
@@ -305,6 +421,238 @@ export function PurchasingPage() {
               Draft Total: <strong>{money(draftTotal)}</strong>
             </div>
           </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <CardTitle>Receive Vendor Purchase Orders</CardTitle>
+            <CardDescription>Pull up any open PO, compare ordered vs. received quantities, and post receipts directly into inventory with variance tracking.</CardDescription>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Badge variant="neutral">{openVendorPurchaseOrders.length} open / partial</Badge>
+            <Button variant="outline" onClick={() => refetchVendorPos()}>Refresh Receiving Queue</Button>
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div className="rounded-lg border border-border bg-card p-2">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>PO Number</TableHead>
+                  <TableHead>Vendor</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Ordered</TableHead>
+                  <TableHead>Received</TableHead>
+                  <TableHead>Backordered</TableHead>
+                  <TableHead>Created</TableHead>
+                  <TableHead />
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {openVendorPurchaseOrders.length ? openVendorPurchaseOrders.map((po) => (
+                  <TableRow key={po.id}>
+                    <TableCell className="font-medium">{po.po_number || po.id.slice(0, 8)}</TableCell>
+                    <TableCell>{po.vendor || po.vendor_name || '-'}</TableCell>
+                    <TableCell><Badge variant={statusTone(po.status)}>{String(po.status || 'open').replace(/_/g, ' ')}</Badge></TableCell>
+                    <TableCell>{asNumber(po.total_ordered_qty).toFixed(2)}</TableCell>
+                    <TableCell>{asNumber(po.total_received_qty).toFixed(2)}</TableCell>
+                    <TableCell>{asNumber(po.total_backordered_qty).toFixed(2)}</TableCell>
+                    <TableCell>{po.created_at ? new Date(po.created_at).toLocaleDateString() : '-'}</TableCell>
+                    <TableCell>
+                      <Button size="sm" onClick={() => loadReceiveDraft(po)}>
+                        {activeReceivePo?.id === po.id ? 'Receiving Open' : 'Receive Items'}
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                )) : (
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-muted-foreground">
+                      No open vendor purchase orders are waiting on receipts right now.
+                    </TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
+
+          {activeReceivePo ? (
+            <div className="rounded-xl border border-border bg-muted/10 p-4 space-y-4">
+              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                <div>
+                  <div className="text-lg font-semibold">
+                    Receiving {activeReceivePo.po_number || activeReceivePo.id.slice(0, 8)}
+                  </div>
+                  <div className="text-sm text-muted-foreground">
+                    Vendor: <strong>{activeReceivePo.vendor || activeReceivePo.vendor_name || 'Unassigned Vendor'}</strong>
+                    {' · '}
+                    Status: <strong>{String(activeReceivePo.status || 'open').replace(/_/g, ' ')}</strong>
+                  </div>
+                  {activeReceivePo.notes ? (
+                    <div className="mt-2 text-sm text-muted-foreground">{activeReceivePo.notes}</div>
+                  ) : null}
+                </div>
+                <div className="grid gap-2 sm:grid-cols-3">
+                  <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                    Ordered: <strong>{asNumber(activeReceivePo.total_ordered_qty).toFixed(2)}</strong>
+                  </div>
+                  <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                    Received: <strong>{asNumber(activeReceivePo.total_received_qty).toFixed(2)}</strong>
+                  </div>
+                  <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                    Backordered: <strong>{asNumber(activeReceivePo.total_backordered_qty).toFixed(2)}</strong>
+                  </div>
+                </div>
+              </div>
+
+              <div className="grid gap-3 lg:grid-cols-3">
+                <label className="space-y-1 text-sm">
+                  <span className="font-semibold text-muted-foreground">Over-receipt policy</span>
+                  <select
+                    value={String(receiveRules.over_receipt_policy || 'cap')}
+                    onChange={(e) => setReceiveRules((cur) => ({ ...cur, over_receipt_policy: e.target.value }))}
+                    className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="reject">Reject overages</option>
+                    <option value="cap">Cap at ordered qty</option>
+                    <option value="allow">Allow over-receipts</option>
+                  </select>
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="font-semibold text-muted-foreground">Backorder policy</span>
+                  <select
+                    value={String(receiveRules.backorder_policy || 'open')}
+                    onChange={(e) => setReceiveRules((cur) => ({ ...cur, backorder_policy: e.target.value }))}
+                    className="h-10 rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="open">Keep backorders open</option>
+                    <option value="waive">Waive shorted qty</option>
+                  </select>
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="font-semibold text-muted-foreground">Receipt Notes</span>
+                  <Input value={receiveNotes} onChange={(e) => setReceiveNotes(e.target.value)} placeholder="Driver shorted 2 cases on pallet 3" />
+                </label>
+              </div>
+
+              <div className="table-scroll-container overflow-x-auto rounded-lg border border-border bg-background">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Line</TableHead>
+                      <TableHead>Product</TableHead>
+                      <TableHead>Ordered</TableHead>
+                      <TableHead>Received</TableHead>
+                      <TableHead>Remaining</TableHead>
+                      <TableHead>Receive Now</TableHead>
+                      <TableHead>Unit Cost</TableHead>
+                      <TableHead>Expected Variance</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {(activeReceivePo.lines || []).map((line, index) => {
+                      const draft = receiveLines[index];
+                      const ordered = asNumber(line.ordered_qty);
+                      const received = asNumber(line.received_qty);
+                      const remaining = remainingQty(line);
+                      const receiveNow = asNumber(draft?.qty_received);
+                      const expectedVariance = receiveNow - remaining;
+                      return (
+                        <TableRow key={line.line_no}>
+                          <TableCell className="font-medium">#{line.line_no}</TableCell>
+                          <TableCell>
+                            <div className="font-medium">{line.product_name || 'Unnamed item'}</div>
+                            <div className="text-xs text-muted-foreground">{line.item_number || 'No item #'}</div>
+                          </TableCell>
+                          <TableCell>{ordered.toFixed(2)} {line.unit || 'each'}</TableCell>
+                          <TableCell>{received.toFixed(2)} {line.unit || 'each'}</TableCell>
+                          <TableCell>{remaining.toFixed(2)} {line.unit || 'each'}</TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.01"
+                              value={draft?.qty_received || ''}
+                              onChange={(e) => updateReceiveLine(index, 'qty_received', e.target.value)}
+                              placeholder="0.00"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            <Input
+                              type="number"
+                              min="0"
+                              step="0.0001"
+                              value={draft?.unit_cost || ''}
+                              onChange={(e) => updateReceiveLine(index, 'unit_cost', e.target.value)}
+                              placeholder="0.0000"
+                            />
+                          </TableCell>
+                          <TableCell>
+                            {receiveNow <= 0 ? (
+                              <span className="text-muted-foreground">No receipt entered</span>
+                            ) : expectedVariance > 0 ? (
+                              <Badge variant="warning">Over by {expectedVariance.toFixed(2)}</Badge>
+                            ) : expectedVariance < 0 ? (
+                              <Badge variant="secondary">Short by {Math.abs(expectedVariance).toFixed(2)}</Badge>
+                            ) : (
+                              <Badge variant="success">Exact receipt</Badge>
+                            )}
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2">
+                <Button onClick={submitReceipt} disabled={receiveVendorPo.isPending}>
+                  {receiveVendorPo.isPending ? 'Posting Receipt...' : 'Post Receipt to Inventory'}
+                </Button>
+                <Button variant="outline" onClick={() => loadReceiveDraft(activeReceivePo)}>
+                  Reset Receipt Draft
+                </Button>
+                <Button variant="ghost" onClick={() => setActiveReceivePo(null)}>
+                  Close Receipt Panel
+                </Button>
+              </div>
+
+              {activeReceivePo.receipts?.length ? (
+                <div className="space-y-3">
+                  <div className="text-sm font-semibold text-foreground">Recent Receipt Activity</div>
+                  {(activeReceivePo.receipts || []).slice(0, 3).map((receipt) => (
+                    <div key={receipt.id} className="rounded-lg border border-border bg-background p-3 text-sm space-y-2">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <strong>{receipt.received_at ? new Date(receipt.received_at).toLocaleString() : 'Receipt logged'}</strong>
+                          <span className="ml-2 text-muted-foreground">by {receipt.received_by || 'system'}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-2 text-xs">
+                          <Badge variant="neutral">Accepted {asNumber(receipt.variance_audit?.total_accepted_qty).toFixed(2)}</Badge>
+                          <Badge variant="warning">Rejected {asNumber(receipt.variance_audit?.total_rejected_qty).toFixed(2)}</Badge>
+                          <Badge variant="secondary">Backordered {asNumber(receipt.variance_audit?.total_backordered_qty_after_receipt).toFixed(2)}</Badge>
+                        </div>
+                      </div>
+                      {receipt.notes ? <div className="text-muted-foreground">{receipt.notes}</div> : null}
+                      {(receipt.lines || []).some((line) => asNumber(line.over_receipt_qty) > 0 || String(line.variance_type || '') !== 'exact_receipt') ? (
+                        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                          {(receipt.lines || [])
+                            .filter((line) => asNumber(line.over_receipt_qty) > 0 || String(line.variance_type || '') !== 'exact_receipt')
+                            .map((line) => `${line.product_name || line.item_number || `Line ${line.line_no}`}: ${String(line.variance_type || 'variance').replace(/_/g, ' ')} (${asNumber(line.quantity_variance_qty).toFixed(2)})`)
+                            .join(' • ')}
+                        </div>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
+            </div>
+          ) : (
+            <div className="rounded-lg border border-dashed border-border bg-muted/10 px-4 py-6 text-sm text-muted-foreground">
+              Select an open vendor PO above to compare ordered vs. received quantities and post the receipt into inventory.
+            </div>
+          )}
         </CardContent>
       </Card>
 

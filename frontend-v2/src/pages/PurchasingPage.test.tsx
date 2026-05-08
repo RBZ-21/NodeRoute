@@ -52,16 +52,59 @@ const baseProducts = [
   },
 ];
 
+const baseVendorPurchaseOrders = [
+  {
+    id: 'ops-po-1',
+    po_number: 'PO-OPS-100',
+    vendor: 'Blue Ocean Seafood',
+    status: 'open',
+    total_ordered_qty: 20,
+    total_received_qty: 4,
+    total_backordered_qty: 16,
+    created_at: '2026-04-12T00:00:00Z',
+    receipt_rules: {
+      over_receipt_policy: 'cap',
+      backorder_policy: 'open',
+    },
+    lines: [
+      {
+        line_no: 1,
+        item_number: 'SAL-1',
+        product_name: 'Fresh Salmon',
+        unit: 'lb',
+        ordered_qty: 10,
+        received_qty: 4,
+        backordered_qty: 6,
+        unit_cost: 12.5,
+      },
+      {
+        line_no: 2,
+        item_number: 'BOX-1',
+        product_name: 'Shipping Box',
+        unit: 'each',
+        ordered_qty: 10,
+        received_qty: 0,
+        backordered_qty: 10,
+        unit_cost: 2,
+      },
+    ],
+    receipts: [],
+  },
+];
+
 function mockPurchasingApi({
   orders = baseOrders,
   products = baseProducts,
+  vendorPurchaseOrders = baseVendorPurchaseOrders,
 }: {
   orders?: unknown[];
   products?: unknown[];
+  vendorPurchaseOrders?: unknown[];
 } = {}) {
   fetchWithAuthMock.mockImplementation(async (url: string) => {
     if (url.startsWith('/api/purchase-orders')) return orders;
     if (url === '/api/inventory') return products;
+    if (url === '/api/ops/vendor-purchase-orders') return vendorPurchaseOrders;
     return [];
   });
 }
@@ -161,11 +204,107 @@ describe('PurchasingPage', () => {
     fetchWithAuthMock.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/purchase-orders')) throw new Error('Purchasing API unavailable');
       if (url === '/api/inventory') return baseProducts;
+      if (url === '/api/ops/vendor-purchase-orders') return baseVendorPurchaseOrders;
       return [];
     });
 
     renderPurchasingPage();
 
     expect(await screen.findByText('Purchasing API unavailable')).toBeInTheDocument();
+  });
+
+  it('lets users open an open vendor PO and post a receipt against it', async () => {
+    sendWithAuthMock.mockImplementation(async (url: string, method: string, body: unknown) => {
+      if (url === '/api/ops/vendor-purchase-orders/ops-po-1/receive' && method === 'POST') {
+        expect(body).toEqual({
+          lines: [
+            {
+              line_no: 1,
+              qty_received: 6,
+              unit_cost: 12.5,
+              item_number: 'SAL-1',
+              product_name: 'Fresh Salmon',
+            },
+            {
+              line_no: 2,
+              qty_received: 8,
+              unit_cost: 2,
+              item_number: 'BOX-1',
+              product_name: 'Shipping Box',
+            },
+          ],
+          notes: 'Pallet 3 shorted 2 boxes',
+          receiptRules: {
+            over_receipt_policy: 'cap',
+            backorder_policy: 'open',
+          },
+        });
+
+        return {
+          ...baseVendorPurchaseOrders[0],
+          status: 'backordered',
+          total_received_qty: 18,
+          total_backordered_qty: 2,
+          receipts: [
+            {
+              id: 'rcv-1',
+              received_at: '2026-04-12T13:00:00Z',
+              received_by: 'Jamie',
+              notes: 'Pallet 3 shorted 2 boxes',
+              variance_audit: {
+                total_accepted_qty: 14,
+                total_rejected_qty: 0,
+                total_backordered_qty_after_receipt: 2,
+              },
+              lines: [
+                {
+                  line_no: 1,
+                  product_name: 'Fresh Salmon',
+                  variance_type: 'exact_receipt',
+                  quantity_variance_qty: 0,
+                  over_receipt_qty: 0,
+                },
+                {
+                  line_no: 2,
+                  product_name: 'Shipping Box',
+                  variance_type: 'short_receipt',
+                  quantity_variance_qty: -2,
+                  over_receipt_qty: 0,
+                },
+              ],
+            },
+          ],
+        };
+      }
+
+      return { lots_created: 0 };
+    });
+
+    renderPurchasingPage();
+
+    expect(await screen.findByText('PO-OPS-100')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Receive Items' }));
+    expect(await screen.findByText('Receiving PO-OPS-100')).toBeInTheDocument();
+
+    const receiptNotes = screen.getByPlaceholderText('Driver shorted 2 cases on pallet 3');
+    fireEvent.change(receiptNotes, { target: { value: 'Pallet 3 shorted 2 boxes' } });
+
+    const receiveNowInputs = screen.getAllByPlaceholderText('0.00');
+    fireEvent.change(receiveNowInputs[0], { target: { value: '6' } });
+    fireEvent.change(receiveNowInputs[1], { target: { value: '8' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Post Receipt to Inventory' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith(
+        '/api/ops/vendor-purchase-orders/ops-po-1/receive',
+        'POST',
+        expect.any(Object),
+      );
+    });
+
+    expect(await screen.findByText('Receipt posted for PO-OPS-100. Accepted 14.00 unit(s), rejected 0.00, backordered 2.00.')).toBeInTheDocument();
+    expect(screen.getAllByText('Shipping Box: short receipt (-2.00)').length).toBeGreaterThan(0);
   });
 });
