@@ -101,7 +101,7 @@ describe('DeliveriesPage', () => {
     const blueFinRow = (await screen.findByText('DEL-100')).closest('tr') as HTMLElement | null;
     if (!blueFinRow) throw new Error('Expected Blue Fin delivery row');
 
-    fireEvent.click(within(blueFinRow).getByRole('button', { name: 'Complete' }));
+    fireEvent.click(within(blueFinRow).getByRole('button', { name: 'Delivered' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/deliveries/ord-db-1/status', 'PATCH', {
@@ -132,7 +132,7 @@ describe('DeliveriesPage', () => {
     const blueFinRow = (await screen.findByText('DEL-100')).closest('tr') as HTMLElement | null;
     if (!blueFinRow) throw new Error('Expected Blue Fin delivery row');
 
-    fireEvent.click(within(blueFinRow).getByRole('button', { name: 'Active' }));
+    fireEvent.click(within(blueFinRow).getByRole('button', { name: 'Out for Delivery' }));
     expect(await screen.findByText('Status service unavailable')).toBeInTheDocument();
   });
 });

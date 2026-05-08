@@ -132,7 +132,7 @@ describe('CustomersPage', () => {
     fireEvent.change(screen.getByPlaceholderText('Blue Fin Seafood'), { target: { value: 'Dockside Market' } });
     fireEvent.change(screen.getByPlaceholderText('Receiving Manager'), { target: { value: 'Jamie Smith' } });
     fireEvent.change(screen.getByPlaceholderText('ops@example.com'), { target: { value: 'dockside@example.com' } });
-    fireEvent.change(screen.getByPlaceholderText('555-0103'), { target: { value: '555-0199' } });
+    fireEvent.change(screen.getByPlaceholderText('(555) 010-0103'), { target: { value: '555-0199' } });
     fireEvent.change(screen.getByPlaceholderText('123 Dock Street'), { target: { value: '99 Harbor Way' } });
     fireEvent.change(screen.getByPlaceholderText('Net 30'), { target: { value: 'Net 15' } });
     fireEvent.click(screen.getAllByRole('button', { name: 'Add Customer' })[0]);

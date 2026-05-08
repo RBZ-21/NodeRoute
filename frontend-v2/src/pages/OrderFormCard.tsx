@@ -66,6 +66,8 @@ export function OrderFormCard({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [addressLookupLoading, setAddressLookupLoading] = useState(false);
   const [customerPhone, setCustomerPhone] = useState('');
+  const [browseLineIndex, setBrowseLineIndex] = useState<number | null>(null);
+  const [browseSearch, setBrowseSearch] = useState('');
 
   useEffect(() => () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -149,6 +151,32 @@ export function OrderFormCard({
     })),
     [products],
   );
+
+  const browsableProducts = useMemo(() => {
+    const needle = normalizeText(browseSearch).toLowerCase();
+    return products
+      .filter((product) => {
+        if (!needle) return true;
+        return [
+          product.description,
+          product.item_number,
+          product.unit,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(needle));
+      })
+      .sort((a, b) => {
+        const stockDelta = asNumber(b.on_hand_qty) - asNumber(a.on_hand_qty);
+        if (stockDelta !== 0) return stockDelta;
+        return String(a.description || '').localeCompare(String(b.description || ''));
+      });
+  }, [browseSearch, products]);
+
+  function applyProductSelection(index: number, product: InventoryProduct) {
+    updateLine(index, 'productId', productSelectionKey(product));
+    setBrowseLineIndex(null);
+    setBrowseSearch('');
+  }
 
   return (
     <Card>
@@ -239,6 +267,7 @@ export function OrderFormCard({
         ) : (
           <p className="text-xs text-muted-foreground">Pickup orders do not create route stops.</p>
         )}
+        <p className="text-xs text-muted-foreground">Out-of-stock items can still be added while the order is being built. Use <strong>Browse Inventory</strong> if the customer wants to see the current catalog.</p>
 
         <label className="space-y-1 text-sm">
           <span className="font-semibold text-muted-foreground">Notes</span>
@@ -303,23 +332,28 @@ export function OrderFormCard({
                 return (
                   <TableRow key={index} className={needsLot ? 'bg-amber-50/50' : ''}>
                     <TableCell>
-                      <Combobox
-                        value={line.name}
-                        onChange={(v) => updateLine(index, 'name', v)}
-                        onSelect={(opt) => {
-                          const matched = products.find((product) => productSelectionKey(product) === opt.value);
-                          if (matched) {
-                            updateLine(index, 'productId', opt.value);
-                            return;
-                          }
-                          updateLine(index, 'name', opt.label);
-                          updateLine(index, 'itemNumber', '');
-                          updateLine(index, 'productId', '');
-                        }}
-                        options={productOptions}
-                        disabled={productsLoading}
-                        placeholder={productsLoading ? 'Loading products…' : 'Atlantic Salmon'}
-                      />
+                      <div className="min-w-[240px] space-y-2">
+                        <Combobox
+                          value={line.name}
+                          onChange={(v) => updateLine(index, 'name', v)}
+                          onSelect={(opt) => {
+                            const matched = products.find((product) => productSelectionKey(product) === opt.value);
+                            if (matched) {
+                              applyProductSelection(index, matched);
+                              return;
+                            }
+                            updateLine(index, 'name', opt.label);
+                            updateLine(index, 'itemNumber', '');
+                            updateLine(index, 'productId', '');
+                          }}
+                          options={productOptions}
+                          disabled={productsLoading}
+                          placeholder={productsLoading ? 'Loading products…' : 'Atlantic Salmon'}
+                        />
+                        <Button type="button" variant="outline" size="sm" onClick={() => setBrowseLineIndex(index)}>
+                          Browse Inventory
+                        </Button>
+                      </div>
                     </TableCell>
                     <TableCell>
                       <Input value={line.itemNumber} onChange={(e) => updateLine(index, 'itemNumber', e.target.value)} placeholder="Optional item #" />
@@ -408,10 +442,10 @@ export function OrderFormCard({
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={addLine}>Add Item</Button>
           <Button onClick={() => onSubmit(false)} disabled={submitting}>
-            {editingOrderId ? 'Update Order' : 'Create Order'}
+            {editingOrderId ? 'Update Draft Order' : 'Create Draft Order'}
           </Button>
           <Button variant="secondary" onClick={() => onSubmit(true)} disabled={submitting}>
-            {editingOrderId ? 'Update + Send' : 'Create + Send'}
+            {editingOrderId ? 'Update + Send to Processing' : 'Create + Send to Processing'}
           </Button>
           {editingOrderId ? <Button variant="ghost" onClick={onCancel}>Cancel Edit</Button> : null}
           <div className="ml-auto rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
@@ -420,6 +454,73 @@ export function OrderFormCard({
           </div>
         </div>
       </CardContent>
+
+      {browseLineIndex !== null ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/35" onClick={() => { setBrowseLineIndex(null); setBrowseSearch(''); }} />
+          <div className="relative z-10 w-full max-w-5xl rounded-2xl border border-border bg-background shadow-2xl">
+            <div className="flex flex-col gap-3 border-b border-border px-5 py-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Browse Inventory</h2>
+                <p className="text-sm text-muted-foreground">Choose a product for line {browseLineIndex + 1}. Out-of-stock items stay selectable so the order can be built before the truck arrives.</p>
+              </div>
+              <div className="flex gap-2">
+                <Input value={browseSearch} onChange={(e) => setBrowseSearch(e.target.value)} placeholder="Search item #, description, or unit" className="w-72" />
+                <Button type="button" variant="ghost" onClick={() => { setBrowseLineIndex(null); setBrowseSearch(''); }}>Close</Button>
+              </div>
+            </div>
+            <div className="max-h-[70vh] overflow-auto p-5">
+              <div className="rounded-lg border border-border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item #</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead>Unit</TableHead>
+                      <TableHead>On Hand</TableHead>
+                      <TableHead>Default Price</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Select</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {browsableProducts.length ? browsableProducts.map((product) => {
+                      const onHand = asNumber(product.on_hand_qty);
+                      const statusLabel = onHand <= 0 ? 'Out of stock' : onHand <= 10 ? 'Low stock' : 'In stock';
+                      const statusClassName = onHand <= 0
+                        ? 'text-amber-700'
+                        : onHand <= 10
+                          ? 'text-orange-700'
+                          : 'text-emerald-700';
+                      return (
+                        <TableRow key={productSelectionKey(product)}>
+                          <TableCell className="font-mono text-xs">{normalizeText(product.item_number) || '—'}</TableCell>
+                          <TableCell className="font-medium">{product.description}</TableCell>
+                          <TableCell>{product.unit || '-'}</TableCell>
+                          <TableCell>{onHand.toLocaleString()}</TableCell>
+                          <TableCell>{asNumber(product.cost) > 0 ? asMoney(asNumber(product.cost)) : '-'}</TableCell>
+                          <TableCell className={statusClassName}>{statusLabel}</TableCell>
+                          <TableCell className="text-right">
+                            <Button type="button" size="sm" onClick={() => applyProductSelection(browseLineIndex, product)}>
+                              Use Item
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }) : (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-sm text-muted-foreground">
+                          No inventory items matched that search.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </Card>
   );
 }

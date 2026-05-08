@@ -292,7 +292,7 @@ export function CustomersPage() {
                   disabled={creatingCustomer}
                 />
                 <Input
-                  placeholder="555-0103"
+                  placeholder="(555) 010-0103"
                   value={newCustomer.phone_number || newCustomer.phone || ''}
                   onChange={(e) => setNewCustomer((current) => ({ ...current, phone_number: e.target.value, phone: e.target.value }))}
                   disabled={creatingCustomer}
@@ -478,7 +478,7 @@ export function CustomersPage() {
                   <Field label="Company Name" value={draft.company_name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, company_name: v }))} />
                   <Field label="Contact Name" value={draft.contact_name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, contact_name: v }))} />
                   <Field label="Email" value={draft.email} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
-                  <Field label="Phone" value={draft.phone_number || draft.phone} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, phone_number: v }))} />
+                  <Field label="Phone" value={draft.phone_number || draft.phone} editing={editing} placeholder="(555) 010-0103" onChange={(v) => setDraft((d) => ({ ...d, phone_number: v }))} />
                   <Field label="Fax" value={draft.fax_number} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, fax_number: v }))} />
                   <Field label="Payment Terms" value={draft.payment_terms} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, payment_terms: v }))} />
                   <Field label="Status" value={draft.status} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, status: v }))} />
@@ -538,7 +538,7 @@ export function CustomersPage() {
                   <Field label="Billing Name" value={draft.billing_name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, billing_name: v }))} />
                   <Field label="Billing Contact" value={draft.billing_contact} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, billing_contact: v }))} />
                   <Field label="Billing Email" value={draft.billing_email} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, billing_email: v }))} />
-                  <Field label="Billing Phone" value={draft.billing_phone} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, billing_phone: v }))} />
+                  <Field label="Billing Phone" value={draft.billing_phone} editing={editing} placeholder="(555) 010-0103" onChange={(v) => setDraft((d) => ({ ...d, billing_phone: v }))} />
                   <div className="flex items-start gap-3">
                     <span className="w-36 shrink-0 pt-1 text-sm text-muted-foreground">Billing Address</span>
                     {editing ? (
@@ -613,12 +613,13 @@ export function CustomersPage() {
   );
 }
 
-function Field({ label, value, editing, onChange, multiline }: {
+function Field({ label, value, editing, onChange, multiline, placeholder }: {
   label: string;
   value?: string | null;
   editing: boolean;
   onChange: (v: string) => void;
   multiline?: boolean;
+  placeholder?: string;
 }) {
   return (
     <div className="flex items-start gap-3">
@@ -630,9 +631,10 @@ function Field({ label, value, editing, onChange, multiline }: {
             rows={3}
             value={value || ''}
             onChange={(e) => onChange(e.target.value)}
+            placeholder={placeholder}
           />
         ) : (
-          <Input className="flex-1" value={value || ''} onChange={(e) => onChange(e.target.value)} />
+          <Input className="flex-1" value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
         )
       ) : (
         <span className="text-sm">{value || '-'}</span>
