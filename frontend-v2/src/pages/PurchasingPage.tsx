@@ -11,6 +11,7 @@ import {
   type PurchaseOrder,
   type VendorPoReceiptRules,
   type VendorPurchaseOrder,
+  openPurchaseOrderPdf,
   scanPoFile,
   useConfirmPurchaseOrder,
   useInventoryProducts,
@@ -36,12 +37,46 @@ type ReceiveLineDraft = {
   unit_cost: string;
 };
 
+type PurchaseOrderHistoryLine = {
+  description?: string;
+  item_number?: string;
+  quantity?: number | string;
+  unit_price?: number | string;
+  total?: number | string;
+  unit?: string;
+  lot_number?: string;
+  expiration_date?: string;
+};
+
+type ReceiptDiscrepancyEntry = {
+  id: string;
+  poNumber: string;
+  vendor: string;
+  receivedAt: string;
+  lineLabel: string;
+  varianceLabel: string;
+  quantityVariance: number;
+  overReceiptQty: number;
+};
+
+type LeadTimeInsights = {
+  measuredCount: number;
+  vendorCount: number;
+  averageDays: number;
+  medianDays: number;
+  latestDays: number | null;
+};
+
 function money(value: number): string {
   return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
 function asNumber(value: unknown): number {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : 0;
+}
+
+function formatLeadTimeDays(value: number | null | undefined) {
+  return Number.isFinite(Number(value)) ? `${asNumber(value).toFixed(2)} d` : 'Not measured';
 }
 
 function remainingQty(line: { ordered_qty?: number | string; received_qty?: number | string; backordered_qty?: number | string; waived_backorder_qty?: number | string }) {
@@ -51,6 +86,10 @@ function remainingQty(line: { ordered_qty?: number | string; received_qty?: numb
   const ordered = asNumber(line.ordered_qty);
   const receivedTowardOrdered = Math.min(asNumber(line.received_qty), ordered);
   return Math.max(0, ordered - receivedTowardOrdered);
+}
+
+function lineRequiresLot(line: { description?: string; category?: string }) {
+  return /\b(mussel|clam|oyster)s?\b/i.test(`${line.description || ''} ${line.category || ''}`);
 }
 
 function statusTone(status: string | undefined): 'success' | 'warning' | 'secondary' | 'neutral' {
@@ -137,6 +176,103 @@ export function PurchasingPage() {
     [vendorPurchaseOrders],
   );
 
+  const discrepancyLog = useMemo(() => {
+    const entries: ReceiptDiscrepancyEntry[] = [];
+    let receiptsWithVariance = 0;
+    let shortQty = 0;
+    let overQty = 0;
+
+    for (const po of vendorPurchaseOrders) {
+      for (const receipt of po.receipts || []) {
+        const lines = (receipt.lines || []).filter((line) => {
+          const varianceType = String(line.variance_type || '').trim().toLowerCase();
+          return varianceType && varianceType !== 'exact_receipt'
+            || asNumber(line.over_receipt_qty) > 0
+            || asNumber(line.quantity_variance_qty) !== 0;
+        });
+        if (!lines.length) continue;
+        receiptsWithVariance += 1;
+        for (const line of lines) {
+          const quantityVariance = asNumber(line.quantity_variance_qty);
+          const overReceiptQty = asNumber(line.over_receipt_qty);
+          if (quantityVariance < 0) shortQty += Math.abs(quantityVariance);
+          if (overReceiptQty > 0) overQty += overReceiptQty;
+          entries.push({
+            id: `${po.id}:${receipt.id}:${line.line_no}`,
+            poNumber: po.po_number || po.id.slice(0, 8),
+            vendor: String(po.vendor || po.vendor_name || 'Unassigned Vendor'),
+            receivedAt: receipt.received_at || '',
+            lineLabel: line.product_name || line.item_number || `Line ${line.line_no}`,
+            varianceLabel: String(line.variance_type || 'variance').replace(/_/g, ' '),
+            quantityVariance,
+            overReceiptQty,
+          });
+        }
+      }
+    }
+
+    entries.sort((left, right) => String(right.receivedAt || '').localeCompare(String(left.receivedAt || '')));
+    return {
+      entries,
+      receiptsWithVariance,
+      shortQty,
+      overQty,
+    };
+  }, [vendorPurchaseOrders]);
+
+  const leadTimeInsights = useMemo<LeadTimeInsights>(() => {
+    const measured = vendorPurchaseOrders
+      .map((po) => asNumber(po.first_receipt_lead_time_days))
+      .filter((value) => value > 0);
+    const sorted = [...measured].sort((left, right) => left - right);
+    const medianValue = sorted.length
+      ? (sorted.length % 2 === 0
+        ? (sorted[(sorted.length / 2) - 1] + sorted[sorted.length / 2]) / 2
+        : sorted[Math.floor(sorted.length / 2)])
+      : 0;
+    const latestMeasured = [...vendorPurchaseOrders]
+      .filter((po) => asNumber(po.first_receipt_lead_time_days) > 0 && po.first_received_at)
+      .sort((left, right) => String(right.first_received_at || '').localeCompare(String(left.first_received_at || '')))[0];
+
+    return {
+      measuredCount: measured.length,
+      vendorCount: new Set(vendorPurchaseOrders.map((po) => String(po.vendor || po.vendor_name || '').trim()).filter(Boolean)).size,
+      averageDays: measured.length ? measured.reduce((sum, value) => sum + value, 0) / measured.length : 0,
+      medianDays: measured.length ? medianValue : 0,
+      latestDays: latestMeasured ? asNumber(latestMeasured.first_receipt_lead_time_days) : null,
+    };
+  }, [vendorPurchaseOrders]);
+
+  const scanInsights = useMemo(() => {
+    if (!scanResult) {
+      return {
+        weightedCount: 0,
+        countCount: 0,
+        extractedLots: 0,
+        mediumOrHighConfidenceLots: 0,
+      };
+    }
+    return scanResult.items.reduce(
+      (summary, item) => {
+        if (item.item_type === 'weighted') summary.weightedCount += 1;
+        if (item.item_type === 'count') summary.countCount += 1;
+        if (String(item.lot_number || '').trim()) {
+          summary.extractedLots += 1;
+          if (item.lot_number_confidence === 'medium' || item.lot_number_confidence === 'high') {
+            summary.mediumOrHighConfidenceLots += 1;
+          }
+        }
+        return summary;
+      },
+      {
+        weightedCount: 0,
+        countCount: 0,
+        extractedLots: 0,
+        mediumOrHighConfidenceLots: 0,
+      },
+    );
+  }, [scanResult]);
+
   function updateLine(index: number, key: keyof PurchaseItemDraft, value: string) {
     setLines((cur) => cur.map((l, i) => (i === index ? { ...l, [key]: value } : l)));
   }
@@ -172,9 +308,9 @@ export function PurchasingPage() {
       item_number: '',
       quantity: item.quantity != null ? String(item.quantity) : '',
       unit_price: item.unit_price != null ? String(item.unit_price) : '',
-      unit: item.unit ?? 'lb',
+      unit: item.unit ?? (item.item_type === 'count' ? 'each' : 'lb'),
       category: item.category ?? 'Other',
-      lot_number: '',
+      lot_number: item.lot_number ?? '',
       expiration_date: '',
     }));
     setLines(draftLines.length ? draftLines : [emptyLine()]);
@@ -202,6 +338,14 @@ export function PurchasingPage() {
     if (file) handleScanFile(file);
   }
 
+  function printPurchaseOrder(order: PurchaseOrder) {
+    const popup = openPurchaseOrderPdf(order.id);
+    if (!popup) {
+      setFormError('The browser blocked the PO PDF preview. Allow popups for NodeRoute and try again.');
+      return;
+    }
+  }
+
   function submitPurchaseOrder() {
     const items = lines
       .map((l) => ({
@@ -218,6 +362,11 @@ export function PurchasingPage() {
       .filter((item) => item.description && item.quantity > 0);
 
     if (!items.length) { setFormError('Add at least one line with description and quantity.'); return; }
+    const missingLotItem = items.find((item) => lineRequiresLot(item) && !String(item.lot_number || '').trim());
+    if (missingLotItem) {
+      setFormError(`Lot number is required before confirming mollusk item "${missingLotItem.description}".`);
+      return;
+    }
 
     setFormError('');
     const total_cost = items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
@@ -228,9 +377,10 @@ export function PurchasingPage() {
         onSuccess: (response) => {
           const failed = Array.isArray(response.errors) && response.errors.length;
           const lotsMsg = response.lots_created ? ` ${response.lots_created} lot record(s) created.` : '';
+          const poLabel = response.purchase_order?.po_number ? ` PO # ${response.purchase_order.po_number}.` : '';
           setNotice(failed
-            ? `PO saved with ${response.errors?.length || 0} line errors.${lotsMsg}`
-            : `Purchase order confirmed and inventory updated.${lotsMsg}`);
+            ? `PO saved with ${response.errors?.length || 0} line errors.${poLabel}${lotsMsg}`
+            : `Purchase order confirmed and inventory updated.${poLabel}${lotsMsg}`);
           setVendor(''); setPoNumber(''); setNotes(''); setLines([emptyLine()]); setScanResult(null);
         },
         onError: (err) => setFormError(String((err as Error).message || 'Failed to confirm purchase order')),
@@ -331,6 +481,9 @@ export function PurchasingPage() {
               {scanResult.date && <div>Date: <strong>{scanResult.date}</strong></div>}
               {scanResult.total_cost != null && <div>Total: <strong>{money(scanResult.total_cost)}</strong></div>}
               <div>{scanResult.items.length} line item(s) extracted — review below before confirming.</div>
+              <div>Weighted items detected: <strong>{scanInsights.weightedCount}</strong></div>
+              <div>Count items detected: <strong>{scanInsights.countCount}</strong></div>
+              <div>Lot numbers detected: <strong>{scanInsights.extractedLots}</strong> {scanInsights.extractedLots ? `(medium/high confidence: ${scanInsights.mediumOrHighConfidenceLots})` : ''}</div>
             </div>
           </CardContent>
         )}
@@ -368,6 +521,7 @@ export function PurchasingPage() {
                   <TableHead>Unit Price</TableHead>
                   <TableHead>Unit</TableHead>
                   <TableHead>Category</TableHead>
+                  <TableHead>Item Type</TableHead>
                   <TableHead>Lot Number <span className="ml-1 text-xs font-normal text-muted-foreground">(FSMA)</span></TableHead>
                   <TableHead>Expiration <span className="ml-1 text-xs font-normal text-muted-foreground">(optional)</span></TableHead>
                   <TableHead>Total</TableHead>
@@ -402,7 +556,31 @@ export function PurchasingPage() {
                     <TableCell><Input type="number" min="0" step="0.01" value={line.unit_price} onChange={(e) => updateLine(index, 'unit_price', e.target.value)} /></TableCell>
                     <TableCell><Input value={line.unit} onChange={(e) => updateLine(index, 'unit', e.target.value)} /></TableCell>
                     <TableCell><Input value={line.category} onChange={(e) => updateLine(index, 'category', e.target.value)} /></TableCell>
-                    <TableCell><Input value={line.lot_number} onChange={(e) => updateLine(index, 'lot_number', e.target.value)} placeholder="e.g. SAL-2026-001" className="font-mono text-sm" /></TableCell>
+                    <TableCell>
+                      <span className="text-sm text-muted-foreground">
+                        {scanResult?.items[index]?.item_type
+                          ? `${scanResult.items[index].item_type.charAt(0).toUpperCase()}${scanResult.items[index].item_type.slice(1)}`
+                          : 'Manual'}
+                      </span>
+                    </TableCell>
+                    <TableCell>
+                      <div className="space-y-1">
+                        <Input
+                          value={line.lot_number}
+                          onChange={(e) => updateLine(index, 'lot_number', e.target.value)}
+                          placeholder={lineRequiresLot(line) ? 'Required for shellfish lots' : 'e.g. SAL-2026-001'}
+                          className="font-mono text-sm"
+                        />
+                        {lineRequiresLot(line) ? (
+                          <div className="text-[11px] text-amber-700">Required before confirming mussel, clam, and oyster receipts.</div>
+                        ) : null}
+                        {String(scanResult?.items[index]?.lot_number || '').trim() ? (
+                          <div className="text-[11px] text-sky-700">
+                            Scan detected lot <span className="font-mono">{scanResult?.items[index]?.lot_number}</span> ({scanResult?.items[index]?.lot_number_confidence} confidence).
+                          </div>
+                        ) : null}
+                      </div>
+                    </TableCell>
                     <TableCell><Input type="date" value={line.expiration_date} onChange={(e) => updateLine(index, 'expiration_date', e.target.value)} /></TableCell>
                     <TableCell>{money(asNumber(line.quantity) * asNumber(line.unit_price))}</TableCell>
                     <TableCell><Button variant="ghost" size="sm" onClick={() => removeLine(index)}>Remove</Button></TableCell>
@@ -443,6 +621,7 @@ export function PurchasingPage() {
                   <TableHead>PO Number</TableHead>
                   <TableHead>Vendor</TableHead>
                   <TableHead>Status</TableHead>
+                  <TableHead>Lead Time</TableHead>
                   <TableHead>Ordered</TableHead>
                   <TableHead>Received</TableHead>
                   <TableHead>Backordered</TableHead>
@@ -456,6 +635,17 @@ export function PurchasingPage() {
                     <TableCell className="font-medium">{po.po_number || po.id.slice(0, 8)}</TableCell>
                     <TableCell>{po.vendor || po.vendor_name || '-'}</TableCell>
                     <TableCell><Badge variant={statusTone(po.status)}>{String(po.status || 'open').replace(/_/g, ' ')}</Badge></TableCell>
+                    <TableCell>
+                      <div className="text-sm">
+                        {Number.isFinite(Number(po.first_receipt_lead_time_days)) && asNumber(po.first_receipt_lead_time_days) > 0 ? (
+                          <span>{formatLeadTimeDays(po.first_receipt_lead_time_days)} actual</span>
+                        ) : Number.isFinite(Number(po.lead_time_history?.average_days)) && asNumber(po.lead_time_history?.average_days) > 0 ? (
+                          <span>{formatLeadTimeDays(po.lead_time_history?.average_days)} avg</span>
+                        ) : (
+                          <span className="text-muted-foreground">Pending first receipt</span>
+                        )}
+                      </div>
+                    </TableCell>
                     <TableCell>{asNumber(po.total_ordered_qty).toFixed(2)}</TableCell>
                     <TableCell>{asNumber(po.total_received_qty).toFixed(2)}</TableCell>
                     <TableCell>{asNumber(po.total_backordered_qty).toFixed(2)}</TableCell>
@@ -468,13 +658,87 @@ export function PurchasingPage() {
                   </TableRow>
                 )) : (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-muted-foreground">
+                    <TableCell colSpan={9} className="text-muted-foreground">
                       No open vendor purchase orders are waiting on receipts right now.
                     </TableCell>
                   </TableRow>
                 )}
               </TableBody>
             </Table>
+          </div>
+
+          <div className="grid gap-3 md:grid-cols-3">
+            <div className="rounded-xl border border-border bg-muted/10 p-4">
+              <div className="text-sm font-semibold text-foreground">Historical Lead Time</div>
+              <div className="mt-2 text-2xl font-semibold">{leadTimeInsights.measuredCount ? formatLeadTimeDays(leadTimeInsights.averageDays) : 'No history yet'}</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Average first-receipt lead time across {leadTimeInsights.measuredCount} received PO{leadTimeInsights.measuredCount === 1 ? '' : 's'}.
+              </div>
+            </div>
+            <div className="rounded-xl border border-border bg-muted/10 p-4">
+              <div className="text-sm font-semibold text-foreground">Median Lead Time</div>
+              <div className="mt-2 text-2xl font-semibold">{leadTimeInsights.measuredCount ? formatLeadTimeDays(leadTimeInsights.medianDays) : 'No history yet'}</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Measured across {leadTimeInsights.vendorCount} vendor relationship{leadTimeInsights.vendorCount === 1 ? '' : 's'}.
+              </div>
+            </div>
+            <div className="rounded-xl border border-border bg-muted/10 p-4">
+              <div className="text-sm font-semibold text-foreground">Most Recent Lead Time</div>
+              <div className="mt-2 text-2xl font-semibold">{formatLeadTimeDays(leadTimeInsights.latestDays)}</div>
+              <div className="mt-1 text-xs text-muted-foreground">
+                Based on the latest PO that recorded a first receipt timestamp.
+              </div>
+            </div>
+          </div>
+
+          <div className="grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)]">
+            <div className="rounded-xl border border-border bg-muted/10 p-4 space-y-3">
+              <div>
+                <div className="text-sm font-semibold text-foreground">Discrepancy Log</div>
+                <div className="text-xs text-muted-foreground">
+                  Recent overages and short receipts across vendor PO receiving.
+                </div>
+              </div>
+              <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1">
+                <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                  Receipts w/ variance: <strong>{discrepancyLog.receiptsWithVariance}</strong>
+                </div>
+                <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                  Short qty flagged: <strong>{discrepancyLog.shortQty.toFixed(2)}</strong>
+                </div>
+                <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                  Over qty flagged: <strong>{discrepancyLog.overQty.toFixed(2)}</strong>
+                </div>
+              </div>
+            </div>
+            <div className="rounded-xl border border-border bg-muted/10 p-4 space-y-3">
+              <div className="text-sm font-semibold text-foreground">Recent Discrepancy Activity</div>
+              {discrepancyLog.entries.length ? (
+                <div className="space-y-2">
+                  {discrepancyLog.entries.slice(0, 6).map((entry) => (
+                    <div key={entry.id} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div>
+                          <strong>{entry.poNumber}</strong> · {entry.vendor}
+                        </div>
+                        <div className="text-xs text-muted-foreground">
+                          {entry.receivedAt ? new Date(entry.receivedAt).toLocaleString() : 'Receipt logged'}
+                        </div>
+                      </div>
+                      <div className="mt-1">
+                        {entry.lineLabel}: <span className="capitalize">{entry.varianceLabel}</span>
+                        {entry.quantityVariance !== 0 ? ` (${entry.quantityVariance.toFixed(2)})` : ''}
+                        {entry.overReceiptQty > 0 ? ` · over by ${entry.overReceiptQty.toFixed(2)}` : ''}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="rounded-lg border border-dashed border-border bg-background px-4 py-6 text-sm text-muted-foreground">
+                  No receipt discrepancies have been logged yet. When vendors short or over-ship items, the variance history will show up here.
+                </div>
+              )}
+            </div>
           </div>
 
           {activeReceivePo ? (
@@ -684,6 +948,7 @@ export function PurchasingPage() {
                 <TableHead>Line Items</TableHead>
                 <TableHead>Confirmed By</TableHead>
                 <TableHead>Created</TableHead>
+                <TableHead />
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -695,9 +960,14 @@ export function PurchasingPage() {
                   <TableCell>{(order.items || []).length.toLocaleString()}</TableCell>
                   <TableCell>{order.confirmed_by || '-'}</TableCell>
                   <TableCell>{order.created_at ? new Date(order.created_at).toLocaleDateString() : '-'}</TableCell>
+                  <TableCell className="text-right">
+                      <Button variant="outline" size="sm" onClick={() => printPurchaseOrder(order)}>
+                        Open PDF
+                      </Button>
+                  </TableCell>
                 </TableRow>
               )) : (
-                <TableRow><TableCell colSpan={6} className="text-muted-foreground">No purchase orders found for the selected filters.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-muted-foreground">No purchase orders found for the selected filters.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>

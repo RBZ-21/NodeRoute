@@ -7,6 +7,10 @@ const {
   insertRecordWithOptionalScope,
   rowMatchesContext,
 } = require('../services/operating-context');
+const {
+  logRouteMutation,
+  syncRouteMutation,
+} = require('../services/route-stop-sync');
 
 const router = express.Router();
 
@@ -119,7 +123,22 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
   if (driverId) payload.driver_id = driverId;
   const insertResult = await insertRecordWithOptionalScope(supabase, 'routes', payload, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
-  const data = insertResult.data;
+  const route = insertResult.data;
+  const syncResult = await syncRouteMutation(supabase, {
+    routeId: route.id,
+    stopIds: sortedStopIds,
+    activeStopIds: sortedActiveStopIds,
+    action: 'create',
+    actor: req.user,
+    context: req.context,
+    metadata: {
+      routeName,
+      driverId: driverId || null,
+      driverName: assignedDriverName || null,
+    },
+  });
+  if (syncResult.error) return res.status(500).json({ error: syncResult.error.message });
+  const data = syncResult.data || route;
   if (!data) return;
   res.json(data);
 });
@@ -176,15 +195,61 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
     });
   }
   const rows = Array.isArray(updateResult.data) ? updateResult.data : (updateResult.data ? [updateResult.data] : []);
-  const data = rows[0];
-  if (!data) return res.status(404).json({ error: 'Route not found or no route fields were updated' });
-  res.json(data);
+  const updatedRoute = rows[0];
+  if (!updatedRoute) return res.status(404).json({ error: 'Route not found or no route fields were updated' });
+
+  const changedRouteLists = payload.stop_ids !== undefined || payload.active_stop_ids !== undefined;
+  if (changedRouteLists) {
+    const syncResult = await syncRouteMutation(supabase, {
+      routeId: req.params.id,
+      stopIds: payload.stop_ids !== undefined ? payload.stop_ids : updatedRoute.stop_ids,
+      activeStopIds: payload.active_stop_ids !== undefined ? payload.active_stop_ids : updatedRoute.active_stop_ids,
+      action: 'update',
+      actor: req.user,
+      context: req.context,
+      metadata: {
+        changedFields: Object.keys(payload),
+      },
+    });
+    if (syncResult.error) return res.status(500).json({ error: syncResult.error.message });
+    return res.json(syncResult.data || updatedRoute);
+  }
+
+  const auditResult = await logRouteMutation(supabase, {
+    routeId: req.params.id,
+    action: 'update',
+    actor: req.user,
+    context: req.context,
+    beforeStopIds: existing.stop_ids,
+    afterStopIds: updatedRoute.stop_ids,
+    beforeActiveStopIds: existing.active_stop_ids,
+    afterActiveStopIds: updatedRoute.active_stop_ids,
+    metadata: {
+      changedFields: Object.keys(payload),
+    },
+  });
+  if (auditResult.error) return res.status(500).json({ error: auditResult.error.message });
+
+  res.json(updatedRoute);
 });
 
 router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const existing = await dbQuery(supabase.from('routes').select('*').eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Route not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
+  const syncResult = await syncRouteMutation(supabase, {
+    routeId: req.params.id,
+    stopIds: [],
+    activeStopIds: [],
+    action: 'delete',
+    actor: req.user,
+    context: req.context,
+    metadata: {
+      deleted: true,
+      routeName: existing.name || null,
+    },
+  });
+  if (syncResult.error) return res.status(500).json({ error: syncResult.error.message });
   const data = await dbQuery(supabase.from('routes').delete().eq('id', req.params.id), res);
   if (data === null) return;
   res.json({ message: 'Deleted' });

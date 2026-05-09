@@ -40,6 +40,7 @@ const { triggerPrintJob } = require('../services/printer');
 const printRouter = require('./print');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 const { sendInvoiceEmail } = require('../services/invoice-email');
+const { invoiceLotEntriesFromItems } = require('../services/invoice-lots');
 const {
   executeWithOptionalScope,
   filterRowsByContext,
@@ -320,6 +321,11 @@ function invoiceItemsFromOrder(order, fulfilledItems) {
         total: asMoney(weight * pricePerLb),
         is_catch_weight: true,
         weight_confirmed: hasActual,
+        item_number: it.item_number || null,
+        lot_id: it.lot_id || null,
+        lot_number: it.lot_number || null,
+        quantity_from_lot: it.quantity_from_lot || null,
+        lot_expiration: it.lot_expiration || null,
       };
     }
     const qty = itemQuantity(it);
@@ -336,6 +342,11 @@ function invoiceItemsFromOrder(order, fulfilledItems) {
       unit: it.unit || (it.requested_weight ? 'lb' : 'each'),
       unit_price: unitPrice,
       total: asMoney(qty * unitPrice),
+      item_number: it.item_number || null,
+      lot_id: it.lot_id || null,
+      lot_number: it.lot_number || null,
+      quantity_from_lot: it.quantity_from_lot || null,
+      lot_expiration: it.lot_expiration || null,
     };
   });
 
@@ -368,6 +379,7 @@ function invoicePayloadForOrder(order, fulfilledItems = null, overrides = {}) {
   const sourceItems = Array.isArray(fulfilledItems) ? fulfilledItems : (order.items || []);
   const estimatedWeightPending = sourceItems.some((it) => itemNeedsActualWeight(it));
   const items = invoiceItemsFromOrder(order, fulfilledItems);
+  const lotNumbers = invoiceLotEntriesFromItems(sourceItems);
   const totals = totalsForItems(items, taxEnabled, taxRate);
   return {
     invoice_number: overrides.invoice_number || `INV-${Date.now().toString().slice(-6)}`,
@@ -380,6 +392,7 @@ function invoicePayloadForOrder(order, fulfilledItems = null, overrides = {}) {
     billing_phone: overrides.billing_phone || null,
     billing_address: overrides.billing_address || order.customer_address || null,
     items,
+    lot_numbers: lotNumbers,
     ...totals,
     tax_enabled: taxEnabled,
     tax_rate: taxRate,
@@ -395,9 +408,23 @@ function isMissingEstimatedWeightPendingError(error) {
   return !!error?.message && error.message.includes("estimated_weight_pending");
 }
 
+function isMissingLotNumbersError(error) {
+  return !!error?.message && error.message.includes('lot_numbers');
+}
+
 function withoutEstimatedWeightPending(payload) {
   const next = { ...payload };
   delete next.estimated_weight_pending;
+  return next;
+}
+
+function withoutOptionalInvoiceFields(payload, { stripEstimatedWeightPending = false, stripLotNumbers = false } = {}) {
+  let next = { ...payload };
+  if (stripEstimatedWeightPending) next = withoutEstimatedWeightPending(next);
+  if (stripLotNumbers) {
+    next = { ...next };
+    delete next.lot_numbers;
+  }
   return next;
 }
 
@@ -497,7 +524,16 @@ async function createOrUpdateProcessingInvoice(order, fulfilledItems, overrides,
     if (isMissingEstimatedWeightPendingError(updateResult.error)) {
       updateResult = await executeWithOptionalScope(
         (candidate) => supabase.from('invoices').update(candidate).eq('id', existingInvoice.id).select().single(),
-        withoutEstimatedWeightPending(payload)
+        withoutOptionalInvoiceFields(payload, { stripEstimatedWeightPending: true })
+      );
+    }
+    if (isMissingLotNumbersError(updateResult.error)) {
+      updateResult = await executeWithOptionalScope(
+        (candidate) => supabase.from('invoices').update(candidate).eq('id', existingInvoice.id).select().single(),
+        withoutOptionalInvoiceFields(payload, {
+          stripEstimatedWeightPending: isMissingEstimatedWeightPendingError(updateResult.error),
+          stripLotNumbers: true,
+        })
       );
     }
     if (updateResult.error) {
@@ -509,7 +545,23 @@ async function createOrUpdateProcessingInvoice(order, fulfilledItems, overrides,
 
   let invoiceInsert = await insertRecordWithOptionalScope(supabase, 'invoices', payload, req.context);
   if (isMissingEstimatedWeightPendingError(invoiceInsert.error)) {
-    invoiceInsert = await insertRecordWithOptionalScope(supabase, 'invoices', withoutEstimatedWeightPending(payload), req.context);
+    invoiceInsert = await insertRecordWithOptionalScope(
+      supabase,
+      'invoices',
+      withoutOptionalInvoiceFields(payload, { stripEstimatedWeightPending: true }),
+      req.context
+    );
+  }
+  if (isMissingLotNumbersError(invoiceInsert.error)) {
+    invoiceInsert = await insertRecordWithOptionalScope(
+      supabase,
+      'invoices',
+      withoutOptionalInvoiceFields(payload, {
+        stripEstimatedWeightPending: isMissingEstimatedWeightPendingError(invoiceInsert.error),
+        stripLotNumbers: true,
+      }),
+      req.context
+    );
   }
   if (invoiceInsert.error) {
     if (res) res.status(500).json({ error: invoiceInsert.error.message });

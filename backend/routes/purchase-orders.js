@@ -5,6 +5,8 @@ const { supabase }                  = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { parsePurchaseOrderImage }   = require('../services/ai');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
+const { generatePurchaseOrderNumber } = require('../services/purchase-order-numbers');
+const { buildPurchaseOrderPDF } = require('../services/purchase-order-pdf');
 const { validateBody } = require('../lib/zod-validate');
 const {
   buildScopeFields,
@@ -16,6 +18,10 @@ const {
 
 function isMissingFtlColumnError(error) {
   return !!error?.message && error.message.includes('seafood_inventory.is_ftl_product does not exist');
+}
+
+function isMissingLotSourcePoColumnError(error) {
+  return !!error?.message && String(error.message).includes('lot_codes.source_po_number does not exist');
 }
 
 const router = express.Router();
@@ -38,12 +44,21 @@ const purchaseOrderConfirmSchema = z.object({
   items: z.array(z.any(), { error: 'items must be an array' }).min(1, 'items is required'),
 }).passthrough().superRefine((body, ctx) => {
   (body.items || []).forEach((item, index) => {
+    const description = String(item?.description || '').trim();
+    const category = String(item?.category || '').trim();
     const quantity = Number(item?.quantity);
     if (!Number.isFinite(quantity) || quantity <= 0) {
       ctx.addIssue({
         code: z.ZodIssueCode.custom,
         message: 'quantity must be a positive number',
         path: ['items', index, 'quantity'],
+      });
+    }
+    if (LOT_REQUIRED.test(`${description} ${category}`) && !String(item?.lot_number || '').trim()) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: 'lot_number is required for mollusk traceability items',
+        path: ['items', index, 'lot_number'],
       });
     }
   });
@@ -68,6 +83,9 @@ router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
         total:      parseFloat(item.total)      || parseFloat((parseFloat(item.quantity || 0) * parseFloat(item.unit_price || 0)).toFixed(2)),
         unit:       item.unit || 'lb',
         category:   item.category || 'Other',
+        item_type:  item.item_type || 'unknown',
+        lot_number: item.lot_number || null,
+        lot_number_confidence: item.lot_number_confidence || 'none',
       }));
       if (!parsed.total_cost) {
         parsed.total_cost = parseFloat(parsed.items.reduce((s, i) => s + i.total, 0).toFixed(2));
@@ -83,6 +101,7 @@ router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
 // ── POST /api/purchase-orders/confirm ──────────────────────────────────────
 router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), validateBody(purchaseOrderConfirmSchema), async (req, res) => {
   const { vendor, po_number, date, items, total_cost, notes } = req.validated.body;
+  const resolvedPoNumber = String(po_number || '').trim() || generatePurchaseOrderNumber();
 
   let { data: inventory, error: invErr } = await supabase
     .from('seafood_inventory')
@@ -115,7 +134,7 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
 
     const key      = desc.toLowerCase();
     const existing = invMap[key];
-    const poRef    = `PO scan${po_number ? ' · ' + po_number : ''}${vendor ? ' from ' + vendor : ''}`;
+    const poRef    = `PO scan${resolvedPoNumber ? ' · ' + resolvedPoNumber : ''}${vendor ? ' from ' + vendor : ''}`;
 
     let resolvedItemNumber = existing?.item_number || null;
 
@@ -212,13 +231,21 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
           received_date:     date || new Date().toISOString().slice(0, 10),
           received_by:       req.user.name || req.user.email,
           expiration_date:   item.expiration_date || null,
-          notes:             `Auto-created from PO confirm${po_number ? ' · ' + po_number : ''}`,
+          source_po_number:  resolvedPoNumber,
+          notes:             `Auto-created from PO confirm${resolvedPoNumber ? ' · ' + resolvedPoNumber : ''}`,
           ...buildScopeFields(req.context),
         };
-        const lotInsert = await executeWithOptionalScope(
+        let lotInsert = await executeWithOptionalScope(
           (candidate) => supabase.from('lot_codes').insert([candidate]).select('id').single(),
           lotPayload
         );
+        if (isMissingLotSourcePoColumnError(lotInsert.error)) {
+          const { source_po_number, ...legacyLotPayload } = lotPayload;
+          lotInsert = await executeWithOptionalScope(
+            (candidate) => supabase.from('lot_codes').insert([candidate]).select('id').single(),
+            legacyLotPayload
+          );
+        }
         if (lotInsert.error && lotInsert.error.code !== '23505') {
           errors.push(`Lot ${lotNumber}: ${lotInsert.error.message}`);
         } else if (lotInsert.data) {
@@ -240,7 +267,7 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
     parseFloat(items.reduce((s, i) => s + (parseFloat(i.total) || 0), 0).toFixed(2));
 
   const poInsert = await insertRecordWithOptionalScope(supabase, 'purchase_orders', {
-    po_number:    po_number || null,
+    po_number:    resolvedPoNumber,
     vendor:       vendor    || null,
     items:        savedItems.length ? savedItems : items,
     total_cost:   computedTotal,
@@ -269,7 +296,7 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
       .select(candidate.select)
       .order('created_at', { ascending: false })
       .limit(100),
-    { select: 'id, po_number, vendor, total_cost, items, confirmed_by, created_at, company_id, location_id' }
+    { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, created_at, company_id, location_id' }
   );
   if (result.error && String(result.error.message || '').includes('purchase_orders.company_id')) {
     result = await executeWithOptionalScope(
@@ -278,11 +305,47 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
         .select(candidate.select)
         .order('created_at', { ascending: false })
         .limit(100),
-      { select: 'id, po_number, vendor, total_cost, items, confirmed_by, created_at, location_id' }
+      { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, created_at, location_id' }
     );
   }
   if (result.error) return res.status(500).json({ error: result.error.message });
   res.json(filterRowsByContext(result.data || [], req.context));
+});
+
+router.get('/:id/pdf', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  let result = await executeWithOptionalScope(
+    (candidate) => supabase
+      .from('purchase_orders')
+      .select(candidate.select)
+      .eq('id', req.params.id)
+      .single(),
+    { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, created_at, company_id, location_id' }
+  );
+  if (result.error && String(result.error.message || '').includes('purchase_orders.company_id')) {
+    result = await executeWithOptionalScope(
+      (candidate) => supabase
+        .from('purchase_orders')
+        .select(candidate.select)
+        .eq('id', req.params.id)
+        .single(),
+      { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, created_at, location_id' }
+    );
+  }
+  if (result.error) return res.status(500).json({ error: result.error.message });
+
+  const order = result.data;
+  if (!order) return res.status(404).json({ error: 'Purchase order not found' });
+  if (!rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    const pdf = await buildPurchaseOrderPDF(order);
+    const poNumber = String(order.po_number || order.id || 'purchase-order').replace(/[^\w.-]+/g, '-');
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `inline; filename="${poNumber}.pdf"`);
+    res.send(pdf);
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Could not build purchase order PDF' });
+  }
 });
 
 module.exports = router;

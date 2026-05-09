@@ -9,6 +9,9 @@ const { fetchWithAuthMock, sendWithAuthMock } = vi.hoisted(() => ({
   sendWithAuthMock: vi.fn(),
 }));
 
+const openMock = vi.fn();
+const fetchMock = vi.fn();
+
 vi.mock('../lib/api', () => ({
   fetchWithAuth: fetchWithAuthMock,
   sendWithAuth: sendWithAuthMock,
@@ -92,6 +95,47 @@ const baseVendorPurchaseOrders = [
   },
 ];
 
+const vendorPurchaseOrdersWithDiscrepancies = [
+  {
+    ...baseVendorPurchaseOrders[0],
+    first_received_at: '2026-04-13T13:00:00Z',
+    first_receipt_lead_time_days: 1.04,
+    first_receipt_lead_time_hours: 25,
+    lead_time_history: {
+      vendor: 'Blue Ocean Seafood',
+      receipt_count: 1,
+      average_days: 1.04,
+      median_days: 1.04,
+      minimum_days: 1.04,
+      maximum_days: 1.04,
+      latest_days: 1.04,
+    },
+    receipts: [
+      {
+        id: 'rcv-2',
+        received_at: '2026-04-13T13:00:00Z',
+        received_by: 'Jamie',
+        notes: 'Vendor shorted line 2',
+        variance_audit: {
+          total_accepted_qty: 10,
+          total_rejected_qty: 0,
+          total_backordered_qty_after_receipt: 2,
+        },
+        lines: [
+          {
+            line_no: 2,
+            item_number: 'BOX-1',
+            product_name: 'Shipping Box',
+            variance_type: 'short_receipt',
+            quantity_variance_qty: -2,
+            over_receipt_qty: 0,
+          },
+        ],
+      },
+    ],
+  },
+];
+
 function mockPurchasingApi({
   orders = baseOrders,
   products = baseProducts,
@@ -126,6 +170,19 @@ describe('PurchasingPage', () => {
   beforeEach(() => {
     fetchWithAuthMock.mockReset();
     sendWithAuthMock.mockReset();
+    openMock.mockReset();
+    fetchMock.mockReset();
+    openMock.mockReturnValue({
+      document: {
+        open: vi.fn(),
+        write: vi.fn(),
+        close: vi.fn(),
+      },
+      focus: vi.fn(),
+      print: vi.fn(),
+    });
+    vi.stubGlobal('open', openMock);
+    vi.stubGlobal('fetch', fetchMock);
     mockPurchasingApi();
   });
 
@@ -147,7 +204,7 @@ describe('PurchasingPage', () => {
   });
 
   it('validates PO confirmation and submits a successful purchase order', async () => {
-    sendWithAuthMock.mockResolvedValueOnce({ lots_created: 1 });
+    sendWithAuthMock.mockResolvedValueOnce({ lots_created: 1, purchase_order: { id: 'po-300', po_number: 'PO-300' } });
 
     renderPurchasingPage();
 
@@ -197,7 +254,23 @@ describe('PurchasingPage', () => {
         ],
       });
     });
-    expect(await screen.findByText('Purchase order confirmed and inventory updated. 1 lot record(s) created.')).toBeInTheDocument();
+    expect(await screen.findByText('Purchase order confirmed and inventory updated. PO # PO-300. 1 lot record(s) created.')).toBeInTheDocument();
+  });
+
+  it('requires a lot number before confirming mollusk items', async () => {
+    renderPurchasingPage();
+
+    expect(await screen.findByText('PO-100')).toBeInTheDocument();
+
+    const lineRow = within(confirmPoCard()).getAllByRole('row')[1];
+    fireEvent.change(within(lineRow).getByPlaceholderText('Atlantic Salmon'), { target: { value: 'Fresh Clams' } });
+    fireEvent.change(within(lineRow).getByDisplayValue('Other'), { target: { value: 'Mollusks' } });
+    fireEvent.change(within(lineRow).getAllByRole('spinbutton')[0], { target: { value: '5' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm PO' }));
+
+    expect(await screen.findByText('Lot number is required before confirming mollusk item "Fresh Clams".')).toBeInTheDocument();
+    expect(sendWithAuthMock).not.toHaveBeenCalled();
   });
 
   it('surfaces purchase order loading failures', async () => {
@@ -306,5 +379,73 @@ describe('PurchasingPage', () => {
 
     expect(await screen.findByText('Receipt posted for PO-OPS-100. Accepted 14.00 unit(s), rejected 0.00, backordered 2.00.')).toBeInTheDocument();
     expect(screen.getAllByText('Shipping Box: short receipt (-2.00)').length).toBeGreaterThan(0);
+  });
+
+  it('shows discrepancy log activity when receipts have variances', async () => {
+    mockPurchasingApi({ vendorPurchaseOrders: vendorPurchaseOrdersWithDiscrepancies });
+
+    renderPurchasingPage();
+
+    expect(await screen.findByText('Discrepancy Log')).toBeInTheDocument();
+    expect(screen.getByText('Receipts w/ variance:')).toBeInTheDocument();
+    expect(screen.getByText('Recent Discrepancy Activity')).toBeInTheDocument();
+    const discrepancyMatches = await screen.findAllByText((_, element) => {
+      const text = element?.textContent || '';
+      return text.includes('Shipping Box:') && text.includes('short receipt') && text.includes('(-2.00)');
+    });
+    expect(discrepancyMatches.length).toBeGreaterThan(0);
+    expect(screen.getAllByText('PO-OPS-100').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('1.04 d').length).toBeGreaterThan(0);
+  });
+
+  it('applies scan review metadata for item type and lot suggestions', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        vendor: 'Blue Ocean Seafood',
+        po_number: 'PO-SCAN-9',
+        date: '2026-05-08',
+        total_cost: 62.5,
+        items: [
+          {
+            description: 'Fresh Salmon',
+            category: 'Seafood',
+            quantity: 5,
+            unit: 'lb',
+            unit_price: 12.5,
+            total: 62.5,
+            item_type: 'weighted',
+            lot_number: 'SAL-LOT-9',
+            lot_number_confidence: 'high',
+          },
+        ],
+      }),
+    });
+
+    renderPurchasingPage();
+
+    expect(await screen.findByText('PO-100')).toBeInTheDocument();
+
+    const fileInputs = document.querySelectorAll('input[type="file"]');
+    const uploadInput = fileInputs[0] as HTMLInputElement | undefined;
+    if (!uploadInput) throw new Error('Expected upload input');
+    const file = new File(['scan'], 'po-scan.jpg', { type: 'image/jpeg' });
+    fireEvent.change(uploadInput, { target: { files: [file] } });
+
+    expect(await screen.findByText((text) => text.includes('Weighted items detected:'))).toBeInTheDocument();
+    expect(screen.getByText((text) => text.includes('Lot numbers detected:'))).toBeInTheDocument();
+    expect(screen.getByDisplayValue('SAL-LOT-9')).toBeInTheDocument();
+    expect(screen.getByText((text) => text.includes('Scan detected lot'))).toBeInTheDocument();
+    expect(screen.getByText(/^Weighted$/)).toBeInTheDocument();
+  });
+
+  it('opens the generated purchase-order PDF for historical purchase orders', async () => {
+    renderPurchasingPage();
+
+    expect(await screen.findByText('PO-100')).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'Open PDF' })[0]);
+
+    expect(openMock).toHaveBeenCalledWith('/api/purchase-orders/po-1/pdf', '_blank', 'noopener,noreferrer');
   });
 });
