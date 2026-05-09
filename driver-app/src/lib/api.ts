@@ -125,6 +125,12 @@ export async function markStopDeparted(stopId: string) {
   });
 }
 
+export async function deferStop(stopId: string) {
+  return request(`/api/stops/${stopId}/defer`, {
+    method: 'POST',
+  });
+}
+
 export async function patchStop(stopId: string, payload: Record<string, unknown>) {
   return request(`/api/stops/${stopId}`, {
     method: 'PATCH',

@@ -225,24 +225,14 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
 
     await supabase.from('stops').update({ status: 'completed' }).eq('id', req.params.id);
 
-    // Fire delivery confirmation email non-fatally
+    // Fire delivery confirmation email non-fatally using the invoice already linked to this stop
     try {
       const { stop } = auth;
-      if (stop.customer_id) {
-        const { data: order } = await supabase
-          .from('orders')
-          .select('invoice_id')
-          .eq('customer_id', stop.customer_id)
-          .not('invoice_id', 'is', null)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-        if (order?.invoice_id) {
-          const { data: invoice } = await supabase
-            .from('invoices').select('*').eq('id', order.invoice_id).single();
-          const email = invoice?.customer_email || invoice?.contact_email || invoice?.billing_email;
-          if (invoice && email) await sendInvoiceEmail(invoice, 'Invoice');
-        }
+      if (stop.invoice_id) {
+        const { data: invoice } = await supabase
+          .from('invoices').select('*').eq('id', stop.invoice_id).single();
+        const email = invoice?.customer_email || invoice?.contact_email || invoice?.billing_email;
+        if (invoice && email) await sendInvoiceEmail(invoice, 'Invoice');
       }
     } catch { /* email failure must never block the depart response */ }
 

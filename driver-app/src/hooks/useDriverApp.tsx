@@ -2,6 +2,7 @@ import { createContext, useContext, useEffect, useState } from 'react';
 import type { ReactNode } from 'react';
 import {
   ApiError,
+  deferStop,
   fetchBootstrapData,
   fetchInvoicePdf,
   login as loginRequest,
@@ -76,6 +77,7 @@ type DriverAppContextValue = {
   stopById: (stopId: string) => DriverStop | null;
   stopItems: (stop: DriverStop) => string[];
   markArrived: (stop: DriverStop) => Promise<void>;
+  deferStopToEnd: (stop: DriverStop) => Promise<void>;
   markDelivered: (stop: DriverStop, proofImage: string | null, notes: string) => Promise<void>;
   markFailed: (stop: DriverStop, notes: string) => Promise<void>;
   openInvoicePdf: (invoiceId: string) => Promise<void>;
@@ -350,6 +352,12 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     await refreshData(true);
   }
 
+  async function deferStopToEnd(stop: DriverStop) {
+    await deferStop(stop.id);
+    pushToast(`Skipped ${stop.name || 'stop'} to the end of the route.`, 'success');
+    await refreshData(true);
+  }
+
   async function markDelivered(stop: DriverStop, proofImage: string | null, notes: string) {
     if (stop.invoice_id && !stop.invoice_has_proof_of_delivery && !proofImage) {
       throw new Error('Add a proof-of-delivery photo before marking this stop delivered.');
@@ -568,6 +576,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
         stopById,
         stopItems,
         markArrived,
+        deferStopToEnd,
         markDelivered,
         markFailed,
         openInvoicePdf,
