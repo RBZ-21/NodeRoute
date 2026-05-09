@@ -36,8 +36,8 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
     const vendor = String(req.query.vendor || '').trim();
     const lookbackDays = Math.max(7, Math.min(90, parseInt(req.query.lookbackDays || '30', 10)));
     try {
-      const ops = readOpsData();
-      const summarizedOrders = summarizeVendorPurchaseOrders(ops.vendorPurchaseOrders || []);
+      const opsData = readOpsData();
+      const summarizedOrders = summarizeVendorPurchaseOrders(opsData.vendorPurchaseOrders || []);
       const resolvedLead = manualLeadTimeRaw !== undefined && String(manualLeadTimeRaw).trim() !== ''
         ? {
             leadTimeDays: Math.max(0, Math.min(60, parseInt(manualLeadTimeRaw, 10) || 0)),
@@ -142,10 +142,10 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
         updated_at: nowIso,
       };
 
-      const ops = readOpsData();
-      ops.poDrafts = ops.poDrafts || [];
-      ops.poDrafts.unshift(draft);
-      writeOpsData(ops);
+      const persistedOps = readOpsData();
+      persistedOps.poDrafts = persistedOps.poDrafts || [];
+      persistedOps.poDrafts.unshift(draft);
+      writeOpsData(persistedOps);
       res.json(draft);
     } catch (error) {
       res.status(500).json({ error: error.message });
@@ -164,8 +164,8 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
     const notes = String(req.body.notes || '').trim();
 
     try {
-      const ops = readOpsData();
-      const summarizedOrders = summarizeVendorPurchaseOrders(ops.vendorPurchaseOrders || []);
+      const opsData = readOpsData();
+      const summarizedOrders = summarizeVendorPurchaseOrders(opsData.vendorPurchaseOrders || []);
       const resolvedLead = manualLeadTimeRaw !== undefined && String(manualLeadTimeRaw).trim() !== ''
         ? {
             leadTimeDays: Math.max(0, Math.min(60, parseInt(manualLeadTimeRaw, 10) || 0)),
@@ -285,10 +285,10 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
         updated_at: nowIso,
       };
 
-      const ops = readOpsData();
-      ops.poDrafts = ops.poDrafts || [];
-      ops.poDrafts.unshift(draft);
-      writeOpsData(ops);
+      const persistedOps = readOpsData();
+      persistedOps.poDrafts = persistedOps.poDrafts || [];
+      persistedOps.poDrafts.unshift(draft);
+      writeOpsData(persistedOps);
       res.json(draft);
     } catch (error) {
       res.status(500).json({ error: error.message });
