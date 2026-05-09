@@ -29,6 +29,131 @@ function genPoNumber() {
   return `PO-${stamp}-${rand}`;
 }
 
+function parseDateSafe(value) {
+  const date = value ? new Date(value) : null;
+  return date && !Number.isNaN(date.getTime()) ? date : null;
+}
+
+function round(value, digits) {
+  return parseFloat(Number(value || 0).toFixed(digits));
+}
+
+function median(values) {
+  if (!values.length) return null;
+  const sorted = [...values].sort((left, right) => left - right);
+  const middle = Math.floor(sorted.length / 2);
+  if (sorted.length % 2 === 0) {
+    return (sorted[middle - 1] + sorted[middle]) / 2;
+  }
+  return sorted[middle];
+}
+
+function calculateVendorPoLeadMetrics(po) {
+  const createdAt = parseDateSafe(po.created_at);
+  const receiptDates = (Array.isArray(po.receipts) ? po.receipts : [])
+    .map((receipt) => parseDateSafe(receipt.received_at))
+    .filter(Boolean)
+    .sort((left, right) => left.getTime() - right.getTime());
+
+  const firstReceivedAt = receiptDates[0] || null;
+  const latestReceivedAt = receiptDates[receiptDates.length - 1] || null;
+  if (!createdAt || !firstReceivedAt) {
+    return {
+      first_received_at: firstReceivedAt ? firstReceivedAt.toISOString() : null,
+      latest_received_at: latestReceivedAt ? latestReceivedAt.toISOString() : null,
+      first_receipt_lead_time_days: null,
+      first_receipt_lead_time_hours: null,
+      full_receipt_lead_time_days: null,
+    };
+  }
+
+  const firstLeadHours = (firstReceivedAt.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+  const fullLeadHours = latestReceivedAt ? (latestReceivedAt.getTime() - createdAt.getTime()) / (1000 * 60 * 60) : null;
+  return {
+    first_received_at: firstReceivedAt.toISOString(),
+    latest_received_at: latestReceivedAt ? latestReceivedAt.toISOString() : null,
+    first_receipt_lead_time_days: round(firstLeadHours / 24, 2),
+    first_receipt_lead_time_hours: round(firstLeadHours, 1),
+    full_receipt_lead_time_days: po.status === 'received' && fullLeadHours != null ? round(fullLeadHours / 24, 2) : null,
+  };
+}
+
+function buildVendorLeadTimeStats(orders, vendorName) {
+  const normalizedVendor = String(vendorName || '').trim().toLowerCase();
+  const matches = (orders || []).filter((po) => {
+    if (!normalizedVendor) return true;
+    return String(po.vendor || '').trim().toLowerCase() === normalizedVendor;
+  });
+  const leadTimes = matches
+    .map((po) => Number(po.first_receipt_lead_time_days))
+    .filter((value) => Number.isFinite(value));
+  if (!leadTimes.length) {
+    return {
+      vendor: vendorName || null,
+      receipt_count: 0,
+      average_days: null,
+      median_days: null,
+      minimum_days: null,
+      maximum_days: null,
+      latest_days: null,
+    };
+  }
+
+  const latestMeasured = [...matches]
+    .filter((po) => Number.isFinite(Number(po.first_receipt_lead_time_days)))
+    .sort((left, right) => String(right.first_received_at || '').localeCompare(String(left.first_received_at || '')))[0];
+
+  return {
+    vendor: vendorName || null,
+    receipt_count: leadTimes.length,
+    average_days: round(leadTimes.reduce((sum, value) => sum + value, 0) / leadTimes.length, 2),
+    median_days: round(median(leadTimes), 2),
+    minimum_days: round(Math.min(...leadTimes), 2),
+    maximum_days: round(Math.max(...leadTimes), 2),
+    latest_days: latestMeasured ? round(Number(latestMeasured.first_receipt_lead_time_days), 2) : null,
+  };
+}
+
+function summarizeVendorPurchaseOrders(orders) {
+  const summarized = (orders || []).map((po) => ({
+    ...summarizeVendorPo(po),
+  })).map((po) => ({
+    ...po,
+    ...calculateVendorPoLeadMetrics(po),
+  }));
+
+  return summarized.map((po) => ({
+    ...po,
+    lead_time_history: buildVendorLeadTimeStats(summarized, po.vendor),
+  }));
+}
+
+function resolveHistoricalLeadTimeDays(orders, vendorName) {
+  const preferred = buildVendorLeadTimeStats(orders, vendorName);
+  if (preferred.receipt_count) {
+    return {
+      leadTimeDays: Math.max(0, Math.ceil(Number(preferred.average_days || 0))),
+      source: 'historical',
+      history: preferred,
+    };
+  }
+
+  const global = buildVendorLeadTimeStats(orders, null);
+  if (global.receipt_count) {
+    return {
+      leadTimeDays: Math.max(0, Math.ceil(Number(global.average_days || 0))),
+      source: 'historical_global',
+      history: global,
+    };
+  }
+
+  return {
+    leadTimeDays: 5,
+    source: 'default',
+    history: global,
+  };
+}
+
 function normalizePoLine(line, index) {
   const orderedQty = Math.max(0, toNumber(line.ordered_qty ?? line.quantity, 0));
   const receivedQty = Math.max(0, toNumber(line.received_qty, 0));
@@ -186,8 +311,10 @@ function resolveInventoryMatch(item, inventory) {
 
 module.exports = {
   applyInventoryLedgerEntry,
+  buildVendorLeadTimeStats,
   buildProjectionRows,
   buildPurchasingSuggestions,
+  calculateVendorPoLeadMetrics,
   genId,
   genPoNumber,
   loadInventoryAndUsage,
@@ -196,8 +323,10 @@ module.exports = {
   normalizeReceiptRules,
   normalizeUnit,
   readOpsData,
+  resolveHistoricalLeadTimeDays,
   resolveInventoryMatch,
   summarizeVendorPo,
+  summarizeVendorPurchaseOrders,
   supabase,
   toNumber,
   writeOpsData,

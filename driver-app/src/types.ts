@@ -80,6 +80,32 @@ export type BootstrapPayload = {
   cachedAt: string;
 };
 
+export type QueuedTemperatureLog = {
+  id: string;
+  createdAt: string;
+  payload: Record<string, unknown>;
+};
+
+export type OfflineRoutePackStatus = {
+  routeId: string;
+  preparedAt: string;
+  invoiceCount: number;
+};
+
+export type QueuedStopNoteUpdate = {
+  id: string;
+  stopId: string;
+  createdAt: string;
+  driverNotes: string;
+};
+
+export type StopDraft = {
+  stopId: string;
+  notes: string;
+  proofImage: string | null;
+  updatedAt: string;
+};
+
 export type ToastTone = 'success' | 'error' | 'info';
 
 export type ToastMessage = {

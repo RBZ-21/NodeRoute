@@ -1,6 +1,6 @@
 # NodeRoute
 
-NodeRoute is an all-in-one delivery operations platform built for food distributors and route-based businesses. It helps you manage every part of your operation — from taking orders and planning routes to tracking drivers in real time, sending invoices, and letting customers pay online — all from one place.
+NodeRoute is an all-in-one delivery operations platform built for food distributors and route-based businesses. It helps you manage every part of your operation — from taking orders and planning routes to tracking drivers in real time, sending invoices, receiving vendor POs into inventory, and letting customers pay online — all from one place.
 
 No coding knowledge is needed to use NodeRoute. This document is for anyone setting it up or deploying it for the first time.
 
@@ -9,13 +9,13 @@ No coding knowledge is needed to use NodeRoute. This document is for anyone sett
 ## What NodeRoute Does
 
 ### For your operations team
-- **Orders** — Create, edit, and track orders from intake to fulfillment. Scan purchase orders with AI to skip manual data entry.
+- **Orders** — Create, edit, and track orders from intake to fulfillment. Out-of-stock items can still be added during order building, and weight-managed lines flow directly into the processing queue.
 - **Route planning** — Build delivery routes, assign drivers, manage stops, and reorder them on the fly.
-- **Live map** — See where your drivers are in real time.
-- **Inventory** — Track stock levels, lot numbers, weights, and costs. Get AI-generated reorder suggestions and low-stock alerts.
-- **Purchasing** — Create purchase orders, scan vendor invoices, receive inventory, and track vendor history.
+- **Live map** — See where your drivers are in real time, with ETA/tracking held until an outing has actually left the shop.
+- **Inventory** — Track stock levels, lot numbers, weights, and costs. Restock, adjust, transfer, spoilage, and count-sheet flows are all in the main admin UI.
+- **Purchasing** — Scan vendor paperwork with AI, confirm purchase orders, receive vendor POs line-by-line into inventory, and track vendor PO history with variance/backorder visibility.
 - **Warehousing** — Manage warehouse locations, cycle counts, barcode events, and returns.
-- **Invoicing** — Generate and send invoices, bulk-import from spreadsheets, and track payment status.
+- **Invoicing** — Generate and send invoices, bulk-import from spreadsheets, print/save PDF-friendly invoice views, and track payment status.
 - **Reporting & analytics** — Rollup dashboards for revenue, deliveries, fulfillment rates, and inventory value.
 - **Demand forecasting** — AI-powered projections to help you order the right amount each week.
 
@@ -24,7 +24,7 @@ No coding knowledge is needed to use NodeRoute. This document is for anyone sett
 
 ### For your customers
 - **Customer portal** — Customers log in with just their email (no password to remember). They can view their orders, invoices, and inventory on hand, and pay outstanding balances online via Stripe.
-- **Order tracking** — Share a tracking link with any customer. No login required — they see live delivery status.
+- **Order tracking** — Share a tracking link with any customer. No login required — they see scheduled-vs-live delivery state correctly, and the map/ETA only activate after dispatch actually starts.
 - **Daily product blast** — Automatically send customers an SMS each morning with available inventory so they can place orders before cutoff.
 
 ### Built-in security
@@ -40,11 +40,12 @@ No coding knowledge is needed to use NodeRoute. This document is for anyone sett
 
 ```
 backend/          API server, business logic, and automated tests
-frontend-v2/      Main dashboard (React) — served at /dashboard-v2
+frontend-v2/      Main admin dashboard (React) — routes like /dashboard, /orders, /routes, /purchasing
 landing-v2/       Public landing/marketing page — served at /
-driver-app/       Driver mobile app (React PWA) — served at /driver-app
+driver-app/       Driver mobile app (React PWA)
 supabase/         Database migrations and SQL helpers
 docs/             Internal documentation and changelogs
+outputs/          Generated QA/UAT artifacts
 ```
 
 ---
@@ -54,10 +55,10 @@ docs/             Internal documentation and changelogs
 ### 1. Install dependencies
 
 ```
-npm install
+npm run install:all
 ```
 
-This automatically installs dependencies for the backend, dashboard, landing page, and driver app.
+This installs dependencies for the backend, dashboard, landing page, and driver app.
 
 ### 2. Set your environment variables
 
@@ -79,13 +80,34 @@ npm start
 
 The server listens on port `3001` by default (or the `PORT` you set). Open your browser to `http://localhost:3001`.
 
+Useful local URLs after boot:
+
+- `http://localhost:3001/login` — admin login
+- `http://localhost:3001/dashboard` — main admin dashboard
+- `http://localhost:3001/map` — internal live map
+- `http://localhost:3001/track?t=...` — public delivery tracking link
+
 ### Running tests
 
 ```
 npm test
 ```
 
-This runs both the backend test suite and frontend component tests. No database connection or API keys are needed — tests run fully offline.
+This runs the backend test suite and frontend component tests.
+
+Additional frontend verification commands:
+
+```
+npm --prefix frontend-v2 run test:e2e
+npm --prefix frontend-v2 run test:smoke
+npm --prefix frontend-v2 run build
+```
+
+- `test:e2e` runs the shared Playwright suite under `frontend-v2/e2e`
+- `test:smoke` runs the local full-workflow admin smoke tests under `frontend-v2/tests`
+- `build` compiles the production admin app bundle
+
+Most unit/integration tests run in demo/offline mode by default. Playwright tests require the app to be running and valid test credentials.
 
 ---
 
@@ -146,7 +168,8 @@ This runs both the backend test suite and frontend component tests. No database 
 |---|---|
 | `PORT` | HTTP port (default: `3001`) |
 | `CORS_ORIGINS` | Comma-separated list of allowed browser origins |
-| `GOOGLE_MAPS_KEY` | Google Maps API key for address auto-lookup on orders |
+| `GOOGLE_MAPS_KEY` | Server-side Google Maps API key for address lookup and backend-assisted map features |
+| `VITE_MAP_API_KEY` | Browser-side Google Maps key for the admin live map and public tracking map |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Credentials for the auto-created admin account on first boot |
 | `PORTAL_CODE_TTL_MS` | How long a portal login code stays valid (default: 10 minutes) |
 | `PORTAL_AUTH_RATE_LIMIT` | Max login attempts per window (default: 5) |
@@ -168,7 +191,7 @@ This runs both the backend test suite and frontend component tests. No database 
 | `/api/inventory` | `inventory.js` | Stock, ledger movements, lot/weight tracking |
 | `/api/lots` | `lots.js` | Lot/batch traceability |
 | `/api/purchase-orders` | `purchase-orders.js` | PO scanning and confirmation |
-| `/api/ops` | `ops.js` + sub-files | UOM rules, warehouses, vendors, cycle counts, returns, barcode events, EDI, projections, purchasing suggestions, PO drafts, vendor receiving |
+| `/api/ops` | `ops.js` + sub-files | UOM rules, warehouses, vendors, cycle counts, returns, barcode events, EDI, projections, purchasing suggestions, PO drafts, vendor PO creation, and vendor receiving |
 | `/api/forecast` | `forecast.js` | AI demand forecasting |
 | `/api/ai` | `ai.js` | Walkthroughs, order intake scanning, inventory health, reorder drafting |
 | `/api/portal` | `portal*.js` | Customer portal — email login, orders, invoices, inventory, payments, autopay |
@@ -205,3 +228,15 @@ This runs both the backend test suite and frontend component tests. No database 
 | `driver-invoice-access.js` | Driver authorization for invoice access |
 
 </details>
+
+---
+
+## Current Workflow Notes
+
+- The admin app has been updated so order item selection uses stable product identifiers and no longer crashes if legacy inventory rows have missing `item_number` values.
+- Order entry intentionally allows out-of-stock products to be added to orders. Inventory availability is informational during order build, not a hard block.
+- Route/live ETA tracking is gated by actual dispatch state, so customers are not shown “driver is on the way” before an outing starts.
+- Purchasing now includes a receiving workflow for open vendor POs, with ordered-vs-received comparison, over-receipt policy handling, backorder policy handling, and receipt posting into inventory.
+- The frontend supports two Playwright tracks:
+  - `frontend-v2/e2e` for the shared app-level suite
+  - `frontend-v2/tests` for local smoke/UAT-style workflow coverage

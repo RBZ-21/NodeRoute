@@ -33,6 +33,7 @@ const OPTIONAL_SCOPE_FIELDS = [
   'driver_id',
   'driver_name',
   'route_id',
+  'stop_id',
   'active_stop_ids',
   'billing_name',
   'billing_contact',

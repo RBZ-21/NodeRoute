@@ -86,7 +86,12 @@ export function ComplianceDashboardPage() {
   }
 
   const handleExport = () => {
-    alert('Export coming soon — will generate a PDF/CSV compliance report.');
+    const anchor = document.createElement('a');
+    anchor.href = '/api/temperature-logs/export.csv';
+    anchor.download = `temperature-logs-${new Date().toISOString().slice(0, 10)}.csv`;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
   };
 
   if (isLoading) {
@@ -122,7 +127,7 @@ export function ComplianceDashboardPage() {
             className="flex items-center gap-1.5 px-3 py-1.5 text-sm rounded-lg bg-cyan-500/20 hover:bg-cyan-500/30 text-cyan-300 transition"
           >
             <Download size={14} />
-            Export Report
+            Export Temp Log CSV
           </button>
         </div>
       </div>
