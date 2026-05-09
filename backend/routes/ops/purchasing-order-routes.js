@@ -7,6 +7,7 @@ const {
   normalizePoLine,
   normalizeReceiptRules,
   readOpsData,
+  summarizeVendorPurchaseOrders,
   resolveInventoryMatch,
   summarizeVendorPo,
   supabase,
@@ -19,8 +20,7 @@ module.exports = function buildOpsPurchasingOrderRouter() {
 
   router.get('/vendor-purchase-orders', authenticateToken, (req, res) => {
     const ops = readOpsData();
-    const orders = (ops.vendorPurchaseOrders || [])
-      .map((po) => summarizeVendorPo(po))
+    const orders = summarizeVendorPurchaseOrders(ops.vendorPurchaseOrders || [])
       .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
     res.json(orders.slice(0, 200));
   });
@@ -63,7 +63,7 @@ module.exports = function buildOpsPurchasingOrderRouter() {
       updated_by: req.user?.name || req.user?.email || 'system',
     };
     writeOpsData(ops);
-    res.json(po);
+    res.json(summarizeVendorPurchaseOrders(ops.vendorPurchaseOrders)[0]);
   });
 
   router.post('/vendor-purchase-orders', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
@@ -98,7 +98,7 @@ module.exports = function buildOpsPurchasingOrderRouter() {
     ops.vendorPurchaseOrders = ops.vendorPurchaseOrders || [];
     ops.vendorPurchaseOrders.unshift(po);
     writeOpsData(ops);
-    res.json(po);
+    res.json(summarizeVendorPurchaseOrders(ops.vendorPurchaseOrders)[0]);
   });
 
   router.patch('/vendor-purchase-orders/:id/status', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
@@ -124,7 +124,8 @@ module.exports = function buildOpsPurchasingOrderRouter() {
     };
     ops.vendorPurchaseOrders[index] = updated;
     writeOpsData(ops);
-    res.json(updated);
+    const refreshed = summarizeVendorPurchaseOrders(ops.vendorPurchaseOrders);
+    res.json(refreshed.find((po) => po.id === updated.id) || updated);
   });
 
   router.post('/vendor-purchase-orders/:id/receive', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
@@ -351,7 +352,8 @@ module.exports = function buildOpsPurchasingOrderRouter() {
     const summarized = summarizeVendorPo(po);
     ops.vendorPurchaseOrders[poIndex] = summarized;
     writeOpsData(ops);
-    res.json(summarized);
+    const refreshed = summarizeVendorPurchaseOrders(ops.vendorPurchaseOrders);
+    res.json(refreshed.find((vendorPo) => vendorPo.id === summarized.id) || summarized);
   });
 
   return router;

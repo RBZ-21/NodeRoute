@@ -1,3 +1,4 @@
+import { Comparison } from './components/Comparison';
 import { EarlyAccess } from './components/EarlyAccess';
 import { FAQ } from './components/FAQ';
 import { FinalCTA } from './components/FinalCTA';
@@ -18,6 +19,7 @@ export function App() {
         <Hero />
         <Problem />
         <Solution />
+        <Comparison />
         <HowItWorks />
         <WhoItsFor />
         <Founder />

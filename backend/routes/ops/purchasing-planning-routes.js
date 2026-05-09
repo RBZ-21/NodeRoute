@@ -8,7 +8,9 @@ const {
   normalizeIntakeQuantity,
   normalizeUnit,
   readOpsData,
+  resolveHistoricalLeadTimeDays,
   resolveInventoryMatch,
+  summarizeVendorPurchaseOrders,
   toNumber,
   writeOpsData,
 } = require('./purchasing-shared');
@@ -30,12 +32,30 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
 
   router.get('/purchasing-suggestions', authenticateToken, async (req, res) => {
     const coverageDays = Math.max(1, Math.min(90, parseInt(req.query.coverageDays || '30', 10)));
-    const leadTimeDays = Math.max(0, Math.min(60, parseInt(req.query.leadTimeDays || '5', 10)));
+    const manualLeadTimeRaw = req.query.leadTimeDays;
+    const vendor = String(req.query.vendor || '').trim();
     const lookbackDays = Math.max(7, Math.min(90, parseInt(req.query.lookbackDays || '30', 10)));
     try {
+      const ops = readOpsData();
+      const summarizedOrders = summarizeVendorPurchaseOrders(ops.vendorPurchaseOrders || []);
+      const resolvedLead = manualLeadTimeRaw !== undefined && String(manualLeadTimeRaw).trim() !== ''
+        ? {
+            leadTimeDays: Math.max(0, Math.min(60, parseInt(manualLeadTimeRaw, 10) || 0)),
+            source: 'manual',
+            history: resolveHistoricalLeadTimeDays(summarizedOrders, vendor).history,
+          }
+        : resolveHistoricalLeadTimeDays(summarizedOrders, vendor);
       const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays);
-      const suggestions = buildPurchasingSuggestions(inventory, usageByName, { coverageDays, leadTimeDays, lookbackDays });
-      res.json({ leadTimeDays, coverageDays, lookbackDays, generated_at: new Date().toISOString(), suggestions });
+      const suggestions = buildPurchasingSuggestions(inventory, usageByName, { coverageDays, leadTimeDays: resolvedLead.leadTimeDays, lookbackDays });
+      res.json({
+        leadTimeDays: resolvedLead.leadTimeDays,
+        leadTimeSource: resolvedLead.source,
+        historicalLeadTime: resolvedLead.history,
+        coverageDays,
+        lookbackDays,
+        generated_at: new Date().toISOString(),
+        suggestions,
+      });
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -48,7 +68,7 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
 
   router.post('/purchase-order-drafts/from-suggestions', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
     const coverageDays = Math.max(1, Math.min(90, parseInt(req.body.coverageDays || '30', 10)));
-    const leadTimeDays = Math.max(0, Math.min(60, parseInt(req.body.leadTimeDays || '5', 10)));
+    const manualLeadTimeRaw = req.body.leadTimeDays;
     const lookbackDays = Math.max(7, Math.min(90, parseInt(req.body.lookbackDays || '30', 10)));
     const minOrderQty = Math.max(0, toNumber(req.body.minOrderQty, 0));
     const maxLines = Math.max(1, Math.min(200, parseInt(req.body.maxLines || '50', 10)));
@@ -59,8 +79,17 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
       : new Set(['high', 'normal']);
 
     try {
+      const ops = readOpsData();
+      const summarizedOrders = summarizeVendorPurchaseOrders(ops.vendorPurchaseOrders || []);
+      const resolvedLead = manualLeadTimeRaw !== undefined && String(manualLeadTimeRaw).trim() !== ''
+        ? {
+            leadTimeDays: Math.max(0, Math.min(60, parseInt(manualLeadTimeRaw, 10) || 0)),
+            source: 'manual',
+            history: resolveHistoricalLeadTimeDays(summarizedOrders, vendor).history,
+          }
+        : resolveHistoricalLeadTimeDays(summarizedOrders, vendor);
       const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays);
-      const suggestions = buildPurchasingSuggestions(inventory, usageByName, { coverageDays, leadTimeDays, lookbackDays });
+      const suggestions = buildPurchasingSuggestions(inventory, usageByName, { coverageDays, leadTimeDays: resolvedLead.leadTimeDays, lookbackDays });
       const urgencyRank = { high: 0, normal: 1, none: 2 };
       const selected = suggestions
         .filter((suggestion) => includedUrgencies.has(String(suggestion.urgency || '').toLowerCase()) && suggestion.suggested_order_qty > minOrderQty)
@@ -95,7 +124,15 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
         status: 'draft',
         vendor,
         notes,
-        source: { coverageDays, leadTimeDays, lookbackDays, minOrderQty, maxLines },
+        source: {
+          coverageDays,
+          leadTimeDays: resolvedLead.leadTimeDays,
+          leadTimeSource: resolvedLead.source,
+          historicalLeadTime: resolvedLead.history,
+          lookbackDays,
+          minOrderQty,
+          maxLines,
+        },
         lines,
         line_count: lines.length,
         total_suggested_qty: parseFloat(lines.reduce((sum, line) => sum + toNumber(line.quantity, 0), 0).toFixed(3)),
@@ -119,7 +156,7 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
     const intakeItems = Array.isArray(req.body.intakeItems) ? req.body.intakeItems : [];
     if (!intakeItems.length) return res.status(400).json({ error: 'intakeItems is required' });
 
-    const leadTimeDays = Math.max(0, Math.min(60, parseInt(req.body.leadTimeDays || '5', 10)));
+    const manualLeadTimeRaw = req.body.leadTimeDays;
     const lookbackDays = Math.max(7, Math.min(90, parseInt(req.body.lookbackDays || '30', 10)));
     const minOrderQty = Math.max(0, toNumber(req.body.minOrderQty, 0));
     const maxLines = Math.max(1, Math.min(200, parseInt(req.body.maxLines || '50', 10)));
@@ -127,6 +164,15 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
     const notes = String(req.body.notes || '').trim();
 
     try {
+      const ops = readOpsData();
+      const summarizedOrders = summarizeVendorPurchaseOrders(ops.vendorPurchaseOrders || []);
+      const resolvedLead = manualLeadTimeRaw !== undefined && String(manualLeadTimeRaw).trim() !== ''
+        ? {
+            leadTimeDays: Math.max(0, Math.min(60, parseInt(manualLeadTimeRaw, 10) || 0)),
+            source: 'manual',
+            history: resolveHistoricalLeadTimeDays(summarizedOrders, vendor).history,
+          }
+        : resolveHistoricalLeadTimeDays(summarizedOrders, vendor);
       const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays);
       const normalizedIntake = intakeItems.map((raw) => {
         const unit = normalizeUnit(raw.unit);
@@ -158,7 +204,7 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
         const stock = Math.max(0, toNumber(matched?.stock_qty ?? matched?.on_hand_qty, 0));
         const avgDaily = matched ? (usageByName.get(usageKey) || 0) / lookbackDays : 0;
         const intakeGap = Math.max(0, item.requested_qty - stock);
-        const leadBuffer = Math.max(0, avgDaily * leadTimeDays);
+        const leadBuffer = Math.max(0, avgDaily * resolvedLead.leadTimeDays);
         const suggestedOrderQty = matched
           ? Math.max(0, intakeGap + leadBuffer)
           : Math.max(0, item.requested_qty);
@@ -221,7 +267,9 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
         notes,
         source: {
           mode: 'order_intake',
-          leadTimeDays,
+          leadTimeDays: resolvedLead.leadTimeDays,
+          leadTimeSource: resolvedLead.source,
+          historicalLeadTime: resolvedLead.history,
           lookbackDays,
           minOrderQty,
           maxLines,

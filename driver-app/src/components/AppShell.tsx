@@ -4,10 +4,11 @@ import { InstallPrompt } from '@/components/InstallPrompt';
 import { useDriverApp } from '@/hooks/useDriverApp';
 
 export function AppShell() {
-  const { currentRoute, logout, user, usingCachedData } = useDriverApp();
+  const { currentRoute, isOnline, lastSyncedAt, logout, queuedStopNoteCount, queuedTemperatureLogCount, user, usingCachedData } = useDriverApp();
   const location = useLocation();
   const navigate = useNavigate();
   const isDetail = location.pathname.startsWith('/stops/');
+  const syncLabel = lastSyncedAt ? new Date(lastSyncedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' }) : null;
 
   return (
     <div className="min-h-screen bg-shell text-ink">
@@ -20,6 +21,26 @@ export function AppShell() {
               <p className="mt-2 text-sm text-slate-600">
                 {user?.name || 'Driver'}{currentRoute?.stops?.length ? ` · ${currentRoute.stops.length} stops` : ''}
               </p>
+              <div className="mt-3 flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-[0.16em]">
+                <span className={`rounded-full px-3 py-1 ${isOnline ? 'bg-emerald-100 text-emerald-900' : 'bg-amber-100 text-amber-900'}`}>
+                  {isOnline ? 'Online' : 'Offline'}
+                </span>
+                {syncLabel ? (
+                  <span className="rounded-full bg-white/80 px-3 py-1 text-slate-600">
+                    Last synced {syncLabel}
+                  </span>
+                ) : null}
+                {queuedTemperatureLogCount > 0 ? (
+                  <span className="rounded-full bg-amber-100 px-3 py-1 text-amber-900">
+                    {queuedTemperatureLogCount} temp log{queuedTemperatureLogCount === 1 ? '' : 's'} queued
+                  </span>
+                ) : null}
+                {queuedStopNoteCount > 0 ? (
+                  <span className="rounded-full bg-slate-200 px-3 py-1 text-slate-800">
+                    {queuedStopNoteCount} stop note{queuedStopNoteCount === 1 ? '' : 's'} queued
+                  </span>
+                ) : null}
+              </div>
             </div>
             <button
               type="button"
@@ -34,7 +55,7 @@ export function AppShell() {
           </div>
           {usingCachedData && (
             <p className="mt-4 rounded-2xl bg-sand px-3 py-2 text-sm font-medium text-amber-900">
-              Showing your last synced route because the network is unavailable.
+              Showing your last synced route because the network is unavailable. Route details stay available offline until the next sync.
             </p>
           )}
           {!isDetail && <div className="mt-4"><InstallPrompt /></div>}
