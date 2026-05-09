@@ -18,13 +18,13 @@ async function fileToBase64(file: File) {
 
 export function StopDetailPage() {
   const { stopId } = useParams();
-  const { isOnline, markArrived, markDelivered, markFailed, refreshOfflineDrafts, saveStopNotes, stopById, stopItems } = useDriverApp();
+  const { deferStopToEnd, isOnline, markArrived, markDelivered, markFailed, refreshOfflineDrafts, saveStopNotes, stopById, stopItems } = useDriverApp();
   const { sendLocation } = useLocationUpdater(true);
   const { pushToast } = useToast();
   const stop = stopId ? stopById(stopId) : null;
   const initialDraft = stopId ? loadStopDraft(stopId) : null;
   const [proofImage, setProofImage] = useState<string | null>(initialDraft?.proofImage || null);
-  const [submitting, setSubmitting] = useState<'arrived' | 'delivered' | 'failed' | 'notes' | null>(null);
+  const [submitting, setSubmitting] = useState<'arrived' | 'delivered' | 'failed' | 'notes' | 'skipped' | null>(null);
   const [notes, setNotes] = useState(initialDraft?.notes || stop?.driver_notes || '');
 
   if (!stop) return <Navigate to="/stops" replace />;
@@ -79,12 +79,16 @@ export function StopDetailPage() {
     }
   }
 
-  async function runAction(action: 'arrived' | 'delivered' | 'failed') {
+  async function runAction(action: 'arrived' | 'delivered' | 'failed' | 'skipped') {
     setSubmitting(action);
 
     try {
       if (action === 'arrived') {
         await markArrived(activeStop);
+      }
+
+      if (action === 'skipped') {
+        await deferStopToEnd(activeStop);
       }
 
       if (action === 'delivered') {
@@ -209,6 +213,14 @@ export function StopDetailPage() {
       )}
 
       <div className="grid grid-cols-1 gap-3 pb-4">
+        <button
+          type="button"
+          disabled={submitting !== null || !isOnline}
+          onClick={() => void runAction('skipped')}
+          className="min-h-12 rounded-2xl bg-white px-4 py-3 text-base font-semibold text-slate-800 ring-1 ring-slate-200 disabled:opacity-60"
+        >
+          {submitting === 'skipped' ? 'Skipping stop...' : 'Skip - move to end'}
+        </button>
         <button
           type="button"
           disabled={submitting !== null || !isOnline}
