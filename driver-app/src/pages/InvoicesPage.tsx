@@ -3,7 +3,7 @@ import { useDriverApp } from '@/hooks/useDriverApp';
 import { formatDateTime } from '@/lib/utils';
 
 export function InvoicesPage() {
-  const { openInvoicePdf, routeInvoices } = useDriverApp();
+  const { isOnline, openInvoicePdf, routeInvoices } = useDriverApp();
   const [loadingInvoiceId, setLoadingInvoiceId] = useState<string | null>(null);
 
   async function viewInvoice(invoiceId: string) {
@@ -17,6 +17,11 @@ export function InvoicesPage() {
 
   return (
     <section className="space-y-4">
+      <div className="rounded-[2rem] bg-white p-4 text-sm text-slate-700 shadow-card">
+        {isOnline
+          ? 'Open each invoice PDF once while online to keep a cached copy available if signal drops later.'
+          : 'You are offline. Invoice PDFs that were opened previously can still load from the device cache.'}
+      </div>
       {routeInvoices.length ? (
         routeInvoices.map((invoice) => (
           <article key={invoice.id} className="rounded-[2rem] bg-white p-5 shadow-card">

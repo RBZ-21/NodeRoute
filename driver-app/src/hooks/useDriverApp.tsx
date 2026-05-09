@@ -14,21 +14,35 @@ import {
   uploadProofOfDelivery,
 } from '@/lib/api';
 import {
+  clearAllStopDrafts,
+  clearStopDraft,
+  clearOfflineRoutePackStatus,
+  clearQueuedStopNoteUpdates,
+  clearQueuedTemperatureLogs,
   clearCache,
   clearSelectedRouteId,
   clearToken,
   clearUser,
+  enqueueStopNoteUpdate,
+  enqueueTemperatureLog,
+  loadOfflineRoutePackStatus,
   loadCache,
+  loadQueuedStopNoteUpdates,
+  loadQueuedTemperatureLogs,
+  listStopDrafts,
   loadSelectedRouteId,
   loadToken,
   loadUser,
+  saveOfflineRoutePackStatus,
+  saveQueuedStopNoteUpdates,
   saveCache,
+  saveQueuedTemperatureLogs,
   saveSelectedRouteId,
   saveToken,
   saveUser,
 } from '@/lib/storage';
 import { extractStopItems, findLinkedDelivery, getCurrentRoute, getRouteInvoices, isArrivedStatus, isDeliveredStatus } from '@/lib/utils';
-import type { BootstrapPayload, DriverInvoice, DriverRoute, DriverStop, DriverUser } from '@/types';
+import type { BootstrapPayload, DriverInvoice, DriverRoute, DriverStop, DriverUser, OfflineRoutePackStatus, StopDraft } from '@/types';
 import { useToast } from '@/hooks/useToast';
 
 type DriverAppContextValue = {
@@ -42,9 +56,22 @@ type DriverAppContextValue = {
   loading: boolean;
   refreshing: boolean;
   usingCachedData: boolean;
+  isOnline: boolean;
+  lastSyncedAt: string | null;
+  queuedTemperatureLogCount: number;
+  queuedStopNoteCount: number;
+  stopDrafts: StopDraft[];
+  preparingOfflineRoute: boolean;
+  offlineRoutePackStatus: OfflineRoutePackStatus | null;
   login: (email: string, password: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshData: (silent?: boolean) => Promise<void>;
+  prepareOfflineRoute: () => Promise<void>;
+  saveStopNotes: (stopId: string, notes: string) => Promise<void>;
+  syncOfflineWork: () => Promise<void>;
+  clearOfflineDraft: (stopId: string) => void;
+  clearOfflineDrafts: () => void;
+  refreshOfflineDrafts: () => void;
   setSelectedRouteId: (routeId: string) => void;
   stopById: (stopId: string) => DriverStop | null;
   stopItems: (stop: DriverStop) => string[];
@@ -78,17 +105,145 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
   const [loading, setLoading] = useState(() => !!loadToken());
   const [refreshing, setRefreshing] = useState(false);
   const [usingCachedData, setUsingCachedData] = useState(false);
+  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  const [queuedTemperatureLogCount, setQueuedTemperatureLogCount] = useState(() => loadQueuedTemperatureLogs().length);
+  const [queuedStopNoteCount, setQueuedStopNoteCount] = useState(() => loadQueuedStopNoteUpdates().length);
+  const [stopDrafts, setStopDrafts] = useState<StopDraft[]>(() => listStopDrafts());
+  const [preparingOfflineRoute, setPreparingOfflineRoute] = useState(false);
+  const [offlineRoutePackStatus, setOfflineRoutePackStatus] = useState<OfflineRoutePackStatus | null>(() => loadOfflineRoutePackStatus());
 
   const routes = payload?.routes || [];
   const invoices = payload?.invoices || [];
   const deliveries = payload?.deliveries || [];
   const currentRoute = getCurrentRoute(routes, selectedRouteId);
   const routeInvoices = getRouteInvoices(currentRoute, invoices);
+  const lastSyncedAt = payload?.cachedAt || null;
 
   useEffect(() => {
     if (!token) return;
     void refreshData(true);
   }, [token]);
+
+  useEffect(() => {
+    function handleOnline() {
+      setIsOnline(true);
+      void flushQueuedTemperatureLogs();
+      void flushQueuedStopNoteUpdates();
+    }
+    function handleOffline() {
+      setIsOnline(false);
+    }
+    window.addEventListener('online', handleOnline);
+    window.addEventListener('offline', handleOffline);
+    return () => {
+      window.removeEventListener('online', handleOnline);
+      window.removeEventListener('offline', handleOffline);
+    };
+  }, []);
+
+  function applyStopPatchLocally(stopId: string, update: Partial<DriverStop>) {
+    setPayload((current) => {
+      if (!current) return current;
+      const nextPayload = {
+        ...current,
+        routes: current.routes.map((route) => ({
+          ...route,
+          stops: route.stops.map((stop) => (
+            stop.id === stopId
+              ? { ...stop, ...update }
+              : stop
+          )),
+        })),
+      };
+      saveCache(nextPayload);
+      return nextPayload;
+    });
+  }
+
+  function refreshStopDrafts() {
+    setStopDrafts(listStopDrafts());
+  }
+
+  async function flushQueuedTemperatureLogs() {
+    const queuedLogs = loadQueuedTemperatureLogs();
+    if (!queuedLogs.length || !token) return;
+
+    const remaining = [];
+    let flushedCount = 0;
+
+    for (let index = 0; index < queuedLogs.length; index += 1) {
+      const entry = queuedLogs[index];
+      try {
+        await submitTemperatureLog(entry.payload);
+        flushedCount += 1;
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          await logout();
+          return;
+        }
+        remaining.push(...queuedLogs.slice(index));
+        break;
+      }
+    }
+
+    if (remaining.length) {
+      saveQueuedTemperatureLogs(remaining);
+      setQueuedTemperatureLogCount(remaining.length);
+    } else {
+      clearQueuedTemperatureLogs();
+      setQueuedTemperatureLogCount(0);
+    }
+
+    if (flushedCount > 0) {
+      pushToast(
+        flushedCount === 1
+          ? '1 queued temperature log synced.'
+          : `${flushedCount} queued temperature logs synced.`,
+        'success',
+      );
+    }
+  }
+
+  async function flushQueuedStopNoteUpdates() {
+    const queuedUpdates = loadQueuedStopNoteUpdates();
+    if (!queuedUpdates.length || !token) return;
+
+    const remaining = [];
+    let flushedCount = 0;
+
+    for (let index = 0; index < queuedUpdates.length; index += 1) {
+      const entry = queuedUpdates[index];
+      try {
+        await patchStop(entry.stopId, { driver_notes: entry.driverNotes });
+        applyStopPatchLocally(entry.stopId, { driver_notes: entry.driverNotes });
+        flushedCount += 1;
+      } catch (error) {
+        if (error instanceof ApiError && error.status === 401) {
+          await logout();
+          return;
+        }
+        remaining.push(...queuedUpdates.slice(index));
+        break;
+      }
+    }
+
+    if (remaining.length) {
+      saveQueuedStopNoteUpdates(remaining);
+      setQueuedStopNoteCount(remaining.length);
+    } else {
+      clearQueuedStopNoteUpdates();
+      setQueuedStopNoteCount(0);
+    }
+
+    if (flushedCount > 0) {
+      pushToast(
+        flushedCount === 1
+          ? '1 queued stop note synced.'
+          : `${flushedCount} queued stop notes synced.`,
+        'success',
+      );
+    }
+  }
 
   async function refreshData(silent = false) {
     if (!token) return;
@@ -97,13 +252,23 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
 
     try {
       const nextPayload = await fetchBootstrapData();
-      setPayload(nextPayload);
-      saveCache(nextPayload);
+      const stampedPayload = {
+        ...nextPayload,
+        cachedAt: nextPayload.cachedAt || new Date().toISOString(),
+      };
+      setPayload(stampedPayload);
+      saveCache(stampedPayload);
       setUsingCachedData(false);
+      if (queuedTemperatureLogCount > 0) {
+        void flushQueuedTemperatureLogs();
+      }
+      if (queuedStopNoteCount > 0) {
+        void flushQueuedStopNoteUpdates();
+      }
 
-      if (!selectedRouteId && nextPayload.routes[0]?.id) {
-        setSelectedRouteIdState(nextPayload.routes[0].id);
-        saveSelectedRouteId(nextPayload.routes[0].id);
+      if (!selectedRouteId && stampedPayload.routes[0]?.id) {
+        setSelectedRouteIdState(stampedPayload.routes[0].id);
+        saveSelectedRouteId(stampedPayload.routes[0].id);
       }
     } catch (error) {
       const cached = loadCache();
@@ -143,10 +308,18 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
       clearUser();
       clearCache();
       clearSelectedRouteId();
+      clearQueuedTemperatureLogs();
+      clearOfflineRoutePackStatus();
+      clearQueuedStopNoteUpdates();
+      clearAllStopDrafts();
       setToken(null);
       setUser(null);
       setPayload(null);
       setSelectedRouteIdState(null);
+      setQueuedTemperatureLogCount(0);
+      setQueuedStopNoteCount(0);
+      setStopDrafts([]);
+      setOfflineRoutePackStatus(null);
     }
   }
 
@@ -232,15 +405,134 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
   }
 
   async function submitLog(payload: Record<string, unknown>) {
+    if (!navigator.onLine) {
+      enqueueTemperatureLog({
+        id: `temp-log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        createdAt: new Date().toISOString(),
+        payload,
+      });
+      const nextCount = loadQueuedTemperatureLogs().length;
+      setQueuedTemperatureLogCount(nextCount);
+      pushToast('Offline: temperature log queued for sync.', 'info');
+      return;
+    }
+
     try {
       await submitTemperatureLog(payload);
       pushToast('Temperature log saved.', 'success');
     } catch (error) {
-      if (error instanceof ApiError && error.status === 403) {
-        throw new Error('This backend currently restricts temperature logs to managers and admins.');
+      if (!(error instanceof ApiError)) {
+        enqueueTemperatureLog({
+          id: `temp-log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          createdAt: new Date().toISOString(),
+          payload,
+        });
+        const nextCount = loadQueuedTemperatureLogs().length;
+        setQueuedTemperatureLogCount(nextCount);
+        pushToast('Signal dropped: temperature log queued for sync.', 'info');
+        return;
       }
       throw error;
     }
+  }
+
+  async function saveStopNotes(stopId: string, notes: string) {
+    const trimmedNotes = notes.trim();
+    if (!navigator.onLine) {
+      enqueueStopNoteUpdate({
+        id: `stop-note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        stopId,
+        createdAt: new Date().toISOString(),
+        driverNotes: trimmedNotes,
+      });
+      applyStopPatchLocally(stopId, { driver_notes: trimmedNotes });
+      const nextCount = loadQueuedStopNoteUpdates().length;
+      setQueuedStopNoteCount(nextCount);
+      refreshStopDrafts();
+      pushToast('Offline: stop notes queued for sync.', 'info');
+      return;
+    }
+
+    try {
+      await patchStop(stopId, { driver_notes: trimmedNotes });
+      applyStopPatchLocally(stopId, { driver_notes: trimmedNotes });
+      pushToast('Stop notes saved.', 'success');
+    } catch (error) {
+      if (!(error instanceof ApiError)) {
+        enqueueStopNoteUpdate({
+          id: `stop-note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          stopId,
+          createdAt: new Date().toISOString(),
+          driverNotes: trimmedNotes,
+        });
+        applyStopPatchLocally(stopId, { driver_notes: trimmedNotes });
+        const nextCount = loadQueuedStopNoteUpdates().length;
+        setQueuedStopNoteCount(nextCount);
+        refreshStopDrafts();
+        pushToast('Signal dropped: stop notes queued for sync.', 'info');
+        return;
+      }
+      throw error;
+    }
+  }
+
+  async function prepareOfflineRoute() {
+    if (!currentRoute) {
+      throw new Error('There is no active route to save offline.');
+    }
+
+    setPreparingOfflineRoute(true);
+    try {
+      if (navigator.onLine) {
+        await refreshData(true);
+      }
+
+      const latestPayload = loadCache() || payload;
+      const latestRoute = getCurrentRoute(latestPayload?.routes || [], currentRoute.id);
+      const invoicesToCache = getRouteInvoices(latestRoute, latestPayload?.invoices || []);
+      for (const invoice of invoicesToCache) {
+        await fetchInvoicePdf(invoice.id);
+      }
+
+      const nextStatus = {
+        routeId: currentRoute.id,
+        preparedAt: new Date().toISOString(),
+        invoiceCount: invoicesToCache.length,
+      } satisfies OfflineRoutePackStatus;
+      saveOfflineRoutePackStatus(nextStatus);
+      setOfflineRoutePackStatus(nextStatus);
+      pushToast(
+        invoicesToCache.length
+          ? `Offline pack ready with ${invoicesToCache.length} invoice PDF${invoicesToCache.length === 1 ? '' : 's'}.`
+          : 'Offline pack ready. Route details are cached for this run.',
+        'success',
+      );
+    } finally {
+      setPreparingOfflineRoute(false);
+    }
+  }
+
+  async function syncOfflineWork() {
+    if (!navigator.onLine) {
+      throw new Error('Reconnect to the internet before syncing queued driver work.');
+    }
+
+    await refreshData(true);
+    await flushQueuedTemperatureLogs();
+    await flushQueuedStopNoteUpdates();
+    pushToast('Offline work sync complete.', 'success');
+  }
+
+  function clearOfflineDrafts() {
+    clearAllStopDrafts();
+    setStopDrafts([]);
+    pushToast('Offline stop drafts cleared from this device.', 'info');
+  }
+
+  function clearOfflineDraft(stopId: string) {
+    clearStopDraft(stopId);
+    refreshStopDrafts();
+    pushToast('Saved stop draft cleared from this device.', 'info');
   }
 
   return (
@@ -256,9 +548,22 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
         loading,
         refreshing,
         usingCachedData,
+        isOnline,
+        lastSyncedAt,
+        queuedTemperatureLogCount,
+        queuedStopNoteCount,
+        stopDrafts,
+        preparingOfflineRoute,
+        offlineRoutePackStatus,
         login,
         logout,
         refreshData,
+        prepareOfflineRoute,
+        saveStopNotes,
+        syncOfflineWork,
+        clearOfflineDraft,
+        clearOfflineDrafts,
+        refreshOfflineDrafts: refreshStopDrafts,
         setSelectedRouteId,
         stopById,
         stopItems,

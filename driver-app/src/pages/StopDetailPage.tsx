@@ -1,9 +1,10 @@
-import { ChangeEvent, useState } from 'react';
+import { ChangeEvent, useEffect, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useDriverApp } from '@/hooks/useDriverApp';
 import { useLocationUpdater } from '@/hooks/useLocationUpdater';
 import { useToast } from '@/hooks/useToast';
+import { clearStopDraft, loadStopDraft, saveStopDraft } from '@/lib/storage';
 import { formatSchedule } from '@/lib/utils';
 
 async function fileToBase64(file: File) {
@@ -17,18 +18,41 @@ async function fileToBase64(file: File) {
 
 export function StopDetailPage() {
   const { stopId } = useParams();
-  const { markArrived, markDelivered, markFailed, stopById, stopItems } = useDriverApp();
+  const { isOnline, markArrived, markDelivered, markFailed, refreshOfflineDrafts, saveStopNotes, stopById, stopItems } = useDriverApp();
   const { sendLocation } = useLocationUpdater(true);
   const { pushToast } = useToast();
   const stop = stopId ? stopById(stopId) : null;
-  const [proofImage, setProofImage] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState<'arrived' | 'delivered' | 'failed' | null>(null);
-  const [notes, setNotes] = useState(stop?.driver_notes || '');
+  const initialDraft = stopId ? loadStopDraft(stopId) : null;
+  const [proofImage, setProofImage] = useState<string | null>(initialDraft?.proofImage || null);
+  const [submitting, setSubmitting] = useState<'arrived' | 'delivered' | 'failed' | 'notes' | null>(null);
+  const [notes, setNotes] = useState(initialDraft?.notes || stop?.driver_notes || '');
 
   if (!stop) return <Navigate to="/stops" replace />;
   const activeStop = stop;
 
   const items = stopItems(activeStop);
+
+  useEffect(() => {
+    if (!stopId) return;
+    const draft = loadStopDraft(stopId);
+    setProofImage(draft?.proofImage || null);
+    setNotes(draft?.notes || activeStop.driver_notes || '');
+  }, [stopId, activeStop.id, activeStop.driver_notes]);
+
+  useEffect(() => {
+    if (!stopId) return;
+    if (!notes.trim() && !proofImage) {
+      clearStopDraft(stopId);
+      refreshOfflineDrafts();
+      return;
+    }
+    saveStopDraft({
+      stopId,
+      notes,
+      proofImage,
+      updatedAt: new Date().toISOString(),
+    });
+  }, [stopId, notes, proofImage, refreshOfflineDrafts]);
 
   async function onCapturePhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -43,6 +67,18 @@ export function StopDetailPage() {
     }
   }
 
+  async function onSaveNotes() {
+    if (!stopId) return;
+    setSubmitting('notes');
+    try {
+      await saveStopNotes(stopId, notes);
+    } catch (error) {
+      pushToast(error instanceof Error ? error.message : 'Unable to save stop notes.', 'error');
+    } finally {
+      setSubmitting(null);
+    }
+  }
+
   async function runAction(action: 'arrived' | 'delivered' | 'failed') {
     setSubmitting(action);
 
@@ -53,10 +89,16 @@ export function StopDetailPage() {
 
       if (action === 'delivered') {
         await markDelivered(activeStop, proofImage, notes);
+        clearStopDraft(activeStop.id);
+        refreshOfflineDrafts();
+        setProofImage(null);
       }
 
       if (action === 'failed') {
         await markFailed(activeStop, notes);
+        clearStopDraft(activeStop.id);
+        refreshOfflineDrafts();
+        setProofImage(null);
       }
 
       await sendLocation();
@@ -117,6 +159,11 @@ export function StopDetailPage() {
         <p className="mt-2 text-sm text-slate-600">
           Capture a delivery photo before marking the stop delivered when an invoice is attached.
         </p>
+        {!isOnline && (
+          <p className="mt-3 rounded-2xl bg-sand px-3 py-2 text-sm text-amber-900">
+            You are offline. Proof photos and notes will stay on this device until you reconnect and finish the stop.
+          </p>
+        )}
         <label className="mt-4 block">
           <span className="sr-only">Capture proof of delivery photo</span>
           <input
@@ -145,12 +192,26 @@ export function StopDetailPage() {
           placeholder="Gate instructions, failed-delivery reason, or delivery notes"
           className="mt-4 w-full rounded-3xl border border-slate-200 px-4 py-3 text-sm outline-none focus:border-ocean focus:ring-2 focus:ring-ocean/20"
         />
+        <button
+          type="button"
+          disabled={submitting !== null}
+          onClick={() => void onSaveNotes()}
+          className="mt-4 min-h-12 w-full rounded-2xl bg-white px-4 py-3 text-base font-semibold text-slate-800 ring-1 ring-slate-200 disabled:opacity-60"
+        >
+          {submitting === 'notes' ? 'Saving notes...' : isOnline ? 'Save Notes' : 'Queue Notes for Sync'}
+        </button>
       </div>
+
+      {!isOnline && (
+        <div className="rounded-[2rem] bg-white p-4 text-sm text-slate-700 shadow-card">
+          Stop status changes still require a connection so arrival time, dwell tracking, and delivery completion stay accurate. You can keep capturing notes and proof offline.
+        </div>
+      )}
 
       <div className="grid grid-cols-1 gap-3 pb-4">
         <button
           type="button"
-          disabled={submitting !== null}
+          disabled={submitting !== null || !isOnline}
           onClick={() => void runAction('arrived')}
           className="min-h-12 rounded-2xl bg-amber-400 px-4 py-3 text-base font-semibold text-amber-950 disabled:opacity-60"
         >
@@ -158,7 +219,7 @@ export function StopDetailPage() {
         </button>
         <button
           type="button"
-          disabled={submitting !== null}
+          disabled={submitting !== null || !isOnline}
           onClick={() => void runAction('delivered')}
           className="min-h-12 rounded-2xl bg-emerald-500 px-4 py-3 text-base font-semibold text-white disabled:opacity-60"
         >
@@ -166,7 +227,7 @@ export function StopDetailPage() {
         </button>
         <button
           type="button"
-          disabled={submitting !== null}
+          disabled={submitting !== null || !isOnline}
           onClick={() => void runAction('failed')}
           className="min-h-12 rounded-2xl bg-rose-500 px-4 py-3 text-base font-semibold text-white disabled:opacity-60"
         >
