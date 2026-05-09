@@ -1,5 +1,6 @@
 const PDFDocument = require('pdfkit');
 const { loadCompanySettings } = require('./company-settings');
+const { normalizeInvoiceLots } = require('./invoice-lots');
 
 // ── PDF BUILDER ───────────────────────────────────────────────────────────────
 async function buildInvoicePDF(inv) {
@@ -18,6 +19,7 @@ async function buildInvoicePDF(inv) {
       .then((companySettings) => {
         const businessName = companySettings.businessName || 'NodeRoute Systems';
         const invoiceLogoDataUrl = companySettings.invoiceLogoDataUrl || null;
+        const invoiceLots = normalizeInvoiceLots(inv);
 
         // Header bar
         doc.rect(0, 0, doc.page.width, 80).fill(ACCENT);
@@ -79,7 +81,8 @@ async function buildInvoicePDF(inv) {
         // Items rows
         const items = inv.items || [];
         items.forEach((item, i) => {
-          const notes = item.notes ? String(item.notes) : '';
+          const lotNote = item.lot_number ? `Lot: ${item.lot_number}` : '';
+          const notes = [item.notes ? String(item.notes) : '', lotNote].filter(Boolean).join(' · ');
           const rowHeight = notes ? 32 : 20;
           if (i % 2 === 0) doc.rect(50, y - 2, doc.page.width - 100, rowHeight).fill('#fafafa');
           doc.fillColor('#222').font('Helvetica').fontSize(10);
@@ -111,6 +114,35 @@ async function buildInvoicePDF(inv) {
         doc.fillColor('#fff').font('Helvetica-Bold').fontSize(12).text('TOTAL:', totalsX, y + 2, { width: 90, align: 'right' });
         doc.text(`$${parseFloat(inv.total||0).toFixed(2)}`, 476, y + 2, { width: 74, align: 'right' });
         y += 40;
+
+        if (invoiceLots.length) {
+          doc.moveTo(50, y).lineTo(doc.page.width - 50, y).strokeColor('#dddddd').stroke();
+          y += 14;
+          doc.fillColor('#111').font('Helvetica-Bold').fontSize(10).text('TRACEABILITY LOT SUMMARY', 50, y);
+          y += 14;
+          doc.rect(50, y, doc.page.width - 100, 20).fill('#f7efe9');
+          doc.fillColor('#111').font('Helvetica-Bold').fontSize(9);
+          doc.text('ITEM #', 58, y + 5, { width: 70 });
+          doc.text('DESCRIPTION', 130, y + 5, { width: 220 });
+          doc.text('LOT #', 352, y + 5, { width: 88 });
+          doc.text('QTY', 442, y + 5, { width: 46, align: 'right' });
+          doc.text('WEIGHT', 492, y + 5, { width: 58, align: 'right' });
+          y += 22;
+
+          invoiceLots.forEach((lot, index) => {
+            const lotRowHeight = 20;
+            if (index % 2 === 0) doc.rect(50, y - 2, doc.page.width - 100, lotRowHeight).fill('#fafafa');
+            doc.fillColor('#222').font('Helvetica').fontSize(9);
+            doc.text(String(lot.item_number || '-'), 58, y, { width: 70 });
+            doc.text(String(lot.description || '-'), 130, y, { width: 220 });
+            doc.text(String(lot.lot_number || '-'), 352, y, { width: 88 });
+            doc.text(lot.qty != null ? String(lot.qty) : '-', 442, y, { width: 46, align: 'right' });
+            doc.text(lot.weight != null ? `${lot.weight} lbs` : '-', 492, y, { width: 58, align: 'right' });
+            y += lotRowHeight;
+          });
+
+          y += 12;
+        }
 
         // Signature
         if (inv.signature_data) {

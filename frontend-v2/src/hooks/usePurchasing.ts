@@ -5,6 +5,7 @@ export type PurchaseOrder = {
   id: string;
   po_number?: string;
   vendor?: string;
+  notes?: string | null;
   total_cost?: number | string;
   confirmed_by?: string;
   created_at?: string;
@@ -68,6 +69,16 @@ export type VendorPoReceipt = {
   lines?: VendorPoReceiptLine[];
 };
 
+export type VendorPoLeadTimeHistory = {
+  vendor?: string;
+  receipt_count?: number;
+  average_days?: number | null;
+  median_days?: number | null;
+  minimum_days?: number | null;
+  maximum_days?: number | null;
+  latest_days?: number | null;
+};
+
 export type VendorPurchaseOrder = {
   id: string;
   po_number?: string;
@@ -85,6 +96,12 @@ export type VendorPurchaseOrder = {
   total_backordered_qty?: number | string;
   total_ordered_cost?: number | string;
   total_received_cost?: number | string;
+  first_received_at?: string | null;
+  latest_received_at?: string | null;
+  first_receipt_lead_time_days?: number | null;
+  first_receipt_lead_time_hours?: number | null;
+  full_receipt_lead_time_days?: number | null;
+  lead_time_history?: VendorPoLeadTimeHistory | null;
   receipt_rules?: VendorPoReceiptRules;
   lines?: VendorPoLine[];
   receipts?: VendorPoReceipt[];
@@ -105,6 +122,9 @@ export type ScannedLineItem = {
   unit: string | null;
   unit_price: number | null;
   total: number | null;
+  item_type: 'weighted' | 'count' | 'unknown';
+  lot_number: string | null;
+  lot_number_confidence: 'none' | 'low' | 'medium' | 'high';
 };
 
 export type PoScanResult = {
@@ -131,6 +151,13 @@ export type ConfirmPoPayload = {
     expiration_date?: string;
     total: number;
   }[];
+};
+
+export type ConfirmPoResponse = {
+  success?: boolean;
+  errors?: string[];
+  lots_created?: number;
+  purchase_order?: PurchaseOrder | null;
 };
 
 export type ReceiveVendorPoPayload = {
@@ -182,7 +209,7 @@ export function useConfirmPurchaseOrder() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: ConfirmPoPayload) =>
-      sendWithAuth<{ errors?: string[]; lots_created?: number }>(
+      sendWithAuth<ConfirmPoResponse>(
         '/api/purchase-orders/confirm',
         'POST',
         payload
@@ -218,4 +245,8 @@ export async function scanPoFile(file: File): Promise<PoScanResult> {
     throw new Error(String(err.error || res.statusText));
   }
   return res.json();
+}
+
+export function openPurchaseOrderPdf(orderId: string) {
+  return window.open(`/api/purchase-orders/${orderId}/pdf`, '_blank', 'noopener,noreferrer');
 }

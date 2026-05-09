@@ -99,7 +99,9 @@ Rules:
 2. Preserve the written product description exactly when possible.
 3. Infer category from the product name if it is not explicit.
 4. If a value is not legible, return null for that field.
-5. Quantities and prices must be numbers, not strings.`;
+5. Quantities and prices must be numbers, not strings.
+6. For each line item, classify whether it looks weighted merchandise, count-based merchandise, or unknown.
+7. Extract a lot number when one is visibly tied to the item. If no lot number is visible, return null and confidence "none".`;
 
 const FORECAST_SCHEMA = {
   name: 'inventory_demand_forecast',
@@ -217,7 +219,7 @@ const PO_SCAN_SCHEMA = {
         items: {
           type: 'object',
           additionalProperties: false,
-          required: ['description', 'category', 'quantity', 'unit', 'unit_price', 'total'],
+          required: ['description', 'category', 'quantity', 'unit', 'unit_price', 'total', 'item_type', 'lot_number', 'lot_number_confidence'],
           properties: {
             description: { type: ['string', 'null'] },
             category: { type: ['string', 'null'] },
@@ -225,6 +227,9 @@ const PO_SCAN_SCHEMA = {
             unit: { type: ['string', 'null'] },
             unit_price: { type: ['number', 'null'] },
             total: { type: ['number', 'null'] },
+            item_type: { type: 'string', enum: ['weighted', 'count', 'unknown'] },
+            lot_number: { type: ['string', 'null'] },
+            lot_number_confidence: { type: 'string', enum: ['none', 'low', 'medium', 'high'] },
           },
         },
       },
@@ -1173,17 +1178,34 @@ Return all extracted order line items and any warnings if details are unclear.`;
 
 function normalizePOScan(result) {
   const items = Array.isArray(result && result.items) ? result.items : [];
+  const weightedUnits = new Set(['lb', 'lbs', 'pound', 'pounds', 'kg', 'kgs', 'kilogram', 'kilograms', 'oz', 'ounce', 'ounces']);
+  const countUnits = new Set(['ea', 'each', 'case', 'cases', 'box', 'boxes', 'bag', 'bags', 'pack', 'packs', 'dozen']);
   const normalizedItems = items.map((item) => {
     const quantity = item && item.quantity == null ? null : numberOr(item && item.quantity, null);
     const unitPrice = item && item.unit_price == null ? null : numberOr(item && item.unit_price, null);
     const total = item && item.total == null ? null : numberOr(item && item.total, null);
+    const unit = item && item.unit != null ? stringOr(item.unit) : null;
+    const normalizedUnit = String(unit || '').toLowerCase();
+    const inferredType = weightedUnits.has(normalizedUnit)
+      ? 'weighted'
+      : countUnits.has(normalizedUnit)
+        ? 'count'
+        : 'unknown';
+    const rawItemType = item && item.item_type != null ? stringOr(item.item_type).toLowerCase() : '';
+    const rawLotNumber = item && item.lot_number != null ? stringOr(item.lot_number) : '';
+    const rawLotConfidence = item && item.lot_number_confidence != null ? stringOr(item.lot_number_confidence).toLowerCase() : '';
     return {
       description: item && item.description != null ? stringOr(item.description) : null,
       category: item && item.category != null ? stringOr(item.category) : null,
       quantity,
-      unit: item && item.unit != null ? stringOr(item.unit) : null,
+      unit,
       unit_price: unitPrice,
       total: total != null ? total : (quantity != null && unitPrice != null ? Number((quantity * unitPrice).toFixed(2)) : null),
+      item_type: ['weighted', 'count'].includes(rawItemType) ? rawItemType : inferredType,
+      lot_number: rawLotNumber || null,
+      lot_number_confidence: rawLotNumber
+        ? (['low', 'medium', 'high'].includes(rawLotConfidence) ? rawLotConfidence : 'medium')
+        : 'none',
     };
   });
 
@@ -2129,6 +2151,7 @@ module.exports = {
   generateReorderAlert,
   generateWalkthrough,
   generateOrderIntakeDraft,
+  normalizePOScan,
   parsePurchaseOrderImage,
   buildWeeklyBuckets,
   generateChatReply,

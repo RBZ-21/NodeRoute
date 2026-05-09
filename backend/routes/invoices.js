@@ -5,6 +5,7 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const { buildInvoicePDF } = require('../services/pdf');
 const { loadDriverInvoiceScope } = require('../services/driver-invoice-access');
 const { sendInvoiceEmail } = require('../services/invoice-email');
+const { normalizeInvoiceLots } = require('../services/invoice-lots');
 const { validate } = require('../lib/zodValidate');
 const { invoiceImportSchema, invoiceSignSchema } = require('../lib/schemas');
 const { validateBody } = require('../lib/zod-validate');
@@ -81,6 +82,14 @@ function isMissingProofOfDeliveryColumns(error) {
   return /proof_of_delivery_(image_data|uploaded_at).*does not exist|schema cache/i.test(message);
 }
 
+function enrichInvoiceResponse(invoice) {
+  if (!invoice) return invoice;
+  return {
+    ...invoice,
+    lot_numbers: normalizeInvoiceLots(invoice),
+  };
+}
+
 async function canDriverAccessInvoice(req, invoice) {
   if (!req.user || req.user.role !== 'driver') return true;
   if (!invoice?.id) return false;
@@ -113,7 +122,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
   const data = await dbQuery(query, res);
   if (!data) return;
-  res.json(filterRowsByContext(data, req.context));
+  res.json(filterRowsByContext(data, req.context).map(enrichInvoiceResponse));
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBody(invoiceBodySchema), async (req, res) => {
@@ -154,7 +163,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
   if (!data) return;
-  res.json(data);
+  res.json(enrichInvoiceResponse(data));
 });
 
 // Entree import
@@ -191,7 +200,7 @@ router.post('/import', validate(invoiceImportSchema), authenticateToken, require
     ...buildScopeFields(req.context),
   }))).select(), res);
   if (!data) return;
-  res.json({ imported: data.length, invoices: data });
+  res.json({ imported: data.length, invoices: data.map(enrichInvoiceResponse) });
 });
 
 // Update invoice status — fires completion email when status is set to 'paid'
@@ -233,7 +242,7 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
     );
   }
 
-  res.json(data);
+  res.json(enrichInvoiceResponse(data));
 });
 
 // Save signature → generate PDF → email customer
@@ -261,7 +270,7 @@ router.post('/:id/sign', validate(invoiceSignSchema), authenticateToken, async (
     }
   }
 
-  res.json({ ...updated, status: emailSent ? 'sent' : 'signed', emailSent });
+  res.json({ ...enrichInvoiceResponse(updated), status: emailSent ? 'sent' : 'signed', emailSent });
 });
 
 router.post('/:id/proof-of-delivery', authenticateToken, requireRole('driver', 'admin', 'manager'), async (req, res) => {
@@ -298,7 +307,7 @@ router.post('/:id/proof-of-delivery', authenticateToken, requireRole('driver', '
   }
 
   res.json({
-    ...data,
+    ...enrichInvoiceResponse(data),
     proof_of_delivery_uploaded_at: data?.proof_of_delivery_uploaded_at || proofUploadedAt,
     invoice_has_proof_of_delivery: !!data?.proof_of_delivery_image_data,
   });

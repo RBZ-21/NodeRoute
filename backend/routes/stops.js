@@ -8,6 +8,7 @@ const {
   insertRecordWithOptionalScope,
   rowMatchesContext,
 } = require('../services/operating-context');
+const { syncRouteMutation } = require('../services/route-stop-sync');
 
 const STOP_FIELDS = [
   'route_id', 'customer_id', 'address', 'status', 'name',
@@ -286,7 +287,7 @@ router.post('/:id/move-to-end', authenticateToken, requireRole('admin', 'manager
     if (!stop.route_id) return res.status(400).json({ error: 'Stop is not assigned to a route' });
 
     const { data: route, error: routeErr } = await supabase
-      .from('routes').select('active_stop_ids').eq('id', stop.route_id).single();
+      .from('routes').select('stop_ids, active_stop_ids').eq('id', stop.route_id).single();
     if (routeErr || !route) return res.status(404).json({ error: 'Route not found' });
 
     const current = Array.isArray(route.active_stop_ids) ? route.active_stop_ids : [];
@@ -295,6 +296,20 @@ router.post('/:id/move-to-end', authenticateToken, requireRole('admin', 'manager
     const { error: updateErr } = await supabase
       .from('routes').update({ active_stop_ids: reordered }).eq('id', stop.route_id);
     if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+    const syncResult = await syncRouteMutation(supabase, {
+      routeId: stop.route_id,
+      stopIds: Array.isArray(route.stop_ids) ? route.stop_ids : reordered,
+      activeStopIds: reordered,
+      action: 'move_to_end',
+      actor: req.user,
+      context: req.context,
+      metadata: {
+        stopId,
+        requestedByRole: req.user.role,
+      },
+    });
+    if (syncResult.error) return res.status(500).json({ error: syncResult.error.message });
 
     res.json({ ok: true, new_position: reordered.length });
   } catch (err) {
@@ -350,6 +365,20 @@ router.post('/:id/defer', authenticateToken, async (req, res) => {
       .update({ active_stop_ids: activeIds })
       .eq('id', route.id);
     if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+    const syncResult = await syncRouteMutation(supabase, {
+      routeId: route.id,
+      stopIds: Array.isArray(route.stop_ids) ? route.stop_ids : activeIds,
+      activeStopIds: activeIds,
+      action: 'defer',
+      actor: req.user,
+      context: req.context,
+      metadata: {
+        stopId,
+        requestedByRole: req.user.role,
+      },
+    });
+    if (syncResult.error) return res.status(500).json({ error: syncResult.error.message });
 
     res.json({
       route_id: route.id,
