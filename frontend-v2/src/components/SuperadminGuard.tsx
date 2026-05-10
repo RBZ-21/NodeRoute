@@ -1,60 +1,50 @@
 /**
- * SuperadminGuard — client-side gate for the superadmin section.
+ * SuperadminGuard
  *
- * Passes only when BOTH:
- *   1. The stored user role equals 'superadmin'
- *   2. The stored user email matches VITE_SUPERADMIN_EMAIL (case-insensitive, trimmed)
+ * Wraps any superadmin-only page. Renders children only when the logged-in
+ * user has role === 'superadmin' AND their email matches the owner email
+ * baked in via the VITE_SUPERADMIN_EMAIL env variable.
  *
- * Fail-closed: if VITE_SUPERADMIN_EMAIL is empty or unset, NO user passes.
+ * If either check fails the component redirects to /dashboard immediately.
+ * No superadmin UI is rendered, no error message is shown — just a redirect.
  *
- * On failure: window.location.replace('/dashboard') — not push — so Back
- * cannot return to the superadmin URL. The component renders null immediately
- * so there is zero flash of protected content.
- *
- * NOTE: this is a UX gate only. Real enforcement is on the backend via
- * requireSuperadmin (role + email double-check on every /api/superadmin/* route).
+ * Usage:
+ *   <SuperadminGuard><SuperadminPage /></SuperadminGuard>
  */
-import { useEffect, useRef, type ReactNode } from 'react';
+import { useEffect } from 'react';
+import { getUserRole } from '../lib/api';
 
-const SUPERADMIN_EMAIL = (import.meta.env.VITE_SUPERADMIN_EMAIL ?? '').trim().toLowerCase();
+// Set VITE_SUPERADMIN_EMAIL in frontend-v2/.env (never commit the value).
+// Example:  VITE_SUPERADMIN_EMAIL=admin@noderoutesystems.com
+const OWNER_EMAIL = (import.meta.env.VITE_SUPERADMIN_EMAIL as string || '').trim().toLowerCase();
 
-function getStoredUser(): { role?: string; email?: string } | null {
+function getStoredEmail(): string {
   try {
     const raw = localStorage.getItem('nr_user');
-    return raw ? JSON.parse(raw) : null;
-  } catch { return null; }
+    if (!raw) return '';
+    const parsed = JSON.parse(raw);
+    return (parsed?.email || parsed?.userEmail || '').trim().toLowerCase();
+  } catch {
+    return '';
+  }
 }
 
-function checkAccess(): boolean {
-  // Fail-closed: if env var is empty, nobody passes.
-  if (!SUPERADMIN_EMAIL) return false;
+export function SuperadminGuard({ children }: { children: React.ReactNode }) {
+  const role  = getUserRole();
+  const email = getStoredEmail();
 
-  const user = getStoredUser();
-  if (!user) return false;
-
-  const roleOk  = String(user.role  ?? '').toLowerCase() === 'superadmin';
-  const emailOk = String(user.email ?? '').trim().toLowerCase() === SUPERADMIN_EMAIL;
-
-  return roleOk && emailOk;
-}
-
-interface SuperadminGuardProps {
-  children: ReactNode;
-}
-
-export function SuperadminGuard({ children }: SuperadminGuardProps) {
-  const passed = checkAccess();
-  const redirected = useRef(false);
+  const roleOk  = role === 'superadmin';
+  // If env var is not set, OWNER_EMAIL will be '' and no one can pass.
+  const emailOk = OWNER_EMAIL !== '' && email === OWNER_EMAIL;
+  const allowed = roleOk && emailOk;
 
   useEffect(() => {
-    if (!passed && !redirected.current) {
-      redirected.current = true;
+    if (!allowed) {
       window.location.replace('/dashboard');
     }
-  }, [passed]);
+  }, [allowed]);
 
-  // Render nothing while the redirect is in flight (or if access was denied).
-  if (!passed) return null;
+  if (!allowed) return null;
 
   return <>{children}</>;
 }
