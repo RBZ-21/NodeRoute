@@ -172,6 +172,12 @@ app.use('/api/reporting', reportingRouter);
 app.use('/api/lots', lotsRouter);
 app.use('/api/integrations', integrationsRouter);
 app.use('/api/warehouse', warehouseRouter);
+// restore-session must be reachable while holding an impersonation token
+// (role=admin), so it runs with only authenticateToken — before the guarded router.
+const { restoreSessionHandler } = require('./routes/superadmin');
+const { authenticateToken: _authenticateToken } = require('./middleware/auth');
+app.post('/api/superadmin/restore-session', _authenticateToken, restoreSessionHandler);
+
 app.use('/api/superadmin', superadminRouter);
 app.use('/api/company-config', companyConfigRouter);
 app.use('/api/onboarding', onboardingRouter);
