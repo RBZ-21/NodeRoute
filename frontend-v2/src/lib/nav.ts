@@ -7,7 +7,7 @@ import {
   DollarSign, FileText, BarChart2, Package, TrendingUp,
   ShoppingBag, ScanLine, Store, Warehouse, CalendarCog, Plug,
   ClipboardList, Bot, Building2, ListChecks, ShieldCheck,
-  FileBarChart2,
+  FileBarChart2, LayoutGrid,
 } from 'lucide-react';
 import type { Role } from './api';
 
@@ -18,7 +18,7 @@ export type TabId =
   | 'invoices' | 'analytics' | 'inventory' | 'forecast' | 'financials'
   | 'purchasing' | 'vendors' | 'warehouse' | 'planning' | 'integrations'
   | 'aihelp' | 'settings' | 'traceability' | 'companies' | 'waitlist'
-  | 'compliance' | 'dsr';
+  | 'compliance' | 'dsr' | 'superadmin-overview';
 
 export type GroupId =
   | 'top' | 'logistics' | 'people' | 'financials'
@@ -67,6 +67,14 @@ export const navGroups: NavGroup[] = [
     label: 'Platform',
     allowedRoles: SA_ONLY,
     items: [
+      {
+        id: 'superadmin-overview',
+        label: 'Platform Overview',
+        path: '/superadmin',
+        icon: LayoutGrid,
+        allowedRoles: SA_ONLY,
+        component: lazyNamed(() => import('../pages/SuperadminPage'), 'SuperadminPage'),
+      },
       {
         id: 'companies',
         label: 'All Companies',
