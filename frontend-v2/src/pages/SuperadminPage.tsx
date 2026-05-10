@@ -2,8 +2,8 @@ import { useEffect, useState } from 'react';
 import { Building2, Users, TrendingUp, DollarSign, AlertTriangle, CheckCircle2, Clock, XCircle, RefreshCw, ArrowRight } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { Badge } from '../components/ui/badge';
 import { fetchWithAuth } from '../lib/api';
+import { SuperadminGuard } from '../components/SuperadminGuard';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -42,12 +42,11 @@ type PlatformAlert = {
 };
 
 type UsageTick = {
-  label: string;   // e.g. "May 1"
+  label: string;
   orders: number;
   routes: number;
 };
 
-// MRR price map ($/mo per tier)
 const TIER_PRICE: Record<string, number> = {
   free: 0, starter: 99, pro: 249, enterprise: 499,
 };
@@ -67,33 +66,27 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
-function fmt(n: number) { return n.toLocaleString(); }
-function fmtMrr(n: number) {
-  if (n >= 1000) return `$${(n / 1000).toFixed(1)}k`;
-  return `$${n}`;
-}
+function fmt(n: number)    { return n.toLocaleString(); }
+function fmtMrr(n: number) { return n >= 1000 ? `$${(n / 1000).toFixed(1)}k` : `$${n}`; }
 function timeAgo(iso: string) {
   const diff = Date.now() - new Date(iso).getTime();
   const m = Math.floor(diff / 60000);
-  if (m < 60) return `${m}m ago`;
+  if (m < 60)  return `${m}m ago`;
   const h = Math.floor(m / 60);
-  if (h < 24) return `${h}h ago`;
+  if (h < 24)  return `${h}h ago`;
   return `${Math.floor(h / 24)}d ago`;
 }
 
-// ── Skeleton row ──────────────────────────────────────────────────────────────
 function SkeletonRow() {
-  return (
-    <div className="h-4 w-full animate-pulse rounded bg-muted" />
-  );
+  return <div className="h-4 w-full animate-pulse rounded bg-muted" />;
 }
 
-// ── Main component ─────────────────────────────────────────────────────────────
+// ── Inner dashboard (rendered only after guard passes) ───────────────────────
 
-export function SuperadminPage() {
-  const [summary, setSummary] = useState<PlatformSummary | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [error,   setError]   = useState('');
+function SuperadminDashboard() {
+  const [summary, setSummary]     = useState<PlatformSummary | null>(null);
+  const [loading, setLoading]     = useState(true);
+  const [error,   setError]       = useState('');
   const [lastRefresh, setLastRefresh] = useState<Date>(new Date());
 
   async function load() {
@@ -104,8 +97,7 @@ export function SuperadminPage() {
       setSummary(data);
       setLastRefresh(new Date());
     } catch (err) {
-      // If the endpoint doesn't exist yet, synthesise a minimal summary from
-      // the existing /api/superadmin/companies endpoint so the page still renders.
+      // Fallback: synthesise from /api/superadmin/companies if dedicated endpoint not yet built
       try {
         const companies = await fetchWithAuth<{
           id: string; name: string; admin_email: string;
@@ -116,7 +108,6 @@ export function SuperadminPage() {
         const arr = Array.isArray(companies) ? companies : [];
         const tierCounts: Record<string, number> = {};
         arr.forEach((c) => { const t = c.plan ?? 'free'; tierCounts[t] = (tierCounts[t] ?? 0) + 1; });
-
         const mrr = Object.entries(tierCounts).reduce(
           (sum, [tier, cnt]) => sum + (TIER_PRICE[tier] ?? 0) * cnt, 0,
         );
@@ -161,7 +152,7 @@ export function SuperadminPage() {
   return (
     <div className="space-y-6">
 
-      {/* ── Header ── */}
+      {/* Header */}
       <div className="flex items-start justify-between">
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Platform Overview</h1>
@@ -175,7 +166,7 @@ export function SuperadminPage() {
         </Button>
       </div>
 
-      {/* SuperAdmin banner */}
+      {/* Banner */}
       <div className="rounded-lg border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-800 dark:border-violet-800 dark:bg-violet-950/30 dark:text-violet-300">
         <strong>SuperAdmin View</strong> — Full platform visibility. Actions taken here affect all tenant companies.
         Use the <strong>All Companies</strong> page to inspect or suspend individual tenants.
@@ -187,39 +178,16 @@ export function SuperadminPage() {
         </div>
       )}
 
-      {/* ── KPI summary bar ── */}
+      {/* KPI bar */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <KpiCard
-          icon={<Building2 className="h-5 w-5 text-primary" />}
-          label="Total Companies"
-          value={loading ? '—' : fmt(summary?.total_companies ?? 0)}
-          sub={loading ? '' : `${fmt(summary?.active_companies ?? 0)} active · ${fmt(summary?.trial_companies ?? 0)} trial`}
-        />
-        <KpiCard
-          icon={<Users className="h-5 w-5 text-sky-500" />}
-          label="Total Users"
-          value={loading ? '—' : fmt(summary?.total_users ?? 0)}
-          sub={loading ? '' : `${fmt(summary?.total_drivers ?? 0)} drivers`}
-        />
-        <KpiCard
-          icon={<TrendingUp className="h-5 w-5 text-emerald-500" />}
-          label="Orders This Month"
-          value={loading ? '—' : fmt(summary?.total_orders_month ?? 0)}
-          sub={loading ? '' : `${fmt(summary?.total_routes_month ?? 0)} routes run`}
-        />
-        <KpiCard
-          icon={<DollarSign className="h-5 w-5 text-amber-500" />}
-          label="MRR Estimate"
-          value={loading ? '—' : fmtMrr(summary?.mrr_estimate ?? 0)}
-          sub="Based on active plan tiers"
-          highlight
-        />
+        <KpiCard icon={<Building2 className="h-5 w-5 text-primary" />}    label="Total Companies"   value={loading ? '—' : fmt(summary?.total_companies ?? 0)}    sub={loading ? '' : `${fmt(summary?.active_companies ?? 0)} active · ${fmt(summary?.trial_companies ?? 0)} trial`} />
+        <KpiCard icon={<Users     className="h-5 w-5 text-sky-500" />}    label="Total Users"       value={loading ? '—' : fmt(summary?.total_users ?? 0)}          sub={loading ? '' : `${fmt(summary?.total_drivers ?? 0)} drivers`} />
+        <KpiCard icon={<TrendingUp className="h-5 w-5 text-emerald-500" />} label="Orders This Month" value={loading ? '—' : fmt(summary?.total_orders_month ?? 0)} sub={loading ? '' : `${fmt(summary?.total_routes_month ?? 0)} routes run`} />
+        <KpiCard icon={<DollarSign className="h-5 w-5 text-amber-500" />}  label="MRR Estimate"      value={loading ? '—' : fmtMrr(summary?.mrr_estimate ?? 0)}   sub="Based on active plan tiers" highlight />
       </div>
 
-      {/* ── Tier breakdown + Alerts row ── */}
+      {/* Tier breakdown + Alerts */}
       <div className="grid gap-4 lg:grid-cols-2">
-
-        {/* Tier breakdown */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm">Subscription Tier Breakdown</CardTitle>
@@ -231,20 +199,15 @@ export function SuperadminPage() {
             ) : (
               <div className="space-y-3">
                 {(['enterprise', 'pro', 'starter', 'free'] as const).map((tier) => {
-                  const row = summary?.tier_breakdown?.find((t) => t.tier === tier);
+                  const row   = summary?.tier_breakdown?.find((t) => t.tier === tier);
                   const count = row?.count ?? 0;
                   const mrr   = row?.mrr   ?? 0;
                   const total = summary?.total_companies ?? 1;
                   return (
                     <div key={tier} className="flex items-center gap-3">
-                      <span className={`w-20 shrink-0 text-center text-xs rounded-full border px-2 py-0.5 font-semibold capitalize ${TIER_COLOR[tier] ?? ''}`}>
-                        {tier}
-                      </span>
+                      <span className={`w-20 shrink-0 text-center text-xs rounded-full border px-2 py-0.5 font-semibold capitalize ${TIER_COLOR[tier] ?? ''}`}>{tier}</span>
                       <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
-                        <div
-                          className="h-full rounded-full bg-primary transition-all"
-                          style={{ width: total > 0 ? `${Math.round((count / total) * 100)}%` : '0%' }}
-                        />
+                        <div className="h-full rounded-full bg-primary transition-all" style={{ width: total > 0 ? `${Math.round((count / total) * 100)}%` : '0%' }} />
                       </div>
                       <span className="text-xs font-semibold w-6 text-right">{count}</span>
                       <span className="text-xs text-muted-foreground w-12 text-right">{fmtMrr(mrr)}/mo</span>
@@ -256,42 +219,28 @@ export function SuperadminPage() {
           </CardContent>
         </Card>
 
-        {/* Platform alerts */}
         <Card>
           <CardHeader className="pb-3">
             <CardTitle className="text-sm">Platform Alerts</CardTitle>
-            <CardDescription>Suspended accounts, onboarding incomplete, plan violations</CardDescription>
+            <CardDescription>Suspended accounts, trial follow-ups, plan violations</CardDescription>
           </CardHeader>
           <CardContent>
             {loading ? (
               <div className="space-y-2">{[...Array(3)].map((_, i) => <SkeletonRow key={i} />)}</div>
             ) : (
               <div className="space-y-2">
-                {/* Suspended companies alert */}
                 {(summary?.suspended_companies ?? 0) > 0 && (
-                  <AlertRow
-                    type="error"
-                    message={`${summary!.suspended_companies} suspended company(s) — may need attention`}
-                  />
+                  <AlertRow type="error"   message={`${summary!.suspended_companies} suspended company(s) — may need attention`} />
                 )}
-                {/* Trial companies reminder */}
                 {(summary?.trial_companies ?? 0) > 0 && (
-                  <AlertRow
-                    type="warning"
-                    message={`${summary!.trial_companies} company(s) on trial — consider follow-up`}
-                  />
+                  <AlertRow type="warning" message={`${summary!.trial_companies} company(s) on trial — consider follow-up`} />
                 )}
-                {/* Dynamic alerts from API */}
                 {(summary?.alerts ?? []).map((a) => (
                   <AlertRow key={a.id} type={a.type} message={a.message} company={a.company_name} />
                 ))}
-                {/* No alerts state */}
-                {(summary?.suspended_companies ?? 0) === 0 &&
-                 (summary?.trial_companies ?? 0) === 0 &&
-                 (summary?.alerts ?? []).length === 0 && (
+                {(summary?.suspended_companies ?? 0) === 0 && (summary?.trial_companies ?? 0) === 0 && (summary?.alerts ?? []).length === 0 && (
                   <div className="flex items-center gap-2 text-sm text-emerald-600">
-                    <CheckCircle2 className="h-4 w-4" />
-                    No active alerts — platform is healthy.
+                    <CheckCircle2 className="h-4 w-4" /> No active alerts — platform is healthy.
                   </div>
                 )}
               </div>
@@ -300,7 +249,7 @@ export function SuperadminPage() {
         </Card>
       </div>
 
-      {/* ── Recent signups ── */}
+      {/* Recent signups */}
       <Card>
         <CardHeader className="flex flex-row items-center justify-between pb-3">
           <div>
@@ -332,13 +281,8 @@ export function SuperadminPage() {
                     <div className="text-xs text-muted-foreground truncate">{c.admin_email}</div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className={`text-xs rounded-full border px-2 py-0.5 font-semibold capitalize ${TIER_COLOR[c.plan] ?? 'bg-muted text-muted-foreground border-border'}`}>
-                      {c.plan}
-                    </span>
-                    <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                      {STATUS_ICON[c.status] ?? null}
-                      {c.status}
-                    </span>
+                    <span className={`text-xs rounded-full border px-2 py-0.5 font-semibold capitalize ${TIER_COLOR[c.plan] ?? 'bg-muted text-muted-foreground border-border'}`}>{c.plan}</span>
+                    <span className="flex items-center gap-1 text-xs text-muted-foreground">{STATUS_ICON[c.status] ?? null}{c.status}</span>
                     <span className="text-xs text-muted-foreground">{timeAgo(c.created_at)}</span>
                   </div>
                 </div>
@@ -348,28 +292,35 @@ export function SuperadminPage() {
         </CardContent>
       </Card>
 
-      {/* ── Quick links ── */}
+      {/* Quick links */}
       <div className="grid gap-3 sm:grid-cols-3">
-        <QuickLink href="/superadmin/companies" label="All Companies" description="View, inspect, suspend tenants" icon={<Building2 className="h-5 w-5" />} />
-        <QuickLink href="/superadmin/waitlist" label="Waitlist" description="Manage signup waitlist" icon={<Users className="h-5 w-5" />} />
-        <QuickLink href="/settings" label="Platform Settings" description="Global config & integrations" icon={<TrendingUp className="h-5 w-5" />} />
+        <QuickLink href="/superadmin/companies" label="All Companies"     description="View, inspect, suspend tenants"   icon={<Building2  className="h-5 w-5" />} />
+        <QuickLink href="/superadmin/waitlist"  label="Waitlist"          description="Manage signup waitlist"          icon={<Users      className="h-5 w-5" />} />
+        <QuickLink href="/settings"             label="Platform Settings" description="Global config & integrations"    icon={<TrendingUp className="h-5 w-5" />} />
       </div>
     </div>
   );
 }
 
+// ── Exported page (wrapped in guard) ───────────────────────────────────────────────
+
+export function SuperadminPage() {
+  return (
+    <SuperadminGuard>
+      <SuperadminDashboard />
+    </SuperadminGuard>
+  );
+}
+
 // ── Sub-components ────────────────────────────────────────────────────────────
 
-function KpiCard({
-  icon, label, value, sub, highlight = false,
-}: { icon: React.ReactNode; label: string; value: string; sub: string; highlight?: boolean }) {
+function KpiCard({ icon, label, value, sub, highlight = false }: {
+  icon: React.ReactNode; label: string; value: string; sub: string; highlight?: boolean;
+}) {
   return (
     <Card className={highlight ? 'border-amber-200 bg-amber-50/40 dark:border-amber-800 dark:bg-amber-950/20' : ''}>
       <CardHeader className="pb-2">
-        <div className="flex items-center justify-between">
-          <CardDescription>{label}</CardDescription>
-          {icon}
-        </div>
+        <div className="flex items-center justify-between"><CardDescription>{label}</CardDescription>{icon}</div>
         <CardTitle className="text-2xl">{value}</CardTitle>
       </CardHeader>
       {sub && <CardContent className="pt-0"><p className="text-xs text-muted-foreground">{sub}</p></CardContent>}
@@ -377,9 +328,7 @@ function KpiCard({
   );
 }
 
-function AlertRow({
-  type, message, company,
-}: { type: 'warning' | 'error' | 'info'; message: string; company?: string }) {
+function AlertRow({ type, message, company }: { type: 'warning' | 'error' | 'info'; message: string; company?: string }) {
   const colors = {
     warning: 'border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800 dark:bg-amber-950/30 dark:text-amber-300',
     error:   'border-red-200 bg-red-50 text-red-800 dark:border-red-800 dark:bg-red-950/30 dark:text-red-300',
@@ -392,25 +341,16 @@ function AlertRow({
   };
   return (
     <div className={`flex items-start gap-2 rounded border px-2.5 py-2 text-xs ${colors[type]}`}>
-      {icons[type]}
-      <span>{company && <strong>{company}: </strong>}{message}</span>
+      {icons[type]}<span>{company && <strong>{company}: </strong>}{message}</span>
     </div>
   );
 }
 
-function QuickLink({
-  href, label, description, icon,
-}: { href: string; label: string; description: string; icon: React.ReactNode }) {
+function QuickLink({ href, label, description, icon }: { href: string; label: string; description: string; icon: React.ReactNode }) {
   return (
-    <a
-      href={href}
-      className="flex items-start gap-3 rounded-lg border border-border bg-card p-4 hover:bg-muted/50 transition-colors"
-    >
+    <a href={href} className="flex items-start gap-3 rounded-lg border border-border bg-card p-4 hover:bg-muted/50 transition-colors">
       <div className="mt-0.5 rounded-md border border-border bg-muted p-1.5 text-muted-foreground">{icon}</div>
-      <div>
-        <div className="font-medium text-sm">{label}</div>
-        <div className="text-xs text-muted-foreground">{description}</div>
-      </div>
+      <div><div className="font-medium text-sm">{label}</div><div className="text-xs text-muted-foreground">{description}</div></div>
       <ArrowRight className="ml-auto h-4 w-4 text-muted-foreground mt-0.5" />
     </a>
   );

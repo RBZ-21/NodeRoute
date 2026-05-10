@@ -1,19 +1,24 @@
 'use strict';
 
 const crypto = require('crypto');
-const jwt = require('jsonwebtoken');
-const { supabase } = require('../services/supabase');
-const { buildRequestContext } = require('../services/operating-context');
+const jwt    = require('jsonwebtoken');
+const { supabase }             = require('../services/supabase');
+const { buildRequestContext }  = require('../services/operating-context');
+const { JWT_SECRET }           = require('../lib/config');
 
-// Use the config module which provides a dev fallback. In production, config.js
-// already validates that JWT_SECRET is set to a non-default value.
-const { JWT_SECRET } = require('../lib/config');
+// ── Constants ─────────────────────────────────────────────────────────────────
 
-// Methods that mutate state — CSRF check is enforced on these.
 const CSRF_METHODS = new Set(['POST', 'PATCH', 'DELETE', 'PUT']);
+const CSRF_EXEMPT  = new Set(['/login', '/setup-password']);
 
-// Routes that are exempt from CSRF (they set the cookie, so no token exists yet).
-const CSRF_EXEMPT = new Set(['/login', '/setup-password']);
+// The single email address allowed to access superadmin routes.
+// Set SUPERADMIN_EMAIL in your .env / hosting environment.
+// Falls back to a deliberately invalid value so it never accidentally matches.
+const SUPERADMIN_EMAIL = (
+  process.env.SUPERADMIN_EMAIL || '__no_superadmin_configured__'
+).trim().toLowerCase();
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
 
 function normalizeId(value) {
   if (value === null || value === undefined) return '';
@@ -25,12 +30,6 @@ function normalizeEmail(value) {
   return String(value).trim().toLowerCase();
 }
 
-function extractRows(result) {
-  if (Array.isArray(result)) return result;
-  if (Array.isArray(result?.data)) return result.data;
-  return [];
-}
-
 async function findUserFromTokenPayload(payload) {
   const tokenUserId = normalizeId(
     payload?.userId || payload?.id || payload?.sub || payload?.user_id
@@ -39,7 +38,6 @@ async function findUserFromTokenPayload(payload) {
     payload?.email || payload?.userEmail || payload?.user_email
   );
 
-  // Fast path: query by ID directly — no full table scan.
   if (tokenUserId) {
     const { data, error } = await supabase
       .from('users')
@@ -47,11 +45,9 @@ async function findUserFromTokenPayload(payload) {
       .eq('id', tokenUserId)
       .single();
     if (!error && data) return { user: data, dbError: null, notFound: false };
-    // PGRST116 = no rows — genuine missing user, not an infrastructure failure.
     if (error && error.code !== 'PGRST116') return { user: null, dbError: error, notFound: false };
   }
 
-  // Fallback: query by email (handles legacy tokens that lack a userId).
   if (tokenEmail) {
     const { data, error } = await supabase
       .from('users')
@@ -65,26 +61,13 @@ async function findUserFromTokenPayload(payload) {
   return { user: null, dbError: null, notFound: true };
 }
 
-/**
- * Extract a raw JWT string from the request.
- * Cookie-only — the Authorization: Bearer header fallback was removed in Step 4
- * of the JWT migration. All clients must authenticate via the HttpOnly cookie.
- */
 function extractToken(req) {
   return req.cookies?.token || null;
 }
 
-/**
- * CSRF double-submit check.
- * The server sets a readable `csrf-token` cookie on login.
- * The frontend reads it and sends it back as X-CSRF-Token on every mutation.
- * We verify both values match using constant-time comparison.
- * Attackers on other origins cannot read the cookie due to SameSite=Strict
- * + same-origin policy, so they can\'t forge the header.
- */
 function verifyCsrf(req) {
   if (!CSRF_METHODS.has(req.method)) return true;
-  if (CSRF_EXEMPT.has(req.path)) return true;
+  if (CSRF_EXEMPT.has(req.path))     return true;
   const cookieToken = req.cookies['csrf-token'];
   const headerToken = req.headers['x-csrf-token'];
   if (!cookieToken || !headerToken) return false;
@@ -98,6 +81,8 @@ function verifyCsrf(req) {
   }
 }
 
+// ── Core auth middleware ───────────────────────────────────────────────────────
+
 async function authenticateToken(req, res, next) {
   const token = extractToken(req);
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
@@ -110,17 +95,19 @@ async function authenticateToken(req, res, next) {
   }
 
   const { user, dbError, notFound } = await findUserFromTokenPayload(payload);
-  if (dbError) return res.status(503).json({ error: 'Authentication service temporarily unavailable' });
+  if (dbError)           return res.status(503).json({ error: 'Authentication service temporarily unavailable' });
   if (notFound || !user) return res.status(401).json({ error: 'User not found' });
 
   if (!verifyCsrf(req)) {
     return res.status(403).json({ error: 'Invalid CSRF token' });
   }
 
-  req.user = user;
+  req.user    = user;
   req.context = buildRequestContext(req, user);
   next();
 }
+
+// ── Role middleware ────────────────────────────────────────────────────────────
 
 function requireRole(...roles) {
   return (req, res, next) => {
@@ -131,4 +118,29 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { authenticateToken, requireRole, extractToken };
+// ── Superadmin-only middleware ─────────────────────────────────────────────────
+//
+// Double-checks BOTH:
+//   1. role === 'superadmin'   (database role column)
+//   2. email === SUPERADMIN_EMAIL  (env var — only the owner's email)
+//
+// Even if someone's role is set to superadmin by mistake, their email
+// won't match, so they get a generic 403 with no information leak.
+
+function requireSuperadmin(req, res, next) {
+  if (!req.user) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  const roleOk  = req.user.role === 'superadmin';
+  const emailOk = normalizeEmail(req.user.email) === SUPERADMIN_EMAIL;
+
+  if (!roleOk || !emailOk) {
+    // Deliberately vague — don't reveal which check failed.
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  next();
+}
+
+module.exports = { authenticateToken, requireRole, requireSuperadmin, extractToken };
