@@ -4,6 +4,7 @@ const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
 } = require('../services/operating-context');
+const { isOpenUnpaidInvoiceStatus } = require('../services/invoice-delivery');
 const { isStripeConfigured } = require('../services/stripe');
 
 const PORTAL_PAYMENT_ENABLED = String(process.env.PORTAL_PAYMENT_ENABLED || 'false').toLowerCase() === 'true';
@@ -112,11 +113,11 @@ function isStripeProviderEnabled() {
 }
 
 function openInvoiceStatuses() {
-  return new Set(['pending', 'signed', 'sent', 'overdue']);
+  return new Set(['pending', 'signed', 'sent', 'delivered', 'overdue']);
 }
 
 function invoiceIsOpen(invoice) {
-  return openInvoiceStatuses().has(String(invoice?.status || '').toLowerCase());
+  return isOpenUnpaidInvoiceStatus(invoice?.status);
 }
 
 async function listScopedCustomerInvoices(email, portalContext) {

@@ -6,9 +6,10 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { sendWithAuth } from '../lib/api';
-import type { CountSheetRow, InventoryItem, LedgerEntry, LedgerSummary } from '../types/inventory.types';
+import type { CountSheetRow, InventoryItem, InventoryLotSummary, LedgerEntry, LedgerSummary } from '../types/inventory.types';
 import { ActiveToggle, CatchWeightPriceInput, CatchWeightToggle, FtlToggle, InventoryLedger } from '../components/inventory';
 import {
+  useActiveInventoryLotsQuery,
   type LedgerParams,
   useAdjustMutation,
   useInventoryQuery,
@@ -35,6 +36,12 @@ function inventoryActionLabel(item: Pick<InventoryItem, 'item_number' | 'descrip
   if (itemNumber && description) return `${itemNumber} - ${description}`;
   return itemNumber || description || 'Unnamed item';
 }
+function formatInventoryLotDate(value: unknown) {
+  if (!value) return '';
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleDateString();
+}
 function SummaryCard({ label, value }: { label: string; value: string }) {
   return <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className="text-2xl">{value}</CardTitle></CardHeader></Card>;
 }
@@ -54,6 +61,32 @@ function countSheetEmptyMessage({
   if (!includeZeroStockInCounts) reasons.push('zero-stock items are hidden');
   if (!reasons.length) return 'No inventory rows are available for a count sheet yet.';
   return `No inventory rows match the current count-sheet filters because ${reasons.join(', ')}.`;
+}
+function InventoryLotsCell({ lots, isFtlProduct }: { lots: InventoryLotSummary[]; isFtlProduct?: boolean }) {
+  if (!lots.length) {
+    return <span className="text-xs text-muted-foreground">{isFtlProduct ? 'No active lots' : '—'}</span>;
+  }
+
+  const visibleLots = lots.slice(0, 2);
+  return (
+    <div className="space-y-1">
+      {visibleLots.map((lot) => (
+        <div key={lot.id || lot.lot_number} className="leading-tight">
+          <div className="font-mono text-xs font-semibold text-foreground">{lot.lot_number}</div>
+          <div className="text-[11px] text-muted-foreground">
+            {lot.expiration_date
+              ? `Exp ${formatInventoryLotDate(lot.expiration_date)}`
+              : lot.received_date
+                ? `Received ${formatInventoryLotDate(lot.received_date)}`
+                : 'Active lot'}
+          </div>
+        </div>
+      ))}
+      {lots.length > visibleLots.length && (
+        <div className="text-[11px] text-muted-foreground">+{lots.length - visibleLots.length} more active lot{lots.length - visibleLots.length === 1 ? '' : 's'}</div>
+      )}
+    </div>
+  );
 }
 
 // ── AI Health Analysis types ──────────────────────────────────────────────────
@@ -85,6 +118,8 @@ export function InventoryPage() {
   // ── Queries ───────────────────────────────────────────────────────────────
   const inventoryQuery = useInventoryQuery();
   const items = inventoryQuery.data ?? [];
+  const activeLotsQuery = useActiveInventoryLotsQuery();
+  const activeLots = activeLotsQuery.data ?? [];
 
   const [ledgerCommitted, setLedgerCommitted] = useState<LedgerParams>({
     itemFilter: '',
@@ -306,6 +341,24 @@ export function InventoryPage() {
     recentSalesExclusionWindow,
     includeZeroStockInCounts,
   }), [countCategoryFilter, recentSalesExclusionWindow, includeZeroStockInCounts]);
+  const activeLotsByProduct = useMemo(() => {
+    const grouped = new Map<string, InventoryLotSummary[]>();
+    for (const lot of activeLots) {
+      const productId = String(lot.product_id || '').trim();
+      if (!productId) continue;
+      const existing = grouped.get(productId) ?? [];
+      existing.push(lot);
+      grouped.set(productId, existing);
+    }
+    for (const [productId, lots] of grouped.entries()) {
+      grouped.set(productId, [...lots].sort((a, b) => {
+        const aDate = new Date(String(a.received_date || a.created_at || 0)).getTime();
+        const bDate = new Date(String(b.received_date || b.created_at || 0)).getTime();
+        return bDate - aDate;
+      }));
+    }
+    return grouped;
+  }, [activeLots]);
 
   function exportCountSheetCsv() {
     const scope = countCategoryFilter === 'all' ? 'all-categories' : countCategoryFilter.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -568,15 +621,25 @@ export function InventoryPage() {
                 {items.filter((i) => i.is_active === false).length} inactive item{items.filter((i) => i.is_active === false).length !== 1 ? 's' : ''} visible
               </span>
             )}
-            <Button variant="outline" onClick={() => void inventoryQuery.refetch()} className="ml-auto">Refresh</Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                void inventoryQuery.refetch();
+                void activeLotsQuery.refetch();
+              }}
+              className="ml-auto"
+            >
+              Refresh
+            </Button>
           </div>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
           <Table>
-            <TableHeader><TableRow><TableHead>Item #</TableHead><TableHead>Description</TableHead><TableHead>Category</TableHead><TableHead>On Hand</TableHead><TableHead>Cost</TableHead><TableHead>Status</TableHead><TableHead title="Active items appear in orders and counts; inactive = seasonal/off-season">Active</TableHead><TableHead title="FDA Food Traceability List">FTL</TableHead><TableHead title="Sold by actual measured weight">Catch Wt</TableHead><TableHead title="Default price per pound">$/lb</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow><TableHead>Item #</TableHead><TableHead>Description</TableHead><TableHead>Category</TableHead><TableHead>Active Lots</TableHead><TableHead>On Hand</TableHead><TableHead>Cost</TableHead><TableHead>Status</TableHead><TableHead title="Active items appear in orders and counts; inactive = seasonal/off-season">Active</TableHead><TableHead title="FDA Food Traceability List">FTL</TableHead><TableHead title="Sold by actual measured weight">Catch Wt</TableHead><TableHead title="Default price per pound">$/lb</TableHead></TableRow></TableHeader>
             <TableBody>
               {filtered.length ? filtered.map((item) => {
                 const qty = asNumber(item.on_hand_qty);
+                const itemLots = activeLotsByProduct.get(String(item.item_number || '').trim()) ?? [];
                 const isInactive = item.is_active === false;
                 const status = qty <= 0 ? <Badge variant="warning">Out</Badge> : qty <= 10 ? <Badge variant="secondary">Low</Badge> : <Badge variant="success">Healthy</Badge>;
                 return (
@@ -587,6 +650,7 @@ export function InventoryPage() {
                     </TableCell>
                     <TableCell>{item.description ?? '-'}</TableCell>
                     <TableCell>{item.category ?? '-'}</TableCell>
+                    <TableCell><InventoryLotsCell lots={itemLots} isFtlProduct={item.is_ftl_product} /></TableCell>
                     <TableCell>{qty.toLocaleString()} {item.unit ?? ''}</TableCell>
                     <TableCell>{money(asNumber(item.cost))}</TableCell>
                     <TableCell>{status}</TableCell>
@@ -596,7 +660,7 @@ export function InventoryPage() {
                     <TableCell>{item.is_catch_weight ? <CatchWeightPriceInput item={item} onSaved={patchCachedItem} /> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
                   </TableRow>
                 );
-              }) : <TableRow><TableCell colSpan={9} className="text-muted-foreground">No inventory rows available.</TableCell></TableRow>}
+              }) : <TableRow><TableCell colSpan={11} className="text-muted-foreground">No inventory rows available.</TableCell></TableRow>}
             </TableBody>
           </Table>
         </CardContent>

@@ -29,6 +29,7 @@ export type Invoice = {
   paid_date?: string;
   notes?: string;
   created_at?: string;
+  estimated_weight_pending?: boolean;
   lot_numbers?: InvoiceLotEntry[];
 };
 

@@ -12,6 +12,7 @@ export type Vendor = {
   email?: string;
   phone?: string;
   category?: string;
+  catalog_item_numbers?: string[];
   activePOs?: number | string;
   active_pos?: number | string;
   status?: string;

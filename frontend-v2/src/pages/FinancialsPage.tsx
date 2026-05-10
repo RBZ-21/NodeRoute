@@ -43,7 +43,7 @@ function normalize(value: unknown): string {
 }
 
 function isOpenInvoice(status: unknown): boolean {
-  return new Set(['pending', 'signed', 'sent', 'overdue']).has(normalize(status));
+  return new Set(['pending', 'signed', 'sent', 'delivered', 'overdue']).has(normalize(status));
 }
 
 function localDateKey(input: Date | string): string {

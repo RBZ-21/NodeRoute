@@ -9,6 +9,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import {
   type AssignmentsResult,
   type Customer,
+  type Driver,
   type OptimizeResult,
   type RouteRecord,
   type StopRecord,
@@ -52,6 +53,49 @@ function normalizedLocationKey(name: string | undefined, address: string | undef
   return `${String(name || '').trim().toLowerCase()}|${String(address || '').trim().toLowerCase()}`;
 }
 
+function normalizeDriverKey(value: string | undefined) {
+  return String(value || '').trim().toLowerCase();
+}
+
+function driverDisplayName(driver: Driver | undefined) {
+  return String(driver?.name || driver?.email || '').trim();
+}
+
+function resolveDriverSelection(drivers: Driver[], driverInput: string, selectedDriverId: string) {
+  const trimmedInput = String(driverInput || '').trim();
+  if (!trimmedInput) {
+    return { driverName: '', driverId: undefined as string | undefined };
+  }
+
+  const normalizedInput = normalizeDriverKey(trimmedInput);
+  const selectedDriver = drivers.find((driver) => String(driver.id) === String(selectedDriverId || ''));
+  if (
+    selectedDriver &&
+    (
+      normalizeDriverKey(selectedDriver.name) === normalizedInput
+      || normalizeDriverKey(selectedDriver.email) === normalizedInput
+    )
+  ) {
+    return {
+      driverName: driverDisplayName(selectedDriver) || trimmedInput,
+      driverId: selectedDriver.id,
+    };
+  }
+
+  const exactMatches = drivers.filter((driver) =>
+    normalizeDriverKey(driver.name) === normalizedInput
+    || normalizeDriverKey(driver.email) === normalizedInput,
+  );
+  if (exactMatches.length === 1) {
+    return {
+      driverName: driverDisplayName(exactMatches[0]) || trimmedInput,
+      driverId: exactMatches[0].id,
+    };
+  }
+
+  return null;
+}
+
 export function RoutesPage() {
   const navigate = useNavigate();
 
@@ -73,13 +117,15 @@ export function RoutesPage() {
 
   // Create form
   const [newName, setNewName] = useState('');
-  const [newDriver, setNewDriver] = useState('');
+  const [newDriverName, setNewDriverName] = useState('');
+  const [newDriverId, setNewDriverId] = useState('');
   const [newNotes, setNewNotes] = useState('');
 
   // Edit panel
   const [editRoute, setEditRoute] = useState<RouteRecord | null>(null);
   const [editName, setEditName] = useState('');
-  const [editDriver, setEditDriver] = useState('');
+  const [editDriverName, setEditDriverName] = useState('');
+  const [editDriverId, setEditDriverId] = useState('');
   const [editNotes, setEditNotes] = useState('');
 
   // Stop add
@@ -98,10 +144,18 @@ export function RoutesPage() {
 
   const [statusFilter, setStatusFilter] = useState<'all' | RouteStatus>('all');
 
+  const driverById = useMemo(
+    () => new Map(drivers.map((driver) => [String(driver.id), driver])),
+    [drivers],
+  );
+
   const driverOptions = useMemo(
     () => drivers.map((d) => ({ label: d.name || d.email || '', sublabel: d.email, value: d.id })),
     [drivers],
   );
+
+  const linkedNewDriver = newDriverId ? driverById.get(newDriverId) : undefined;
+  const linkedEditDriver = editDriverId ? driverById.get(editDriverId) : undefined;
 
   const summary = useMemo(() => ({
     active: routes.filter((r) => normalizeStatus(r.status) === 'active').length,
@@ -177,9 +231,16 @@ export function RoutesPage() {
   }
 
   function openEdit(route: RouteRecord) {
+    const resolvedLegacyDriver = resolveDriverSelection(drivers, route.driver || '', '');
+    const matchedDriver = route.driver_id
+      ? driverById.get(String(route.driver_id))
+      : resolvedLegacyDriver?.driverId
+        ? driverById.get(String(resolvedLegacyDriver.driverId))
+        : undefined;
     setEditRoute(route);
     setEditName(route.name || '');
-    setEditDriver(route.driver || '');
+    setEditDriverName(route.driver || driverDisplayName(matchedDriver) || '');
+    setEditDriverId(String(route.driver_id || matchedDriver?.id || ''));
     setEditNotes(route.notes || '');
     setSelectedOrderIds(new Set());
     setStopSearch('');
@@ -188,20 +249,67 @@ export function RoutesPage() {
 
   function closeEdit() {
     setEditRoute(null);
+    setEditDriverName('');
+    setEditDriverId('');
     setSelectedOrderIds(new Set());
     setStopSearch('');
     setSelectedStopCustomerId('');
+  }
+
+  function handleNewDriverChange(value: string) {
+    setNewDriverName(value);
+    const selectedDriver = driverById.get(newDriverId);
+    if (!selectedDriver) {
+      setNewDriverId('');
+      return;
+    }
+    const normalizedValue = normalizeDriverKey(value);
+    const keepSelected =
+      normalizedValue &&
+      (
+        normalizeDriverKey(selectedDriver.name) === normalizedValue
+        || normalizeDriverKey(selectedDriver.email) === normalizedValue
+      );
+    if (!keepSelected) setNewDriverId('');
+  }
+
+  function handleEditDriverChange(value: string) {
+    setEditDriverName(value);
+    const selectedDriver = driverById.get(editDriverId);
+    if (!selectedDriver) {
+      setEditDriverId('');
+      return;
+    }
+    const normalizedValue = normalizeDriverKey(value);
+    const keepSelected =
+      normalizedValue &&
+      (
+        normalizeDriverKey(selectedDriver.name) === normalizedValue
+        || normalizeDriverKey(selectedDriver.email) === normalizedValue
+      );
+    if (!keepSelected) setEditDriverId('');
   }
 
   // ── Actions ────────────────────────────────────────────────────────────────
 
   function handleCreateRoute() {
     if (!newName.trim()) { setActionError('Route name is required.'); return; }
+    const resolvedDriver = resolveDriverSelection(drivers, newDriverName, newDriverId);
+    if (!resolvedDriver) {
+      setActionError('Choose a driver from the saved user list or leave the route unassigned.');
+      return;
+    }
     setActionError('');
     createRoute.mutate(
-      { name: newName.trim(), driver: newDriver.trim(), notes: newNotes.trim() },
+      { name: newName.trim(), driver: resolvedDriver.driverName, driverId: resolvedDriver.driverId, notes: newNotes.trim() },
       {
-        onSuccess: () => { setNotice(`Route "${newName.trim()}" created.`); setNewName(''); setNewDriver(''); setNewNotes(''); },
+        onSuccess: () => {
+          setNotice(`Route "${newName.trim()}" created.`);
+          setNewName('');
+          setNewDriverName('');
+          setNewDriverId('');
+          setNewNotes('');
+        },
         onError: (err) => setActionError(String((err as Error).message || 'Could not create route')),
       }
     );
@@ -209,13 +317,20 @@ export function RoutesPage() {
 
   function handleSaveEdit() {
     if (!editRoute || !editName.trim()) { setActionError('Route name is required.'); return; }
+    const resolvedDriver = resolveDriverSelection(drivers, editDriverName, editDriverId);
+    if (!resolvedDriver) {
+      setActionError('Choose a driver from the saved user list or clear the route assignment.');
+      return;
+    }
     setActionError('');
     updateRoute.mutate(
-      { id: editRoute.id, patch: { name: editName.trim(), driver: editDriver.trim(), notes: editNotes.trim() } },
+      { id: editRoute.id, patch: { name: editName.trim(), driver: resolvedDriver.driverName, driverId: resolvedDriver.driverId, notes: editNotes.trim() } },
       {
         onSuccess: () => {
           setNotice('Route updated.');
-          setEditRoute((prev) => prev ? { ...prev, name: editName.trim(), driver: editDriver.trim(), notes: editNotes.trim() } : null);
+          setEditRoute((prev) => prev ? { ...prev, name: editName.trim(), driver: resolvedDriver.driverName, driver_id: resolvedDriver.driverId, notes: editNotes.trim() } : null);
+          setEditDriverName(resolvedDriver.driverName);
+          setEditDriverId(String(resolvedDriver.driverId || ''));
         },
         onError: (err) => setActionError(String((err as Error).message || 'Could not update route')),
       }
@@ -331,6 +446,34 @@ export function RoutesPage() {
     });
   }
 
+  function handleApplyDriverSuggestion(routeId: string, recommendedDriverName: string) {
+    const resolvedDriver = resolveDriverSelection(drivers, recommendedDriverName, '');
+    if (!resolvedDriver?.driverId) {
+      setActionError(`Could not link "${recommendedDriverName}" to a saved driver user.`);
+      return;
+    }
+    const linkedDriverId = resolvedDriver.driverId;
+    setActionError('');
+    updateRoute.mutate(
+      { id: routeId, patch: { driver: resolvedDriver.driverName, driverId: linkedDriverId } },
+      {
+        onSuccess: () => {
+          setNotice(`Assigned ${resolvedDriver.driverName} to the route.`);
+          setAssignmentsResult((prev) => prev ? {
+            ...prev,
+            assignments: prev.assignments.filter((assignment) => assignment.route_id !== routeId),
+          } : null);
+          if (editRoute?.id === routeId) {
+            setEditDriverName(resolvedDriver.driverName);
+            setEditDriverId(linkedDriverId);
+            setEditRoute((prev) => prev ? { ...prev, driver: resolvedDriver.driverName, driver_id: linkedDriverId } : null);
+          }
+        },
+        onError: (err) => setActionError(String((err as Error).message || 'Could not apply driver assignment')),
+      },
+    );
+  }
+
   function toggleOrder(orderId: string) {
     setSelectedOrderIds((prev) => { const next = new Set(prev); next.has(orderId) ? next.delete(orderId) : next.add(orderId); return next; });
   }
@@ -376,7 +519,17 @@ export function RoutesPage() {
             </label>
             <label className="space-y-1 text-sm">
               <span className="font-semibold text-muted-foreground">Driver</span>
-              <Combobox value={newDriver} onChange={setNewDriver} onSelect={(opt) => setNewDriver(opt.label)} options={driverOptions} placeholder="Assign driver" />
+              <Combobox
+                value={newDriverName}
+                onChange={handleNewDriverChange}
+                onSelect={(opt) => {
+                  setNewDriverName(opt.label);
+                  setNewDriverId(opt.value);
+                }}
+                options={driverOptions}
+                placeholder="Assign driver"
+              />
+              {linkedNewDriver ? <span className="block text-xs text-muted-foreground">Linked to user account: {linkedNewDriver.email || linkedNewDriver.id}</span> : null}
             </label>
             <label className="space-y-1 text-sm">
               <span className="font-semibold text-muted-foreground">Notes</span>
@@ -409,7 +562,17 @@ export function RoutesPage() {
               </label>
               <label className="space-y-1 text-sm">
                 <span className="font-semibold text-muted-foreground">Driver</span>
-                <Combobox value={editDriver} onChange={setEditDriver} onSelect={(opt) => setEditDriver(opt.label)} options={driverOptions} placeholder="Assign driver" />
+                <Combobox
+                  value={editDriverName}
+                  onChange={handleEditDriverChange}
+                  onSelect={(opt) => {
+                    setEditDriverName(opt.label);
+                    setEditDriverId(opt.value);
+                  }}
+                  options={driverOptions}
+                  placeholder="Assign driver"
+                />
+                {linkedEditDriver ? <span className="block text-xs text-muted-foreground">Linked to user account: {linkedEditDriver.email || linkedEditDriver.id}</span> : null}
               </label>
               <label className="space-y-1 text-sm">
                 <span className="font-semibold text-muted-foreground">Notes</span>
@@ -554,6 +717,7 @@ export function RoutesPage() {
                       <TableHead>Suggested Driver</TableHead>
                       <TableHead>Confidence</TableHead>
                       <TableHead>Reasoning</TableHead>
+                      <TableHead />
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -567,7 +731,17 @@ export function RoutesPage() {
                           </span>
                         </TableCell>
                         <TableCell className="text-sm text-muted-foreground">{a.reasoning}</TableCell>
-      					</TableRow>
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleApplyDriverSuggestion(a.route_id, a.recommended_driver_name)}
+                            disabled={updateRoute.isPending}
+                          >
+                            Apply
+                          </Button>
+                        </TableCell>
+                      </TableRow>
                     ))}
                   </TableBody>
                 </Table>
@@ -640,10 +814,11 @@ export function RoutesPage() {
                 const status = normalizeStatus(route.status);
                 const stopCount = resolvedStopIds(route, allStops).length;
                 const isEditing = editRoute?.id === route.id;
+                const assignedDriver = route.driver || driverDisplayName(driverById.get(String(route.driver_id || '')));
                 return (
                   <TableRow key={route.id} className={isEditing ? 'bg-primary/5' : ''}>
                     <TableCell className="font-medium">{route.name || route.id.slice(0, 8)}</TableCell>
-                    <TableCell>{route.driver || <span className="text-muted-foreground italic">Unassigned</span>}</TableCell>
+                    <TableCell>{assignedDriver || <span className="text-muted-foreground italic">Unassigned</span>}</TableCell>
                     <TableCell>
                       <StatusBadge status={status === 'other' ? 'unknown' : status} colorMap={statusColors} fallbackLabel="Unknown" />
                     </TableCell>

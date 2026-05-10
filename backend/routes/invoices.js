@@ -214,7 +214,7 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
 
   if (req.body.status !== undefined) {
     const nextStatus = String(req.body.status || '').trim().toLowerCase();
-    if (!['pending', 'paid', 'overdue', 'void', 'signed', 'sent'].includes(nextStatus)) {
+    if (!['pending', 'paid', 'overdue', 'void', 'signed', 'sent', 'delivered'].includes(nextStatus)) {
       return res.status(400).json({ error: 'Invalid invoice status' });
     }
     updates.status = nextStatus;

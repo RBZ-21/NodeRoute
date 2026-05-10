@@ -18,7 +18,18 @@ test('stop depart email follows the stop invoice instead of customer fallback or
     assert.ok(stopsRouteSource.includes(marker), `stops route missing marker ${marker}`);
   }
 
-  assert.ok(!stopsRouteSource.includes(".from('orders')"), 'stop depart email should not look up the latest order anymore');
+  assert.ok(!stopsRouteSource.includes(".eq('customer_id'"), 'stop depart email should not fall back to customer-based order lookup');
+});
+
+test('stop routes sync driver notes onto the linked invoice and mark it delivered on depart', () => {
+  for (const marker of [
+    'mergeInvoiceNotesWithDriverNotes(linkedInvoice.notes, stop.driver_notes)',
+    "await syncLinkedInvoiceForStop(data, req.context, { syncDriverNotes: true });",
+    "const invoice = await syncLinkedInvoiceForStop(stop, req.context, { markDelivered: true, syncDriverNotes: true });",
+    'updates.status = nextStatus;',
+  ]) {
+    assert.ok(stopsRouteSource.includes(marker), `stops route missing invoice sync marker ${marker}`);
+  }
 });
 
 test('driver app exposes a dedicated skip to end action on the stop detail screen', () => {
@@ -37,5 +48,16 @@ test('driver app exposes a dedicated skip to end action on the stop detail scree
       || stopDetailPageSource.includes(marker),
       `driver skip flow missing marker ${marker}`,
     );
+  }
+});
+
+test('driver app supports a two-tap proof-of-delivery completion path', () => {
+  for (const marker of [
+    "const [autoDeliverAfterPhoto, setAutoDeliverAfterPhoto] = useState(false);",
+    "await runAction('delivered', image);",
+    "openPhotoCapture(true);",
+    "needsProofBeforeDelivery ? 'Capture Photo + Deliver' : 'Mark Delivered'",
+  ]) {
+    assert.ok(stopDetailPageSource.includes(marker), `driver POD flow missing marker ${marker}`);
   }
 });

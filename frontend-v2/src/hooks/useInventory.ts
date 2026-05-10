@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
-import type { InventoryItem, LedgerResponse, RecentSoldItemsResponse } from '../types/inventory.types';
+import type { InventoryItem, InventoryLotSummary, LedgerResponse, RecentSoldItemsResponse } from '../types/inventory.types';
 
 export type LedgerParams = {
   itemFilter: string;
@@ -13,6 +13,15 @@ export function useInventoryQuery() {
     queryKey: ['inventory'] as const,
     queryFn: () =>
       fetchWithAuth<InventoryItem[]>('/api/inventory').then((d) => (Array.isArray(d) ? d : [])),
+    staleTime: 30_000,
+  });
+}
+
+export function useActiveInventoryLotsQuery() {
+  return useQuery({
+    queryKey: ['inventory', 'active-lots'] as const,
+    queryFn: () =>
+      fetchWithAuth<InventoryLotSummary[]>('/api/lots?active_only=true').then((d) => (Array.isArray(d) ? d : [])),
     staleTime: 30_000,
   });
 }
