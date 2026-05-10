@@ -13,7 +13,6 @@ import { useEffect, useState } from 'react';
 import { SuperadminGuard } from '../components/SuperadminGuard';
 import { fetchWithAuth } from '../lib/api';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
-import { Badge } from '../components/ui/badge';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
