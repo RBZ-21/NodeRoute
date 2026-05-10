@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCompanyConfig } from '../hooks/useCompanyConfig';
 import { useQueryClient } from '@tanstack/react-query';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -114,6 +115,7 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 export function InventoryPage() {
   const queryClient = useQueryClient();
+  const { features } = useCompanyConfig();
 
   // ── Queries ───────────────────────────────────────────────────────────────
   const inventoryQuery = useInventoryQuery();
@@ -635,7 +637,19 @@ export function InventoryPage() {
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
           <Table>
-            <TableHeader><TableRow><TableHead>Item #</TableHead><TableHead>Description</TableHead><TableHead>Category</TableHead><TableHead>Active Lots</TableHead><TableHead>On Hand</TableHead><TableHead>Cost</TableHead><TableHead>Status</TableHead><TableHead title="Active items appear in orders and counts; inactive = seasonal/off-season">Active</TableHead><TableHead title="FDA Food Traceability List">FTL</TableHead><TableHead title="Sold by actual measured weight">Catch Wt</TableHead><TableHead title="Default price per pound">$/lb</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow>
+              <TableHead>Item #</TableHead>
+              <TableHead>Description</TableHead>
+              <TableHead>Category</TableHead>
+              {features.fsmaLotTracking && <TableHead>Active Lots</TableHead>}
+              <TableHead>On Hand</TableHead>
+              <TableHead>Cost</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead title="Active items appear in orders and counts; inactive = seasonal/off-season">Active</TableHead>
+              {features.fsmaLotTracking && <TableHead title="FDA Food Traceability List">FTL</TableHead>}
+              {features.catchWeight     && <TableHead title="Sold by actual measured weight">Catch Wt</TableHead>}
+              {features.catchWeight     && <TableHead title="Default price per pound">$/lb</TableHead>}
+            </TableRow></TableHeader>
             <TableBody>
               {filtered.length ? filtered.map((item) => {
                 const qty = asNumber(item.on_hand_qty);
@@ -650,17 +664,17 @@ export function InventoryPage() {
                     </TableCell>
                     <TableCell>{item.description ?? '-'}</TableCell>
                     <TableCell>{item.category ?? '-'}</TableCell>
-                    <TableCell><InventoryLotsCell lots={itemLots} isFtlProduct={item.is_ftl_product} /></TableCell>
+                    {features.fsmaLotTracking && <TableCell><InventoryLotsCell lots={itemLots} isFtlProduct={item.is_ftl_product} /></TableCell>}
                     <TableCell>{qty.toLocaleString()} {item.unit ?? ''}</TableCell>
                     <TableCell>{money(asNumber(item.cost))}</TableCell>
                     <TableCell>{status}</TableCell>
                     <TableCell><ActiveToggle item={item} onToggled={patchCachedItem} /></TableCell>
-                    <TableCell><FtlToggle item={item} onToggled={patchCachedItem} /></TableCell>
-                    <TableCell><CatchWeightToggle item={item} onToggled={patchCachedItem} /></TableCell>
-                    <TableCell>{item.is_catch_weight ? <CatchWeightPriceInput item={item} onSaved={patchCachedItem} /> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
+                    {features.fsmaLotTracking && <TableCell><FtlToggle item={item} onToggled={patchCachedItem} /></TableCell>}
+                    {features.catchWeight     && <TableCell><CatchWeightToggle item={item} onToggled={patchCachedItem} /></TableCell>}
+                    {features.catchWeight     && <TableCell>{item.is_catch_weight ? <CatchWeightPriceInput item={item} onSaved={patchCachedItem} /> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>}
                   </TableRow>
                 );
-              }) : <TableRow><TableCell colSpan={11} className="text-muted-foreground">No inventory rows available.</TableCell></TableRow>}
+              }) : <TableRow><TableCell colSpan={7 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0)} className="text-muted-foreground">No inventory rows available.</TableCell></TableRow>}
             </TableBody>
           </Table>
         </CardContent>
