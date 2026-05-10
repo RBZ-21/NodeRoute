@@ -1,11 +1,17 @@
 const express = require('express');
 const { authenticateToken, requireRole } = require('../../middleware/auth');
 const {
+  buildScopeFields,
+  executeWithOptionalScope,
+  filterRowsByContext,
+} = require('../../services/operating-context');
+const {
   applyInventoryLedgerEntry,
   genId,
   genPoNumber,
   normalizePoLine,
   normalizeReceiptRules,
+  poLineRequiresLot,
   readOpsData,
   summarizeVendorPurchaseOrders,
   resolveInventoryMatch,
@@ -14,6 +20,65 @@ const {
   toNumber,
   writeOpsData,
 } = require('./purchasing-shared');
+
+function isMissingLotSourcePoColumnError(error) {
+  return !!error?.message && String(error.message).includes('lot_codes.source_po_number does not exist');
+}
+
+async function ensureReceiptLotRecord({ lotNumber, itemNumber, poLine, acceptedQty, po, req }) {
+  const trimmedLotNumber = String(lotNumber || '').trim();
+  if (!trimmedLotNumber) return { lotId: null, created: false };
+
+  const scopeFields = buildScopeFields(req.context || {});
+  let lotQuery = supabase.from('lot_codes').select('id').eq('lot_number', trimmedLotNumber);
+  if (scopeFields.company_id) lotQuery = lotQuery.eq('company_id', scopeFields.company_id);
+  if (scopeFields.location_id) lotQuery = lotQuery.eq('location_id', scopeFields.location_id);
+
+  const { data: scopedLots, error: scopedLotError } = await lotQuery.limit(1);
+  let existingLot = null;
+
+  if (scopedLotError) {
+    const fallbackLookup = await supabase.from('lot_codes').select('*').eq('lot_number', trimmedLotNumber).limit(5);
+    if (fallbackLookup.error) throw new Error(fallbackLookup.error.message);
+    existingLot = filterRowsByContext(fallbackLookup.data || [], req.context)[0] || fallbackLookup.data?.[0] || null;
+  } else {
+    existingLot = scopedLots?.[0] || null;
+  }
+
+  if (existingLot) return { lotId: existingLot.id || null, created: false };
+
+  const lotPayload = {
+    lot_number: trimmedLotNumber,
+    product_id: itemNumber || null,
+    vendor_id: po.vendor || po.vendor_name || null,
+    quantity_received: acceptedQty,
+    unit_of_measure: poLine.unit || 'each',
+    received_date: new Date().toISOString().slice(0, 10),
+    received_by: req.user?.name || req.user?.email || 'system',
+    source_po_number: po.po_number || null,
+    notes: `Auto-created from vendor PO receipt${po.po_number ? ' · ' + po.po_number : ''}`,
+    ...scopeFields,
+  };
+
+  let lotInsert = await executeWithOptionalScope(
+    (candidate) => supabase.from('lot_codes').insert([candidate]).select('id').single(),
+    lotPayload
+  );
+  if (isMissingLotSourcePoColumnError(lotInsert.error)) {
+    const { source_po_number, ...legacyLotPayload } = lotPayload;
+    lotInsert = await executeWithOptionalScope(
+      (candidate) => supabase.from('lot_codes').insert([candidate]).select('id').single(),
+      legacyLotPayload
+    );
+  }
+  if (lotInsert.error && lotInsert.error.code === '23505') {
+    const lookup = await supabase.from('lot_codes').select('id').eq('lot_number', trimmedLotNumber).limit(1);
+    if (lookup.error) throw new Error(lookup.error.message);
+    return { lotId: lookup.data?.[0]?.id || null, created: false };
+  }
+  if (lotInsert.error) throw new Error(lotInsert.error.message);
+  return { lotId: lotInsert.data?.id || null, created: !!lotInsert.data };
+}
 
 module.exports = function buildOpsPurchasingOrderRouter() {
   const router = express.Router();
@@ -146,6 +211,21 @@ module.exports = function buildOpsPurchasingOrderRouter() {
     const overReceiptPolicy = receiptRules.over_receipt_policy;
     const backorderPolicy = receiptRules.backorder_policy;
 
+    for (const rawLine of receiveLines) {
+      const targetLineNo = parseInt(rawLine.line_no, 10);
+      const poLine = po.lines.find((line) => line.line_no === targetLineNo)
+        || po.lines.find((line) => line.item_number && String(rawLine.item_number || '').trim() === line.item_number)
+        || po.lines.find((line) => String(line.product_name || '').toLowerCase() === String(rawLine.product_name || '').trim().toLowerCase());
+      if (!poLine) continue;
+      const requestedQty = Math.max(0, toNumber(rawLine.qty_received ?? rawLine.quantity, 0));
+      if (requestedQty <= 0) continue;
+      if (poLineRequiresLot(poLine) && !String(rawLine.lot_number || '').trim()) {
+        return res.status(400).json({
+          error: `Lot number is required before receiving mollusk item "${poLine.product_name || `Line ${poLine.line_no}`}".`,
+        });
+      }
+    }
+
     if (overReceiptPolicy === 'reject') {
       const rejectedLines = [];
       for (const rawLine of receiveLines) {
@@ -187,6 +267,7 @@ module.exports = function buildOpsPurchasingOrderRouter() {
     let totalAcceptedQty = 0;
     let totalRejectedQty = 0;
     let totalOverReceiptQty = 0;
+    let lotsCreated = 0;
 
     for (const rawLine of receiveLines) {
       const targetLineNo = parseInt(rawLine.line_no, 10);
@@ -215,11 +296,13 @@ module.exports = function buildOpsPurchasingOrderRouter() {
       totalOverReceiptQty += overRequestedQty;
 
       const unitCost = Math.max(0, toNumber(rawLine.unit_cost, toNumber(poLine.unit_cost, 0)));
+      const lotNumber = String(rawLine.lot_number || '').trim() || null;
       poLine.received_qty = parseFloat((previousReceivedQty + acceptedQty).toFixed(3));
       poLine.over_received_qty = parseFloat((Math.max(0, toNumber(poLine.over_received_qty, 0)) + (overReceiptPolicy === 'allow' ? overRequestedQty : 0)).toFixed(3));
       poLine.unit_cost = parseFloat(unitCost.toFixed(4));
       poLine.line_total = parseFloat((orderedQty * unitCost).toFixed(2));
       poLine.received_total = parseFloat((toNumber(poLine.received_qty, 0) * unitCost).toFixed(2));
+      if (lotNumber) poLine.lot_number = lotNumber;
 
       const receivedTowardOrdered = Math.min(toNumber(poLine.received_qty, 0), orderedQty);
       const backorderedAfterRaw = Math.max(0, orderedQty - receivedTowardOrdered);
@@ -252,12 +335,12 @@ module.exports = function buildOpsPurchasingOrderRouter() {
         const insertPayload = {
           item_number: itemNumber,
           description: poLine.product_name,
-          category: 'Other',
+          category: poLine.category || 'Other',
           unit: poLine.unit || 'each',
           cost: unitCost,
           on_hand_qty: 0,
           on_hand_weight: 0,
-          lot_item: 'N',
+          lot_item: poLineRequiresLot(poLine) ? 'Y' : 'N',
           updated_at: new Date().toISOString(),
         };
         const { data: inserted, error: insertError } = await supabase
@@ -270,6 +353,7 @@ module.exports = function buildOpsPurchasingOrderRouter() {
         newQty = acceptedQty;
         newCost = unitCost;
       }
+      poLine.item_number = itemNumber;
 
       // Legacy weighted-cost marker retained for workflow tests:
       // const weighted = ((prevQty * prevCost) + (acceptedQty * unitCost)) / newQty;
@@ -279,7 +363,7 @@ module.exports = function buildOpsPurchasingOrderRouter() {
           itemNumber,
           deltaQty: acceptedQty,
           changeType: 'restock',
-          notes: `PO ${po.po_number} receipt (${po.vendor})`,
+          notes: `PO ${po.po_number} receipt (${po.vendor})${lotNumber ? ' · Lot ' + lotNumber : ''}`,
           createdBy: req.user?.name || req.user?.email || 'system',
           unitCost,
         });
@@ -295,10 +379,30 @@ module.exports = function buildOpsPurchasingOrderRouter() {
         inventoryRow.cost = newCost;
       }
 
+      let lotId = null;
+      if (lotNumber) {
+        try {
+          const lotRecord = await ensureReceiptLotRecord({
+            lotNumber,
+            itemNumber,
+            poLine,
+            acceptedQty,
+            po,
+            req,
+          });
+          lotId = lotRecord.lotId || null;
+          if (lotRecord.created) lotsCreated += 1;
+        } catch (lotError) {
+          return res.status(500).json({ error: lotError.message });
+        }
+      }
+
       receiptLines.push({
         line_no: poLine.line_no,
         item_number: itemNumber,
         product_name: poLine.product_name,
+        lot_number: lotNumber,
+        lot_id: lotId,
         qty_received: parseFloat(acceptedQty.toFixed(3)),
         requested_receive_qty: parseFloat(requestedQty.toFixed(3)),
         accepted_receive_qty: parseFloat(acceptedQty.toFixed(3)),
@@ -340,6 +444,7 @@ module.exports = function buildOpsPurchasingOrderRouter() {
         total_rejected_qty: parseFloat(totalRejectedQty.toFixed(3)),
         total_over_receipt_qty: parseFloat(totalOverReceiptQty.toFixed(3)),
         total_backordered_qty_after_receipt: parseFloat(totalBackorderedAfterReceipt.toFixed(3)),
+        lots_created: lotsCreated,
         line_count_requested: receiveLines.length,
         line_count_applied: receiptLines.length,
       },

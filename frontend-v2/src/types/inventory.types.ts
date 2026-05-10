@@ -12,6 +12,19 @@ export type InventoryItem = {
   default_price_per_lb?: number | string;
 };
 
+export type InventoryLotSummary = {
+  id: string;
+  lot_number: string;
+  product_id?: string;
+  vendor_id?: string;
+  quantity_received?: number | string;
+  unit_of_measure?: string;
+  received_date?: string;
+  expiration_date?: string;
+  notes?: string;
+  created_at?: string;
+};
+
 export type CountSheetRow = {
   id: string;
   item_number: string;

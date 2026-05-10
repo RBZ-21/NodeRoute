@@ -90,6 +90,17 @@ function isOpenOrder(order: OrderRecord): boolean {
   return normalized === 'pending' || normalized === 'in_process' || normalized === 'processed';
 }
 
+type ReceivingExceptionEntry = {
+  id: string;
+  poNumber: string;
+  vendor: string;
+  receivedAt: string;
+  lineLabel: string;
+  varianceLabel: string;
+  quantityVariance: number;
+  overReceiptQty: number;
+};
+
 export function DashboardPage() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
@@ -237,6 +248,49 @@ export function DashboardPage() {
     backordered: vendorPurchaseOrders.filter((po) => String(po.status || '').toLowerCase() === 'backordered').length,
     spend: vendorPurchaseOrders.reduce((sum, po) => sum + asNumber(po.total_ordered_cost, 0), 0),
   }), [vendorPurchaseOrders]);
+  const receivingExceptions = useMemo(() => {
+    const entries: ReceivingExceptionEntry[] = [];
+    let receiptsWithVariance = 0;
+    let shortQty = 0;
+    let overQty = 0;
+
+    for (const po of vendorPurchaseOrders) {
+      for (const receipt of po.receipts || []) {
+        const lines = (receipt.lines || []).filter((line) => {
+          const varianceType = String(line.variance_type || '').trim().toLowerCase();
+          return (varianceType && varianceType !== 'exact_receipt')
+            || asNumber(line.over_receipt_qty) > 0
+            || asNumber(line.quantity_variance_qty) !== 0;
+        });
+        if (!lines.length) continue;
+        receiptsWithVariance += 1;
+        for (const line of lines) {
+          const quantityVariance = asNumber(line.quantity_variance_qty);
+          const overReceiptQty = asNumber(line.over_receipt_qty);
+          if (quantityVariance < 0) shortQty += Math.abs(quantityVariance);
+          if (overReceiptQty > 0) overQty += overReceiptQty;
+          entries.push({
+            id: `${po.id}:${receipt.id}:${line.line_no}`,
+            poNumber: po.po_number || po.id.slice(0, 8),
+            vendor: String(po.vendor || po.vendor_name || 'Unassigned Vendor'),
+            receivedAt: receipt.received_at || '',
+            lineLabel: line.product_name || line.item_number || `Line ${line.line_no}`,
+            varianceLabel: String(line.variance_type || 'variance').replace(/_/g, ' '),
+            quantityVariance,
+            overReceiptQty,
+          });
+        }
+      }
+    }
+
+    entries.sort((left, right) => String(right.receivedAt || '').localeCompare(String(left.receivedAt || '')));
+    return {
+      entries,
+      receiptsWithVariance,
+      shortQty,
+      overQty,
+    };
+  }, [vendorPurchaseOrders]);
 
   if (role === 'driver') {
     return (
@@ -486,10 +540,62 @@ export function DashboardPage() {
             </div>
             <Button onClick={() => navigate('/purchasing')}><ShoppingCart className="mr-2 h-4 w-4" />Open Purchasing Workspace</Button>
           </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-3">
-            <MiniMetric label="Open Vendor POs" value={purchasingSnapshot.open.toLocaleString()} />
-            <MiniMetric label="Backordered POs" value={purchasingSnapshot.backordered.toLocaleString()} />
-            <MiniMetric label="Tracked PO Spend" value={money(purchasingSnapshot.spend)} />
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <MiniMetric label="Open Vendor POs" value={purchasingSnapshot.open.toLocaleString()} />
+              <MiniMetric label="Backordered POs" value={purchasingSnapshot.backordered.toLocaleString()} />
+              <MiniMetric label="Tracked PO Spend" value={money(purchasingSnapshot.spend)} />
+            </div>
+            <div className="grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)]">
+              <div className="rounded-xl border border-border bg-muted/10 p-4">
+                <div className="text-sm font-semibold text-foreground">Receiving Exceptions</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Dedicated dashboard view of vendor short receipts and overages without leaving the admin home screen.
+                </div>
+                <div className="mt-3 grid gap-2">
+                  <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                    Receipts w/ variance: <strong>{receivingExceptions.receiptsWithVariance}</strong>
+                  </div>
+                  <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                    Short qty flagged: <strong>{receivingExceptions.shortQty.toFixed(2)}</strong>
+                  </div>
+                  <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                    Over qty flagged: <strong>{receivingExceptions.overQty.toFixed(2)}</strong>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-xl border border-border bg-muted/10 p-4">
+                <div className="text-sm font-semibold text-foreground">Recent Receiving Exceptions</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Latest receipt lines that posted outside the exact ordered quantity.
+                </div>
+                {receivingExceptions.entries.length ? (
+                  <div className="mt-3 space-y-2">
+                    {receivingExceptions.entries.slice(0, 4).map((entry) => (
+                      <div key={entry.id} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <strong>{entry.poNumber}</strong> · {entry.vendor}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {entry.receivedAt ? new Date(entry.receivedAt).toLocaleString() : 'Receipt logged'}
+                          </div>
+                        </div>
+                        <div className="mt-1">
+                          {entry.lineLabel}: <span className="capitalize">{entry.varianceLabel}</span>
+                          {entry.quantityVariance !== 0 ? ` (${entry.quantityVariance.toFixed(2)})` : ''}
+                          {entry.overReceiptQty > 0 ? ` · over by ${entry.overReceiptQty.toFixed(2)}` : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-lg border border-dashed border-border bg-background px-4 py-6 text-sm text-muted-foreground">
+                    No receiving exceptions have been logged yet. Once vendors short or over-ship receipts, the latest variance activity will appear here.
+                  </div>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
       ) : null}

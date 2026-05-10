@@ -55,6 +55,23 @@ const baseProducts = [
   },
 ];
 
+const baseVendors = [
+  {
+    id: 'vendor-1',
+    name: 'Blue Ocean Seafood',
+    category: 'Seafood',
+    status: 'active',
+    catalog_item_numbers: ['SAL-1'],
+  },
+  {
+    id: 'vendor-2',
+    name: 'Harbor Supply',
+    category: 'Packaging',
+    status: 'active',
+    catalog_item_numbers: ['BOX-1'],
+  },
+];
+
 const baseVendorPurchaseOrders = [
   {
     id: 'ops-po-1',
@@ -89,6 +106,37 @@ const baseVendorPurchaseOrders = [
         received_qty: 0,
         backordered_qty: 10,
         unit_cost: 2,
+      },
+    ],
+    receipts: [],
+  },
+];
+
+const molluskVendorPurchaseOrders = [
+  {
+    id: 'ops-po-clam-1',
+    po_number: 'PO-OPS-CLAM-1',
+    vendor: 'Blue Ocean Seafood',
+    status: 'open',
+    total_ordered_qty: 10,
+    total_received_qty: 2,
+    total_backordered_qty: 8,
+    created_at: '2026-04-15T00:00:00Z',
+    receipt_rules: {
+      over_receipt_policy: 'cap',
+      backorder_policy: 'open',
+    },
+    lines: [
+      {
+        line_no: 1,
+        item_number: 'CLAM-1',
+        product_name: 'Fresh Clams',
+        category: 'Mollusks',
+        unit: 'lb',
+        ordered_qty: 10,
+        received_qty: 2,
+        backordered_qty: 8,
+        unit_cost: 7.5,
       },
     ],
     receipts: [],
@@ -136,18 +184,138 @@ const vendorPurchaseOrdersWithDiscrepancies = [
   },
 ];
 
+const vendorPurchaseOrdersWithLeadHistory = [
+  {
+    id: 'ops-po-hist-1',
+    po_number: 'PO-OPS-HIST-1',
+    vendor: 'Blue Ocean Seafood',
+    status: 'received',
+    total_ordered_qty: 15,
+    total_received_qty: 15,
+    total_backordered_qty: 0,
+    created_at: '2026-04-01T00:00:00Z',
+    first_received_at: '2026-04-02T00:00:00Z',
+    latest_received_at: '2026-04-04T00:00:00Z',
+    first_receipt_lead_time_days: 1,
+    receipt_rules: {
+      over_receipt_policy: 'cap',
+      backorder_policy: 'open',
+    },
+    lines: [
+      {
+        line_no: 1,
+        item_number: 'SAL-1',
+        product_name: 'Fresh Salmon',
+        unit: 'lb',
+        ordered_qty: 10,
+        received_qty: 10,
+        backordered_qty: 0,
+        unit_cost: 12.5,
+        first_received_at: '2026-04-02T00:00:00Z',
+        latest_received_at: '2026-04-02T00:00:00Z',
+        first_receipt_lead_time_days: 1,
+      },
+      {
+        line_no: 2,
+        item_number: 'BOX-1',
+        product_name: 'Shipping Box',
+        unit: 'each',
+        ordered_qty: 5,
+        received_qty: 5,
+        backordered_qty: 0,
+        unit_cost: 2,
+        first_received_at: '2026-04-04T00:00:00Z',
+        latest_received_at: '2026-04-04T00:00:00Z',
+        first_receipt_lead_time_days: 3,
+      },
+    ],
+    receipts: [
+      {
+        id: 'rcv-hist-1',
+        received_at: '2026-04-02T00:00:00Z',
+        lines: [{ line_no: 1, item_number: 'SAL-1', qty_received: 10 }],
+      },
+      {
+        id: 'rcv-hist-1b',
+        received_at: '2026-04-04T00:00:00Z',
+        lines: [{ line_no: 2, item_number: 'BOX-1', qty_received: 5 }],
+      },
+    ],
+  },
+  {
+    id: 'ops-po-hist-2',
+    po_number: 'PO-OPS-HIST-2',
+    vendor: 'Blue Ocean Seafood',
+    status: 'received',
+    total_ordered_qty: 14,
+    total_received_qty: 14,
+    total_backordered_qty: 0,
+    created_at: '2026-04-05T00:00:00Z',
+    first_received_at: '2026-04-06T00:00:00Z',
+    latest_received_at: '2026-04-09T00:00:00Z',
+    first_receipt_lead_time_days: 1,
+    receipt_rules: {
+      over_receipt_policy: 'cap',
+      backorder_policy: 'open',
+    },
+    lines: [
+      {
+        line_no: 1,
+        item_number: 'SAL-1',
+        product_name: 'Fresh Salmon',
+        unit: 'lb',
+        ordered_qty: 8,
+        received_qty: 8,
+        backordered_qty: 0,
+        unit_cost: 13,
+        first_received_at: '2026-04-09T00:00:00Z',
+        latest_received_at: '2026-04-09T00:00:00Z',
+        first_receipt_lead_time_days: 4,
+      },
+      {
+        line_no: 2,
+        item_number: 'BOX-1',
+        product_name: 'Shipping Box',
+        unit: 'each',
+        ordered_qty: 6,
+        received_qty: 6,
+        backordered_qty: 0,
+        unit_cost: 2.1,
+        first_received_at: '2026-04-06T00:00:00Z',
+        latest_received_at: '2026-04-06T00:00:00Z',
+        first_receipt_lead_time_days: 1,
+      },
+    ],
+    receipts: [
+      {
+        id: 'rcv-hist-2',
+        received_at: '2026-04-09T00:00:00Z',
+        lines: [{ line_no: 1, item_number: 'SAL-1', qty_received: 8 }],
+      },
+      {
+        id: 'rcv-hist-2b',
+        received_at: '2026-04-06T00:00:00Z',
+        lines: [{ line_no: 2, item_number: 'BOX-1', qty_received: 6 }],
+      },
+    ],
+  },
+];
+
 function mockPurchasingApi({
   orders = baseOrders,
   products = baseProducts,
+  vendors = baseVendors,
   vendorPurchaseOrders = baseVendorPurchaseOrders,
 }: {
   orders?: unknown[];
   products?: unknown[];
+  vendors?: unknown[];
   vendorPurchaseOrders?: unknown[];
 } = {}) {
   fetchWithAuthMock.mockImplementation(async (url: string) => {
     if (url.startsWith('/api/purchase-orders')) return orders;
     if (url === '/api/inventory') return products;
+    if (url === '/api/vendors') return vendors;
     if (url === '/api/ops/vendor-purchase-orders') return vendorPurchaseOrders;
     return [];
   });
@@ -381,6 +549,69 @@ describe('PurchasingPage', () => {
     expect(screen.getAllByText('Shipping Box: short receipt (-2.00)').length).toBeGreaterThan(0);
   });
 
+  it('requires a lot number before receiving mollusk vendor PO items', async () => {
+    mockPurchasingApi({ vendorPurchaseOrders: molluskVendorPurchaseOrders });
+
+    renderPurchasingPage();
+
+    expect(await screen.findByText('PO-OPS-CLAM-1')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Receive Items' }));
+    expect(await screen.findByText('Receiving PO-OPS-CLAM-1')).toBeInTheDocument();
+    expect(screen.getByPlaceholderText('Required for shellfish lots')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Post Receipt to Inventory' }));
+
+    expect(await screen.findByText('Lot number is required before receiving mollusk item "Fresh Clams".')).toBeInTheDocument();
+    expect(sendWithAuthMock).not.toHaveBeenCalled();
+  });
+
+  it('maps receipt scanner output into receive quantities, costs, and lot numbers', async () => {
+    mockPurchasingApi({ vendorPurchaseOrders: molluskVendorPurchaseOrders });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        vendor: 'Blue Ocean Seafood',
+        po_number: 'INV-OPS-17',
+        date: '2026-05-09',
+        total_cost: 37.5,
+        items: [
+          {
+            description: 'Fresh Clams',
+            category: 'Mollusks',
+            quantity: 5,
+            unit: 'lb',
+            unit_price: 7.5,
+            total: 37.5,
+            item_type: 'weighted',
+            lot_number: 'CLAM-LOT-17',
+            lot_number_confidence: 'high',
+          },
+        ],
+      }),
+    });
+
+    renderPurchasingPage();
+
+    expect(await screen.findByText('PO-OPS-CLAM-1')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Receive Items' }));
+    expect(await screen.findByText('Receiving PO-OPS-CLAM-1')).toBeInTheDocument();
+
+    const fileInputs = document.querySelectorAll('input[type="file"]');
+    const uploadInput = fileInputs[2] as HTMLInputElement | undefined;
+    if (!uploadInput) throw new Error('Expected receiving upload input');
+    const file = new File(['scan'], 'dock-invoice.jpg', { type: 'image/jpeg' });
+    fireEvent.change(uploadInput, { target: { files: [file] } });
+
+    await waitFor(() => {
+      expect((screen.getAllByPlaceholderText('0.00')[0] as HTMLInputElement).value).toBe('5');
+    });
+    expect(screen.getByDisplayValue('7.5')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('CLAM-LOT-17')).toBeInTheDocument();
+    expect(await screen.findByText('Lot numbers detected:')).toBeInTheDocument();
+  });
+
   it('shows discrepancy log activity when receipts have variances', async () => {
     mockPurchasingApi({ vendorPurchaseOrders: vendorPurchaseOrdersWithDiscrepancies });
 
@@ -396,6 +627,52 @@ describe('PurchasingPage', () => {
     expect(discrepancyMatches.length).toBeGreaterThan(0);
     expect(screen.getAllByText('PO-OPS-100').length).toBeGreaterThan(0);
     expect(screen.getAllByText('1.04 d').length).toBeGreaterThan(0);
+  });
+
+  it('shows vendor and product lead time history while building a new PO', async () => {
+    mockPurchasingApi({ vendorPurchaseOrders: vendorPurchaseOrdersWithLeadHistory });
+
+    renderPurchasingPage();
+
+    expect(await screen.findByText('PO-100')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('Blue Ocean Seafood'), { target: { value: 'Blue Ocean Seafood' } });
+    const vendorLeadTimeMatches = await within(confirmPoCard()).findAllByText((_, element) => {
+      const text = (element?.textContent || '').replace(/\s+/g, ' ').trim();
+      return text === 'Blue Ocean Seafood averages 1.00 d across 2 received POs.';
+    });
+    expect(vendorLeadTimeMatches.length).toBeGreaterThan(0);
+
+    const lineRow = within(confirmPoCard()).getAllByRole('row')[1];
+    fireEvent.change(within(lineRow).getByPlaceholderText('Atlantic Salmon'), { target: { value: 'Fresh Salmon' } });
+    fireEvent.change(within(lineRow).getByPlaceholderText('SAL-01'), { target: { value: 'SAL-1' } });
+
+    const productLeadTimeMatches = await within(lineRow).findAllByText((_, element) => {
+      const text = (element?.textContent || '').replace(/\s+/g, ' ').trim();
+      return text === 'Avg lead time 2.50 d across 2 received POs · latest 4.00 d';
+    });
+    expect(productLeadTimeMatches.length).toBeGreaterThan(0);
+  });
+
+  it('scopes product suggestions to the selected vendor catalog when one is configured', async () => {
+    renderPurchasingPage();
+
+    expect(await screen.findByText('PO-100')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('Blue Ocean Seafood'), { target: { value: 'Harbor Supply' } });
+    const vendorCatalogMatches = await screen.findAllByText((_, element) => (element?.textContent || '').includes('Vendor catalog scoped to 1 SKU'));
+    expect(vendorCatalogMatches.length).toBeGreaterThan(0);
+
+    const lineRow = within(confirmPoCard()).getAllByRole('row')[1];
+    const descriptionInput = within(lineRow).getByPlaceholderText('Atlantic Salmon');
+
+    fireEvent.change(descriptionInput, { target: { value: 'salmon' } });
+    await waitFor(() => {
+      expect(screen.queryByText('Fresh Salmon')).not.toBeInTheDocument();
+    });
+
+    fireEvent.change(descriptionInput, { target: { value: 'box' } });
+    expect(await screen.findByText('Shipping Box')).toBeInTheDocument();
   });
 
   it('applies scan review metadata for item type and lot suggestions', async () => {
@@ -437,6 +714,58 @@ describe('PurchasingPage', () => {
     expect(screen.getByDisplayValue('SAL-LOT-9')).toBeInTheDocument();
     expect(screen.getByText((text) => text.includes('Scan detected lot'))).toBeInTheDocument();
     expect(screen.getByText(/^Weighted$/)).toBeInTheDocument();
+  });
+
+  it('requires per-line approval before confirming scanned count items', async () => {
+    sendWithAuthMock.mockResolvedValueOnce({ purchase_order: { id: 'po-301', po_number: 'PO-SCAN-COUNT' } });
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        vendor: 'Harbor Supply',
+        po_number: 'PO-SCAN-COUNT',
+        date: '2026-05-09',
+        total_cost: 8,
+        items: [
+          {
+            description: 'Shipping Box',
+            category: 'Packaging',
+            quantity: 4,
+            unit: 'each',
+            unit_price: 2,
+            total: 8,
+            item_type: 'count',
+            lot_number: null,
+            lot_number_confidence: 'none',
+          },
+        ],
+      }),
+    });
+
+    renderPurchasingPage();
+
+    expect(await screen.findByText('PO-100')).toBeInTheDocument();
+
+    const fileInputs = document.querySelectorAll('input[type="file"]');
+    const uploadInput = fileInputs[0] as HTMLInputElement | undefined;
+    if (!uploadInput) throw new Error('Expected upload input');
+    const file = new File(['scan'], 'count-scan.jpg', { type: 'image/jpeg' });
+    fireEvent.change(uploadInput, { target: { files: [file] } });
+
+    expect(await screen.findByText((text) => text.includes('Count items awaiting per-line approval:'))).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm PO' }));
+    expect(await screen.findByText('Review and approve scanned count item "Shipping Box" before confirming the PO.')).toBeInTheDocument();
+    expect(sendWithAuthMock).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByLabelText('Approve count item Shipping Box'));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm PO' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/purchase-orders/confirm', 'POST', expect.objectContaining({
+        vendor: 'Harbor Supply',
+        po_number: 'PO-SCAN-COUNT',
+      }));
+    });
   });
 
   it('opens the generated purchase-order PDF for historical purchase orders', async () => {

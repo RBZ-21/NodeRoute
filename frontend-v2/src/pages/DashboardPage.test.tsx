@@ -152,6 +152,86 @@ describe('DashboardPage', () => {
     expect(fetchWithAuthMock).not.toHaveBeenCalled();
   });
 
+  it('surfaces receiving exceptions in the purchasing command center', async () => {
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url === '/api/stats') {
+        return {
+          totalDeliveries: 12,
+          completedToday: 8,
+          onTimeRate: 92,
+          activeDrivers: 3,
+          totalDrivers: 4,
+          failed: 1,
+          pendingCount: 2,
+          inTransitCount: 2,
+          yesterday: {
+            totalDeliveries: 10,
+            completedToday: 7,
+            onTimeRate: 88,
+            activeDrivers: 2,
+            totalDrivers: 4,
+            failed: 0,
+            pendingCount: 1,
+            inTransitCount: 1,
+          },
+        };
+      }
+      if (url === '/api/analytics') {
+        return {
+          avgStopTime: '14.2',
+          onTimeRate: '92',
+          avgSpeed: '31.4',
+          driverRankings: [
+            { name: 'Alex Driver', stopsPerHour: 2.4, avgStopMinutes: 14.2, avgSpeedMph: 31.4, onTimeRate: 96, milesToday: 42 },
+          ],
+          doorBreakdown: { 'Door code on file': 5, 'No code': 2 },
+        };
+      }
+      if (url === '/api/deliveries') return [];
+      if (url === '/api/drivers') return [];
+      if (url === '/api/routes') return [];
+      if (url === '/api/orders') return [];
+      if (url === '/api/ops/vendor-purchase-orders') {
+        return [
+          {
+            id: 'po1',
+            po_number: 'PO-OPS-100',
+            vendor: 'Blue Ocean Seafood',
+            status: 'backordered',
+            total_ordered_cost: 1200,
+            receipts: [
+              {
+                id: 'receipt-1',
+                received_at: '2026-04-13T13:00:00Z',
+                lines: [
+                  {
+                    line_no: 2,
+                    product_name: 'Shipping Box',
+                    variance_type: 'short_receipt',
+                    quantity_variance_qty: -2,
+                    over_receipt_qty: 0,
+                  },
+                ],
+              },
+            ],
+          },
+        ];
+      }
+      return [];
+    });
+
+    renderDashboardPage();
+
+    expect(await screen.findByText('Receiving Exceptions')).toBeInTheDocument();
+    expect(screen.getByText('Recent Receiving Exceptions')).toBeInTheDocument();
+    expect(screen.getByText('Receipts w/ variance:')).toBeInTheDocument();
+    const exceptionMatches = await screen.findAllByText((_, element) => {
+      const text = element?.textContent || '';
+      return text.includes('Shipping Box:') && text.includes('short receipt') && text.includes('(-2.00)');
+    });
+    expect(exceptionMatches.length).toBeGreaterThan(0);
+  });
+
   it('surfaces loading errors from dashboard APIs', async () => {
     fetchWithAuthMock.mockImplementation(async (url: string) => {
       if (url === '/api/stats') throw new Error('Stats service unavailable');

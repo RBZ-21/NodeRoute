@@ -62,7 +62,7 @@ test('ops routes are globally gated to admin-only server access', () => {
 test('vendor PO receiving updates inventory quantity and weighted unit cost', () => {
   for (const marker of [
     "const weighted = ((prevQty * prevCost) + (acceptedQty * unitCost)) / newQty;",
-    "notes: `PO ${po.po_number} receipt (${po.vendor})`",
+    "notes: `PO ${po.po_number} receipt (${po.vendor})${lotNumber ? ' · Lot ' + lotNumber : ''}`",
     "weighted_inventory_cost_updates: true",
   ]) {
     assert.ok(opsRouteSource.includes(marker), `missing receiving marker ${marker}`);
@@ -74,7 +74,8 @@ test('ops planning endpoints enforce bounded query controls', () => {
     "const days = Math.max(1, Math.min(90, parseInt(req.query.days || '30', 10)));",
     "const lookbackDays = Math.max(7, Math.min(90, parseInt(req.query.lookbackDays || '30', 10)));",
     "const coverageDays = Math.max(1, Math.min(90, parseInt(req.query.coverageDays || '30', 10)));",
-    "const leadTimeDays = Math.max(0, Math.min(60, parseInt(req.query.leadTimeDays || '5', 10)));",
+    "const manualLeadTimeRaw = req.query.leadTimeDays;",
+    "leadTimeDays: Math.max(0, Math.min(60, parseInt(manualLeadTimeRaw, 10) || 0)),",
   ]) {
     assert.ok(opsRouteSource.includes(constraint), `missing planning constraint ${constraint}`);
   }

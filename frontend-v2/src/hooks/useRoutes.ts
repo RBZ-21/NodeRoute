@@ -111,7 +111,7 @@ export function useCustomers() {
 export function useCreateRoute() {
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (payload: { name: string; driver: string; notes: string }) =>
+    mutationFn: (payload: { name: string; driver: string; driverId?: string; notes: string }) =>
       sendWithAuth('/api/routes', 'POST', { ...payload, stopIds: [] }),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['routes'] }),
   });
