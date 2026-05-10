@@ -14,13 +14,13 @@ const express = require('express');
 const jwt     = require('jsonwebtoken');
 const { supabase } = require('../services/supabase');
 const { JWT_SECRET } = require('../lib/config');
-const { authenticateToken, requireRole } = require('../middleware/auth');
+const { authenticateToken, requireSuperadmin } = require('../middleware/auth');
 
 const router = express.Router();
 
-// All superadmin routes require authentication + the 'superadmin' role.
+// All superadmin routes require authentication + role AND email double-check.
 router.use(authenticateToken);
-router.use(requireRole('superadmin'));
+router.use(requireSuperadmin);
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function extractRows(result) {
@@ -28,6 +28,93 @@ function extractRows(result) {
   if (Array.isArray(result?.data)) return result.data;
   return [];
 }
+
+// ── GET /api/superadmin/platform-summary ─────────────────────────────────────
+// KPI cards for the SuperAdmin platform overview dashboard.
+router.get('/platform-summary', async (req, res) => {
+  try {
+    const [companiesResult, usersResult, configsResult, ordersResult] = await Promise.all([
+      supabase.from('companies').select('id, plan, status, created_at'),
+      supabase.from('users').select('id, role, company_id, created_at'),
+      supabase.from('company_config').select('company_id, onboarding_completed, business_types'),
+      supabase.from('orders').select('id, status, created_at').gte(
+        'created_at',
+        new Date(Date.now() - 30 * 86400000).toISOString(),
+      ),
+    ]);
+
+    const companies = extractRows(companiesResult);
+    const users     = extractRows(usersResult);
+    const configs   = extractRows(configsResult);
+    const orders    = extractRows(ordersResult);
+
+    // Plan tier breakdown
+    const byPlan = {};
+    for (const c of companies) {
+      const p = c.plan || 'unknown';
+      byPlan[p] = (byPlan[p] ?? 0) + 1;
+    }
+
+    // Status breakdown
+    const byStatus = { active: 0, trial: 0, suspended: 0 };
+    for (const c of companies) {
+      const s = c.status || 'active';
+      byStatus[s] = (byStatus[s] ?? 0) + 1;
+    }
+
+    // Recent signups (last 30 days)
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+    const recentCompanies = companies
+      .filter((c) => c.created_at && c.created_at >= thirtyDaysAgo)
+      .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
+      .slice(0, 10);
+
+    // Onboarding completion rate
+    const totalWithConfig   = configs.length;
+    const completedOnboard  = configs.filter((c) => c.onboarding_completed).length;
+
+    res.json({
+      total_companies:      companies.length,
+      active_companies:     byStatus.active  ?? 0,
+      trial_companies:      byStatus.trial   ?? 0,
+      suspended_companies:  byStatus.suspended ?? 0,
+      total_users:          users.filter((u) => u.role !== 'superadmin').length,
+      orders_last_30d:      orders.length,
+      onboarding_completed: completedOnboard,
+      onboarding_total:     totalWithConfig,
+      by_plan:              Object.entries(byPlan).map(([plan, count]) => ({ plan, count })),
+      recent_signups:       recentCompanies,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── PATCH /api/superadmin/companies/:id ───────────────────────────────────────
+// General company field update (name, slug, plan, status).
+router.patch('/companies/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const ALLOWED = ['name', 'slug', 'plan', 'status'];
+    const updates = {};
+    for (const key of ALLOWED) {
+      if (req.body[key] !== undefined) updates[key] = req.body[key];
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No updatable fields provided.' });
+    }
+    const { data, error } = await supabase
+      .from('companies')
+      .update(updates)
+      .eq('id', id)
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(data);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
 
 // ── GET /api/superadmin/companies ─────────────────────────────────────────────
 // Returns a summary row per company, enriched with company_config tags.
@@ -137,46 +224,126 @@ router.get('/companies/:id', async (req, res) => {
 });
 
 // ── POST /api/superadmin/companies/:id/impersonate ───────────────────────────
-// Issues a short-lived JWT (1 h) for the company's admin user so the SuperAdmin
-// can inspect their context without knowing their password.
+// Switches the caller's browser session to a short-lived (1 h) context scoped
+// to the target company's admin.
+//
+// Implementation note: auth uses HttpOnly cookies, NOT localStorage tokens.
+// This endpoint SETS the HttpOnly cookie directly so the browser session
+// transparently becomes the impersonated user. The original superadmin cookie
+// is saved in a separate HttpOnly sa_session cookie so it can be restored.
+const IS_PROD = process.env.NODE_ENV === 'production';
+
 router.post('/companies/:id/impersonate', async (req, res) => {
   try {
     const { id } = req.params;
     const usersResult = await supabase.from('users').select('*');
     const allUsers = extractRows(usersResult);
 
-    // Find the admin user for this company
-    const targetUser = allUsers.find(
-      (u) =>
-        (String(u.company_id || u.id) === id) &&
-        (u.role === 'admin' || u.role === 'manager'),
-    ) || allUsers.find((u) => String(u.company_id || u.id) === id);
+    const targetUser =
+      allUsers.find(
+        (u) => (String(u.company_id || u.id) === id) && (u.role === 'admin' || u.role === 'manager'),
+      ) || allUsers.find((u) => String(u.company_id || u.id) === id);
 
-    if (!targetUser) {
-      return res.status(404).json({ error: 'No users found for this company.' });
-    }
+    if (!targetUser) return res.status(404).json({ error: 'No users found for this company.' });
 
     const impersonationToken = jwt.sign(
       {
-        userId: targetUser.id,
-        email:  targetUser.email,
-        role:   targetUser.role,
-        // Mark so the backend can detect impersonation in audit logs if needed
+        userId:          targetUser.id,
+        id:              targetUser.id,
+        sub:             targetUser.id,
+        email:           targetUser.email,
+        role:            targetUser.role,
         impersonated_by: req.user.id,
       },
       JWT_SECRET,
       { expiresIn: '1h' },
     );
 
+    // Save the original superadmin token in a separate cookie for restoration.
+    const originalToken = req.cookies?.token;
+    if (originalToken) {
+      res.cookie('sa_session', originalToken, {
+        httpOnly: true,
+        secure:   IS_PROD,
+        sameSite: 'strict',
+        maxAge:   60 * 60 * 1000, // 1 h — matches impersonation TTL
+        path:     '/',
+      });
+    }
+
+    // Replace the active session cookie with the impersonation token.
+    res.cookie('token', impersonationToken, {
+      httpOnly: true,
+      secure:   IS_PROD,
+      sameSite: 'strict',
+      maxAge:   60 * 60 * 1000,
+      path:     '/',
+    });
+
+    // New CSRF token for the impersonated session.
+    const { randomBytes } = require('crypto');
+    const csrfToken = randomBytes(32).toString('hex');
+    res.cookie('csrf-token', csrfToken, {
+      httpOnly: false,
+      secure:   IS_PROD,
+      sameSite: 'strict',
+      maxAge:   60 * 60 * 1000,
+      path:     '/',
+    });
+
     res.json({
-      token: impersonationToken,
-      user:  {
+      ok:   true,
+      user: {
         id:    targetUser.id,
         name:  targetUser.name,
         email: targetUser.email,
         role:  targetUser.role,
       },
     });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── POST /api/superadmin/restore-session ─────────────────────────────────────
+// Restores the original superadmin session from the sa_session cookie.
+// Does NOT require requireSuperadmin — the caller may currently hold an
+// impersonation token (role = admin), so only authenticateToken is needed.
+router.post('/restore-session', async (req, res) => {
+  try {
+    const savedToken = req.cookies?.sa_session;
+    if (!savedToken) return res.status(400).json({ error: 'No saved superadmin session found.' });
+
+    // Verify the saved token is still valid before restoring it.
+    let payload;
+    try { payload = jwt.verify(savedToken, JWT_SECRET); }
+    catch { return res.status(400).json({ error: 'Saved session has expired. Please log in again.' }); }
+
+    if (payload?.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Saved session is not a superadmin session.' });
+    }
+
+    // Restore original cookie, clear the saved one.
+    res.cookie('token', savedToken, {
+      httpOnly: true,
+      secure:   IS_PROD,
+      sameSite: 'strict',
+      maxAge:   24 * 60 * 60 * 1000, // restore full 24 h expiry
+      path:     '/',
+    });
+    res.clearCookie('sa_session', { httpOnly: true, secure: IS_PROD, sameSite: 'strict', path: '/' });
+
+    const { randomBytes } = require('crypto');
+    const csrfToken = randomBytes(32).toString('hex');
+    res.cookie('csrf-token', csrfToken, {
+      httpOnly: false,
+      secure:   IS_PROD,
+      sameSite: 'strict',
+      maxAge:   24 * 60 * 60 * 1000,
+      path:     '/',
+    });
+
+    res.json({ ok: true, role: 'superadmin' });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

@@ -7,7 +7,7 @@ const { buildRequestContext } = require('../services/operating-context');
 
 // Use the config module which provides a dev fallback. In production, config.js
 // already validates that JWT_SECRET is set to a non-default value.
-const { JWT_SECRET } = require('../lib/config');
+const { JWT_SECRET, SUPERADMIN_EMAIL } = require('../lib/config');
 
 // Methods that mutate state — CSRF check is enforced on these.
 const CSRF_METHODS = new Set(['POST', 'PATCH', 'DELETE', 'PUT']);
@@ -131,4 +131,31 @@ function requireRole(...roles) {
   };
 }
 
-module.exports = { authenticateToken, requireRole, extractToken };
+/**
+ * requireSuperadmin — must run AFTER authenticateToken.
+ *
+ * Passes only when BOTH conditions are met:
+ *   1. req.user.role === 'superadmin'
+ *   2. normalizeEmail(req.user.email) === normalizeEmail(SUPERADMIN_EMAIL)
+ *
+ * The error response is intentionally generic — it does not reveal which
+ * check failed so an attacker cannot probe which email addresses are
+ * privileged.
+ *
+ * When SUPERADMIN_EMAIL is unset (sentinel '__superadmin_unset__'), the
+ * email check never passes, so the gate is fail-closed by default.
+ */
+function requireSuperadmin(req, res, next) {
+  if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+
+  const roleOk  = req.user.role === 'superadmin';
+  const emailOk = normalizeEmail(req.user.email) === normalizeEmail(SUPERADMIN_EMAIL);
+
+  if (!roleOk || !emailOk) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  next();
+}
+
+module.exports = { authenticateToken, requireRole, requireSuperadmin, extractToken };

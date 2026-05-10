@@ -4,6 +4,7 @@ import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Button } from '../ui/button';
 import { Sidebar } from './Sidebar';
 import { PageSkeleton } from './PageSkeleton';
+import { ImpersonationBanner } from '../ImpersonationBanner';
 import { getUserRole } from '../../lib/api';
 import { allNavItems, defaultPath, findNavItem, routePath, canAccess } from '../../lib/nav';
 
@@ -46,6 +47,9 @@ export function AppShell() {
 
   return (
     <div className="flex min-h-[100dvh] flex-col bg-enterprise-gradient">
+      {/* Impersonation banner — visible only when superadmin has switched into a tenant */}
+      <ImpersonationBanner />
+
       <div className="mx-auto flex w-full max-w-[1420px] flex-1 flex-col">
 
         {/* ── Top header ── */}
