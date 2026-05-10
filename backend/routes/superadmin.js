@@ -307,9 +307,13 @@ router.post('/companies/:id/impersonate', async (req, res) => {
 
 // ── POST /api/superadmin/restore-session ─────────────────────────────────────
 // Restores the original superadmin session from the sa_session cookie.
-// Does NOT require requireSuperadmin — the caller may currently hold an
-// impersonation token (role = admin), so only authenticateToken is needed.
-router.post('/restore-session', async (req, res) => {
+// IMPORTANT: this route is intentionally NOT behind requireSuperadmin.
+// During impersonation the caller holds a role=admin token, so requireSuperadmin
+// would reject the request. authenticateToken is sufficient here; the
+// sa_session cookie itself is the proof of prior superadmin authorization.
+// This handler is exported and mounted separately in server.js at
+// POST /api/superadmin/restore-session BEFORE the main superadmin router.
+const restoreSessionHandler = async (req, res) => {
   try {
     const savedToken = req.cookies?.sa_session;
     if (!savedToken) return res.status(400).json({ error: 'No saved superadmin session found.' });
@@ -347,7 +351,13 @@ router.post('/restore-session', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
-});
+};
+
+// Mount on the guarded router too (blocked for impersonation sessions, but
+// accessible to an active superadmin if they call it directly).
+router.post('/restore-session', restoreSessionHandler);
+
+module.exports.restoreSessionHandler = restoreSessionHandler;
 
 // ── POST /api/superadmin/companies/:id/status ────────────────────────────────
 // Update a company's status field (active | suspended | trial).
