@@ -65,11 +65,14 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
   // Enrich with active PO count
   const { data: pos } = await supabase
     .from('purchase_orders')
-    .select('vendor_id, status')
-    .in('status', ['pending', 'approved', 'ordered', 'partial']);
+    .select('vendor_id, status, workflow_kind');
   const scopedPos = filterRowsByContext(pos || [], req.context);
   const poCountMap = {};
   scopedPos.forEach(po => {
+    const workflowKind = String(po.workflow_kind || '').trim().toLowerCase();
+    const status = String(po.status || '').trim().toLowerCase();
+    if (workflowKind && workflowKind !== 'vendor_order') return;
+    if (!['open', 'partial_received', 'backordered', 'pending', 'approved', 'ordered', 'partial'].includes(status)) return;
     const vid = String(po.vendor_id || '');
     if (vid) poCountMap[vid] = (poCountMap[vid] || 0) + 1;
   });
