@@ -2,6 +2,8 @@ const { supabase } = require('../../services/supabase');
 const { applyInventoryLedgerEntry } = require('../../services/inventory-ledger');
 const { genId, readOpsData, toNumber, writeOpsData } = require('./store');
 
+const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
+
 function normalizeUnit(value) {
   const unit = String(value || '').trim().toLowerCase();
   if (['lb', 'lbs', 'pound', 'pounds'].includes(unit)) return 'lb';
@@ -36,6 +38,48 @@ function parseDateSafe(value) {
 
 function round(value, digits) {
   return parseFloat(Number(value || 0).toFixed(digits));
+}
+
+function poLineRequiresLot(line) {
+  return LOT_REQUIRED.test(
+    `${line?.description || line?.product_name || line?.name || ''} ${line?.category || ''}`
+  );
+}
+
+function normalizeLeadTimeProductKey(itemNumber, productName) {
+  const normalizedItemNumber = String(itemNumber || '').trim().toLowerCase();
+  if (normalizedItemNumber) return `item:${normalizedItemNumber}`;
+  const normalizedProductName = String(productName || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ');
+  return normalizedProductName ? `name:${normalizedProductName}` : '';
+}
+
+function lineMatchesReceiptLine(poLine, receiptLine) {
+  const poLineNo = Number(poLine?.line_no);
+  const receiptLineNo = Number(receiptLine?.line_no);
+  if (Number.isFinite(poLineNo) && Number.isFinite(receiptLineNo) && poLineNo === receiptLineNo) {
+    return true;
+  }
+
+  const poItemNumber = String(poLine?.item_number || '').trim().toLowerCase();
+  const receiptItemNumber = String(receiptLine?.item_number || '').trim().toLowerCase();
+  if (poItemNumber && receiptItemNumber && poItemNumber === receiptItemNumber) {
+    return true;
+  }
+
+  const poProductKey = normalizeLeadTimeProductKey(poLine?.item_number, poLine?.product_name || poLine?.description || poLine?.name);
+  const receiptProductKey = normalizeLeadTimeProductKey(receiptLine?.item_number, receiptLine?.product_name || receiptLine?.description || receiptLine?.name);
+  return !!poProductKey && poProductKey === receiptProductKey;
+}
+
+function isClosedPoLine(line) {
+  const ordered = toNumber(line?.ordered_qty, 0);
+  const received = toNumber(line?.received_qty, 0);
+  const waived = toNumber(line?.waived_backorder_qty, 0);
+  const backordered = toNumber(line?.backordered_qty, 0);
+  return received >= ordered || backordered <= 0 || (received + waived) >= ordered;
 }
 
 function median(values) {
@@ -78,11 +122,56 @@ function calculateVendorPoLeadMetrics(po) {
   };
 }
 
+function calculateVendorPoLineLeadMetrics(po, line, fallbackPoMetrics = {}) {
+  const createdAt = parseDateSafe(po.created_at);
+  const receiptDates = (Array.isArray(po.receipts) ? po.receipts : [])
+    .map((receipt) => {
+      const receivedAt = parseDateSafe(receipt.received_at);
+      if (!receivedAt) return null;
+      const receiptLines = Array.isArray(receipt.lines) ? receipt.lines : [];
+      return receiptLines.some((receiptLine) => lineMatchesReceiptLine(line, receiptLine)) ? receivedAt : null;
+    })
+    .filter(Boolean)
+    .sort((left, right) => left.getTime() - right.getTime());
+
+  if (!receiptDates.length && Number(toNumber(line.received_qty, 0)) > 0 && Array.isArray(po.lines) && po.lines.length === 1) {
+    const fallbackFirst = parseDateSafe(fallbackPoMetrics.first_received_at);
+    const fallbackLatest = parseDateSafe(fallbackPoMetrics.latest_received_at);
+    if (fallbackFirst) receiptDates.push(fallbackFirst);
+    if (fallbackLatest && (!fallbackFirst || fallbackLatest.getTime() !== fallbackFirst.getTime())) {
+      receiptDates.push(fallbackLatest);
+    }
+    receiptDates.sort((left, right) => left.getTime() - right.getTime());
+  }
+
+  const firstReceivedAt = receiptDates[0] || null;
+  const latestReceivedAt = receiptDates[receiptDates.length - 1] || null;
+  if (!createdAt || !firstReceivedAt) {
+    return {
+      first_received_at: firstReceivedAt ? firstReceivedAt.toISOString() : null,
+      latest_received_at: latestReceivedAt ? latestReceivedAt.toISOString() : null,
+      first_receipt_lead_time_days: null,
+      first_receipt_lead_time_hours: null,
+      full_receipt_lead_time_days: null,
+    };
+  }
+
+  const firstLeadHours = (firstReceivedAt.getTime() - createdAt.getTime()) / (1000 * 60 * 60);
+  const fullLeadHours = latestReceivedAt ? (latestReceivedAt.getTime() - createdAt.getTime()) / (1000 * 60 * 60) : null;
+  return {
+    first_received_at: firstReceivedAt.toISOString(),
+    latest_received_at: latestReceivedAt ? latestReceivedAt.toISOString() : null,
+    first_receipt_lead_time_days: round(firstLeadHours / 24, 2),
+    first_receipt_lead_time_hours: round(firstLeadHours, 1),
+    full_receipt_lead_time_days: isClosedPoLine(line) && fullLeadHours != null ? round(fullLeadHours / 24, 2) : null,
+  };
+}
+
 function buildVendorLeadTimeStats(orders, vendorName) {
   const normalizedVendor = String(vendorName || '').trim().toLowerCase();
   const matches = (orders || []).filter((po) => {
     if (!normalizedVendor) return true;
-    return String(po.vendor || '').trim().toLowerCase() === normalizedVendor;
+    return String(po.vendor || po.vendor_name || '').trim().toLowerCase() === normalizedVendor;
   });
   const leadTimes = matches
     .map((po) => Number(po.first_receipt_lead_time_days))
@@ -114,21 +203,115 @@ function buildVendorLeadTimeStats(orders, vendorName) {
   };
 }
 
+function buildVendorProductLeadTimeStats(orders, vendorName, line) {
+  const normalizedVendor = String(vendorName || '').trim().toLowerCase();
+  const productKey = normalizeLeadTimeProductKey(line?.item_number, line?.product_name || line?.description || line?.name);
+  const productLabel = String(line?.product_name || line?.item_number || line?.description || '').trim() || null;
+  const itemNumber = String(line?.item_number || '').trim() || null;
+
+  if (!productKey) {
+    return {
+      vendor: vendorName || null,
+      item_number: itemNumber,
+      product_name: productLabel,
+      receipt_count: 0,
+      average_days: null,
+      median_days: null,
+      minimum_days: null,
+      maximum_days: null,
+      latest_days: null,
+    };
+  }
+
+  const matches = [];
+  for (const po of (orders || [])) {
+    const poVendor = String(po.vendor || po.vendor_name || '').trim().toLowerCase();
+    if (normalizedVendor && poVendor !== normalizedVendor) continue;
+    for (const poLine of Array.isArray(po.lines) ? po.lines : []) {
+      const poLineKey = normalizeLeadTimeProductKey(poLine.item_number, poLine.product_name || poLine.description || poLine.name);
+      if (!poLineKey || poLineKey !== productKey) continue;
+      matches.push(poLine);
+    }
+  }
+
+  const leadTimes = matches
+    .map((poLine) => Number(poLine.first_receipt_lead_time_days))
+    .filter((value) => Number.isFinite(value));
+
+  if (!leadTimes.length) {
+    return {
+      vendor: vendorName || null,
+      item_number: itemNumber,
+      product_name: productLabel,
+      receipt_count: 0,
+      average_days: null,
+      median_days: null,
+      minimum_days: null,
+      maximum_days: null,
+      latest_days: null,
+    };
+  }
+
+  const latestMeasured = [...matches]
+    .filter((poLine) => Number.isFinite(Number(poLine.first_receipt_lead_time_days)))
+    .sort((left, right) => String(right.first_received_at || right.latest_received_at || '').localeCompare(String(left.first_received_at || left.latest_received_at || '')))[0];
+
+  return {
+    vendor: vendorName || null,
+    item_number: itemNumber,
+    product_name: productLabel,
+    receipt_count: leadTimes.length,
+    average_days: round(leadTimes.reduce((sum, value) => sum + value, 0) / leadTimes.length, 2),
+    median_days: round(median(leadTimes), 2),
+    minimum_days: round(Math.min(...leadTimes), 2),
+    maximum_days: round(Math.max(...leadTimes), 2),
+    latest_days: latestMeasured ? round(Number(latestMeasured.first_receipt_lead_time_days), 2) : null,
+  };
+}
+
 function summarizeVendorPurchaseOrders(orders) {
-  const summarized = (orders || []).map((po) => ({
-    ...summarizeVendorPo(po),
-  })).map((po) => ({
-    ...po,
-    ...calculateVendorPoLeadMetrics(po),
-  }));
+  const summarized = (orders || []).map((po) => {
+    const summarizedPo = {
+      ...summarizeVendorPo(po),
+    };
+    const poLeadMetrics = calculateVendorPoLeadMetrics(summarizedPo);
+    const lineMetrics = (Array.isArray(summarizedPo.lines) ? summarizedPo.lines : []).map((line) => ({
+      ...line,
+      ...calculateVendorPoLineLeadMetrics(summarizedPo, line, poLeadMetrics),
+    }));
+    return {
+      ...summarizedPo,
+      ...poLeadMetrics,
+      lines: lineMetrics,
+    };
+  });
 
   return summarized.map((po) => ({
     ...po,
-    lead_time_history: buildVendorLeadTimeStats(summarized, po.vendor),
+    lead_time_history: buildVendorLeadTimeStats(summarized, po.vendor || po.vendor_name),
+    lines: (Array.isArray(po.lines) ? po.lines : []).map((line) => {
+      const lineLeadTimeHistory = buildVendorProductLeadTimeStats(summarized, po.vendor || po.vendor_name, line);
+      return {
+        ...line,
+        lead_time_history: lineLeadTimeHistory.receipt_count ? lineLeadTimeHistory : null,
+      };
+    }),
   }));
 }
 
-function resolveHistoricalLeadTimeDays(orders, vendorName) {
+function resolveHistoricalLeadTimeDays(orders, vendorName, line) {
+  const hasLineContext = !!normalizeLeadTimeProductKey(line?.item_number, line?.product_name || line?.description || line?.name);
+  if (hasLineContext) {
+    const productPreferred = buildVendorProductLeadTimeStats(orders, vendorName, line);
+    if (productPreferred.receipt_count) {
+      return {
+        leadTimeDays: Math.max(0, Math.ceil(Number(productPreferred.average_days || 0))),
+        source: 'historical_product',
+        history: productPreferred,
+      };
+    }
+  }
+
   const preferred = buildVendorLeadTimeStats(orders, vendorName);
   if (preferred.receipt_count) {
     return {
@@ -136,6 +319,17 @@ function resolveHistoricalLeadTimeDays(orders, vendorName) {
       source: 'historical',
       history: preferred,
     };
+  }
+
+  if (hasLineContext) {
+    const productGlobal = buildVendorProductLeadTimeStats(orders, null, line);
+    if (productGlobal.receipt_count) {
+      return {
+        leadTimeDays: Math.max(0, Math.ceil(Number(productGlobal.average_days || 0))),
+        source: 'historical_product_global',
+        history: productGlobal,
+      };
+    }
   }
 
   const global = buildVendorLeadTimeStats(orders, null);
@@ -167,6 +361,7 @@ function normalizePoLine(line, index) {
     product_id: line.product_id || null,
     item_number: String(line.item_number || '').trim() || null,
     product_name: String(line.product_name || line.name || '').trim(),
+    category: String(line.category || '').trim() || null,
     unit,
     ordered_qty: parseFloat(orderedQty.toFixed(3)),
     received_qty: parseFloat(receivedQty.toFixed(3)),
@@ -176,6 +371,7 @@ function normalizePoLine(line, index) {
     unit_cost: parseFloat(unitCost.toFixed(4)),
     line_total: parseFloat((orderedQty * unitCost).toFixed(2)),
     received_total: parseFloat((receivedQty * unitCost).toFixed(2)),
+    lot_number: String(line.lot_number || '').trim() || null,
     urgency: line.urgency || 'normal',
     match_status: line.match_status || 'matched',
   };
@@ -265,8 +461,11 @@ function buildProjectionRows(inventory, usageByName, { days, lookbackDays }) {
   });
 }
 
-function buildPurchasingSuggestions(inventory, usageByName, { coverageDays, leadTimeDays, lookbackDays }) {
+function buildPurchasingSuggestions(inventory, usageByName, { coverageDays, leadTimeDays, lookbackDays, leadTimeResolver }) {
+  const defaultLeadTimeDays = leadTimeDays;
   return (inventory || []).map((item) => {
+    const resolvedLead = typeof leadTimeResolver === 'function' ? leadTimeResolver(item) : null;
+    const leadTimeDays = Math.max(0, toNumber(resolvedLead?.leadTimeDays, defaultLeadTimeDays));
     const key = String(item.name || item.description || '').trim().toLowerCase();
     const stock = toNumber(item.stock_qty ?? item.on_hand_qty, 0);
     const avgDaily = (usageByName.get(key) || 0) / lookbackDays;
@@ -274,11 +473,14 @@ function buildPurchasingSuggestions(inventory, usageByName, { coverageDays, lead
     const reorderQty = Math.max(0, target - stock);
     return {
       product_id: item.id,
+      item_number: String(item.item_number || '').trim() || null,
       product_name: item.name || item.description,
       unit: item.unit || 'unit',
       stock_qty: parseFloat(stock.toFixed(3)),
       avg_daily_usage: parseFloat(avgDaily.toFixed(3)),
       lead_time_days: leadTimeDays,
+      lead_time_source: resolvedLead?.source || 'manual',
+      historical_lead_time: resolvedLead?.history || null,
       coverage_days: coverageDays,
       suggested_order_qty: parseFloat(reorderQty.toFixed(3)),
       estimated_unit_cost: parseFloat(toNumber(item.cost, 0).toFixed(4)),
@@ -312,9 +514,11 @@ function resolveInventoryMatch(item, inventory) {
 module.exports = {
   applyInventoryLedgerEntry,
   buildVendorLeadTimeStats,
+  buildVendorProductLeadTimeStats,
   buildProjectionRows,
   buildPurchasingSuggestions,
   calculateVendorPoLeadMetrics,
+  calculateVendorPoLineLeadMetrics,
   genId,
   genPoNumber,
   loadInventoryAndUsage,
@@ -322,6 +526,7 @@ module.exports = {
   normalizePoLine,
   normalizeReceiptRules,
   normalizeUnit,
+  poLineRequiresLot,
   readOpsData,
   resolveHistoricalLeadTimeDays,
   resolveInventoryMatch,

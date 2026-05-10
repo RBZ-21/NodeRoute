@@ -1,4 +1,4 @@
-import { ChangeEvent, useEffect, useState } from 'react';
+import { ChangeEvent, useEffect, useRef, useState } from 'react';
 import { Link, Navigate, useParams } from 'react-router-dom';
 import { StatusBadge } from '@/components/StatusBadge';
 import { useDriverApp } from '@/hooks/useDriverApp';
@@ -23,7 +23,9 @@ export function StopDetailPage() {
   const { pushToast } = useToast();
   const stop = stopId ? stopById(stopId) : null;
   const initialDraft = stopId ? loadStopDraft(stopId) : null;
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [proofImage, setProofImage] = useState<string | null>(initialDraft?.proofImage || null);
+  const [autoDeliverAfterPhoto, setAutoDeliverAfterPhoto] = useState(false);
   const [submitting, setSubmitting] = useState<'arrived' | 'delivered' | 'failed' | 'notes' | 'skipped' | null>(null);
   const [notes, setNotes] = useState(initialDraft?.notes || stop?.driver_notes || '');
 
@@ -31,6 +33,8 @@ export function StopDetailPage() {
   const activeStop = stop;
 
   const items = stopItems(activeStop);
+  const proofRequired = !!activeStop.invoice_id && !activeStop.invoice_has_proof_of_delivery;
+  const needsProofBeforeDelivery = proofRequired && !proofImage;
 
   useEffect(() => {
     if (!stopId) return;
@@ -56,15 +60,29 @@ export function StopDetailPage() {
 
   async function onCapturePhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
-    if (!file) return;
+    if (!file) {
+      setAutoDeliverAfterPhoto(false);
+      return;
+    }
 
     try {
       const image = await fileToBase64(file);
       setProofImage(image);
       pushToast('Proof-of-delivery photo captured.', 'success');
+      event.target.value = '';
+      if (autoDeliverAfterPhoto) {
+        setAutoDeliverAfterPhoto(false);
+        await runAction('delivered', image);
+      }
     } catch (error) {
+      setAutoDeliverAfterPhoto(false);
       pushToast(error instanceof Error ? error.message : 'Unable to read the image.', 'error');
     }
+  }
+
+  function openPhotoCapture(autoDeliver = false) {
+    setAutoDeliverAfterPhoto(autoDeliver);
+    fileInputRef.current?.click();
   }
 
   async function onSaveNotes() {
@@ -79,7 +97,7 @@ export function StopDetailPage() {
     }
   }
 
-  async function runAction(action: 'arrived' | 'delivered' | 'failed' | 'skipped') {
+  async function runAction(action: 'arrived' | 'delivered' | 'failed' | 'skipped', proofImageOverride: string | null = proofImage) {
     setSubmitting(action);
 
     try {
@@ -92,7 +110,7 @@ export function StopDetailPage() {
       }
 
       if (action === 'delivered') {
-        await markDelivered(activeStop, proofImage, notes);
+        await markDelivered(activeStop, proofImageOverride, notes);
         clearStopDraft(activeStop.id);
         refreshOfflineDrafts();
         setProofImage(null);
@@ -163,21 +181,31 @@ export function StopDetailPage() {
         <p className="mt-2 text-sm text-slate-600">
           Capture a delivery photo before marking the stop delivered when an invoice is attached.
         </p>
+        {needsProofBeforeDelivery && (
+          <p className="mt-3 rounded-2xl bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
+            Tap the deliver button once to open the camera. After you confirm the photo, the stop will finish automatically.
+          </p>
+        )}
         {!isOnline && (
           <p className="mt-3 rounded-2xl bg-sand px-3 py-2 text-sm text-amber-900">
             You are offline. Proof photos and notes will stay on this device until you reconnect and finish the stop.
           </p>
         )}
-        <label className="mt-4 block">
-          <span className="sr-only">Capture proof of delivery photo</span>
-          <input
-            type="file"
-            accept="image/*"
-            capture="environment"
-            onChange={onCapturePhoto}
-            className="block min-h-12 w-full rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-sm text-slate-600"
-          />
-        </label>
+        <input
+          ref={fileInputRef}
+          type="file"
+          accept="image/*"
+          capture="environment"
+          onChange={onCapturePhoto}
+          className="sr-only"
+        />
+        <button
+          type="button"
+          onClick={() => openPhotoCapture(false)}
+          className="mt-4 min-h-12 w-full rounded-2xl border border-dashed border-slate-300 bg-slate-50 px-4 py-4 text-left text-sm font-semibold text-slate-700"
+        >
+          {proofImage ? 'Retake proof photo' : activeStop.invoice_id ? 'Capture proof photo' : 'Add optional photo'}
+        </button>
         {proofImage && (
           <img
             src={proofImage}
@@ -232,10 +260,16 @@ export function StopDetailPage() {
         <button
           type="button"
           disabled={submitting !== null || !isOnline}
-          onClick={() => void runAction('delivered')}
+          onClick={() => {
+            if (needsProofBeforeDelivery) {
+              openPhotoCapture(true);
+              return;
+            }
+            void runAction('delivered');
+          }}
           className="min-h-12 rounded-2xl bg-emerald-500 px-4 py-3 text-base font-semibold text-white disabled:opacity-60"
         >
-          {submitting === 'delivered' ? 'Completing stop...' : 'Mark Delivered'}
+          {submitting === 'delivered' ? 'Completing stop...' : needsProofBeforeDelivery ? 'Capture Photo + Deliver' : 'Mark Delivered'}
         </button>
         <button
           type="button"

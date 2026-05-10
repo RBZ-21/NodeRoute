@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { TraceabilityPage } from './TraceabilityPage';
 import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
-const { fetchWithAuthMock } = vi.hoisted(() => ({
+const { fetchWithAuthMock, sendWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
+  sendWithAuthMock: vi.fn(),
 }));
 
 vi.mock('../lib/api', () => ({
   fetchWithAuth: fetchWithAuthMock,
+  sendWithAuth: sendWithAuthMock,
 }));
 
 const traceResponse = {
@@ -23,7 +25,7 @@ const traceResponse = {
     expiration_date: '2026-04-20',
   },
   orders: [
-    { order_id: 'o1', order_number: 'ORD-100', customer: 'Blue Fin', status: 'invoiced', quantity: 25, delivery_date: '2026-04-05' },
+    { order_id: 'o1', order_number: 'ORD-100', customer: 'Blue Fin', customer_email: 'dock@bluefin.test', status: 'invoiced', quantity: 25, delivery_date: '2026-04-05' },
   ],
   stops: [
     { stop_id: 's1', stop_name: 'Blue Fin Dock', address: '1 Dock St', quantity: 25, delivered_at: '2026-04-05' },
@@ -55,11 +57,13 @@ function mockTraceabilityApi() {
     if (url.startsWith('/api/lots/traceability/report?')) return reportResponse;
     return [];
   });
+  sendWithAuthMock.mockResolvedValue({ recipient_count: 1 });
 }
 
 describe('TraceabilityPage', () => {
   beforeEach(() => {
     fetchWithAuthMock.mockReset();
+    sendWithAuthMock.mockReset();
     mockTraceabilityApi();
   });
 
@@ -75,6 +79,12 @@ describe('TraceabilityPage', () => {
     expect(screen.getByText('Atlantic Salmon')).toBeInTheDocument();
     expect(screen.getByText('ORD-100')).toBeInTheDocument();
     expect(screen.getByText('Blue Fin Dock')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Send Customer Notice/i }));
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/lots/SALMON-2026-001/notice', 'POST', {});
+    });
+    expect(await screen.findByText('Sent traceability notice to 1 customer.')).toBeInTheDocument();
   });
 
   it('runs the report with filters and surfaces report errors', async () => {
@@ -84,12 +94,13 @@ describe('TraceabilityPage', () => {
 
     fireEvent.change(screen.getByPlaceholderText('SALMON-2026'), { target: { value: 'SALMON' } });
     fireEvent.change(screen.getByPlaceholderText('SAL-01'), { target: { value: 'SAL-01' } });
+    fireEvent.change(screen.getByPlaceholderText('North Sea'), { target: { value: 'North Sea' } });
     fireEvent.click(screen.getByRole('button', { name: 'Run Report' }));
 
     await waitFor(() => {
       expect(
         fetchWithAuthMock.mock.calls.some(([url]) =>
-          String(url).includes('/api/lots/traceability/report?page=1&limit=50&lot=SALMON&product_id=SAL-01')
+          String(url).includes('/api/lots/traceability/report?page=1&limit=50&lot=SALMON&product_id=SAL-01&vendor=North+Sea')
         )
       ).toBe(true);
     });

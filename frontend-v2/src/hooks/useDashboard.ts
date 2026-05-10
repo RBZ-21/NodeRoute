@@ -117,6 +117,18 @@ export type VendorPurchaseOrder = {
   total_backordered_qty?: number | string;
   line_count?: number | string;
   created_at?: string;
+  receipts?: Array<{
+    id: string;
+    received_at?: string;
+    lines?: Array<{
+      line_no: number;
+      item_number?: string | null;
+      product_name?: string;
+      variance_type?: string;
+      quantity_variance_qty?: number | string;
+      over_receipt_qty?: number | string;
+    }>;
+  }>;
 };
 
 // ── Query keys ────────────────────────────────────────────────────────────────

@@ -1,6 +1,7 @@
 const { createMailer } = require('./email');
 const { buildInvoicePDF } = require('./pdf');
 const { loadCompanySettings } = require('./company-settings');
+const { statusAfterInvoiceEmail } = require('./invoice-delivery');
 const { normalizeInvoiceLots } = require('./invoice-lots');
 const { supabase } = require('./supabase');
 
@@ -61,7 +62,7 @@ async function sendInvoiceEmail(inv, subjectPrefix = 'Your Invoice') {
     attachments: [{ filename: `invoice-${inv.invoice_number || inv.id.slice(0, 8)}.pdf`, content: pdfBuffer, contentType: 'application/pdf' }],
   });
 
-  const nextStatus = inv.status === 'pending' ? 'pending' : 'sent';
+  const nextStatus = statusAfterInvoiceEmail(inv.status);
   await supabase
     .from('invoices')
     .update({ status: nextStatus, sent_at: new Date().toISOString() })
