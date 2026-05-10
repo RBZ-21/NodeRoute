@@ -7,6 +7,12 @@ const { parsePurchaseOrderImage }   = require('../services/ai');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 const { generatePurchaseOrderNumber } = require('../services/purchase-order-numbers');
 const { buildPurchaseOrderPDF } = require('../services/purchase-order-pdf');
+const {
+  attachLotsToPurchaseOrder,
+  findVendorByName,
+  linkScanToPurchaseOrder,
+  recordPoInvoiceScan,
+} = require('../services/purchase-order-workflows');
 const { validateBody } = require('../lib/zod-validate');
 const {
   buildScopeFields,
@@ -39,6 +45,7 @@ const purchaseOrderConfirmSchema = z.object({
   vendor: z.string().trim().min(1, 'vendor is required'),
   po_number: z.any().optional(),
   date: z.any().optional(),
+  scan_id: z.any().optional(),
   total_cost: z.any().optional(),
   notes: z.any().optional(),
   items: z.array(z.any(), { error: 'items must be an array' }).min(1, 'items is required'),
@@ -90,7 +97,18 @@ router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
       if (!parsed.total_cost) {
         parsed.total_cost = parseFloat(parsed.items.reduce((s, i) => s + i.total, 0).toFixed(2));
       }
-      res.json(parsed);
+      const scanRecord = await recordPoInvoiceScan({
+        context: req.context || {},
+        createdBy: req.user?.name || req.user?.email || 'system',
+        fileName: req.file.originalname || null,
+        mimeType: req.file.mimetype || null,
+        parsed,
+        source: 'purchase-orders-scan',
+      });
+      res.json({
+        ...parsed,
+        scan_id: scanRecord?.id || null,
+      });
     } catch (err) {
       if (err.message.includes('OPENAI_API_KEY')) return res.status(503).json({ error: err.message });
       res.status(500).json({ error: 'Image scan failed: ' + err.message });
@@ -100,8 +118,9 @@ router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
 
 // ── POST /api/purchase-orders/confirm ──────────────────────────────────────
 router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), validateBody(purchaseOrderConfirmSchema), async (req, res) => {
-  const { vendor, po_number, date, items, total_cost, notes } = req.validated.body;
+  const { vendor, po_number, date, items, total_cost, notes, scan_id } = req.validated.body;
   const resolvedPoNumber = String(po_number || '').trim() || generatePurchaseOrderNumber();
+  const vendorRecord = await findVendorByName(vendor, req.context || {});
 
   let { data: inventory, error: invErr } = await supabase
     .from('seafood_inventory')
@@ -269,14 +288,42 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
   const poInsert = await insertRecordWithOptionalScope(supabase, 'purchase_orders', {
     po_number:    resolvedPoNumber,
     vendor:       vendor    || null,
+    vendor_id:    vendorRecord?.id || null,
     items:        savedItems.length ? savedItems : items,
     total_cost:   computedTotal,
     notes:        notes || null,
+    status:       'received',
+    workflow_kind:'inventory_receipt',
+    workflow_id:  null,
+    created_by:   req.user.name || req.user.email,
+    updated_by:   req.user.name || req.user.email,
+    updated_at:   new Date().toISOString(),
+    received_at:  new Date().toISOString(),
+    source_scan_id: String(scan_id || '').trim() || null,
     confirmed_by: req.user.name || req.user.email,
     ...buildScopeFields(req.context),
   }, req.context);
   if (poInsert.error) return res.status(500).json({ error: poInsert.error.message });
   const po = poInsert.data;
+
+  try {
+    const lotNumbers = savedItems
+      .map((item) => String(item.lot_number || '').trim())
+      .filter(Boolean);
+    if (po?.id && lotNumbers.length) {
+      await attachLotsToPurchaseOrder(po.id, lotNumbers, req.context || {});
+    }
+    if (po?.id && String(scan_id || '').trim()) {
+      await linkScanToPurchaseOrder(
+        String(scan_id).trim(),
+        po.id,
+        vendorRecord?.id || po.vendor_id || null,
+        req.user.name || req.user.email
+      );
+    }
+  } catch (linkError) {
+    return res.status(500).json({ error: linkError.message });
+  }
 
   res.json({
     success: true,
@@ -296,7 +343,7 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
       .select(candidate.select)
       .order('created_at', { ascending: false })
       .limit(100),
-    { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, created_at, company_id, location_id' }
+    { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, created_at, company_id, location_id, workflow_kind' }
   );
   if (result.error && String(result.error.message || '').includes('purchase_orders.company_id')) {
     result = await executeWithOptionalScope(
@@ -305,11 +352,13 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
         .select(candidate.select)
         .order('created_at', { ascending: false })
         .limit(100),
-      { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, created_at, location_id' }
+      { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, created_at, location_id, workflow_kind' }
     );
   }
   if (result.error) return res.status(500).json({ error: result.error.message });
-  res.json(filterRowsByContext(result.data || [], req.context));
+  const scopedRows = filterRowsByContext(result.data || [], req.context)
+    .filter((row) => String(row.workflow_kind || '').trim().toLowerCase() !== 'vendor_order');
+  res.json(scopedRows);
 });
 
 router.get('/:id/pdf', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
