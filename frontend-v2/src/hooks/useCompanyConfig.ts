@@ -104,7 +104,7 @@ export function invalidateCompanyConfigCache() {
   _inflight = null;
 }
 
-type ConfigState = {
+type ConfigState = CompanyConfig & {
   config:    CompanyConfig;
   isLoading: boolean;
   error:     string | null;
