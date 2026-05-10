@@ -135,7 +135,7 @@ export function statusVariant(status: string | undefined): 'warning' | 'secondar
   const normalized = String(status || '').toLowerCase();
   if (normalized === 'pending') return 'warning';
   if (normalized === 'in_process' || normalized === 'processed') return 'secondary';
-  if (normalized === 'signed' || normalized === 'sent' || normalized === 'paid' || normalized === 'invoiced') return 'success';
+  if (normalized === 'signed' || normalized === 'sent' || normalized === 'delivered' || normalized === 'paid' || normalized === 'invoiced') return 'success';
   return 'neutral';
 }
 

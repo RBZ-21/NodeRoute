@@ -17,16 +17,37 @@ const VENDOR_FIELDS = [
   'email',
   'phone',
   'category',
+  'catalog_item_numbers',
   'status',
   'address',
   'notes',
   'payment_terms',
 ];
 
+function normalizeCatalogItemNumbers(value) {
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : [];
+  return Array.from(
+    new Set(
+      rawValues
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean)
+    )
+  );
+}
+
 function vendorPayload(source) {
   const payload = {};
   VENDOR_FIELDS.forEach(field => {
-    if (source[field] !== undefined) payload[field] = source[field] ?? null;
+    if (source[field] === undefined) return;
+    if (field === 'catalog_item_numbers') {
+      payload[field] = normalizeCatalogItemNumbers(source[field]);
+      return;
+    }
+    payload[field] = source[field] ?? null;
   });
   return payload;
 }

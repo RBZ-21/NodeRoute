@@ -22,6 +22,7 @@ export type VendorPoLine = {
   product_id?: string | null;
   item_number?: string | null;
   product_name?: string;
+  category?: string | null;
   unit?: string;
   ordered_qty?: number | string;
   received_qty?: number | string;
@@ -31,12 +32,20 @@ export type VendorPoLine = {
   unit_cost?: number | string;
   line_total?: number | string;
   received_total?: number | string;
+  lot_number?: string | null;
+  first_received_at?: string | null;
+  latest_received_at?: string | null;
+  first_receipt_lead_time_days?: number | null;
+  first_receipt_lead_time_hours?: number | null;
+  full_receipt_lead_time_days?: number | null;
+  lead_time_history?: VendorPoProductLeadTimeHistory | null;
 };
 
 export type VendorPoReceiptLine = {
   line_no: number;
   item_number?: string | null;
   product_name?: string;
+  lot_number?: string | null;
   qty_received?: number | string;
   requested_receive_qty?: number | string;
   accepted_receive_qty?: number | string;
@@ -77,6 +86,11 @@ export type VendorPoLeadTimeHistory = {
   minimum_days?: number | null;
   maximum_days?: number | null;
   latest_days?: number | null;
+};
+
+export type VendorPoProductLeadTimeHistory = VendorPoLeadTimeHistory & {
+  item_number?: string | null;
+  product_name?: string | null;
 };
 
 export type VendorPurchaseOrder = {
@@ -167,6 +181,7 @@ export type ReceiveVendorPoPayload = {
     unit_cost?: number;
     item_number?: string;
     product_name?: string;
+    lot_number?: string;
   }[];
   notes?: string | null;
   receiptRules?: VendorPoReceiptRules;

@@ -1381,7 +1381,74 @@ const ROUTE_OPTIMIZATION_SCHEMA = {
   },
 };
 
+function stopCoordinates(stop) {
+  const lat = numberOr(stop && stop.lat, NaN);
+  const lng = numberOr(stop && stop.lng, NaN);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng) || (lat === 0 && lng === 0)) return null;
+  return { lat, lng };
+}
+
+function haversineMiles(lat1, lng1, lat2, lng2) {
+  const R = 3958.8;
+  const toRad = (degrees) => (degrees * Math.PI) / 180;
+  const dLat = toRad(lat2 - lat1);
+  const dLng = toRad(lng2 - lng1);
+  const a =
+    Math.sin(dLat / 2) ** 2
+    + Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+  return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function coordinateRouteOptimization(stops) {
+  const stopList = (stops || []).map((stop) => ({ ...stop, _coords: stopCoordinates(stop) }));
+  const sortable = stopList.filter((stop) => stop._coords);
+  if (sortable.length < 2) return null;
+
+  const sorted = [sortable[0]];
+  const remaining = sortable.slice(1);
+  let currentCoords = sortable[0]._coords;
+
+  while (remaining.length) {
+    let nearestIndex = 0;
+    let nearestDistance = Infinity;
+    for (let index = 0; index < remaining.length; index += 1) {
+      const candidate = remaining[index];
+      const distance = haversineMiles(
+        currentCoords.lat,
+        currentCoords.lng,
+        candidate._coords.lat,
+        candidate._coords.lng,
+      );
+      if (distance < nearestDistance) {
+        nearestDistance = distance;
+        nearestIndex = index;
+      }
+    }
+    const [nextStop] = remaining.splice(nearestIndex, 1);
+    sorted.push(nextStop);
+    currentCoords = nextStop._coords;
+  }
+
+  const unsortable = stopList.filter((stop) => !stop._coords);
+  const optimizedStopIds = [...sorted, ...unsortable].map((stop) => String(stop.id));
+  const coordinateCoverage = `${sortable.length} of ${stopList.length}`;
+  const keyChanges = [`GPS optimization used recorded coordinates for ${coordinateCoverage} stop(s).`];
+  if (unsortable.length) {
+    keyChanges.push(`${unsortable.length} stop(s) without coordinates stayed at the end in their original order.`);
+  }
+
+  return {
+    optimized_stop_ids: optimizedStopIds,
+    key_changes: keyChanges,
+    estimated_efficiency_gain: 'Approximate — GPS heuristic fallback',
+    reasoning: 'Heuristic fallback: stop order optimized from recorded GPS coordinates, with non-geocoded stops preserved afterward.',
+  };
+}
+
 function heuristicRouteOptimization(stops) {
+  const coordinateResult = coordinateRouteOptimization(stops);
+  if (coordinateResult) return coordinateResult;
+
   // Sort by zip code prefix for rough geographic clustering, then by full address within zone
   const withZip = stops.map((s) => {
     const zip = String(s.address || '').match(/\b(\d{5})\b/);
@@ -1408,11 +1475,17 @@ async function optimizeRoute(stops) {
     };
   }
 
-  const stopList = stops.map((s, i) => `${i + 1}. ID: ${s.id} | Customer: ${stringOr(s.customer_name, 'Unknown')} | Address: ${stringOr(s.address, 'No address')} | Window: ${s.preferred_delivery_window || 'Any'}`).join('\n');
+  const stopList = stops.map((s, i) => {
+    const coords = stopCoordinates(s);
+    const coordinateText = coords ? `${coords.lat.toFixed(6)}, ${coords.lng.toFixed(6)}` : 'Unavailable';
+    return `${i + 1}. ID: ${s.id} | Customer: ${stringOr(s.customer_name, 'Unknown')} | Address: ${stringOr(s.address, 'No address')} | Coordinates: ${coordinateText} | Window: ${s.preferred_delivery_window || 'Any'}`;
+  }).join('\n');
 
   const userMessage = `Optimize the sequence for these ${stops.length} delivery stops:
 
 ${stopList}
+
+Use the coordinates as the primary routing signal whenever they are available.
 
 Return the stop IDs in optimal delivery order.`;
 
@@ -2164,4 +2237,6 @@ module.exports = {
   optimizeDriverAssignments,
   generateMarkdownRecommendations,
   generateInvoiceFollowUp,
+  heuristicRouteOptimization,
+  coordinateRouteOptimization,
 };

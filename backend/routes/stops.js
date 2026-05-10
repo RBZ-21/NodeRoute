@@ -8,6 +8,11 @@ const {
   insertRecordWithOptionalScope,
   rowMatchesContext,
 } = require('../services/operating-context');
+const {
+  extractOrderNumberFromStopNotes,
+  mergeInvoiceNotesWithDriverNotes,
+  statusAfterDeliveryCompletion,
+} = require('../services/invoice-delivery');
 const { syncRouteMutation } = require('../services/route-stop-sync');
 
 const STOP_FIELDS = [
@@ -26,6 +31,75 @@ function isRouteAssignedToUser(route, user) {
   if (route.driver_id && String(route.driver_id) === String(user.id)) return true;
   if (route.driver && String(route.driver).toLowerCase().trim() === String(user.name || '').toLowerCase().trim()) return true;
   return false;
+}
+
+async function loadLinkedInvoiceForStop(stop, context) {
+  if (!stop) return null;
+
+  if (stop.invoice_id) {
+    const { data: invoice } = await supabase
+      .from('invoices').select('*').eq('id', stop.invoice_id).single();
+    if (invoice && rowMatchesContext(invoice, context)) return invoice;
+  }
+
+  const orderNumber = extractOrderNumberFromStopNotes(stop.notes);
+  if (!orderNumber) return null;
+
+  const { data: orders, error: orderError } = await supabase
+    .from('orders')
+    .select('id, invoice_id, order_number, company_id, location_id')
+    .eq('order_number', orderNumber)
+    .limit(1);
+  if (orderError || !Array.isArray(orders) || !orders.length) return null;
+
+  const order = orders.find((candidate) => rowMatchesContext(candidate, context));
+  if (!order) return null;
+
+  if (order.invoice_id) {
+    const { data: invoice } = await supabase
+      .from('invoices').select('*').eq('id', order.invoice_id).single();
+    if (invoice && rowMatchesContext(invoice, context)) return invoice;
+  }
+
+  const { data: invoices, error: invoiceError } = await supabase
+    .from('invoices')
+    .select('*')
+    .eq('order_id', order.id)
+    .limit(1);
+  if (invoiceError || !Array.isArray(invoices) || !invoices.length) return null;
+  return invoices.find((candidate) => rowMatchesContext(candidate, context)) || null;
+}
+
+async function syncLinkedInvoiceForStop(stop, context, { markDelivered = false, syncDriverNotes = false } = {}) {
+  const linkedInvoice = await loadLinkedInvoiceForStop(stop, context);
+  if (!linkedInvoice) return null;
+
+  const updates = {};
+
+  if (syncDriverNotes && stop.driver_notes !== undefined) {
+    const nextNotes = mergeInvoiceNotesWithDriverNotes(linkedInvoice.notes, stop.driver_notes);
+    if (nextNotes !== (linkedInvoice.notes || null)) {
+      updates.notes = nextNotes;
+    }
+  }
+
+  if (markDelivered) {
+    const nextStatus = statusAfterDeliveryCompletion(linkedInvoice.status);
+    if (nextStatus && nextStatus !== String(linkedInvoice.status || '').trim().toLowerCase()) {
+      updates.status = nextStatus;
+    }
+  }
+
+  if (!Object.keys(updates).length) return linkedInvoice;
+
+  const { data, error } = await supabase
+    .from('invoices')
+    .update(updates)
+    .eq('id', linkedInvoice.id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data || { ...linkedInvoice, ...updates };
 }
 
 async function authorizeDwellEvent(req, res, stopId) {
@@ -129,6 +203,14 @@ router.patch('/:id', authenticateToken, async (req, res) => {
       const { data, error } = await supabase
         .from('stops').update(update).eq('id', req.params.id).select().single();
       if (error) return res.status(500).json({ error: error.message });
+      if (update.driver_notes !== undefined) {
+        try {
+          await syncLinkedInvoiceForStop(data, req.context, { syncDriverNotes: true });
+        } catch (invoiceSyncError) {
+          // Driver notes on the stop remain the source of truth; invoice sync is best-effort.
+          console.error('[stops] invoice driver-notes sync failed:', invoiceSyncError.message);
+        }
+      }
       return res.json(data);
     }
 
@@ -147,6 +229,13 @@ router.patch('/:id', authenticateToken, async (req, res) => {
     const { data, error } = await supabase
       .from('stops').update(update).eq('id', req.params.id).select().single();
     if (error) return res.status(500).json({ error: error.message });
+    if (update.driver_notes !== undefined) {
+      try {
+        await syncLinkedInvoiceForStop(data, req.context, { syncDriverNotes: true });
+      } catch (invoiceSyncError) {
+        console.error('[stops] invoice driver-notes sync failed:', invoiceSyncError.message);
+      }
+    }
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -228,12 +317,9 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
     // Fire delivery confirmation email non-fatally using the invoice already linked to this stop
     try {
       const { stop } = auth;
-      if (stop.invoice_id) {
-        const { data: invoice } = await supabase
-          .from('invoices').select('*').eq('id', stop.invoice_id).single();
-        const email = invoice?.customer_email || invoice?.contact_email || invoice?.billing_email;
-        if (invoice && email) await sendInvoiceEmail(invoice, 'Invoice');
-      }
+      const invoice = await syncLinkedInvoiceForStop(stop, req.context, { markDelivered: true, syncDriverNotes: true });
+      const email = invoice?.customer_email || invoice?.contact_email || invoice?.billing_email;
+      if (invoice && email) await sendInvoiceEmail(invoice, 'Invoice');
     } catch { /* email failure must never block the depart response */ }
 
     res.json(updated);

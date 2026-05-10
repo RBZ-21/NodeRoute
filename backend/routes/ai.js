@@ -248,17 +248,26 @@ router.post('/optimize-route', authenticateToken, requireRole('admin', 'manager'
 
     const { data: stops } = await supabase
       .from('stops')
-      .select('id,address,customer_id,status')
+      .select('id,address,customer_id,status,lat,lng')
       .in('id', stopIds);
 
     const customerIds = (stops || []).map((s) => s.customer_id).filter(Boolean);
     let customerMap = {};
     if (customerIds.length) {
-      const { data: customers } = await supabase.from('customers').select('customer_number,company_name').in('customer_number', customerIds);
-      (customers || []).forEach((c) => { customerMap[c.customer_number] = c.company_name; });
+      const { data: customers } = await supabase
+        .from('customers')
+        .select('customer_number,company_name,preferred_delivery_window')
+        .in('customer_number', customerIds);
+      (customers || []).forEach((customer) => {
+        customerMap[customer.customer_number] = customer;
+      });
     }
 
-    const enrichedStops = (stops || []).map((s) => ({ ...s, customer_name: customerMap[s.customer_id] || null }));
+    const enrichedStops = (stops || []).map((stop) => ({
+      ...stop,
+      customer_name: customerMap[stop.customer_id]?.company_name || null,
+      preferred_delivery_window: customerMap[stop.customer_id]?.preferred_delivery_window || null,
+    }));
     const result = await optimizeRoute(enrichedStops);
     res.json(result);
   } catch (err) {
