@@ -1,0 +1,55 @@
+{
+  "seafood": [
+    { "item_number": "SALM-001", "name": "Atlantic Salmon Fillets", "category": "Fish", "default_unit": "catch_weight", "unit": "lb", "cost": 8.50, "price_per_unit": 12.99, "is_catch_weight": true, "is_ftl_regulated": true, "temp_sensitive": true },
+    { "item_number": "HALI-001", "name": "Pacific Halibut Fillets", "category": "Fish", "default_unit": "catch_weight", "unit": "lb", "cost": 12.00, "price_per_unit": 18.99, "is_catch_weight": true, "is_ftl_regulated": true, "temp_sensitive": true },
+    { "item_number": "SHRI-001", "name": "Gulf White Shrimp 16/20", "category": "Shellfish", "default_unit": "lb", "unit": "lb", "cost": 7.25, "price_per_unit": 11.50, "is_catch_weight": false, "is_ftl_regulated": true, "temp_sensitive": true },
+    { "item_number": "TUNA-001", "name": "Yellowfin Tuna Loin", "category": "Fish", "default_unit": "catch_weight", "unit": "lb", "cost": 14.00, "price_per_unit": 21.99, "is_catch_weight": true, "is_ftl_regulated": true, "temp_sensitive": true },
+    { "item_number": "LOBSTER-001", "name": "Maine Lobster Whole", "category": "Shellfish", "default_unit": "catch_weight", "unit": "lb", "cost": 18.00, "price_per_unit": 28.00, "is_catch_weight": true, "is_ftl_regulated": true, "temp_sensitive": true },
+    { "item_number": "COD-001", "name": "Atlantic Cod Fillets", "category": "Fish", "default_unit": "lb", "unit": "lb", "cost": 6.50, "price_per_unit": 10.99, "is_catch_weight": false, "is_ftl_regulated": true, "temp_sensitive": true },
+    { "item_number": "SCAL-001", "name": "Sea Scallops U10", "category": "Shellfish", "default_unit": "lb", "unit": "lb", "cost": 16.00, "price_per_unit": 24.99, "is_catch_weight": false, "is_ftl_regulated": true, "temp_sensitive": true },
+    { "item_number": "SWORD-001", "name": "Swordfish Steaks", "category": "Fish", "default_unit": "catch_weight", "unit": "lb", "cost": 11.00, "price_per_unit": 17.50, "is_catch_weight": true, "is_ftl_regulated": true, "temp_sensitive": true }
+  ],
+  "liquor": [
+    { "item_number": "BUD-24", "name": "Budweiser 24-Pack Cans", "category": "Beer", "default_unit": "case", "unit": "case", "case_qty": 24, "cost": 18.00, "price_per_unit": 24.99, "requires_age_verification": true },
+    { "item_number": "JD-750", "name": "Jack Daniel's Old No. 7 750ml", "category": "Whiskey", "default_unit": "each", "unit": "each", "cost": 22.00, "price_per_unit": 34.99, "requires_age_verification": true },
+    { "item_number": "KEG-IPA", "name": "Craft IPA Half-Barrel Keg", "category": "Beer", "default_unit": "pallet", "unit": "each", "cost": 95.00, "price_per_unit": 135.00, "requires_age_verification": true, "is_deposit_item": true, "deposit_amount": 30.00 },
+    { "item_number": "GREY-1L", "name": "Grey Goose Vodka 1L", "category": "Vodka", "default_unit": "each", "unit": "each", "cost": 28.00, "price_per_unit": 44.99, "requires_age_verification": true },
+    { "item_number": "MERLOT-CS", "name": "House Merlot Case (12 bottles)", "category": "Wine", "default_unit": "case", "unit": "case", "case_qty": 12, "cost": 72.00, "price_per_unit": 108.00, "requires_age_verification": true },
+    { "item_number": "CORONA-24", "name": "Corona Extra 24-Pack Bottles", "category": "Beer", "default_unit": "case", "unit": "case", "case_qty": 24, "cost": 19.00, "price_per_unit": 26.99, "requires_age_verification": true },
+    { "item_number": "HENNY-750", "name": "Hennessy VS Cognac 750ml", "category": "Cognac", "default_unit": "each", "unit": "each", "cost": 31.00, "price_per_unit": 49.99, "requires_age_verification": true },
+    { "item_number": "KEG-LAGER", "name": "Domestic Lager Half-Barrel Keg", "category": "Beer", "default_unit": "each", "unit": "each", "cost": 80.00, "price_per_unit": 115.00, "requires_age_verification": true, "is_deposit_item": true, "deposit_amount": 30.00 }
+  ],
+  "produce": [
+    { "item_number": "TOM-ROMA", "name": "Roma Tomatoes", "category": "Vegetables", "default_unit": "lb", "unit": "lb", "cost": 0.55, "price_per_unit": 0.99, "temp_sensitive": true },
+    { "item_number": "ROM-CS", "name": "Romaine Hearts Case (24ct)", "category": "Lettuce", "default_unit": "case", "unit": "case", "case_qty": 24, "cost": 18.00, "price_per_unit": 26.99, "temp_sensitive": true },
+    { "item_number": "AVO-LG", "name": "Hass Avocados Large", "category": "Fruit", "default_unit": "each", "unit": "each", "cost": 0.60, "price_per_unit": 1.25, "temp_sensitive": true },
+    { "item_number": "SPIN-5LB", "name": "Baby Spinach 5lb Bag", "category": "Greens", "default_unit": "each", "unit": "each", "cost": 7.50, "price_per_unit": 12.99, "temp_sensitive": true },
+    { "item_number": "BELL-MIX", "name": "Bell Peppers Mix 25lb", "category": "Vegetables", "default_unit": "lb", "unit": "lb", "cost": 0.80, "price_per_unit": 1.49, "temp_sensitive": true },
+    { "item_number": "BROCK-CS", "name": "Broccoli Crowns Case", "category": "Vegetables", "default_unit": "case", "unit": "case", "case_qty": 20, "cost": 22.00, "price_per_unit": 32.00, "temp_sensitive": true },
+    { "item_number": "STRAW-FL", "name": "Strawberries Flat (12 pints)", "category": "Fruit", "default_unit": "case", "unit": "case", "case_qty": 12, "cost": 24.00, "price_per_unit": 36.00, "temp_sensitive": true },
+    { "item_number": "ONION-50", "name": "Yellow Onions 50lb Bag", "category": "Vegetables", "default_unit": "lb", "unit": "lb", "cost": 0.28, "price_per_unit": 0.55 }
+  ],
+  "paper_goods": [
+    { "item_number": "PT-CS", "name": "Paper Towels Jumbo Roll Case (6ct)", "category": "Paper Towels", "default_unit": "case", "unit": "case", "case_qty": 6, "cost": 32.00, "price_per_unit": 48.99 },
+    { "item_number": "TB-33GL", "name": "Trash Bags 33-Gallon (150ct Case)", "category": "Trash Bags", "default_unit": "case", "unit": "case", "case_qty": 150, "cost": 28.00, "price_per_unit": 42.99 },
+    { "item_number": "NAP-CS", "name": "Dinner Napkins 2-Ply Case (3000ct)", "category": "Napkins", "default_unit": "case", "unit": "case", "case_qty": 3000, "cost": 22.00, "price_per_unit": 34.99 },
+    { "item_number": "TP-CS", "name": "Toilet Paper Jumbo Roll Case (12ct)", "category": "Toilet Paper", "default_unit": "case", "unit": "case", "case_qty": 12, "cost": 38.00, "price_per_unit": 55.00 },
+    { "item_number": "CUP-16OZ", "name": "16oz Hot Cups Case (1000ct)", "category": "Cups", "default_unit": "case", "unit": "case", "case_qty": 1000, "cost": 42.00, "price_per_unit": 62.00 },
+    { "item_number": "FOIL-18", "name": "Heavy Duty Aluminum Foil 18\" x 1000'", "category": "Foil & Wrap", "default_unit": "each", "unit": "each", "cost": 48.00, "price_per_unit": 68.00 },
+    { "item_number": "GLOVES-M", "name": "Nitrile Gloves Medium Case (1000ct)", "category": "Gloves", "default_unit": "case", "unit": "case", "case_qty": 1000, "cost": 55.00, "price_per_unit": 78.00 },
+    { "item_number": "SOAP-GAL", "name": "Hand Soap Gallon Refill", "category": "Cleaning", "default_unit": "each", "unit": "gallon", "cost": 9.00, "price_per_unit": 14.99 }
+  ],
+  "broadline": [
+    { "item_number": "CHKN-BRST", "name": "Chicken Breast 40lb Case", "category": "Meat & Poultry", "default_unit": "case", "unit": "case", "case_qty": 40, "cost": 52.00, "price_per_unit": 75.00, "temp_sensitive": true },
+    { "item_number": "BEEF-80-20", "name": "Ground Beef 80/20 10lb Chub", "category": "Meat & Poultry", "default_unit": "lb", "unit": "lb", "cost": 3.80, "price_per_unit": 5.99, "is_catch_weight": false, "temp_sensitive": true },
+    { "item_number": "PASTA-CS", "name": "Penne Pasta 20lb Case", "category": "Dry Goods", "default_unit": "case", "unit": "case", "case_qty": 20, "cost": 18.00, "price_per_unit": 26.00 },
+    { "item_number": "KETCHUP-GL", "name": "Ketchup Gallon Jug", "category": "Condiments", "default_unit": "gallon", "unit": "gallon", "cost": 6.50, "price_per_unit": 10.99 },
+    { "item_number": "MILK-GL", "name": "Whole Milk Gallon", "category": "Dairy & Frozen", "default_unit": "gallon", "unit": "gallon", "cost": 2.80, "price_per_unit": 4.49, "temp_sensitive": true },
+    { "item_number": "EGGS-30", "name": "Large Eggs 30-Dozen Case", "category": "Dairy & Frozen", "default_unit": "case", "unit": "case", "case_qty": 360, "cost": 62.00, "price_per_unit": 88.00, "temp_sensitive": true },
+    { "item_number": "CANOLA-35", "name": "Canola Oil 35lb Jug", "category": "Oils", "default_unit": "each", "unit": "each", "cost": 32.00, "price_per_unit": 46.00 },
+    { "item_number": "FLOUR-50", "name": "All-Purpose Flour 50lb Bag", "category": "Dry Goods", "default_unit": "each", "unit": "each", "cost": 22.00, "price_per_unit": 32.00 },
+    { "item_number": "FRZ-FRIES", "name": "Frozen French Fries 6/5lb Case", "category": "Dairy & Frozen", "default_unit": "case", "unit": "case", "case_qty": 30, "cost": 28.00, "price_per_unit": 40.00, "temp_sensitive": true },
+    { "item_number": "PT-CS-BL", "name": "Paper Towels Jumbo Roll Case (6ct)", "category": "Paper Goods", "default_unit": "case", "unit": "case", "case_qty": 6, "cost": 32.00, "price_per_unit": 48.99 }
+  ],
+  "blank": []
+}
