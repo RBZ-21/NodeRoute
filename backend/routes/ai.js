@@ -20,6 +20,7 @@ const {
   generateMarkdownRecommendations,
   generateInvoiceFollowUp,
 } = require('../services/ai');
+const { recordPoInvoiceScan } = require('../services/purchase-order-workflows');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -224,7 +225,18 @@ router.post(
       const base64 = req.file.buffer.toString('base64');
       const mimeType = req.file.mimetype === 'application/pdf' ? 'image/png' : req.file.mimetype;
       const result = await parsePurchaseOrderImage(base64, mimeType);
-      res.json(result);
+      const scanRecord = await recordPoInvoiceScan({
+        context: req.context || {},
+        createdBy: req.user?.name || req.user?.email || 'system',
+        fileName: req.file.originalname || null,
+        mimeType: req.file.mimetype || null,
+        parsed: result,
+        source: 'ai-scan-po',
+      });
+      res.json({
+        ...result,
+        scan_id: scanRecord?.id || null,
+      });
     } catch (err) {
       if (String(err.message || '').includes('OPENAI_API_KEY')) {
         return res.status(503).json({ error: 'AI service is not configured.' });
@@ -328,11 +340,16 @@ router.post('/vendor-score', authenticateToken, requireRole('admin', 'manager'),
     const since = new Date(Date.now() - 90 * 86400000).toISOString();
     const { data: pos } = await supabase
       .from('purchase_orders')
-      .select('id,status,created_at,total_cost')
+      .select('id,status,created_at,total_cost,workflow_kind')
       .eq('vendor_id', vendorId)
       .gte('created_at', since);
 
-    const result = await scoreVendorPerformance(vendor, pos || []);
+    const vendorOrders = (pos || []).filter((po) => {
+      const workflowKind = String(po.workflow_kind || '').trim().toLowerCase();
+      return !workflowKind || workflowKind === 'vendor_order';
+    });
+
+    const result = await scoreVendorPerformance(vendor, vendorOrders);
     res.json({ vendor_id: vendorId, vendor_name: vendor.name, ...result });
   } catch (err) {
     if (String(err.message || '').includes('OPENAI_API_KEY')) return res.status(503).json({ error: 'AI service is not configured.' });

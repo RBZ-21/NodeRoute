@@ -699,7 +699,7 @@ export function PurchasingPage() {
     const total_cost = items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
 
     confirmPo.mutate(
-      { vendor: vendor || null, po_number: poNumber || null, notes: notes || null, total_cost, items },
+      { scan_id: scanResult?.scan_id || null, vendor: vendor || null, po_number: poNumber || null, notes: notes || null, total_cost, items },
       {
         onSuccess: (response) => {
           const failed = Array.isArray(response.errors) && response.errors.length;
@@ -758,6 +758,7 @@ export function PurchasingPage() {
       {
         id: activeReceivePo.id,
         payload: {
+          scan_id: receiveScanResult?.scan_id || null,
           lines: payloadLines,
           notes: receiveNotes.trim() || null,
           receiptRules: receiveRules,

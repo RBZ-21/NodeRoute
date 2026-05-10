@@ -403,6 +403,7 @@ describe('PurchasingPage', () => {
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/purchase-orders/confirm', 'POST', {
+        scan_id: null,
         vendor: 'Blue Ocean Seafood',
         po_number: 'PO-300',
         notes: 'Cold storage intake',
@@ -458,6 +459,7 @@ describe('PurchasingPage', () => {
     sendWithAuthMock.mockImplementation(async (url: string, method: string, body: unknown) => {
       if (url === '/api/ops/vendor-purchase-orders/ops-po-1/receive' && method === 'POST') {
         expect(body).toEqual({
+          scan_id: null,
           lines: [
             {
               line_no: 1,
