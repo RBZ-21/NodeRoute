@@ -142,6 +142,7 @@ export type ScannedLineItem = {
 };
 
 export type PoScanResult = {
+  scan_id?: string | null;
   vendor: string | null;
   po_number: string | null;
   date: string | null;
@@ -150,6 +151,7 @@ export type PoScanResult = {
 };
 
 export type ConfirmPoPayload = {
+  scan_id?: string | null;
   vendor: string | null;
   po_number: string | null;
   notes: string | null;
@@ -175,6 +177,7 @@ export type ConfirmPoResponse = {
 };
 
 export type ReceiveVendorPoPayload = {
+  scan_id?: string | null;
   lines: {
     line_no: number;
     qty_received: number;
