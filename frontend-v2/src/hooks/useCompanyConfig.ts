@@ -104,11 +104,17 @@ export function invalidateCompanyConfigCache() {
   _inflight = null;
 }
 
-type ConfigState = CompanyConfig & {
+type ConfigState = {
   config:    CompanyConfig;
   isLoading: boolean;
   error:     string | null;
   reload:    () => void;
+  // Convenience top-level accessors (mirrors CompanyConfig fields)
+  businessTypes:       BusinessType[];
+  enabledUnits:        UnitType[];
+  features:            CompanyFeatures;
+  catalogTemplate:     CatalogTemplate;
+  onboardingCompleted: boolean;
 };
 
 export function useCompanyConfig(): ConfigState {
