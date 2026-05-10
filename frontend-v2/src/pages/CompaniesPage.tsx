@@ -129,15 +129,14 @@ export function CompaniesPage() {
   async function impersonate(company: Company) {
     setImpersonating(company.id);
     try {
-      const res = await sendWithAuth<{ token: string; user: unknown }>(
+      // The server sets the HttpOnly cookie directly — no token in the response body.
+      // We only receive the impersonated user's profile for display purposes.
+      const res = await sendWithAuth<{ ok: boolean; user: { id: string; name: string; email: string; role: string } }>(
         `/api/superadmin/companies/${company.id}/impersonate`, 'POST',
       );
-      const prevToken = localStorage.getItem('nr_token');
-      const prevUser  = localStorage.getItem('nr_user');
-      if (prevToken) sessionStorage.setItem('sa_prev_token', prevToken);
-      if (prevUser)  sessionStorage.setItem('sa_prev_user',  prevUser);
-      localStorage.setItem('nr_token', (res as { token: string }).token);
-      localStorage.setItem('nr_user',  JSON.stringify((res as { user: unknown }).user));
+      // Store display-only info: the banner reads nr_impersonating to know we're in impersonation mode.
+      localStorage.setItem('nr_impersonating', company.name);
+      localStorage.setItem('nr_user', JSON.stringify(res.user));
       window.location.href = '/dashboard';
     } catch (err) {
       alert(`Could not switch to ${company.name}: ${(err as Error).message}`);

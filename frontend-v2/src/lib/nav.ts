@@ -18,7 +18,7 @@ export type TabId =
   | 'invoices' | 'analytics' | 'inventory' | 'forecast' | 'financials'
   | 'purchasing' | 'vendors' | 'warehouse' | 'planning' | 'integrations'
   | 'aihelp' | 'settings' | 'traceability' | 'companies' | 'waitlist'
-  | 'compliance' | 'dsr' | 'superadmin';
+  | 'compliance' | 'dsr' | 'superadmin-overview';
 
 export type GroupId =
   | 'top' | 'logistics' | 'people' | 'financials'
@@ -68,7 +68,7 @@ export const navGroups: NavGroup[] = [
     allowedRoles: SA_ONLY,
     items: [
       {
-        id: 'superadmin',
+        id: 'superadmin-overview',
         label: 'Platform Overview',
         path: '/superadmin',
         icon: LayoutGrid,
