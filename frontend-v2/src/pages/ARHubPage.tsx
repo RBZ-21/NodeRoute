@@ -3,6 +3,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { useARAging, useARCollections, useSaveCollectionNote, useSendReminder } from '../hooks/useAR';
+import { useLatePaymentRisk } from '../hooks/useAI';
 
 const BUCKET_LABELS = ['Current', '1-30', '31-60', '61-90', '90+'];
 const COLLECTION_STATUSES = ['open', 'contacted', 'promise_to_pay', 'escalated', 'resolved'];
@@ -20,14 +21,21 @@ function statusBadgeClass(s?: string) {
   }
 }
 
+const RISK_COLORS: Record<string, string> = {
+  HIGH: 'text-red-700 bg-red-50 border-red-200',
+  MEDIUM: 'text-yellow-700 bg-yellow-50 border-yellow-200',
+  LOW: 'text-green-700 bg-green-50 border-green-200',
+};
+
 export function ARHubPage() {
-  const [tab, setTab] = useState<'aging' | 'collections'>('aging');
+  const [tab, setTab] = useState<'aging' | 'collections' | 'payment-risk'>('aging');
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
   const [noteState, setNoteState] = useState<Record<string, { note: string; status: string }>>({});
 
   const { data: aging = [], isLoading: loadingAging } = useARAging();
   const { data: collections = [], isLoading: loadingCollections } = useARCollections();
+  const { data: riskData, isFetching: loadingRisk, refetch: refetchRisk } = useLatePaymentRisk(tab === 'payment-risk');
   const sendReminder = useSendReminder();
   const saveNote = useSaveCollectionNote();
 
@@ -70,10 +78,10 @@ export function ARHubPage() {
       {notice && <div className="rounded-md border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">{notice}</div>}
 
       <div className="flex gap-2 border-b border-border pb-2">
-        {(['aging', 'collections'] as const).map((t) => (
+        {([['aging', 'Aging Dashboard'], ['collections', 'Collections'], ['payment-risk', '✦ Late Payment Risk']] as const).map(([t, label]) => (
           <button key={t} onClick={() => setTab(t)}
             className={`px-3 py-1.5 text-sm rounded-md transition-colors ${tab === t ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground'}`}>
-            {t === 'aging' ? 'Aging Dashboard' : 'Collections'}
+            {label}
           </button>
         ))}
       </div>
@@ -126,6 +134,51 @@ export function ARHubPage() {
             </CardContent>
           </Card>
         </div>
+      )}
+
+      {tab === 'payment-risk' && (
+        <Card>
+          <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle>Late Payment Risk</CardTitle>
+              <CardDescription>
+                {riskData?.summary || 'AI-scored risk assessment for open accounts based on invoice age, amount, and overdue history.'}
+              </CardDescription>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => void refetchRisk()} disabled={loadingRisk}>
+              {loadingRisk ? 'Analyzing…' : riskData ? 'Refresh' : 'Run Analysis'}
+            </Button>
+          </CardHeader>
+          {loadingRisk && (
+            <CardContent>
+              <div className="text-sm text-muted-foreground">Analyzing payment patterns…</div>
+            </CardContent>
+          )}
+          {riskData && (
+            <CardContent>
+              {riskData.risks.length === 0 ? (
+                <p className="text-sm text-emerald-600">No late payment risks detected. All accounts are current.</p>
+              ) : (
+                <div className="space-y-2">
+                  {riskData.risks.map((r, i) => (
+                    <div key={i} className={`rounded-lg border px-4 py-3 ${RISK_COLORS[r.risk_level] ?? 'bg-muted border-border'}`}>
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <span className="font-semibold text-sm">{r.customer_name}</span>
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-medium border ${RISK_COLORS[r.risk_level]}`}>
+                            {r.risk_level} · {r.risk_score}/100
+                          </span>
+                        </div>
+                      </div>
+                      <p className="mt-1 text-sm">{r.flag_reason}</p>
+                      <p className="mt-1 text-xs font-medium">→ {r.recommended_action}</p>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
       )}
 
       {tab === 'collections' && (

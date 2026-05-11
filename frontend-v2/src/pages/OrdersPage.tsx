@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Card, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { getUserRole, sendWithAuth } from '../lib/api';
 import { useOrderForm } from '../hooks/useOrderForm';
 import {
@@ -33,6 +33,7 @@ import {
   productSelectionKey,
 } from './orders.types';
 import type { Order, OrderStatus } from './orders.types';
+import { usePricingAnomalies } from '../hooks/useAI';
 
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -143,6 +144,10 @@ export function OrdersPage() {
         : null;
 
   const role = getUserRole();
+
+  // ── Pricing Anomaly Detection ────────────────────────────────────────
+  const pricingAnomalies = usePricingAnomalies();
+  const [anomalyDays, setAnomalyDays] = useState(30);
 
   // ── Order Intake (AI parse) ──────────────────────────────────────────────
   const [intakeOpen, setIntakeOpen]       = useState(false);
@@ -520,6 +525,95 @@ export function OrdersPage() {
           onSaveWeight={saveActualWeight}
         />
       ) : null}
+
+      {(role === 'admin' || role === 'manager' || role === 'superadmin') && (
+        <Card>
+          <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+            <div>
+              <CardTitle>✦ Pricing Anomaly Detection</CardTitle>
+              <CardDescription>
+                {pricingAnomalies.data?.summary || 'Identify orders where items were sold significantly below the average price.'}
+              </CardDescription>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="flex items-center gap-2 text-sm text-muted-foreground">
+                Lookback
+                <select
+                  value={anomalyDays}
+                  onChange={(e) => setAnomalyDays(Number(e.target.value))}
+                  className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                >
+                  <option value={7}>7 days</option>
+                  <option value={14}>14 days</option>
+                  <option value={30}>30 days</option>
+                  <option value={60}>60 days</option>
+                  <option value={90}>90 days</option>
+                </select>
+              </label>
+              <Button
+                size="sm"
+                variant="outline"
+                onClick={() => void pricingAnomalies.mutate(anomalyDays)}
+                disabled={pricingAnomalies.isPending}
+              >
+                {pricingAnomalies.isPending ? 'Scanning…' : 'Scan for Anomalies'}
+              </Button>
+            </div>
+          </CardHeader>
+          {pricingAnomalies.error && (
+            <CardContent>
+              <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">
+                {String((pricingAnomalies.error as Error)?.message || 'Pricing anomaly scan failed')}
+              </div>
+            </CardContent>
+          )}
+          {pricingAnomalies.data && (
+            <CardContent>
+              {pricingAnomalies.data.anomalies.length === 0 ? (
+                <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                  No pricing anomalies detected in the last {pricingAnomalies.data.lookback_days} days.
+                </div>
+              ) : (
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-border text-xs uppercase tracking-wide text-muted-foreground">
+                        <th className="py-2 pr-3 text-left font-semibold">Order</th>
+                        <th className="py-2 pr-3 text-left font-semibold">Customer</th>
+                        <th className="py-2 pr-3 text-left font-semibold">Item</th>
+                        <th className="py-2 pr-3 text-right font-semibold">Sale Price</th>
+                        <th className="py-2 pr-3 text-right font-semibold">Avg Price</th>
+                        <th className="py-2 text-right font-semibold">% Below Avg</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {pricingAnomalies.data.anomalies.map((a, i) => (
+                        <tr key={i} className="border-b border-border/50 last:border-0">
+                          <td className="py-2 pr-3 font-medium">{a.order_number || a.order_id.slice(0, 8)}</td>
+                          <td className="py-2 pr-3 text-muted-foreground">{a.customer_name || '—'}</td>
+                          <td className="py-2 pr-3">
+                            <span className="font-medium">{a.description}</span>
+                            <span className="ml-1 text-xs text-muted-foreground">#{a.item_number}</span>
+                          </td>
+                          <td className="py-2 pr-3 text-right">{asMoney(a.sale_price)}</td>
+                          <td className="py-2 pr-3 text-right text-muted-foreground">{asMoney(a.avg_price)}</td>
+                          <td className="py-2 text-right">
+                            <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${
+                              a.severity === 'HIGH' ? 'bg-red-100 text-red-700' : 'bg-yellow-100 text-yellow-700'
+                            }`}>
+                              -{a.pct_below.toFixed(1)}%
+                            </span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
+      )}
     </div>
   );
 }
