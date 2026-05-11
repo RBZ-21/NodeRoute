@@ -2236,11 +2236,41 @@ async function generateBulkReorderAlerts(items) {
 
   const userMessage = `You are a seafood inventory manager. Analyze these items nearing stockout and return a ranked reorder plan:\n\n${itemList}\n\nReturn a JSON object with:\n- alerts: array of { item_number, description, urgency ("CRITICAL"|"WARNING"|"LOW"), days_until_stockout, suggested_order_qty, unit, reason }\n- summary: one-sentence overview`;
 
+  const BULK_REORDER_SCHEMA = {
+    name: 'bulk_reorder_alerts',
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['alerts', 'summary'],
+      properties: {
+        summary: { type: 'string' },
+        alerts: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['item_number', 'description', 'urgency', 'days_until_stockout', 'suggested_order_qty', 'unit', 'reason'],
+            properties: {
+              item_number:        { type: 'string' },
+              description:        { type: 'string' },
+              urgency:            { type: 'string', enum: ['CRITICAL', 'WARNING', 'LOW'] },
+              days_until_stockout:{ type: 'integer' },
+              suggested_order_qty:{ type: 'number' },
+              unit:               { type: 'string' },
+              reason:             { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+  };
+
   try {
     const result = await callAI({
       systemPrompt: 'You are an expert seafood inventory analyst. Return only valid JSON.',
       userMessage,
       maxTokens: 800,
+      schema: BULK_REORDER_SCHEMA,
     });
     if (result && Array.isArray(result.alerts)) return result;
     return { alerts: urgentOnly.map((i) => ({
@@ -2267,6 +2297,33 @@ async function generateBulkReorderAlerts(items) {
 }
 
 // ── LATE PAYMENT RISK SCORING ──────────────────────────────────────────────────
+const LATE_PAYMENT_RISK_SCHEMA = {
+  name: 'late_payment_risk',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['risks', 'summary'],
+    properties: {
+      summary: { type: 'string' },
+      risks: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['customer_name', 'risk_level', 'risk_score', 'flag_reason', 'recommended_action'],
+          properties: {
+            customer_name:       { type: 'string' },
+            risk_level:          { type: 'string', enum: ['HIGH', 'MEDIUM', 'LOW'] },
+            risk_score:          { type: 'integer' },
+            flag_reason:         { type: 'string' },
+            recommended_action:  { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+};
+
 async function scoreLatePaymentRisk(customerData) {
   // customerData: [{ customer_name, total_open, days_overdue_max, invoice_count, oldest_invoice_days, buckets }]
   const atRisk = customerData.filter((c) => c.total_open > 0).slice(0, 30);
@@ -2283,6 +2340,7 @@ async function scoreLatePaymentRisk(customerData) {
       systemPrompt: 'You are an expert accounts receivable analyst. Return only valid JSON.',
       userMessage,
       maxTokens: 900,
+      schema: LATE_PAYMENT_RISK_SCHEMA,
     });
     if (result && Array.isArray(result.risks)) return result;
     throw new Error('bad shape');
@@ -2352,6 +2410,33 @@ function detectPricingAnomalies(orders) {
 }
 
 // ── VENDOR LIST SCORING ────────────────────────────────────────────────────────
+const VENDOR_LIST_SCORE_SCHEMA = {
+  name: 'vendor_list_scores',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['scores', 'summary'],
+    properties: {
+      summary: { type: 'string' },
+      scores: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['vendor', 'score', 'grade', 'strengths', 'risks'],
+          properties: {
+            vendor:    { type: 'string' },
+            score:     { type: 'integer' },
+            grade:     { type: 'string', enum: ['A', 'B', 'C', 'D', 'F'] },
+            strengths: { type: 'array', items: { type: 'string' } },
+            risks:     { type: 'array', items: { type: 'string' } },
+          },
+        },
+      },
+    },
+  },
+};
+
 async function scoreVendorList(vendorSummaries) {
   // vendorSummaries: [{ vendor, po_count, total_value, short_ship_count, avg_lead_days }]
   if (!vendorSummaries.length) return { scores: [], summary: 'No vendor data.' };
@@ -2367,6 +2452,7 @@ async function scoreVendorList(vendorSummaries) {
       systemPrompt: 'You are a vendor performance analyst for a seafood distributor. Return only valid JSON.',
       userMessage,
       maxTokens: 700,
+      schema: VENDOR_LIST_SCORE_SCHEMA,
     });
     if (result && Array.isArray(result.scores)) return result;
     throw new Error('bad shape');
