@@ -804,10 +804,18 @@ export function InventoryPage() {
               </label>
               <label className="space-y-1 text-sm">
                 <span className="font-semibold">Unit</span>
-                <Input value={addForm.unit} onChange={(e) => setAddForm((f) => ({ ...f, unit: e.target.value }))} placeholder="lb" list="inv-unit-list" />
-                <datalist id="inv-unit-list">
-                  {['lb', 'kg', 'each', 'case', 'oz', 'gal'].map((u) => <option key={u} value={u} />)}
-                </datalist>
+                <select
+                  value={addForm.unit}
+                  onChange={(e) => setAddForm((f) => ({ ...f, unit: e.target.value }))}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="each">each</option>
+                  <option value="lb">lb</option>
+                  <option value="kg">kg</option>
+                  <option value="oz">oz</option>
+                  <option value="case">case</option>
+                  <option value="gal">gal</option>
+                </select>
               </label>
               <label className="space-y-1 text-sm">
                 <span className="font-semibold">Cost per unit ($)</span>
