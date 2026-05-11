@@ -5,6 +5,7 @@ import { Button } from '../ui/button';
 import { Sidebar } from './Sidebar';
 import { PageSkeleton } from './PageSkeleton';
 import { ImpersonationBanner } from '../ImpersonationBanner';
+import { AIAskBar } from './AIAskBar';
 import { getUserRole } from '../../lib/api';
 import { allNavItems, defaultPath, findNavItem, routePath, canAccess } from '../../lib/nav';
 
@@ -133,6 +134,8 @@ export function AppShell() {
         </div>
 
       </div>
+
+      {role !== 'driver' && <AIAskBar />}
     </div>
   );
 }

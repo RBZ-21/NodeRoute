@@ -2218,10 +2218,176 @@ async function generateChatReplyWithContext(userName, userRole, message, history
   }
 }
 
+// ── BULK REORDER ALERTS ────────────────────────────────────────────────────────
+async function generateBulkReorderAlerts(items) {
+  // items: [{ item_number, description, on_hand_qty, unit, cost, daily_usage, days_until_stockout, reorder_qty }]
+  const urgentOnly = items
+    .filter((i) => i.days_until_stockout !== null && i.days_until_stockout <= 14)
+    .sort((a, b) => (a.days_until_stockout ?? 99) - (b.days_until_stockout ?? 99))
+    .slice(0, 25);
+
+  if (!urgentOnly.length) {
+    return { alerts: [], summary: 'No items require immediate reordering.' };
+  }
+
+  const itemList = urgentOnly.map((i) =>
+    `${i.description} (#${i.item_number}): ${i.on_hand_qty} ${i.unit} on hand, ${i.daily_usage.toFixed(2)} ${i.unit}/day, ${i.days_until_stockout}d until stockout, suggest ${i.reorder_qty} ${i.unit}`
+  ).join('\n');
+
+  const userMessage = `You are a seafood inventory manager. Analyze these items nearing stockout and return a ranked reorder plan:\n\n${itemList}\n\nReturn a JSON object with:\n- alerts: array of { item_number, description, urgency ("CRITICAL"|"WARNING"|"LOW"), days_until_stockout, suggested_order_qty, unit, reason }\n- summary: one-sentence overview`;
+
+  try {
+    const result = await callAI({
+      systemPrompt: 'You are an expert seafood inventory analyst. Return only valid JSON.',
+      userMessage,
+      maxTokens: 800,
+    });
+    if (result && Array.isArray(result.alerts)) return result;
+    return { alerts: urgentOnly.map((i) => ({
+      item_number: i.item_number,
+      description: i.description,
+      urgency: i.days_until_stockout <= 3 ? 'CRITICAL' : i.days_until_stockout <= 7 ? 'WARNING' : 'LOW',
+      days_until_stockout: i.days_until_stockout,
+      suggested_order_qty: i.reorder_qty,
+      unit: i.unit,
+      reason: `${i.days_until_stockout} days of stock remaining at current velocity`,
+    })), summary: `${urgentOnly.length} items need restocking.` };
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    return { alerts: urgentOnly.map((i) => ({
+      item_number: i.item_number,
+      description: i.description,
+      urgency: i.days_until_stockout <= 3 ? 'CRITICAL' : i.days_until_stockout <= 7 ? 'WARNING' : 'LOW',
+      days_until_stockout: i.days_until_stockout,
+      suggested_order_qty: i.reorder_qty,
+      unit: i.unit,
+      reason: `${i.days_until_stockout} days of stock remaining at current velocity`,
+    })), summary: `${urgentOnly.length} items need restocking.` };
+  }
+}
+
+// ── LATE PAYMENT RISK SCORING ──────────────────────────────────────────────────
+async function scoreLatePaymentRisk(customerData) {
+  // customerData: [{ customer_name, total_open, days_overdue_max, invoice_count, oldest_invoice_days, buckets }]
+  const atRisk = customerData.filter((c) => c.total_open > 0).slice(0, 30);
+  if (!atRisk.length) return { risks: [], summary: 'No open AR to analyze.' };
+
+  const customerList = atRisk.map((c) =>
+    `${c.customer_name}: $${c.total_open.toFixed(2)} open, ${c.invoice_count} invoices, oldest ${c.oldest_invoice_days}d, max overdue ${c.days_overdue_max}d`
+  ).join('\n');
+
+  const userMessage = `You are an AR collections analyst. Score the late payment risk for each customer:\n\n${customerList}\n\nReturn JSON with:\n- risks: array of { customer_name, risk_level ("HIGH"|"MEDIUM"|"LOW"), risk_score (0-100), flag_reason, recommended_action }\n- summary: one-sentence overview of portfolio risk`;
+
+  try {
+    const result = await callAI({
+      systemPrompt: 'You are an expert accounts receivable analyst. Return only valid JSON.',
+      userMessage,
+      maxTokens: 900,
+    });
+    if (result && Array.isArray(result.risks)) return result;
+    throw new Error('bad shape');
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    const risks = atRisk.map((c) => {
+      const score = Math.min(100, Math.round((c.days_overdue_max / 90) * 50 + (c.total_open / 5000) * 50));
+      return {
+        customer_name: c.customer_name,
+        risk_level: score >= 70 ? 'HIGH' : score >= 40 ? 'MEDIUM' : 'LOW',
+        risk_score: score,
+        flag_reason: c.days_overdue_max > 60 ? 'Invoice 60+ days overdue' : c.total_open > 2000 ? 'High balance outstanding' : 'Open AR',
+        recommended_action: score >= 70 ? 'Escalate — call immediately' : score >= 40 ? 'Send payment reminder' : 'Monitor',
+      };
+    });
+    return { risks, summary: `${risks.filter((r) => r.risk_level === 'HIGH').length} high-risk accounts identified.` };
+  }
+}
+
+// ── PRICING ANOMALY DETECTION ──────────────────────────────────────────────────
+function detectPricingAnomalies(orders) {
+  // Compute per-item average price from all orders, then flag outliers > 25% below average
+  const priceSums = {};   // item_number → { sum, count, description }
+  for (const order of orders) {
+    for (const item of (order.items || [])) {
+      const num = String(item.item_number || '').trim();
+      if (!num) continue;
+      const price = Number(item.unit_price ?? item.price_per_lb ?? 0);
+      if (!Number.isFinite(price) || price <= 0) continue;
+      if (!priceSums[num]) priceSums[num] = { sum: 0, count: 0, description: item.name || item.description || num };
+      priceSums[num].sum += price;
+      priceSums[num].count += 1;
+    }
+  }
+
+  const anomalies = [];
+  for (const order of orders) {
+    for (const item of (order.items || [])) {
+      const num = String(item.item_number || '').trim();
+      if (!num || !priceSums[num] || priceSums[num].count < 2) continue;
+      const avg = priceSums[num].sum / priceSums[num].count;
+      const price = Number(item.unit_price ?? item.price_per_lb ?? 0);
+      if (!Number.isFinite(price) || price <= 0) continue;
+      const pct_below = (avg - price) / avg;
+      if (pct_below >= 0.25) {
+        anomalies.push({
+          order_id: order.id,
+          order_number: order.order_number,
+          customer_name: order.customer_name,
+          item_number: num,
+          description: priceSums[num].description,
+          sale_price: price,
+          avg_price: Math.round(avg * 100) / 100,
+          pct_below: Math.round(pct_below * 1000) / 10,
+          severity: pct_below >= 0.5 ? 'HIGH' : 'MEDIUM',
+        });
+      }
+    }
+  }
+
+  return {
+    anomalies: anomalies.sort((a, b) => b.pct_below - a.pct_below).slice(0, 50),
+    summary: anomalies.length
+      ? `${anomalies.length} pricing anomaly${anomalies.length > 1 ? 'ies' : ''} detected.`
+      : 'No significant pricing anomalies found.',
+  };
+}
+
+// ── VENDOR LIST SCORING ────────────────────────────────────────────────────────
+async function scoreVendorList(vendorSummaries) {
+  // vendorSummaries: [{ vendor, po_count, total_value, short_ship_count, avg_lead_days }]
+  if (!vendorSummaries.length) return { scores: [], summary: 'No vendor data.' };
+
+  const list = vendorSummaries.map((v) =>
+    `${v.vendor}: ${v.po_count} POs, $${v.total_value.toFixed(2)} total, ${v.short_ship_count} exceptions, ~${v.avg_lead_days}d lead time`
+  ).join('\n');
+
+  const userMessage = `Score these vendors on reliability, fill rate, and value:\n\n${list}\n\nReturn JSON:\n- scores: array of { vendor, score (0-100), grade ("A"|"B"|"C"|"D"|"F"), strengths: string[], risks: string[] }\n- summary: one-sentence overview`;
+
+  try {
+    const result = await callAI({
+      systemPrompt: 'You are a vendor performance analyst for a seafood distributor. Return only valid JSON.',
+      userMessage,
+      maxTokens: 700,
+    });
+    if (result && Array.isArray(result.scores)) return result;
+    throw new Error('bad shape');
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    const scores = vendorSummaries.map((v) => {
+      const score = Math.max(0, Math.min(100, Math.round(100 - (v.short_ship_count / Math.max(1, v.po_count)) * 60)));
+      const grade = score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 70 ? 'C' : score >= 60 ? 'D' : 'F';
+      return { vendor: v.vendor, score, grade, strengths: score >= 80 ? ['Consistent delivery'] : [], risks: v.short_ship_count > 0 ? [`${v.short_ship_count} exceptions`] : [] };
+    });
+    return { scores, summary: 'Vendor scores estimated from PO data.' };
+  }
+}
+
 module.exports = {
   forecastDemand,
   analyzeInventory,
   generateReorderAlert,
+  generateBulkReorderAlerts,
+  scoreLatePaymentRisk,
+  detectPricingAnomalies,
   generateWalkthrough,
   generateOrderIntakeDraft,
   normalizePOScan,
@@ -2234,6 +2400,7 @@ module.exports = {
   scoreCustomerRisk,
   detectAnomalies,
   scoreVendorPerformance,
+  scoreVendorList,
   optimizeDriverAssignments,
   generateMarkdownRecommendations,
   generateInvoiceFollowUp,
