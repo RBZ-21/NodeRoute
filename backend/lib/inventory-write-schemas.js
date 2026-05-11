@@ -158,6 +158,8 @@ const inventoryProductPatchBodySchema = z.object({
   default_price_per_lb: z.optional(z.preprocess(coerceOptionalNum, z.union([z.undefined(), z.number().nonnegative()]))),
   is_catch_weight:     z.optional(z.preprocess(coerceBool, z.boolean())),
   is_active:           z.optional(z.preprocess(coerceBool, z.boolean())),
+  reorder_point:       z.optional(z.preprocess(coerceOptionalNum, z.union([z.undefined(), z.number().nonnegative()]))),
+  barcode:             z.optional(z.preprocess((v) => (v === '' ? null : v), z.union([z.string(), z.null(), z.undefined()]))),
   notes: z.optional(z.preprocess(
     (v) => (v === '' || v === null ? null : v),
     z.union([z.string(), z.null()])

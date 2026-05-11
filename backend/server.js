@@ -44,6 +44,7 @@ const waitlistRouter      = require('./routes/waitlist');
 const dwellRouter         = require('./routes/dwell');
 const salesRepsRouter     = require('./routes/sales-reps');
 const arHubRouter         = require('./routes/ar-hub');
+const vendorBillsRouter   = require('./routes/vendor-bills');
 const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
 
 const app  = express();
@@ -184,6 +185,7 @@ app.use('/api/waitlist', waitlistRouter);
 app.use('/api/dwell', dwellRouter);
 app.use('/api/sales-reps', salesRepsRouter);
 app.use('/api/ar', arHubRouter);
+app.use('/api/vendor-bills', vendorBillsRouter);
 
 const { authenticateToken, requireRole } = require('./middleware/auth');
 
