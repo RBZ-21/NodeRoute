@@ -16,9 +16,13 @@ const {
   scoreCustomerRisk,
   detectAnomalies,
   scoreVendorPerformance,
+  scoreVendorList,
   optimizeDriverAssignments,
   generateMarkdownRecommendations,
   generateInvoiceFollowUp,
+  generateBulkReorderAlerts,
+  scoreLatePaymentRisk,
+  detectPricingAnomalies,
 } = require('../services/ai');
 const { recordPoInvoiceScan } = require('../services/purchase-order-workflows');
 
@@ -458,6 +462,136 @@ router.post('/invoice-followup', authenticateToken, requireRole('admin', 'manage
   } catch (err) {
     if (String(err.message || '').includes('OPENAI_API_KEY')) return res.status(503).json({ error: 'AI service is not configured.' });
     res.status(500).json({ error: 'Invoice follow-up generation failed: ' + err.message });
+  }
+});
+
+// ── SMART REORDER ALERTS ───────────────────────────────────────────────────────
+router.get('/reorder-alerts', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('reorder-alerts'), async (req, res) => {
+  try {
+    const { data: products, error: pErr } = await supabase
+      .from('seafood_inventory')
+      .select('item_number,description,on_hand_qty,unit,cost')
+      .order('description');
+    if (pErr) return res.status(500).json({ error: pErr.message });
+
+    const since = new Date(Date.now() - 28 * 86400000).toISOString();
+    const { data: history } = await supabase
+      .from('inventory_stock_history')
+      .select('item_number,change_qty,change_type,created_at')
+      .gte('created_at', since)
+      .in('change_type', ['pick', 'sale', 'depletion', 'adjustment']);
+
+    const usageByItem = {};
+    for (const row of (history || [])) {
+      if (!usageByItem[row.item_number]) usageByItem[row.item_number] = 0;
+      usageByItem[row.item_number] += Math.abs(Number(row.change_qty) || 0);
+    }
+
+    const enriched = (products || []).map((p) => {
+      const totalUsed = usageByItem[p.item_number] || 0;
+      const daily_usage = totalUsed / 28;
+      const on_hand = Math.max(0, Number(p.on_hand_qty) || 0);
+      const days_until_stockout = daily_usage > 0 ? Math.round(on_hand / daily_usage) : null;
+      const reorder_qty = Math.max(1, Math.round(daily_usage * 14));
+      return { ...p, daily_usage, days_until_stockout, reorder_qty };
+    });
+
+    const result = await generateBulkReorderAlerts(enriched);
+    res.json(result);
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) return res.status(503).json({ error: 'AI service is not configured.' });
+    res.status(500).json({ error: 'Reorder alerts failed: ' + err.message });
+  }
+});
+
+// ── LATE PAYMENT RISK ──────────────────────────────────────────────────────────
+router.get('/late-payment-risk', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('late-payment-risk'), async (req, res) => {
+  try {
+    const { data: invoices, error: iErr } = await supabase
+      .from('invoices')
+      .select('id,customer_name,total,status,due_date,created_at')
+      .in('status', ['sent', 'overdue', 'draft'])
+      .order('due_date', { ascending: true });
+    if (iErr) return res.status(500).json({ error: iErr.message });
+
+    const today = Date.now();
+    const byCustomer = {};
+    for (const inv of (invoices || [])) {
+      const name = inv.customer_name || 'Unknown';
+      if (!byCustomer[name]) byCustomer[name] = { customer_name: name, total_open: 0, invoice_count: 0, oldest_invoice_days: 0, days_overdue_max: 0 };
+      const total = Number(inv.total) || 0;
+      const dueMs = inv.due_date ? new Date(inv.due_date).getTime() : null;
+      const daysOverdue = dueMs ? Math.max(0, Math.round((today - dueMs) / 86400000)) : 0;
+      const ageDays = inv.created_at ? Math.round((today - new Date(inv.created_at).getTime()) / 86400000) : 0;
+      byCustomer[name].total_open += total;
+      byCustomer[name].invoice_count += 1;
+      byCustomer[name].oldest_invoice_days = Math.max(byCustomer[name].oldest_invoice_days, ageDays);
+      byCustomer[name].days_overdue_max = Math.max(byCustomer[name].days_overdue_max, daysOverdue);
+    }
+
+    const customerData = Object.values(byCustomer).filter((c) => c.total_open > 0);
+    const result = await scoreLatePaymentRisk(customerData);
+    res.json(result);
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) return res.status(503).json({ error: 'AI service is not configured.' });
+    res.status(500).json({ error: 'Late payment risk scoring failed: ' + err.message });
+  }
+});
+
+// ── PRICING ANOMALY DETECTION ──────────────────────────────────────────────────
+router.post('/pricing-anomalies', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('pricing-anomalies'), async (req, res) => {
+  try {
+    const days = Math.min(90, Math.max(7, parseInt(req.body.days || '30', 10)));
+    const since = new Date(Date.now() - days * 86400000).toISOString();
+    const { data: orders, error: oErr } = await supabase
+      .from('orders')
+      .select('id,order_number,customer_name,items,created_at')
+      .gte('created_at', since)
+      .not('items', 'is', null);
+    if (oErr) return res.status(500).json({ error: oErr.message });
+
+    const result = detectPricingAnomalies(orders || []);
+    res.json({ ...result, lookback_days: days });
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) return res.status(503).json({ error: 'AI service is not configured.' });
+    res.status(500).json({ error: 'Pricing anomaly detection failed: ' + err.message });
+  }
+});
+
+// ── VENDOR PERFORMANCE (BULK) ──────────────────────────────────────────────────
+router.get('/vendor-performance', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('vendor-performance'), async (req, res) => {
+  try {
+    const { data: pos, error: pErr } = await supabase
+      .from('purchase_orders')
+      .select('id,vendor,status,total_cost,items,created_at')
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (pErr) return res.status(500).json({ error: pErr.message });
+
+    const byVendor = {};
+    for (const po of (pos || [])) {
+      const v = String(po.vendor || '').trim() || 'Unknown';
+      if (!byVendor[v]) byVendor[v] = { vendor: v, po_count: 0, total_value: 0, short_ship_count: 0, avg_lead_days: 0, _lead_total: 0, _lead_count: 0 };
+      byVendor[v].po_count += 1;
+      byVendor[v].total_value += Number(po.total_cost) || 0;
+      if (po.status === 'exception' || po.status === 'short') byVendor[v].short_ship_count += 1;
+      if (po.created_at) {
+        const lead = Math.round((Date.now() - new Date(po.created_at).getTime()) / 86400000);
+        byVendor[v]._lead_total += lead;
+        byVendor[v]._lead_count += 1;
+      }
+    }
+
+    const vendorSummaries = Object.values(byVendor).map((v) => ({
+      ...v,
+      avg_lead_days: v._lead_count > 0 ? Math.round(v._lead_total / v._lead_count) : 0,
+    })).sort((a, b) => b.total_value - a.total_value);
+
+    const result = await scoreVendorList(vendorSummaries);
+    res.json(result);
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) return res.status(503).json({ error: 'AI service is not configured.' });
+    res.status(500).json({ error: 'Vendor performance scoring failed: ' + err.message });
   }
 });
 
