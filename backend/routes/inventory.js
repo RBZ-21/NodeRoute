@@ -33,7 +33,7 @@ const inventoryCreateBodySchema = z.object({
   category: z.string().optional(),
   unit: z.string().optional(),
   cost: z.union([z.number(), z.string()]).optional(),
-  on_hand_qty: z.coerce.number().finite().min(0, 'on_hand_qty must be a finite number \u2265 0'),
+  on_hand_qty: z.coerce.number().finite().min(0, 'on_hand_qty must be a finite number ≥ 0'),
   on_hand_weight: z.union([z.number(), z.string()]).optional(),
   lot_item: z.string().optional(),
   notes: z.any().optional(),
