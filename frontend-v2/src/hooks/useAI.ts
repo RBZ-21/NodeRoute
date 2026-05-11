@@ -65,7 +65,7 @@ export function useLatePaymentRisk(enabled = false) {
 
 export function usePricingAnomalies() {
   return useMutation({
-    mutationFn: (days = 30) =>
+    mutationFn: (days: number) =>
       sendWithAuth<PricingAnomaliesResult>('/api/ai/pricing-anomalies', 'POST', { days }),
   });
 }
