@@ -293,7 +293,9 @@ const emptyLine = (): PurchaseItemDraft => ({
 
 export function PurchasingPage() {
   const [searchParams] = useSearchParams();
-  const vendorParam = String(searchParams.get('vendor') || '').trim();
+  const vendorParam   = String(searchParams.get('vendor') || '').trim();
+  const itemParam     = String(searchParams.get('item') || '').trim();
+  const qtyParam      = String(searchParams.get('qty') || '').trim();
 
   const { data: orders = [], isLoading, isError, error, refetch } = usePurchaseOrders(vendorParam || undefined);
   const { data: vendorPurchaseOrders = [], isLoading: vendorPoLoading, isError: vendorPoError, error: vendorPoErrorValue, refetch: refetchVendorPos } = useVendorPurchaseOrders();
@@ -307,7 +309,12 @@ export function PurchasingPage() {
   const [vendor, setVendor] = useState('');
   const [poNumber, setPoNumber] = useState('');
   const [notes, setNotes] = useState('');
-  const [lines, setLines] = useState<PurchaseItemDraft[]>([emptyLine()]);
+  const [lines, setLines] = useState<PurchaseItemDraft[]>(() => {
+    if (itemParam) {
+      return [{ ...emptyLine(), item_number: itemParam, quantity: qtyParam || '' }];
+    }
+    return [emptyLine()];
+  });
   const [vendorFilter, setVendorFilter] = useState<'all' | string>(vendorParam || 'all');
 
   const [scanLoading, setScanLoading] = useState(false);
@@ -330,6 +337,9 @@ export function PurchasingPage() {
 
   const [vendorPerfEnabled, setVendorPerfEnabled] = useState(false);
   const vendorPerfQuery = useVendorPerformance(vendorPerfEnabled);
+
+  const [barcodeScan, setBarcodeScan] = useState('');
+  const [barcodeMatch, setBarcodeMatch] = useState<{ lineIndex: number; lineName: string } | null>(null);
 
   const summary = useMemo(() => ({
     count: orders.length,
@@ -545,6 +555,24 @@ export function PurchasingPage() {
   function setCountItemApproval(index: number, approved: boolean) {
     setLines((cur) => cur.map((line, lineIndex) => (lineIndex === index ? { ...line, count_item_approved: approved } : line)));
   }
+  function handleBarcodeSubmit(scanValue: string) {
+    const normalized = scanValue.trim().toLowerCase();
+    if (!normalized || !activeReceivePo) return;
+    const lines = activeReceivePo.lines || [];
+    const idx = lines.findIndex((l) => {
+      const barcode = String(l.barcode || '').trim().toLowerCase();
+      const itemNo  = String(l.item_number || '').trim().toLowerCase();
+      return barcode === normalized || itemNo === normalized;
+    });
+    if (idx >= 0) {
+      setBarcodeMatch({ lineIndex: idx, lineName: lines[idx].product_name || lines[idx].item_number || `Line ${idx + 1}` });
+      updateReceiveLine(idx, 'qty_received', String(asNumber(receiveLines[idx]?.qty_received || 0) + 1));
+    } else {
+      setBarcodeMatch(null);
+    }
+    setBarcodeScan('');
+  }
+
   function updateReceiveLine(index: number, key: keyof ReceiveLineDraft, value: string) {
     setReceiveLines((cur) => cur.map((l, i) => (i === index ? { ...l, [key]: value } : l)));
   }
@@ -794,6 +822,13 @@ export function PurchasingPage() {
       {vendorParam ? (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700">
           Filtered by vendor from Vendors page: <strong>{vendorParam}</strong>
+        </div>
+      ) : null}
+      {itemParam ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          New PO pre-filled for low-stock item: <strong>{itemParam}</strong>
+          {qtyParam ? ` · Suggested qty: ${qtyParam}` : ''}
+          {' '}— Review and adjust below, then submit.
         </div>
       ) : null}
 
@@ -1348,6 +1383,28 @@ export function PurchasingPage() {
                     </div>
                   </div>
                 ) : null}
+              </div>
+
+              <div className="rounded-lg border border-border bg-background px-4 py-3">
+                <div className="text-sm font-semibold mb-2">Barcode Scan Receiving</div>
+                <div className="flex gap-2">
+                  <Input
+                    value={barcodeScan}
+                    onChange={(e) => setBarcodeScan(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleBarcodeSubmit(barcodeScan); }}
+                    placeholder="Scan or type barcode / item number — press Enter"
+                    className="flex-1"
+                  />
+                  <Button variant="outline" onClick={() => handleBarcodeSubmit(barcodeScan)}>Apply</Button>
+                </div>
+                {barcodeMatch && (
+                  <div className="mt-2 text-sm text-emerald-700">
+                    +1 added to <strong>{barcodeMatch.lineName}</strong> (line {barcodeMatch.lineIndex + 1})
+                  </div>
+                )}
+                {barcodeScan.trim() && !barcodeMatch && (
+                  <div className="mt-2 text-sm text-rose-600">No line matched "{barcodeScan.trim()}"</div>
+                )}
               </div>
 
               <div className="table-scroll-container overflow-x-auto rounded-lg border border-border bg-background">
