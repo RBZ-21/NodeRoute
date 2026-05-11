@@ -2,6 +2,7 @@ export type InventoryItem = {
   id: string;
   item_number?: string;
   description?: string;
+  name?: string;
   category?: string;
   on_hand_qty?: number | string;
   cost?: number | string;
@@ -10,6 +11,14 @@ export type InventoryItem = {
   is_catch_weight?: boolean;
   is_active?: boolean;
   default_price_per_lb?: number | string;
+  reorder_point?: number | string | null;
+  barcode?: string | null;
+  location_id?: string | null;
+  company_id?: string | null;
+};
+
+export type LowStockItem = InventoryItem & {
+  deficit: number;
 };
 
 export type InventoryLotSummary = {
