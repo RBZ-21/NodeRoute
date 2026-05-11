@@ -804,6 +804,10 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), validat
     fields.name = fields.description;
     delete fields.description;
   }
+  // Keep default_unit in sync when unit is patched
+  if (fields.unit !== undefined) {
+    fields.default_unit = fields.unit;
+  }
   const data = await dbQuery(supabase.from('products').update(fields).eq('item_number', req.params.id).select().single(), res);
   if (!data) return;
   res.json(data);
