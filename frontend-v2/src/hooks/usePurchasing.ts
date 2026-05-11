@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchWithAuth, sendWithAuth, uploadWithAuth } from '../lib/api';
 
 export type PurchaseOrder = {
   id: string;
@@ -249,20 +249,9 @@ export function useReceiveVendorPurchaseOrder() {
   });
 }
 
+/** Upload a PO or dock invoice image for AI scanning. Uses cookie-based auth. */
 export async function scanPoFile(file: File): Promise<PoScanResult> {
-  const formData = new FormData();
-  formData.append('file', file);
-  const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
-  const res = await fetch('/api/ai/scan-po', {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: formData,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(String(err.error || res.statusText));
-  }
-  return res.json();
+  return uploadWithAuth<PoScanResult>('/api/ai/scan-po', 'image', file);
 }
 
 export function openPurchaseOrderPdf(orderId: string) {
