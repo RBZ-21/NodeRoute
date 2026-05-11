@@ -631,7 +631,7 @@ export function DashboardPage() {
               </div>
               <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
                 <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Open PO Value</div>
-                <div className="mt-1 text-2xl font-semibold">{formatCurrency(purchasingSnapshot.spend)}</div>
+                <div className="mt-1 text-2xl font-semibold">{money(purchasingSnapshot.spend)}</div>
                 <div className="text-xs text-muted-foreground mt-0.5">Total committed spend</div>
               </div>
             </div>

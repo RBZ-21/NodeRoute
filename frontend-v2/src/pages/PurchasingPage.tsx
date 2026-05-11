@@ -560,7 +560,7 @@ export function PurchasingPage() {
     if (!normalized || !activeReceivePo) return;
     const lines = activeReceivePo.lines || [];
     const idx = lines.findIndex((l) => {
-      const barcode = String(l.barcode || '').trim().toLowerCase();
+      const barcode = String((l as Record<string, unknown>).barcode || '').trim().toLowerCase();
       const itemNo  = String(l.item_number || '').trim().toLowerCase();
       return barcode === normalized || itemNo === normalized;
     });
