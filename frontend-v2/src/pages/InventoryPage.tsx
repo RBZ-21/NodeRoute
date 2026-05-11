@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useCompanyConfig } from '../hooks/useCompanyConfig';
 import { useQueryClient } from '@tanstack/react-query';
 import { Badge } from '../components/ui/badge';
@@ -15,8 +16,10 @@ import {
   useAdjustMutation,
   useInventoryQuery,
   useLedgerQuery,
+  useLowStockQuery,
   useRecentSoldQuery,
   useRestockMutation,
+  useSetReorderPointMutation,
   useSpoilageMutation,
   useTransferMutation,
 } from '../hooks/useInventory';
@@ -116,6 +119,7 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 export function InventoryPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
   const { features } = useCompanyConfig();
 
   // ── Queries ───────────────────────────────────────────────────────────────
@@ -139,11 +143,15 @@ export function InventoryPage() {
   );
   const recentSoldItemKeys: Set<string> | null = recentSoldQuery.data ?? null;
 
+  const lowStockQuery = useLowStockQuery();
+  const lowStockItems = lowStockQuery.data ?? [];
+
   // ── Mutations ─────────────────────────────────────────────────────────────
-  const restockMutation  = useRestockMutation();
-  const adjustMutation   = useAdjustMutation();
-  const transferMutation = useTransferMutation();
-  const spoilageMutation = useSpoilageMutation();
+  const restockMutation        = useRestockMutation();
+  const adjustMutation         = useAdjustMutation();
+  const transferMutation       = useTransferMutation();
+  const spoilageMutation       = useSpoilageMutation();
+  const setReorderPointMutation = useSetReorderPointMutation();
 
   // ── Local UI state ────────────────────────────────────────────────────────
   const [error, setError] = useState('');
@@ -396,6 +404,41 @@ export function InventoryPage() {
         <SummaryCard label="Out Of Stock" value={summary.outOfStock.toLocaleString()} />
         <SummaryCard label="Inventory Value" value={money(summary.inventoryValue)} />
       </div>
+
+      {/* ── Low-Stock Alert Banner ─────────────────────────────────────── */}
+      {lowStockItems.length > 0 && (
+        <Card className="border-rose-200 bg-rose-50">
+          <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between py-3">
+            <div>
+              <CardTitle className="text-base text-rose-700">{lowStockItems.length} Item{lowStockItems.length !== 1 ? 's' : ''} Below Reorder Threshold</CardTitle>
+              <CardDescription className="text-rose-600">These items have fallen at or below their set reorder points. Create purchase orders to replenish stock.</CardDescription>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => navigate('/purchasing')}>Open Purchasing</Button>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {lowStockItems.map((item) => (
+                <div key={item.item_number} className="flex items-center justify-between rounded-lg border border-rose-200 bg-white px-3 py-2">
+                  <div>
+                    <div className="text-sm font-medium">{item.description || item.name || item.item_number}</div>
+                    <div className="text-xs text-muted-foreground">
+                      On hand: <strong>{asNumber(item.on_hand_qty).toFixed(1)}</strong> · Reorder at: {asNumber(item.reorder_point).toFixed(1)} · Short by: <strong className="text-rose-600">{item.deficit.toFixed(1)}</strong> {item.unit || ''}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="ml-2 shrink-0 text-xs"
+                    onClick={() => navigate(`/purchasing?item=${encodeURIComponent(item.item_number || '')}&qty=${Math.ceil(item.deficit)}`)}
+                  >
+                    Order
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── AI Health Analysis ─────────────────────────────────────────── */}
       <Card>
@@ -718,6 +761,7 @@ export function InventoryPage() {
               <TableHead>On Hand</TableHead>
               <TableHead>Cost</TableHead>
               <TableHead>Status</TableHead>
+              <TableHead title="Stock level that triggers a reorder alert">Reorder Pt</TableHead>
               <TableHead title="Active items appear in orders and counts; inactive = seasonal/off-season">Active</TableHead>
               {features.fsmaLotTracking && <TableHead title="FDA Food Traceability List">FTL</TableHead>}
               {features.catchWeight     && <TableHead title="Sold by actual measured weight">Catch Wt</TableHead>}
@@ -741,17 +785,55 @@ export function InventoryPage() {
                     <TableCell>{qty.toLocaleString()} {item.unit ?? ''}</TableCell>
                     <TableCell>{money(asNumber(item.cost))}</TableCell>
                     <TableCell>{status}</TableCell>
+                    <TableCell><ReorderPointCell item={item} onSaved={(val) => { setReorderPointMutation.mutate({ itemNumber: item.item_number ?? '', reorderPoint: val }); patchCachedItem({ ...item, reorder_point: val }); }} /></TableCell>
                     <TableCell><ActiveToggle item={item} onToggled={patchCachedItem} /></TableCell>
                     {features.fsmaLotTracking && <TableCell><FtlToggle item={item} onToggled={patchCachedItem} /></TableCell>}
                     {features.catchWeight     && <TableCell><CatchWeightToggle item={item} onToggled={patchCachedItem} /></TableCell>}
                     {features.catchWeight     && <TableCell>{item.is_catch_weight ? <CatchWeightPriceInput item={item} onSaved={patchCachedItem} /> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>}
                   </TableRow>
                 );
-              }) : <TableRow><TableCell colSpan={7 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0)} className="text-muted-foreground">No inventory rows available.</TableCell></TableRow>}
+              }) : <TableRow><TableCell colSpan={8 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0)} className="text-muted-foreground">No inventory rows available.</TableCell></TableRow>}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function ReorderPointCell({ item, onSaved }: { item: InventoryItem; onSaved: (val: number | null) => void }) {
+  const current = item.reorder_point != null ? asNumber(item.reorder_point) : null;
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(current !== null ? String(current) : '');
+
+  function commit() {
+    setEditing(false);
+    const num = val.trim() === '' ? null : Number(val);
+    if (num !== null && !Number.isFinite(num)) return;
+    onSaved(num);
+  }
+
+  if (!editing) {
+    return (
+      <button
+        className="min-w-[48px] rounded px-1 py-0.5 text-sm text-left hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring"
+        onClick={() => { setVal(current !== null ? String(current) : ''); setEditing(true); }}
+        title="Click to set reorder point"
+      >
+        {current !== null ? current.toFixed(0) : <span className="text-muted-foreground text-xs">—</span>}
+      </button>
+    );
+  }
+
+  return (
+    <input
+      className="w-16 rounded border border-input bg-background px-1 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+      autoFocus
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
+      placeholder="0"
+    />
   );
 }

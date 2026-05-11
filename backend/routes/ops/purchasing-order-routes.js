@@ -515,6 +515,38 @@ module.exports = function buildOpsPurchasingOrderRouter() {
     } catch (error) {
       return res.status(500).json({ error: error.message });
     }
+
+    // Auto-generate a vendor bill when the PO reaches fully-received status.
+    // Non-fatal: a bill creation failure does not roll back the receipt.
+    if (summarized.status === 'received' && persisted?.row?.id) {
+      try {
+        const billAmount = parseFloat(
+          ((summarized.lines || []).reduce((sum, line) => {
+            const qty = toNumber(line.received_qty, 0);
+            const cost = toNumber(line.unit_cost, 0);
+            return sum + qty * cost;
+          }, 0)).toFixed(2)
+        );
+        const month = String(new Date().getMonth() + 1).padStart(2, '0');
+        const billNumber = `BILL-${new Date().getFullYear()}${month}-${persisted.row.id.slice(0, 6).toUpperCase()}`;
+        const scopeFields = buildScopeFields(req.context);
+        await supabase.from('vendor_bills').insert([{
+          bill_number:       billNumber,
+          purchase_order_id: persisted.row.id,
+          vendor:            summarized.vendor || null,
+          vendor_id:         persisted.row.vendor_id || null,
+          amount:            billAmount,
+          status:            'pending',
+          auto_generated:    true,
+          created_by:        req.user?.name || req.user?.email || 'system',
+          notes:             `Auto-generated from PO ${summarized.po_number || persisted.row.id.slice(0, 8)} on full receipt`,
+          ...scopeFields,
+        }]);
+      } catch (billErr) {
+        console.error('[auto-bill] vendor bill creation failed:', billErr.message);
+      }
+    }
+
     res.json(responsePo);
   });
 

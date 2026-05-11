@@ -139,6 +139,31 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
   res.json(data);
 });
 
+// ── LOW STOCK ────────────────────────────────────────────────────────────────
+// Returns every product whose on_hand_qty is at or below its reorder_point.
+// Products with no reorder_point set are excluded.
+router.get('/low-stock', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const { data, error } = await supabase
+    .from('products')
+    .select('item_number, name, category, unit, on_hand_qty, cost, reorder_point, barcode, is_active, company_id, location_id')
+    .not('reorder_point', 'is', null)
+    .gt('reorder_point', 0);
+  if (error) return res.status(500).json({ error: error.message });
+  const scoped = filterRowsByContext(data || [], req.context);
+  const low = scoped
+    .filter((p) => {
+      const qty = toNumber(p.on_hand_qty, 0);
+      const threshold = toNumber(p.reorder_point, 0);
+      return qty <= threshold;
+    })
+    .map((p) => ({
+      ...p,
+      description: p.name,
+      deficit: Math.max(0, toNumber(p.reorder_point, 0) - toNumber(p.on_hand_qty, 0)),
+    }));
+  res.json(low);
+});
+
 // ── ANALYTICS & PREDICTIONS ──────────────────────────────────────────────────
 // Must be registered BEFORE /:id routes to avoid route shadowing.
 

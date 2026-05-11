@@ -4,6 +4,7 @@ import {
   ArrowRight,
   Clock3,
   MapPinned,
+  Package,
   RefreshCw,
   Scale,
   ShoppingCart,
@@ -34,6 +35,7 @@ import {
   useRoutesQuery,
   useStatsQuery,
 } from '../hooks/useDashboard';
+import { useLowStockQuery } from '../hooks/useInventory';
 
 type Role = 'admin' | 'manager' | 'driver' | 'unknown';
 
@@ -115,6 +117,7 @@ export function DashboardPage() {
   const routesQuery        = useRoutesQuery(active);
   const ordersQuery        = useDashboardOrdersQuery(active);
   const purchaseOrdersQuery = usePurchaseOrdersQuery(active && role === 'admin');
+  const lowStockQuery       = useLowStockQuery(active && (role === 'admin' || role === 'manager'));
 
   const stats     = statsQuery.data     ?? null;
   const analytics = analyticsQuery.data ?? null;
@@ -123,6 +126,7 @@ export function DashboardPage() {
   const routes:    RouteRecord[]   = routesQuery.data        ?? [];
   const orders:    OrderRecord[]   = ordersQuery.data        ?? [];
   const vendorPurchaseOrders       = purchaseOrdersQuery.data ?? [];
+  const lowStockItems              = lowStockQuery.data ?? [];
 
   const isLoading = active && (
     statsQuery.isPending || deliveriesQuery.isPending || driversQuery.isPending ||
@@ -599,6 +603,72 @@ export function DashboardPage() {
           </CardContent>
         </Card>
       ) : null}
+
+      {/* ── Inventory Health ── */}
+      {(role === 'admin' || role === 'manager') && (
+        <Card>
+          <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between py-3">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base"><Package className="h-4 w-4" /> Inventory Health</CardTitle>
+              <CardDescription>Live stock levels, low-stock alerts, and open purchase order status.</CardDescription>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => navigate('/inventory')}>View Inventory <ArrowRight className="ml-1 h-3 w-3" /></Button>
+              <Button size="sm" variant="outline" onClick={() => navigate('/purchasing')}>Open POs <ArrowRight className="ml-1 h-3 w-3" /></Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 sm:grid-cols-3 mb-4">
+              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Low-Stock Items</div>
+                <div className={cn('mt-1 text-2xl font-semibold', lowStockItems.length > 0 ? 'text-rose-600' : 'text-emerald-600')}>{lowStockItems.length}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">{lowStockItems.length === 0 ? 'All items above reorder points' : 'Items at or below reorder threshold'}</div>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Open POs</div>
+                <div className={cn('mt-1 text-2xl font-semibold', purchasingSnapshot.open > 0 ? 'text-amber-600' : 'text-foreground')}>{purchasingSnapshot.open}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">Awaiting receipt from vendors</div>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Open PO Value</div>
+                <div className="mt-1 text-2xl font-semibold">{formatCurrency(purchasingSnapshot.spend)}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">Total committed spend</div>
+              </div>
+            </div>
+
+            {lowStockItems.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-sm font-semibold text-foreground">Items Needing Reorder</div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {lowStockItems.slice(0, 6).map((item) => (
+                    <div key={item.item_number} className="flex items-center justify-between rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
+                      <div>
+                        <div className="text-sm font-medium text-foreground">{item.description || item.name || item.item_number}</div>
+                        <div className="text-xs text-muted-foreground">
+                          On hand: <strong>{asNumber(item.on_hand_qty, 0).toFixed(1)}</strong> {item.unit || ''} · Reorder at: {asNumber(item.reorder_point, 0).toFixed(1)} · Short by: <strong className="text-rose-600">{item.deficit.toFixed(1)}</strong>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="ml-2 shrink-0 text-xs"
+                        onClick={() => navigate(`/purchasing?item=${encodeURIComponent(item.item_number || '')}&qty=${Math.ceil(item.deficit)}`)}
+                      >
+                        Order
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                {lowStockItems.length > 6 && (
+                  <Button variant="ghost" size="sm" className="text-xs" onClick={() => navigate('/inventory')}>
+                    + {lowStockItems.length - 6} more low-stock items
+                  </Button>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
