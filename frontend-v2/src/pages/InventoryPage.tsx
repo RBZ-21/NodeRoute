@@ -16,6 +16,7 @@ import {
   useAdjustMutation,
   useInventoryQuery,
   useLedgerQuery,
+  useAddInventoryItemMutation,
   useLowStockQuery,
   useRecentSoldQuery,
   useRestockMutation,
@@ -147,6 +148,7 @@ export function InventoryPage() {
   const lowStockItems = lowStockQuery.data ?? [];
 
   // ── Mutations ─────────────────────────────────────────────────────────────
+  const addItemMutation        = useAddInventoryItemMutation();
   const restockMutation        = useRestockMutation();
   const adjustMutation         = useAdjustMutation();
   const transferMutation       = useTransferMutation();
@@ -154,6 +156,10 @@ export function InventoryPage() {
   const setReorderPointMutation = useSetReorderPointMutation();
 
   // ── Local UI state ────────────────────────────────────────────────────────
+  const [addItemOpen, setAddItemOpen] = useState(false);
+  const [addForm, setAddForm] = useState({ item_number: '', description: '', category: '', unit: 'lb', cost: '', on_hand_qty: '0', reorder_point: '', barcode: '' });
+  const [addItemError, setAddItemError] = useState('');
+
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   // Inline feedback for the Inventory Actions card specifically
@@ -238,6 +244,30 @@ export function InventoryPage() {
   }
 
   // ── Inventory action helpers ───────────────────────────────────────────────
+  async function handleAddItem(e: React.FormEvent) {
+    e.preventDefault();
+    setAddItemError('');
+    if (!addForm.item_number.trim()) { setAddItemError('Item number is required.'); return; }
+    if (!addForm.description.trim()) { setAddItemError('Description is required.'); return; }
+    try {
+      await addItemMutation.mutateAsync({
+        item_number: addForm.item_number.trim(),
+        description: addForm.description.trim(),
+        category: addForm.category.trim() || 'Other',
+        unit: addForm.unit.trim() || 'lb',
+        cost: addForm.cost !== '' ? Number(addForm.cost) : undefined,
+        on_hand_qty: Number(addForm.on_hand_qty) || 0,
+        reorder_point: addForm.reorder_point !== '' ? Number(addForm.reorder_point) : null,
+        barcode: addForm.barcode.trim() || null,
+      });
+      setAddForm({ item_number: '', description: '', category: '', unit: 'lb', cost: '', on_hand_qty: '0', reorder_point: '', barcode: '' });
+      setAddItemOpen(false);
+      setNotice('Item added successfully.');
+    } catch (err) {
+      setAddItemError((err as Error).message || 'Failed to add item.');
+    }
+  }
+
   function patchCachedItem(updated: Pick<InventoryItem, 'item_number'> & Partial<InventoryItem>) {
     queryClient.setQueryData<InventoryItem[]>(['inventory'], (old) =>
       old?.map((it) => it.item_number === updated.item_number ? { ...it, ...updated } : it) ?? old,
@@ -745,12 +775,67 @@ export function InventoryPage() {
                 void inventoryQuery.refetch();
                 void activeLotsQuery.refetch();
               }}
-              className="ml-auto"
             >
               Refresh
             </Button>
+            <Button onClick={() => { setAddItemOpen((v) => !v); setAddItemError(''); }}>
+              {addItemOpen ? 'Cancel' : '+ Add Item'}
+            </Button>
           </div>
         </CardHeader>
+
+        {addItemOpen && (
+          <div className="border-b border-border bg-muted/30 px-4 py-4">
+            <form onSubmit={(e) => { void handleAddItem(e); }} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold">Item # <span className="text-destructive">*</span></span>
+                <Input value={addForm.item_number} onChange={(e) => setAddForm((f) => ({ ...f, item_number: e.target.value }))} placeholder="e.g. SALMON-001" required />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold">Description <span className="text-destructive">*</span></span>
+                <Input value={addForm.description} onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))} placeholder="e.g. Atlantic Salmon Fillet" required />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold">Category</span>
+                <Input value={addForm.category} onChange={(e) => setAddForm((f) => ({ ...f, category: e.target.value }))} placeholder="e.g. Seafood" list="inv-category-list" />
+                <datalist id="inv-category-list">
+                  {[...new Set(items.map((i) => i.category).filter(Boolean))].sort().map((c) => <option key={c as string} value={c as string} />)}
+                </datalist>
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold">Unit</span>
+                <Input value={addForm.unit} onChange={(e) => setAddForm((f) => ({ ...f, unit: e.target.value }))} placeholder="lb" list="inv-unit-list" />
+                <datalist id="inv-unit-list">
+                  {['lb', 'kg', 'each', 'case', 'oz', 'gal'].map((u) => <option key={u} value={u} />)}
+                </datalist>
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold">Cost per unit ($)</span>
+                <Input type="number" min="0" step="0.01" value={addForm.cost} onChange={(e) => setAddForm((f) => ({ ...f, cost: e.target.value }))} placeholder="0.00" />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold">On-hand qty</span>
+                <Input type="number" min="0" step="0.01" value={addForm.on_hand_qty} onChange={(e) => setAddForm((f) => ({ ...f, on_hand_qty: e.target.value }))} placeholder="0" />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold">Reorder point</span>
+                <Input type="number" min="0" step="1" value={addForm.reorder_point} onChange={(e) => setAddForm((f) => ({ ...f, reorder_point: e.target.value }))} placeholder="e.g. 20" />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold">Barcode (UPC/EAN)</span>
+                <Input value={addForm.barcode} onChange={(e) => setAddForm((f) => ({ ...f, barcode: e.target.value }))} placeholder="optional" />
+              </label>
+              {addItemError && <div className="sm:col-span-2 lg:col-span-4 text-sm text-destructive">{addItemError}</div>}
+              <div className="sm:col-span-2 lg:col-span-4 flex gap-2">
+                <Button type="submit" disabled={addItemMutation.isPending}>
+                  {addItemMutation.isPending ? 'Saving…' : 'Save Item'}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => { setAddItemOpen(false); setAddItemError(''); }}>Cancel</Button>
+              </div>
+            </form>
+          </div>
+        )}
+
         <CardContent className="rounded-lg border border-border bg-card p-2">
           <Table>
             <TableHeader><TableRow>

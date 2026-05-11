@@ -114,6 +114,25 @@ export function useTransferMutation() {
   });
 }
 
+export function useAddInventoryItemMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (item: {
+      item_number: string;
+      description: string;
+      category?: string;
+      unit?: string;
+      cost?: number;
+      on_hand_qty: number;
+      reorder_point?: number | null;
+      barcode?: string | null;
+    }) => sendWithAuth<InventoryItem>('/api/inventory', 'POST', item),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['inventory'] });
+    },
+  });
+}
+
 export function useLowStockQuery(enabled = true) {
   return useQuery({
     queryKey: ['inventory', 'low-stock'] as const,
