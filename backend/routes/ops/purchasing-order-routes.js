@@ -466,6 +466,7 @@ module.exports = function buildOpsPurchasingOrderRouter() {
       id: genId('rcv'),
       received_at: new Date().toISOString(),
       received_by: req.user?.name || req.user?.email || 'system',
+      carrier_name: String(req.body.carrier_name || '').trim() || null,
       notes: String(req.body.notes || '').trim() || null,
       scan_id: String(req.body.scan_id || '').trim() || null,
       receipt_rules_applied: {
