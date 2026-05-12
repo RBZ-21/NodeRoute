@@ -47,6 +47,8 @@ const arHubRouter         = require('./routes/ar-hub');
 const vendorBillsRouter   = require('./routes/vendor-bills');
 const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
 
+const helmet = require('helmet');
+
 const app  = express();
 const PORT = config.PORT;
 
@@ -56,6 +58,21 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stri
 app.use(express.json({ limit: config.JSON_BODY_LIMIT }));
 app.use(cookieParser());
 app.disable('x-powered-by');
+
+// Helmet supplies headers not covered by the custom security middleware below:
+// dnsPrefetchControl, ieNoOpen, originAgentCluster, permittedCrossDomainPolicies,
+// crossOriginEmbedderPolicy, crossOriginResourcePolicy.
+// Headers already set explicitly below (CSP, HSTS, frameguard, noSniff,
+// referrerPolicy, crossOriginOpenerPolicy) are disabled here to avoid conflicts.
+app.use(helmet({
+  contentSecurityPolicy:        false,
+  crossOriginOpenerPolicy:      false,
+  frameguard:                   false,
+  hsts:                         false,
+  noSniff:                      false,
+  referrerPolicy:               false,
+  hidePoweredBy:                false, // already done with app.disable('x-powered-by')
+}));
 
 // Warn at startup if body limit is unusually large (potential DoS risk).
 (function warnBodyLimit() {
