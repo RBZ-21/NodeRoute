@@ -430,9 +430,28 @@ router.patch('/deliveries/:id/status', authenticateToken, async (req, res) => {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
+  // State machine — prevent status regression.
+  const currentDbStatus = String(order.status || 'pending').toLowerCase();
+  const nextDbStatus    = allowed[requestedStatus];
+  const validTransitions = {
+    pending:    ['pending', 'in_process'],
+    in_process: ['invoiced'],
+    in_transit: ['invoiced'], // legacy alias for in_process
+    invoiced:   [],
+  };
+  const allowed2 = validTransitions[currentDbStatus];
+  if (!allowed2) {
+    return res.status(400).json({ error: `Unknown current delivery status: '${currentDbStatus}'` });
+  }
+  if (!allowed2.includes(nextDbStatus)) {
+    return res.status(400).json({
+      error: `Cannot transition delivery from '${currentDbStatus}' to '${nextDbStatus}'`,
+    });
+  }
+
   const { error: updateError } = await supabase
     .from('orders')
-    .update({ status: allowed[requestedStatus] })
+    .update({ status: nextDbStatus })
     .eq('id', req.params.id);
 
   if (updateError) return res.status(500).json({ error: updateError.message });

@@ -65,6 +65,7 @@ export type VendorPoReceipt = {
   id: string;
   received_at?: string;
   received_by?: string;
+  carrier_name?: string | null;
   notes?: string | null;
   variance_audit?: {
     total_requested_qty?: number | string;
@@ -186,6 +187,7 @@ export type ReceiveVendorPoPayload = {
     product_name?: string;
     lot_number?: string;
   }[];
+  carrier_name?: string | null;
   notes?: string | null;
   receiptRules?: VendorPoReceiptRules;
 };

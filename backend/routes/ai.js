@@ -75,7 +75,7 @@ setInterval(() => {
 }, 15 * 60 * 1000); // prune every 15 min
 
 // ── WALKTHROUGH ────────────────────────────────────────────────────────────────
-router.post('/walkthrough', authenticateToken, aiRateLimit('walkthrough'), async (req, res) => {
+router.post('/walkthrough', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('walkthrough'), async (req, res) => {
   const feature = String(req.body.feature || '').trim();
   const question = String(req.body.question || '').trim();
 
@@ -111,7 +111,7 @@ router.post('/order-intake', authenticateToken, requireRole('admin', 'manager'),
 });
 
 // ── CHAT ───────────────────────────────────────────────────────────────────────
-router.post('/chat', authenticateToken, async (req, res) => {
+router.post('/chat', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const message = String(req.body.message || '').trim();
   if (!message) {
     return res.status(400).json({ error: 'message is required' });
