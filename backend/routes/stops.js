@@ -226,6 +226,29 @@ router.patch('/:id', authenticateToken, async (req, res) => {
       if (req.body[field] !== undefined) update[field] = req.body[field];
     }
     if (!Object.keys(update).length) return res.status(400).json({ error: 'No valid fields provided' });
+
+    // State machine — prevent stop status regression.
+    if (update.status !== undefined) {
+      const currentStatus = String(existing.status || 'pending').toLowerCase();
+      const nextStatus    = String(update.status).toLowerCase();
+      const stopTransitions = {
+        pending:   ['arrived', 'completed', 'deferred'],
+        arrived:   ['completed', 'deferred'],
+        completed: [],
+        deferred:  ['pending', 'arrived'],
+      };
+      const allowedNext = stopTransitions[currentStatus];
+      if (!allowedNext) {
+        return res.status(400).json({ error: `Unknown current stop status: '${currentStatus}'` });
+      }
+      if (!allowedNext.includes(nextStatus)) {
+        return res.status(400).json({
+          error: `Cannot change stop status from '${currentStatus}' to '${nextStatus}'`,
+        });
+      }
+      update.status = nextStatus;
+    }
+
     const { data, error } = await supabase
       .from('stops').update(update).eq('id', req.params.id).select().single();
     if (error) return res.status(500).json({ error: error.message });

@@ -98,8 +98,22 @@ async function fetchEligibleCustomers() {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-async function runDailyFishBlast(companyName = '', companyId = null) {
-  logger.info('Daily fish blast: starting');
+async function runDailyFishBlast(companyName = '', companyId = null, dryRun = false) {
+  logger.info({ dryRun }, 'Daily fish blast: starting');
+
+  // Idempotency guard — one blast per calendar day per company.
+  const today = new Date().toISOString().split('T')[0]; // 'YYYY-MM-DD'
+  const { data: existing } = await supabase
+    .from('sms_blast_log')
+    .select('id')
+    .eq('blast_type', 'daily_fish')
+    .eq('blast_date', today)
+    .eq('company_id', companyId || '')
+    .limit(1);
+  if (existing && existing.length > 0) {
+    logger.warn({ today, companyId }, 'Daily fish blast: already sent today — skipping');
+    return { sent: 0, skipped: 0, reason: 'already_sent_today' };
+  }
 
   // Load cutoff settings from the database
   const settings = await loadCompanySettings(companyId, companyName);
@@ -126,16 +140,32 @@ async function runDailyFishBlast(companyName = '', companyId = null) {
   let failed = 0;
 
   for (const customer of customers) {
-    const result = await sendSms(customer.phone, message);
-    if (result.success) {
+    if (dryRun) {
+      logger.info({ phone: customer.phone, customerId: customer.id, dryRun: true }, 'Daily fish blast: DRY RUN — SMS not sent');
       sent++;
     } else {
-      failed++;
-      logger.warn({ customerId: customer.id, phone: customer.phone, error: result.error }, 'Daily fish blast: SMS failed');
+      const result = await sendSms(customer.phone, message);
+      if (result.success) {
+        sent++;
+      } else {
+        failed++;
+        logger.warn({ customerId: customer.id, phone: customer.phone, error: result.error }, 'Daily fish blast: SMS failed');
+      }
     }
   }
 
-  logger.info({ sent, failed, items: items.length }, 'Daily fish blast: complete');
+  // Record successful blast so it cannot fire again today.
+  if (!dryRun) {
+    await supabase.from('sms_blast_log').insert([{
+      blast_type: 'daily_fish',
+      blast_date: today,
+      company_id: companyId || '',
+      sent_count:  sent,
+      created_at:  new Date().toISOString(),
+    }]);
+  }
+
+  logger.info({ sent, failed, items: items.length, dryRun }, 'Daily fish blast: complete');
   return { sent, failed, items: items.length };
 }
 
