@@ -325,6 +325,7 @@ export function PurchasingPage() {
   const [receiveScanResult, setReceiveScanResult] = useState<PoScanResult | null>(null);
   const [activeReceivePo, setActiveReceivePo] = useState<VendorPurchaseOrder | null>(null);
   const [receiveNotes, setReceiveNotes] = useState('');
+  const [carrierName, setCarrierName] = useState('');
   const [receiveLines, setReceiveLines] = useState<ReceiveLineDraft[]>([]);
   const [receiveRules, setReceiveRules] = useState<VendorPoReceiptRules>({
     over_receipt_policy: 'cap',
@@ -584,6 +585,7 @@ export function PurchasingPage() {
   function loadReceiveDraft(po: VendorPurchaseOrder) {
     setActiveReceivePo(po);
     setReceiveNotes('');
+    setCarrierName('');
     setReceiveScanLoading(false);
     setReceiveScanError('');
     setReceiveScanResult(null);
@@ -792,6 +794,7 @@ export function PurchasingPage() {
         payload: {
           scan_id: receiveScanResult?.scan_id || null,
           lines: payloadLines,
+          carrier_name: carrierName.trim() || null,
           notes: receiveNotes.trim() || null,
           receiptRules: receiveRules,
         },
@@ -1336,6 +1339,10 @@ export function PurchasingPage() {
                     <option value="open">Keep backorders open</option>
                     <option value="waive">Waive shorted qty</option>
                   </select>
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="font-semibold text-muted-foreground">Carrier / Shipping Company</span>
+                  <Input value={carrierName} onChange={(e) => setCarrierName(e.target.value)} placeholder="e.g. Armory Transportation, FedEx (optional)" />
                 </label>
                 <label className="space-y-1 text-sm">
                   <span className="font-semibold text-muted-foreground">Receipt Notes</span>

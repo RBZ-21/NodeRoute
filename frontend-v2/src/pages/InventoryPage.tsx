@@ -17,6 +17,7 @@ import {
   useInventoryQuery,
   useLedgerQuery,
   useAddInventoryItemMutation,
+  useEditInventoryItemMutation,
   useLowStockQuery,
   useRecentSoldQuery,
   useRestockMutation,
@@ -149,6 +150,7 @@ export function InventoryPage() {
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const addItemMutation        = useAddInventoryItemMutation();
+  const editItemMutation       = useEditInventoryItemMutation();
   const restockMutation        = useRestockMutation();
   const adjustMutation         = useAdjustMutation();
   const transferMutation       = useTransferMutation();
@@ -159,6 +161,11 @@ export function InventoryPage() {
   const [addItemOpen, setAddItemOpen] = useState(false);
   const [addForm, setAddForm] = useState({ item_number: '', description: '', category: '', unit: 'lb', cost: '', on_hand_qty: '0', reorder_point: '', barcode: '' });
   const [addItemError, setAddItemError] = useState('');
+
+  type EditForm = { item_number: string; description: string; category: string; unit: string; cost: string; reorder_point: string; barcode: string };
+  const [editingItemNumber, setEditingItemNumber] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<EditForm>({ item_number: '', description: '', category: '', unit: 'lb', cost: '', reorder_point: '', barcode: '' });
+  const [editItemError, setEditItemError] = useState('');
 
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -265,6 +272,46 @@ export function InventoryPage() {
       setNotice('Item added successfully.');
     } catch (err) {
       setAddItemError((err as Error).message || 'Failed to add item.');
+    }
+  }
+
+  function openEditItem(item: InventoryItem) {
+    setEditingItemNumber(item.item_number ?? '');
+    setEditForm({
+      item_number:   String(item.item_number ?? ''),
+      description:   String(item.description ?? item.name ?? ''),
+      category:      String(item.category ?? ''),
+      unit:          String(item.unit ?? 'lb'),
+      cost:          item.cost != null ? String(asNumber(item.cost)) : '',
+      reorder_point: item.reorder_point != null ? String(asNumber(item.reorder_point)) : '',
+      barcode:       String(item.barcode ?? ''),
+    });
+    setEditItemError('');
+  }
+
+  async function handleEditItem(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingItemNumber) return;
+    setEditItemError('');
+    if (!editForm.item_number.trim()) { setEditItemError('Item number is required.'); return; }
+    if (!editForm.description.trim()) { setEditItemError('Description is required.'); return; }
+    try {
+      await editItemMutation.mutateAsync({
+        itemNumber: editingItemNumber,
+        patch: {
+          item_number:   editForm.item_number.trim(),
+          description:   editForm.description.trim(),
+          category:      editForm.category.trim() || undefined,
+          unit:          editForm.unit || undefined,
+          cost:          editForm.cost !== '' ? Number(editForm.cost) : undefined,
+          reorder_point: editForm.reorder_point !== '' ? Number(editForm.reorder_point) : null,
+          barcode:       editForm.barcode.trim() || null,
+        },
+      });
+      setEditingItemNumber(null);
+      setNotice('Item updated.');
+    } catch (err) {
+      setEditItemError((err as Error).message || 'Failed to update item.');
     }
   }
 
@@ -856,6 +903,7 @@ export function InventoryPage() {
               <TableHead>Status</TableHead>
               <TableHead title="Stock level that triggers a reorder alert">Reorder Pt</TableHead>
               <TableHead title="Active items appear in orders and counts; inactive = seasonal/off-season">Active</TableHead>
+              <TableHead />
               {features.fsmaLotTracking && <TableHead title="FDA Food Traceability List">FTL</TableHead>}
               {features.catchWeight     && <TableHead title="Sold by actual measured weight">Catch Wt</TableHead>}
               {features.catchWeight     && <TableHead title="Default price per pound">$/lb</TableHead>}
@@ -883,9 +931,60 @@ export function InventoryPage() {
                     {features.fsmaLotTracking && <TableCell><FtlToggle item={item} onToggled={patchCachedItem} /></TableCell>}
                     {features.catchWeight     && <TableCell><CatchWeightToggle item={item} onToggled={patchCachedItem} /></TableCell>}
                     {features.catchWeight     && <TableCell>{item.is_catch_weight ? <CatchWeightPriceInput item={item} onSaved={patchCachedItem} /> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>}
+                    <TableCell>
+                      <Button size="sm" variant="ghost" className="text-xs h-7 px-2" onClick={() => openEditItem(item)}>Edit</Button>
+                    </TableCell>
                   </TableRow>
+                  {editingItemNumber === item.item_number && (
+                    <TableRow>
+                      <TableCell colSpan={9 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0)} className="bg-muted/30 p-0">
+                        <form onSubmit={(e) => { void handleEditItem(e); }} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 px-4 py-4">
+                          <label className="space-y-1 text-sm">
+                            <span className="font-semibold">Item # <span className="text-destructive">*</span></span>
+                            <Input value={editForm.item_number} onChange={(e) => setEditForm((f) => ({ ...f, item_number: e.target.value }))} required />
+                          </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-semibold">Description <span className="text-destructive">*</span></span>
+                            <Input value={editForm.description} onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))} required />
+                          </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-semibold">Category</span>
+                            <Input value={editForm.category} onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value }))} list="inv-category-list" />
+                          </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-semibold">Unit</span>
+                            <select value={editForm.unit} onChange={(e) => setEditForm((f) => ({ ...f, unit: e.target.value }))} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                              <option value="each">each</option>
+                              <option value="lb">lb</option>
+                              <option value="kg">kg</option>
+                              <option value="oz">oz</option>
+                              <option value="case">case</option>
+                              <option value="gal">gal</option>
+                            </select>
+                          </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-semibold">Cost per unit ($)</span>
+                            <Input type="number" min="0" step="0.01" value={editForm.cost} onChange={(e) => setEditForm((f) => ({ ...f, cost: e.target.value }))} />
+                          </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-semibold">Reorder point</span>
+                            <Input type="number" min="0" step="1" value={editForm.reorder_point} onChange={(e) => setEditForm((f) => ({ ...f, reorder_point: e.target.value }))} />
+                          </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-semibold">Barcode (UPC/EAN)</span>
+                            <Input value={editForm.barcode} onChange={(e) => setEditForm((f) => ({ ...f, barcode: e.target.value }))} />
+                          </label>
+                          {editItemError && <div className="sm:col-span-2 lg:col-span-4 text-sm text-destructive">{editItemError}</div>}
+                          <div className="sm:col-span-2 lg:col-span-4 flex gap-2">
+                            <Button type="submit" disabled={editItemMutation.isPending}>{editItemMutation.isPending ? 'Saving…' : 'Save Changes'}</Button>
+                            <Button type="button" variant="outline" onClick={() => setEditingItemNumber(null)}>Cancel</Button>
+                          </div>
+                        </form>
+                      </TableCell>
+                    </TableRow>
+                  )}
                 );
-              }) : <TableRow><TableCell colSpan={8 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0)} className="text-muted-foreground">No inventory rows available.</TableCell></TableRow>}
+              }) : <TableRow><TableCell colSpan={9 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0)} className="text-muted-foreground">No inventory rows available.</TableCell></TableRow>}
             </TableBody>
           </Table>
         </CardContent>

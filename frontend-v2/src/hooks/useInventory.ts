@@ -114,6 +114,29 @@ export function useTransferMutation() {
   });
 }
 
+export function useEditInventoryItemMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemNumber, patch }: {
+      itemNumber: string;
+      patch: Partial<{
+        item_number: string;
+        description: string;
+        category: string;
+        unit: string;
+        cost: number;
+        on_hand_qty: number;
+        reorder_point: number | null;
+        barcode: string | null;
+        notes: string | null;
+      }>;
+    }) => sendWithAuth<InventoryItem>(`/api/inventory/${encodeURIComponent(itemNumber)}`, 'PATCH', patch),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['inventory'] });
+    },
+  });
+}
+
 export function useAddInventoryItemMutation() {
   const queryClient = useQueryClient();
   return useMutation({
