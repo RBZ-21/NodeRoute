@@ -2,6 +2,7 @@ const express = require('express');
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { filterRowsByContext } = require('../services/operating-context');
+const { readOpsData, summarizeVendorPo } = require('./ops-utils');
 
 const router = express.Router();
 
@@ -16,6 +17,11 @@ function toNumber(value, fallback = 0) {
 
 function toDateOrNull(value) {
   if (!value) return null;
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    const [year, month, day] = value.trim().split('-').map((part) => parseInt(part, 10));
+    const localDate = new Date(year, (month || 1) - 1, day || 1);
+    return Number.isFinite(localDate.getTime()) ? localDate : null;
+  }
   const d = new Date(value);
   return Number.isFinite(d.getTime()) ? d : null;
 }
@@ -365,6 +371,168 @@ function computeRecentSoldItems({ invoices, startDate, endDate }) {
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
+function computeDailyOps({ date, inventory, vendorPurchaseOrders, rollups, lowStockThreshold = 5, topCustomerLimit = 10 }) {
+  const targetDate = toDateOrNull(date) || new Date();
+  const startDate = startOfDay(targetDate);
+  const endDate = endOfDay(targetDate);
+
+  const byCategory = new Map();
+  let inventorySkuCount = 0;
+  let lowStockSkuCount = 0;
+
+  for (const item of inventory || []) {
+    const category = String(item.category || 'Uncategorized').trim() || 'Uncategorized';
+    const onHandQty = Math.max(0, toNumber(item.on_hand_qty, 0));
+    const unitCost = Math.max(0, toNumber(item.cost, 0));
+    const estimatedStockValue = onHandQty * unitCost;
+    inventorySkuCount += 1;
+    if (onHandQty <= lowStockThreshold) lowStockSkuCount += 1;
+
+    if (!byCategory.has(category)) {
+      byCategory.set(category, {
+        category,
+        sku_count: 0,
+        total_on_hand_qty: 0,
+        estimated_stock_value: 0,
+        low_stock_sku_count: 0,
+      });
+    }
+
+    const row = byCategory.get(category);
+    row.sku_count += 1;
+    row.total_on_hand_qty += onHandQty;
+    row.estimated_stock_value += estimatedStockValue;
+    if (onHandQty <= lowStockThreshold) row.low_stock_sku_count += 1;
+  }
+
+  const onHandByCategory = Array.from(byCategory.values())
+    .map((row) => ({
+      ...row,
+      total_on_hand_qty: round2(row.total_on_hand_qty),
+      estimated_stock_value: round2(row.estimated_stock_value),
+    }))
+    .sort((a, b) => b.estimated_stock_value - a.estimated_stock_value || b.sku_count - a.sku_count || a.category.localeCompare(b.category));
+
+  const vendorFillMap = new Map();
+  const shortShipLines = [];
+  let totalRequestedQty = 0;
+  let totalAcceptedQty = 0;
+  let totalShortQty = 0;
+  let totalOverReceiptQty = 0;
+  let receiptCount = 0;
+  let shortReceiptLineCount = 0;
+  let shortReceiptPoCount = 0;
+
+  for (const sourcePo of vendorPurchaseOrders || []) {
+    const po = summarizeVendorPo(sourcePo);
+    const vendorName = String(po.vendor || po.vendor_name || 'Unassigned Vendor').trim() || 'Unassigned Vendor';
+    const vendorKey = normalize(vendorName) || po.id;
+    let poHadReceiptToday = false;
+    let poHadShortReceiptToday = false;
+
+    for (const receipt of po.receipts || []) {
+      if (!inDateRange(receipt.received_at, startDate, endDate)) continue;
+      poHadReceiptToday = true;
+      receiptCount += 1;
+
+      if (!vendorFillMap.has(vendorKey)) {
+        vendorFillMap.set(vendorKey, {
+          vendor: vendorName,
+          po_count: 0,
+          receipt_count: 0,
+          line_count: 0,
+          requested_qty: 0,
+          accepted_qty: 0,
+          short_qty: 0,
+          over_receipt_qty: 0,
+          short_receipt_line_count: 0,
+          fill_rate_pct: 0,
+        });
+      }
+
+      const vendorRow = vendorFillMap.get(vendorKey);
+      vendorRow.receipt_count += 1;
+
+      for (const line of receipt.lines || []) {
+        const requestedQty = Math.max(0, toNumber(line.requested_receive_qty ?? line.qty_received, 0));
+        const acceptedQty = Math.max(0, toNumber(line.accepted_receive_qty ?? line.qty_received, 0));
+        const shortQty = Math.max(0, -toNumber(line.quantity_variance_qty, 0));
+        const overReceiptQty = Math.max(0, toNumber(line.over_receipt_qty, 0));
+
+        vendorRow.line_count += 1;
+        vendorRow.requested_qty += requestedQty;
+        vendorRow.accepted_qty += acceptedQty;
+        vendorRow.short_qty += shortQty;
+        vendorRow.over_receipt_qty += overReceiptQty;
+
+        totalRequestedQty += requestedQty;
+        totalAcceptedQty += acceptedQty;
+        totalShortQty += shortQty;
+        totalOverReceiptQty += overReceiptQty;
+
+        if (shortQty > 0 || normalize(line.variance_type) === 'short_receipt') {
+          vendorRow.short_receipt_line_count += 1;
+          shortReceiptLineCount += 1;
+          poHadShortReceiptToday = true;
+          shortShipLines.push({
+            po_number: po.po_number || po.id,
+            vendor: vendorName,
+            product_name: line.product_name || line.item_number || `Line ${line.line_no || '?'}`,
+            short_qty: round2(shortQty),
+            requested_qty: round2(requestedQty),
+            accepted_qty: round2(acceptedQty),
+            received_at: receipt.received_at || null,
+          });
+        }
+      }
+    }
+
+    if (poHadReceiptToday) {
+      vendorFillMap.get(vendorKey).po_count += 1;
+    }
+    if (poHadShortReceiptToday) {
+      shortReceiptPoCount += 1;
+    }
+  }
+
+  const vendorFill = Array.from(vendorFillMap.values())
+    .map((row) => ({
+      ...row,
+      requested_qty: round2(row.requested_qty),
+      accepted_qty: round2(row.accepted_qty),
+      short_qty: round2(row.short_qty),
+      over_receipt_qty: round2(row.over_receipt_qty),
+      fill_rate_pct: row.requested_qty > 0 ? round2((row.accepted_qty / row.requested_qty) * 100) : 0,
+    }))
+    .sort((a, b) => b.short_qty - a.short_qty || a.fill_rate_pct - b.fill_rate_pct || b.requested_qty - a.requested_qty || a.vendor.localeCompare(b.vendor));
+
+  const topCustomers = (rollups?.customer || []).slice(0, topCustomerLimit);
+
+  return {
+    overview: {
+      fill_rate_pct: totalRequestedQty > 0 ? round2((totalAcceptedQty / totalRequestedQty) * 100) : 0,
+      requested_qty: round2(totalRequestedQty),
+      accepted_qty: round2(totalAcceptedQty),
+      short_qty: round2(totalShortQty),
+      over_receipt_qty: round2(totalOverReceiptQty),
+      receipt_count: receiptCount,
+      vendor_count: vendorFill.length,
+      short_receipt_line_count: shortReceiptLineCount,
+      short_receipt_po_count: shortReceiptPoCount,
+      category_count: onHandByCategory.length,
+      inventory_sku_count: inventorySkuCount,
+      low_stock_sku_count: lowStockSkuCount,
+      top_customer_count: topCustomers.length,
+    },
+    top_customers: topCustomers,
+    on_hand_by_category: onHandByCategory,
+    vendor_fill: vendorFill,
+    short_ship_lines: shortShipLines
+      .sort((a, b) => b.short_qty - a.short_qty || String(b.received_at || '').localeCompare(String(a.received_at || '')))
+      .slice(0, 20),
+  };
+}
+
 router.get('/rollups', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const startDate = toDateOrNull(req.query.start);
   const endDate = toDateOrNull(req.query.end);
@@ -479,4 +647,54 @@ router.get('/recent-sold-items', authenticateToken, requireRole('admin', 'manage
   }
 });
 
-module.exports = { router, computeRollups, computeSalesSummary, computeRecentSoldItems };
+router.get('/daily-ops', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const targetDate = toDateOrNull(req.query.date) || new Date();
+  const startDate = startOfDay(targetDate);
+  const endDate = endOfDay(targetDate);
+
+  try {
+    const [ordersResult, invoicesResult, routesResult, inventoryResult] = await Promise.all([
+      supabase.from('orders').select('*'),
+      supabase.from('invoices').select('*'),
+      supabase.from('routes').select('*'),
+      supabase.from('seafood_inventory').select('item_number,description,category,cost,on_hand_qty'),
+    ]);
+
+    const ordersMissing = isMissingTableError(ordersResult.error);
+    if (ordersMissing) {
+      console.warn('[reporting] orders table not found; generating daily ops without order-level joins');
+    }
+    const error = (!ordersMissing && ordersResult.error) || invoicesResult.error || routesResult.error || inventoryResult.error;
+    if (error) return res.status(500).json({ error: error.message });
+
+    const scopedInventory = filterRowsByContext(inventoryResult.data || [], req.context);
+    const rollups = computeRollups({
+      orders: filterRowsByContext((ordersMissing ? [] : (ordersResult.data || [])), req.context),
+      invoices: filterRowsByContext(invoicesResult.data || [], req.context),
+      routes: filterRowsByContext(routesResult.data || [], req.context),
+      inventory: scopedInventory,
+      startDate,
+      endDate,
+      limit: 10,
+    });
+    const opsData = readOpsData();
+    const payload = computeDailyOps({
+      date: targetDate,
+      inventory: scopedInventory,
+      vendorPurchaseOrders: opsData.vendorPurchaseOrders || [],
+      rollups,
+    });
+
+    res.json({
+      generated_at: new Date().toISOString(),
+      filters: {
+        date: startDate.toISOString(),
+      },
+      ...payload,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Could not build daily operations report' });
+  }
+});
+
+module.exports = { router, computeRollups, computeSalesSummary, computeRecentSoldItems, computeDailyOps };

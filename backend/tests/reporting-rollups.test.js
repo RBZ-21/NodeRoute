@@ -3,7 +3,7 @@ const path = require('path');
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { computeRollups, computeSalesSummary, computeRecentSoldItems } = require('../routes/reporting');
+const { computeRollups, computeSalesSummary, computeRecentSoldItems, computeDailyOps } = require('../routes/reporting');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const reportingRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'reporting.js'), 'utf8');
@@ -13,6 +13,7 @@ const frontendSource = [
   path.join(reactSrcDir, 'hooks', 'useAnalytics.ts'),
   path.join(reactSrcDir, 'hooks', 'useDSR.ts'),
   path.join(reactSrcDir, 'pages', 'ReportsPage.tsx'),
+  path.join(reactSrcDir, 'pages', 'DSRPage.tsx'),
 ].map((f) => fs.readFileSync(f, 'utf8')).join('\n');
 
 function byLabel(rows, label) {
@@ -23,6 +24,7 @@ test('reporting route is mounted with auth + manager/admin role guard', () => {
   assert.ok(reportingRouteSource.includes("router.get('/rollups', authenticateToken, requireRole('admin', 'manager')"));
   assert.ok(reportingRouteSource.includes("router.get('/sales-summary', authenticateToken, requireRole('admin', 'manager')"));
   assert.ok(reportingRouteSource.includes("router.get('/recent-sold-items', authenticateToken, requireRole('admin', 'manager')"));
+  assert.ok(reportingRouteSource.includes("router.get('/daily-ops', authenticateToken, requireRole('admin', 'manager')"));
   assert.ok(reportingRouteSource.includes("const limit = Math.max(1, Math.min(parseInt(req.query.limit || '100', 10), 500));"));
   assert.ok(serverSource.includes("require('./routes/reporting').router;"), 'reporting router should be required in server.js');
   assert.ok(serverSource.includes("app.use('/api/reporting', reportingRouter);"));
@@ -32,8 +34,11 @@ test('analytics UI integrates reporting rollups controls and API call', () => {
   for (const marker of [
     '/api/reporting/rollups',
     '/api/reporting/sales-summary',
+    '/api/reporting/daily-ops',
     'reportStartDate',
     'reportEndDate',
+    'Fill Rate',
+    'On-Hand by Category',
   ]) {
     assert.ok(frontendSource.includes(marker), `missing reporting UI marker ${marker}`);
   }
@@ -225,5 +230,88 @@ test('computeRecentSoldItems returns sold sku keys within the requested window',
     label: 'Lobster',
     invoice_count: 2,
     qty: 13,
+  });
+});
+
+test('computeDailyOps summarizes fill rate, short-ships, inventory categories, and top customers', () => {
+  const data = computeDailyOps({
+    date: '2026-04-20',
+    inventory: [
+      { item_number: 'SAL-001', description: 'Atlantic Salmon', category: 'Seafood', cost: 12, on_hand_qty: 8 },
+      { item_number: 'BOX-001', description: 'Wax Box', category: 'Packaging', cost: 3, on_hand_qty: 2 },
+      { item_number: 'SHR-001', description: 'White Shrimp', category: 'Seafood', cost: 9, on_hand_qty: 4 },
+    ],
+    rollups: {
+      customer: [
+        { label: 'Blue Crab Cafe', revenue: 420, invoice_count: 3, order_count: 4, margin_pct: 28.5 },
+        { label: 'Harbor Grill', revenue: 280, invoice_count: 2, order_count: 2, margin_pct: 22.1 },
+      ],
+    },
+    vendorPurchaseOrders: [
+      {
+        id: 'po-1',
+        po_number: 'PO-1001',
+        vendor: 'North Sea',
+        lines: [],
+        receipts: [
+          {
+            id: 'rcv-1',
+            received_at: '2026-04-20T09:00:00.000Z',
+            lines: [
+              {
+                line_no: 1,
+                product_name: 'Atlantic Salmon',
+                requested_receive_qty: 10,
+                accepted_receive_qty: 8,
+                quantity_variance_qty: -2,
+                over_receipt_qty: 0,
+              },
+              {
+                line_no: 2,
+                product_name: 'Wax Box',
+                requested_receive_qty: 5,
+                accepted_receive_qty: 5,
+                quantity_variance_qty: 0,
+                over_receipt_qty: 0,
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  });
+
+  assert.equal(data.overview.fill_rate_pct, 86.67);
+  assert.equal(data.overview.short_qty, 2);
+  assert.equal(data.overview.category_count, 2);
+  assert.equal(data.overview.low_stock_sku_count, 2);
+  assert.equal(data.top_customers[0].label, 'Blue Crab Cafe');
+  assert.deepEqual(data.on_hand_by_category[0], {
+    category: 'Seafood',
+    sku_count: 2,
+    total_on_hand_qty: 12,
+    estimated_stock_value: 132,
+    low_stock_sku_count: 1,
+  });
+  assert.deepEqual(data.vendor_fill[0], {
+    vendor: 'North Sea',
+    po_count: 1,
+    receipt_count: 1,
+    line_count: 2,
+    requested_qty: 15,
+    accepted_qty: 13,
+    short_qty: 2,
+    over_receipt_qty: 0,
+    short_receipt_line_count: 1,
+    fill_rate_pct: 86.67,
+  });
+  assert.deepEqual(data.short_ship_lines[0], {
+    po_number: 'PO-1001',
+    vendor: 'North Sea',
+    product_name: 'Atlantic Salmon',
+    short_qty: 2,
+    requested_qty: 10,
+    accepted_qty: 8,
+    received_at: '2026-04-20T09:00:00.000Z',
   });
 });
