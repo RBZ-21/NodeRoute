@@ -7,7 +7,6 @@ const { supabase } = require('../services/supabase');
 const {
   generateWalkthrough,
   generateOrderIntakeDraft,
-  generateChatReply,
   generateChatReplyWithContext,
   checkChatRateLimit,
   analyzeInventory,
@@ -25,9 +24,262 @@ const {
   detectPricingAnomalies,
 } = require('../services/ai');
 const { recordPoInvoiceScan } = require('../services/purchase-order-workflows');
+const { filterRowsByContext } = require('../services/operating-context');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const CHAT_STOPWORDS = new Set([
+  'a', 'about', 'all', 'an', 'and', 'any', 'are', 'as', 'at', 'be', 'by', 'can',
+  'customer', 'customers', 'delivery', 'deliveries', 'do', 'for', 'from', 'get',
+  'give', 'has', 'have', 'help', 'how', 'i', 'in', 'invoice', 'invoices', 'is',
+  'it', 'list', 'me', 'my', 'need', 'of', 'on', 'or', 'our', 'payment', 'po',
+  'purchase', 'route', 'routes', 'show', 'status', 'stock', 'supplier', 'tell',
+  'the', 'there', 'these', 'today', 'to', 'vendor', 'vendors', 'what', 'which',
+  'with', 'you',
+]);
+
+function uniqBy(items, keyFn) {
+  const seen = new Set();
+  const result = [];
+  for (const item of items || []) {
+    const key = keyFn(item);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    result.push(item);
+  }
+  return result;
+}
+
+function includesText(value, term) {
+  const haystack = String(value || '').trim().toLowerCase();
+  const needle = String(term || '').trim().toLowerCase();
+  return !!haystack && !!needle && haystack.includes(needle);
+}
+
+function detectChatTopics(message) {
+  const msg = String(message || '').toLowerCase();
+  return {
+    overview: /today|overview|summary|what(?:'s| is) going on|dashboard|anything urgent/.test(msg),
+    orders: /order|orders|delivery|deliveries|shipment|shipments|status/.test(msg),
+    inventory: /inventory|stock|sku|item|items|product|products|reorder|low stock|out of stock|spoilage/.test(msg),
+    invoices: /invoice|invoices|payment|payments|overdue|ar|accounts receivable|collections/.test(msg),
+    customers: /customer|customers|account|accounts|credit hold|hold/.test(msg),
+    routes: /route|routes|driver|drivers|stop|stops|dispatch/.test(msg),
+    vendors: /vendor|vendors|supplier|suppliers|purchase order|purchase orders|receiving|po\b/.test(msg),
+    warehouse: /warehouse|cooler|freezer|lot|traceability|barcode|scan/.test(msg),
+  };
+}
+
+function extractChatSearchTerms(message) {
+  const text = String(message || '');
+  const quotedTerms = Array.from(text.matchAll(/"([^"]+)"/g))
+    .map((match) => String(match[1] || '').trim())
+    .filter((term) => term.length >= 3);
+  const wordTerms = text
+    .replace(/[^A-Za-z0-9\s-]/g, ' ')
+    .split(/\s+/)
+    .map((token) => token.trim().toLowerCase())
+    .filter((token) => token.length >= 3 && !CHAT_STOPWORDS.has(token));
+
+  return Array.from(new Set([...quotedTerms, ...wordTerms])).slice(0, 5);
+}
+
+async function runScopedQuery(query, context) {
+  const { data, error } = await query;
+  if (error) throw error;
+  return filterRowsByContext(data || [], context);
+}
+
+async function searchTableByTerms({ table, field, select, terms, context, limit = 5, orderField = null }) {
+  const matches = [];
+  for (const term of terms || []) {
+    let query = supabase.from(table).select(select).ilike(field, `%${term}%`).limit(limit);
+    if (orderField) query = query.order(orderField, { ascending: false });
+    const rows = await runScopedQuery(query, context);
+    matches.push(...rows);
+    if (matches.length >= limit) break;
+  }
+  return uniqBy(matches, (row) => row.id || row.item_number || row.customer_number || row.po_number || row.name).slice(0, limit);
+}
+
+function buildChatOverview({ recentOrders, overdueInvoices, lowInventory, activeRoutes, creditHoldCustomers, vendorPurchaseOrders }) {
+  return {
+    recent_order_count: (recentOrders || []).length,
+    overdue_invoice_count: (overdueInvoices || []).length,
+    low_inventory_count: (lowInventory || []).length,
+    active_route_count: (activeRoutes || []).length,
+    credit_hold_count: (creditHoldCustomers || []).length,
+    open_vendor_po_count: (vendorPurchaseOrders || []).length,
+  };
+}
+
+async function loadChatContext(message, context = {}) {
+  const topics = detectChatTopics(message);
+  const searchTerms = extractChatSearchTerms(message);
+  const shouldLoadOverview = topics.overview || !Object.values(topics).some(Boolean);
+  const shouldLoadOrders = shouldLoadOverview || topics.orders || topics.customers || topics.routes;
+  const shouldLoadInventory = shouldLoadOverview || topics.inventory || topics.warehouse;
+  const shouldLoadInvoices = shouldLoadOverview || topics.invoices || topics.customers;
+  const shouldLoadCustomers = shouldLoadOverview || topics.customers;
+  const shouldLoadRoutes = shouldLoadOverview || topics.routes || topics.orders;
+  const shouldLoadVendors = shouldLoadOverview || topics.vendors || topics.inventory;
+
+  const since = new Date(Date.now() - 7 * 86400000).toISOString();
+  const thirtyDaysAgo = new Date(Date.now() - 30 * 86400000).toISOString();
+
+  const [
+    recentOrders,
+    allInventory,
+    overdueInvoices,
+    creditHoldCustomers,
+    activeRoutes,
+    vendorPurchaseOrders,
+    matchingCustomers,
+    matchingProducts,
+    matchingVendors,
+    matchingRoutes,
+  ] = await Promise.all([
+    shouldLoadOrders
+      ? runScopedQuery(
+        supabase.from('orders')
+          .select('id,order_number,customer_name,status,date,created_at,total')
+          .gte('created_at', since)
+          .order('created_at', { ascending: false })
+          .limit(15),
+        context
+      )
+      : Promise.resolve([]),
+    shouldLoadInventory
+      ? runScopedQuery(
+        supabase.from('seafood_inventory')
+          .select('item_number,description,on_hand_qty,unit,category')
+          .order('description', { ascending: true }),
+        context
+      )
+      : Promise.resolve([]),
+    shouldLoadInvoices
+      ? runScopedQuery(
+        supabase.from('invoices')
+          .select('id,invoice_number,customer_name,total,due_date,status,created_at')
+          .in('status', ['overdue', 'sent', 'draft'])
+          .order('due_date', { ascending: true })
+          .limit(15),
+        context
+      )
+      : Promise.resolve([]),
+    shouldLoadCustomers
+      ? runScopedQuery(
+        supabase.from('customers')
+          .select('id,customer_number,company_name,credit_hold_reason')
+          .order('company_name', { ascending: true })
+          .limit(25),
+        context
+      )
+      : Promise.resolve([]),
+    shouldLoadRoutes
+      ? runScopedQuery(
+        supabase.from('routes')
+          .select('id,name,driver,driver_id,active_stop_ids,stop_ids,created_at')
+          .gte('created_at', thirtyDaysAgo)
+          .order('created_at', { ascending: false })
+          .limit(12),
+        context
+      )
+      : Promise.resolve([]),
+    shouldLoadVendors
+      ? runScopedQuery(
+        supabase.from('purchase_orders')
+          .select('id,po_number,vendor,status,total_cost,workflow_kind,created_at')
+          .gte('created_at', thirtyDaysAgo)
+          .order('created_at', { ascending: false })
+          .limit(12),
+        context
+      )
+      : Promise.resolve([]),
+    searchTerms.length
+      ? searchTableByTerms({
+        table: 'customers',
+        field: 'company_name',
+        select: 'id,customer_number,company_name,credit_hold_reason',
+        terms: searchTerms,
+        context,
+      })
+      : Promise.resolve([]),
+    searchTerms.length
+      ? searchTableByTerms({
+        table: 'seafood_inventory',
+        field: 'description',
+        select: 'item_number,description,on_hand_qty,unit,category',
+        terms: searchTerms,
+        context,
+      })
+      : Promise.resolve([]),
+    searchTerms.length
+      ? searchTableByTerms({
+        table: 'vendors',
+        field: 'name',
+        select: 'id,name',
+        terms: searchTerms,
+        context,
+      })
+      : Promise.resolve([]),
+    searchTerms.length
+      ? searchTableByTerms({
+        table: 'routes',
+        field: 'name',
+        select: 'id,name,driver,driver_id,active_stop_ids,stop_ids,created_at',
+        terms: searchTerms,
+        context,
+        orderField: 'created_at',
+      })
+      : Promise.resolve([]),
+  ]);
+
+  const lowInventory = (allInventory || [])
+    .filter((item) => Number(item.on_hand_qty || 0) <= 5)
+    .slice(0, 10);
+  const overdueOnly = (overdueInvoices || []).filter((invoice) => String(invoice.status || '').toLowerCase() === 'overdue');
+  const holdOnly = (creditHoldCustomers || []).filter((customer) => String(customer.credit_hold_reason || '').trim());
+  const openVendorPos = (vendorPurchaseOrders || [])
+    .filter((po) => {
+      const workflowKind = String(po.workflow_kind || '').trim().toLowerCase();
+      const status = String(po.status || '').trim().toLowerCase();
+      return (!workflowKind || workflowKind === 'vendor_order') && !['received', 'closed', 'cancelled'].includes(status);
+    })
+    .slice(0, 10);
+
+  const matchingOrders = (recentOrders || []).filter((order) =>
+    searchTerms.some((term) => includesText(order.customer_name, term) || includesText(order.order_number, term))
+  ).slice(0, 5);
+  const matchingInvoices = (overdueInvoices || []).filter((invoice) =>
+    searchTerms.some((term) => includesText(invoice.customer_name, term) || includesText(invoice.invoice_number, term))
+  ).slice(0, 5);
+
+  return {
+    topics,
+    search_terms: searchTerms,
+    overview: buildChatOverview({
+      recentOrders,
+      overdueInvoices: overdueOnly,
+      lowInventory,
+      activeRoutes,
+      creditHoldCustomers: holdOnly,
+      vendorPurchaseOrders: openVendorPos,
+    }),
+    recentOrders: recentOrders || [],
+    lowInventory,
+    overdueInvoices: overdueOnly,
+    creditHoldCustomers: holdOnly,
+    activeRoutes: activeRoutes || [],
+    vendorPurchaseOrders: openVendorPos,
+    matchingCustomers,
+    matchingProducts,
+    matchingVendors,
+    matchingRoutes,
+    matchingOrders,
+    matchingInvoices,
+  };
+}
 
 // ── PER-USER AI RATE LIMITER ───────────────────────────────────────────────────
 // Sliding window — tracks timestamps of calls per user per endpoint group.
@@ -65,7 +317,7 @@ function aiRateLimit(group) {
 }
 
 // Periodically prune stale entries so the Map doesn't grow forever.
-setInterval(() => {
+const aiRateWindowPruner = setInterval(() => {
   const cutoff = Date.now() - HEAVY_WINDOW_MS;
   for (const [key, timestamps] of AI_RATE_WINDOWS) {
     const filtered = timestamps.filter((t) => t > cutoff);
@@ -73,6 +325,7 @@ setInterval(() => {
     else AI_RATE_WINDOWS.set(key, filtered);
   }
 }, 15 * 60 * 1000); // prune every 15 min
+if (typeof aiRateWindowPruner.unref === 'function') aiRateWindowPruner.unref();
 
 // ── WALKTHROUGH ────────────────────────────────────────────────────────────────
 router.post('/walkthrough', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('walkthrough'), async (req, res) => {
@@ -127,36 +380,7 @@ router.post('/chat', authenticateToken, requireRole('admin', 'manager'), async (
   const history = Array.isArray(req.body.history) ? req.body.history : [];
 
   try {
-    const msg = message.toLowerCase();
-    const dbContext = {};
-
-    if (msg.includes('order') || msg.includes('delivery') || msg.includes('status')) {
-      const since = new Date(Date.now() - 7 * 86400000).toISOString();
-      const { data: recentOrders } = await supabase
-        .from('orders').select('customer_name,status,date,created_at').gte('created_at', since).order('created_at', { ascending: false }).limit(10);
-      dbContext.recentOrders = recentOrders || [];
-    }
-
-    if (msg.includes('inventory') || msg.includes('stock') || msg.includes('low')) {
-      const { data: allInv } = await supabase.from('seafood_inventory').select('description,on_hand_qty,unit,category');
-      dbContext.lowInventory = (allInv || []).filter((i) => (i.on_hand_qty || 0) <= 5);
-    }
-
-    if (msg.includes('invoice') || msg.includes('overdue') || msg.includes('payment')) {
-      const { data: overdueInv } = await supabase.from('invoices').select('customer_name,total,due_date,status').eq('status', 'overdue').limit(20);
-      dbContext.overdueInvoices = overdueInv || [];
-    }
-
-    if (msg.includes('credit hold') || msg.includes('hold') || msg.includes('customer')) {
-      const { data: holdCustomers } = await supabase.from('customers').select('company_name,credit_hold_reason').not('credit_hold_reason', 'is', null).neq('credit_hold_reason', '');
-      dbContext.creditHoldCustomers = holdCustomers || [];
-    }
-
-    if (msg.includes('route') || msg.includes('driver') || msg.includes('today')) {
-      const { data: activeRoutes } = await supabase.from('routes').select('name,driver').order('created_at', { ascending: false }).limit(10);
-      dbContext.activeRoutes = activeRoutes || [];
-    }
-
+    const dbContext = await loadChatContext(message, req.context || {});
     const reply = await generateChatReplyWithContext(userName, userRole, message, history, dbContext);
     const conversation_id = req.body.conversation_id || null;
     res.json({ reply, ...(conversation_id ? { conversation_id } : {}) });
@@ -594,5 +818,9 @@ router.get('/vendor-performance', authenticateToken, requireRole('admin', 'manag
     res.status(500).json({ error: 'Vendor performance scoring failed: ' + err.message });
   }
 });
+
+router.detectChatTopics = detectChatTopics;
+router.extractChatSearchTerms = extractChatSearchTerms;
+router.loadChatContext = loadChatContext;
 
 module.exports = router;
