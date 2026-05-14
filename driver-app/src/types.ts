@@ -72,6 +72,12 @@ export type DriverSummary = {
   vehicleId?: string | null;
 };
 
+export type CompanySettings = {
+  forceDriverSignature: boolean;
+  forceDriverProofOfDelivery: boolean;
+  businessName?: string;
+};
+
 export type BootstrapPayload = {
   routes: DriverRoute[];
   invoices: DriverInvoice[];
