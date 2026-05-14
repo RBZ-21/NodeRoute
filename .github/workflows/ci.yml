@@ -35,7 +35,7 @@ jobs:
       - name: Install frontend-v2
         run: npm ci --prefix frontend-v2
       - name: Type-check frontend-v2
-        run: npx --prefix frontend-v2 tsc --noEmit
+        run: npx --prefix frontend-v2 tsc -p frontend-v2/tsconfig.app.json --noEmit
       - name: Lint frontend-v2
         run: npm --prefix frontend-v2 run lint --if-present
       - name: Build frontend-v2
@@ -78,7 +78,7 @@ jobs:
       - name: Install driver-app
         run: npm ci --prefix driver-app
       - name: Type-check driver-app
-        run: npx --prefix driver-app tsc --noEmit
+        run: npx --prefix driver-app tsc -p driver-app/tsconfig.app.json --noEmit
       - name: Build driver-app
         run: npm --prefix driver-app run build
         env:
