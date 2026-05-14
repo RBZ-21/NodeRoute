@@ -1,5 +1,6 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { InventoryPage } from './InventoryPage';
 import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
@@ -120,7 +121,7 @@ function mockInventoryApi() {
 }
 
 function renderInventoryPage() {
-  return renderWithQueryClient(<InventoryPage />);
+  return renderWithQueryClient(<MemoryRouter><InventoryPage /></MemoryRouter>);
 }
 
 describe('InventoryPage', () => {
