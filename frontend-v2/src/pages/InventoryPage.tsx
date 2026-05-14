@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useCompanyConfig } from '../hooks/useCompanyConfig';
 import { useQueryClient } from '@tanstack/react-query';
@@ -915,7 +915,8 @@ export function InventoryPage() {
                 const isInactive = item.is_active === false;
                 const status = qty <= 0 ? <Badge variant="warning">Out</Badge> : qty <= 10 ? <Badge variant="secondary">Low</Badge> : <Badge variant="success">Healthy</Badge>;
                 return (
-                  <TableRow key={item.id} className={isInactive ? 'opacity-50' : ''}>
+                  <Fragment key={item.id}>
+                  <TableRow className={isInactive ? 'opacity-50' : ''}>
                     <TableCell className="font-medium">
                       {item.item_number ?? '-'}
                       {isInactive && <span className="ml-1.5 rounded bg-gray-200 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">Inactive</span>}
@@ -983,6 +984,7 @@ export function InventoryPage() {
                       </TableCell>
                     </TableRow>
                   )}
+                  </Fragment>
                 );
               }) : <TableRow><TableCell colSpan={9 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0)} className="text-muted-foreground">No inventory rows available.</TableCell></TableRow>}
             </TableBody>
