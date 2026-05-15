@@ -318,11 +318,38 @@ export function OrdersPage() {
     const orderLabel = order.order_number || order.id.slice(0, 8);
     if (!confirm(`Mark ${orderLabel} as delivered?`)) return;
     try {
-      await sendWithAuth<Order>(`/api/orders/${order.id}`, 'PATCH', { status: 'delivered' });
+      const result = await sendWithAuth<Order & { emailSent?: boolean; emailError?: string | null }>(
+        `/api/orders/${order.id}`,
+        'PATCH',
+        { status: 'delivered' }
+      );
       await queryClient.invalidateQueries({ queryKey: orderKeys.all });
-      setNotice(`Order ${orderLabel} marked as delivered.`);
+      await queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      if (result.emailSent) {
+        setNotice(`Order ${orderLabel} marked as delivered and invoice emailed.`);
+      } else if (result.emailError) {
+        setNotice(`Order ${orderLabel} marked as delivered. Invoice email skipped: ${result.emailError}`);
+      } else {
+        setNotice(`Order ${orderLabel} marked as delivered.`);
+      }
     } catch (err) {
       setError(String((err as Error).message || 'Could not mark order as delivered'));
+    }
+  }
+
+  async function resendInvoiceEmail(order: Order) {
+    const invoiceId = order.invoice_id || order.invoiceId;
+    const orderLabel = order.order_number || order.id.slice(0, 8);
+    if (!invoiceId) {
+      setError(`Order ${orderLabel} does not have a linked invoice yet.`);
+      return;
+    }
+    try {
+      await sendWithAuth(`/api/invoices/${invoiceId}/resend`, 'POST');
+      await queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      setNotice(`Invoice email resent for order ${orderLabel}.`);
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not resend invoice email'));
     }
   }
 
@@ -512,6 +539,7 @@ export function OrdersPage() {
         onEdit={handleEditOrder}
         onSend={sendOrder}
         onMarkDelivered={markOrderDelivered}
+        onResendInvoice={resendInvoiceEmail}
         onFulfill={quickFulfill}
         onToggleWeightCapture={handleToggleWeightCapture}
         onDelete={deleteOrder}

@@ -505,6 +505,9 @@ async function findInvoiceForOrder(order) {
 async function markOrderDelivered(order, req, res) {
   const deliveredAt = new Date().toISOString();
   const stop = await findOrderStop(order);
+  let invoiceId = null;
+  let emailSent = false;
+  let emailError = '';
 
   if (stop?.id) {
     const stopUpdate = {
@@ -523,6 +526,7 @@ async function markOrderDelivered(order, req, res) {
 
   const invoice = await findInvoiceForOrder(order);
   if (invoice?.id) {
+    invoiceId = invoice.id;
     const invoiceResult = await executeWithOptionalScope(
       (candidate) => supabase.from('invoices').update(candidate).eq('id', invoice.id).select().single(),
       { status: statusAfterDeliveryCompletion(invoice.status) }
@@ -531,9 +535,20 @@ async function markOrderDelivered(order, req, res) {
       if (res) res.status(500).json({ error: invoiceResult.error.message });
       return null;
     }
+
+    try {
+      const emailResult = await sendInvoiceEmail(
+        { ...invoice, ...(invoiceResult.data || {}) },
+        'Invoice'
+      );
+      emailSent = !!emailResult?.sent;
+      emailError = emailResult?.sent ? '' : String(emailResult?.error || '');
+    } catch (error) {
+      emailError = error?.message || 'Failed to send invoice email';
+    }
   }
 
-  return { deliveredAt };
+  return { deliveredAt, invoiceId, emailSent, emailError };
 }
 
 async function createOrUpdateProcessingInvoice(order, fulfilledItems, overrides, req, res) {
@@ -838,7 +853,13 @@ router.patch('/:id', validate(orderUpdateSchema), authenticateToken, requireRole
   if (normalizeOrderStatus(mergedOrder.status) === 'delivered') {
     const deliverySync = await markOrderDelivered(mergedOrder, req, res);
     if (!deliverySync) return;
-    return res.json({ ...data, delivered_at: deliverySync.deliveredAt });
+    return res.json({
+      ...data,
+      delivered_at: deliverySync.deliveredAt,
+      invoice_id: deliverySync.invoiceId || mergedOrder.invoice_id || null,
+      emailSent: deliverySync.emailSent,
+      emailError: deliverySync.emailError || null,
+    });
   }
 
   res.json(data);
