@@ -34,7 +34,7 @@ const orderUpdateSchema = z.object({
   notes:           optStr(2000),
   items:           z.array(orderItem).max(200).optional(),
   charges:         z.array(orderCharge).max(20).optional(),
-  status:          z.enum(['pending', 'in_process', 'invoiced', 'cancelled']).optional(),
+  status:          z.enum(['pending', 'in_process', 'delivered', 'invoiced', 'cancelled']).optional(),
   driverName:      optStr(200),
   routeId:         optStr(100),
   taxEnabled:      z.boolean().optional(),

@@ -26,6 +26,13 @@ const STOP_FIELDS = [
 // Fields a driver is allowed to self-update on their own stops
 const DRIVER_ALLOWED_FIELDS = ['driver_notes', 'door_code', 'status'];
 
+function appendDropOffDriverNote(existingNotes) {
+  const marker = 'Delivery method: drop off (no signature captured).';
+  const normalized = String(existingNotes || '').trim();
+  if (normalized.toLowerCase().includes(marker.toLowerCase())) return normalized || marker;
+  return [normalized, marker].filter(Boolean).join('\n');
+}
+
 function isRouteAssignedToUser(route, user) {
   if (!route || !user) return false;
   if (route.driver_id && String(route.driver_id) === String(user.id)) return true;
@@ -309,7 +316,11 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
   try {
     const auth = await authorizeDwellEvent(req, res, req.params.id);
     if (!auth.ok) return;
-    const { route } = auth;
+    const { route, stop } = auth;
+    const completionType = String(req.body?.completion_type || '').trim().toLowerCase();
+    const driverNotes = completionType === 'drop_off'
+      ? appendDropOffDriverNote(stop?.driver_notes)
+      : stop?.driver_notes;
 
     const { data: openRecords, error: findErr } = await supabase
       .from('dwell_records')
@@ -335,12 +346,18 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
       .single();
     if (updateErr) return res.status(500).json({ error: updateErr.message });
 
-    await supabase.from('stops').update({ status: 'completed' }).eq('id', req.params.id);
+    await supabase.from('stops').update({
+      status: 'completed',
+      ...(driverNotes ? { driver_notes: driverNotes } : {}),
+    }).eq('id', req.params.id);
 
     // Fire delivery confirmation email non-fatally using the invoice already linked to this stop
     try {
-      const { stop } = auth;
-      const invoice = await syncLinkedInvoiceForStop(stop, req.context, { markDelivered: true, syncDriverNotes: true });
+      const invoice = await syncLinkedInvoiceForStop(
+        { ...stop, status: 'completed', driver_notes: driverNotes },
+        req.context,
+        { markDelivered: true, syncDriverNotes: true }
+      );
       const email = invoice?.customer_email || invoice?.contact_email || invoice?.billing_email;
       if (invoice && email) await sendInvoiceEmail(invoice, 'Invoice');
     } catch { /* email failure must never block the depart response */ }
