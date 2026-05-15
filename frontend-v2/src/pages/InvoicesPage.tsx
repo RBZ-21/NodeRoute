@@ -4,7 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { type Invoice, type InvoiceLotEntry, useDeleteInvoice, useInvoices, useUpdateInvoice } from '../hooks/useInvoices';
+import { type Invoice, type InvoiceLotEntry, useDeleteInvoice, useInvoices, useResendInvoiceEmail, useUpdateInvoice } from '../hooks/useInvoices';
 
 type InvoiceStatus = 'pending' | 'sent' | 'delivered' | 'paid' | 'overdue' | 'void' | 'other';
 
@@ -69,7 +69,9 @@ export function InvoicesPage() {
   const { data: invoices = [], isLoading, isError, error, refetch } = useInvoices();
   const updateInvoice = useUpdateInvoice();
   const deleteInvoice = useDeleteInvoice();
+  const resendInvoiceEmail = useResendInvoiceEmail();
 
+  const [actionError, setActionError] = useState('');
   const [notice, setNotice] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | InvoiceStatus>('all');
   const [search, setSearch] = useState('');
@@ -206,10 +208,26 @@ export function InvoicesPage() {
     );
   }
 
+  function resendInvoice(inv: Invoice) {
+    const id = inv.id;
+    if (!id) return;
+    resendInvoiceEmail.mutate(id, {
+      onSuccess: () => {
+        setActionError('');
+        setNotice(`Invoice ${invoiceId(inv)} emailed.`);
+      },
+      onError: (mutationError) => {
+        setNotice('');
+        setActionError(String((mutationError as Error)?.message || 'Could not resend invoice email'));
+      },
+    });
+  }
+
   return (
     <div className="space-y-5">
       {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading invoices...</div> : null}
       {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load invoices')}</div> : null}
+      {actionError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{actionError}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -278,7 +296,18 @@ export function InvoicesPage() {
                       <TableCell className="hidden md:table-cell whitespace-nowrap">{formatDate(inv.dueDate || inv.due_date)}</TableCell>
                       <TableCell className="hidden md:table-cell whitespace-nowrap">{formatDate(inv.paidDate || inv.paid_date)}</TableCell>
                       <TableCell className="text-right">
-                        <Button size="sm" className="whitespace-nowrap" onClick={() => openInvoice(inv)}>View / Edit</Button>
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="whitespace-nowrap"
+                            disabled={resendInvoiceEmail.isPending}
+                            onClick={() => resendInvoice(inv)}
+                          >
+                            {resendInvoiceEmail.isPending ? 'Sending...' : 'Resend Email'}
+                          </Button>
+                          <Button size="sm" className="whitespace-nowrap" onClick={() => openInvoice(inv)}>View / Edit</Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -315,6 +344,16 @@ export function InvoicesPage() {
                     }}
                   >
                     Print / Save PDF
+                  </Button>
+                )}
+                {!confirmDelete && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={resendInvoiceEmail.isPending}
+                    onClick={() => resendInvoice(selected)}
+                  >
+                    {resendInvoiceEmail.isPending ? 'Sending...' : 'Resend Email'}
                   </Button>
                 )}
                 {!editing && !confirmDelete && (
