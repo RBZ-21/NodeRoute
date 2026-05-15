@@ -38,6 +38,8 @@ export type Order = {
   id: string;
   customer_id?: string;
   customerId?: string;
+  invoice_id?: string | null;
+  invoiceId?: string | null;
   order_number?: string;
   customer_name?: string;
   customer_email?: string;

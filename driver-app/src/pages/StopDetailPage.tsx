@@ -54,7 +54,7 @@ export function StopDetailPage() {
   const [autoDropOffAfterPhoto, setAutoDropOffAfterPhoto] = useState(false);
   const [autoDeliverAfterSignature, setAutoDeliverAfterSignature] = useState(false);
   const [showSignatureCapture, setShowSignatureCapture] = useState(false);
-  const [submitting, setSubmitting] = useState<'arrived' | 'delivered' | 'failed' | 'notes' | 'skipped' | null>(null);
+  const [submitting, setSubmitting] = useState<'arrived' | 'delivered' | 'dropoff' | 'failed' | 'notes' | 'skipped' | null>(null);
   const [notes, setNotes] = useState(initialDraft?.notes || stop?.driver_notes || '');
   const [failureReason, setFailureReason] = useState('');
 
