@@ -84,10 +84,11 @@ export function DriverPage() {
     }
   }
 
-  async function markDepart(stopId: string) {
+  async function markDepart(stopId: string, options: { deliveryMode?: 'standard' | 'drop_off' } = {}) {
     if (!activeRoute) return;
     const stop = activeStops.find((s) => s.id === stopId) || null;
-    if (ws.companySettings.forceDriverSignature && stop?.invoice_id && !stop.invoice_has_signature) {
+    const deliveryMode = options.deliveryMode === 'drop_off' ? 'drop_off' : 'standard';
+    if (deliveryMode !== 'drop_off' && ws.companySettings.forceDriverSignature && stop?.invoice_id && !stop.invoice_has_signature) {
       setSignatureStopId(stopId);
       return;
     }
@@ -96,7 +97,7 @@ export function DriverPage() {
       window.setTimeout(() => proofInputRef.current?.click(), 0);
       return;
     }
-    if (ws.companySettings.forceDriverSignature && !stop?.invoice_id) {
+    if (deliveryMode !== 'drop_off' && ws.companySettings.forceDriverSignature && !stop?.invoice_id) {
       ws.setError('Signature is required, but this stop has no invoice attached yet.');
       return;
     }
@@ -106,7 +107,14 @@ export function DriverPage() {
     }
     setBusyStopId(stopId);
     try {
-      const record = await sendWithAuth<DwellRecord>(`/api/stops/${stopId}/depart`, 'POST', { routeId: activeRoute.id } as never);
+      const record = await sendWithAuth<DwellRecord>(
+        `/api/stops/${stopId}/depart`,
+        'POST',
+        {
+          routeId: activeRoute.id,
+          ...(deliveryMode === 'drop_off' ? { completion_type: 'drop_off' } : {}),
+        } as never
+      );
       ws.applyDwell(record);
     } catch (err) {
       ws.setError(String((err as Error).message || 'Could not complete this stop.'));
@@ -341,7 +349,12 @@ export function DriverPage() {
                       {stopStatus(currentStop, activeRoute.id, ws.dwellRecords) === 'pending' ? (
                         <Button onClick={() => void markArrive(currentStop.id)}>Mark Arrived</Button>
                       ) : (
-                        <Button onClick={() => void markDepart(currentStop.id)}>Mark Departed</Button>
+                        <>
+                          <Button onClick={() => void markDepart(currentStop.id)}>Mark Departed</Button>
+                          <Button variant="outline" onClick={() => void markDepart(currentStop.id, { deliveryMode: 'drop_off' })}>
+                            Drop Off
+                          </Button>
+                        </>
                       )}
                       {currentStop.invoice_id ? (
                         <Button variant="outline" onClick={() => setSignatureStopId(currentStop.id)}>
