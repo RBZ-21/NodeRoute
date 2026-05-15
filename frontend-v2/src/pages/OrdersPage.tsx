@@ -314,6 +314,18 @@ export function OrdersPage() {
     }
   }
 
+  async function markOrderDelivered(order: Order) {
+    const orderLabel = order.order_number || order.id.slice(0, 8);
+    if (!confirm(`Mark ${orderLabel} as delivered?`)) return;
+    try {
+      await sendWithAuth<Order>(`/api/orders/${order.id}`, 'PATCH', { status: 'delivered' });
+      await queryClient.invalidateQueries({ queryKey: orderKeys.all });
+      setNotice(`Order ${orderLabel} marked as delivered.`);
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not mark order as delivered'));
+    }
+  }
+
   async function quickFulfill(order: Order) {
     if (!confirm(`Quick fulfill ${order.order_number || order.id.slice(0, 8)} and generate invoice?`)) return;
     try {
@@ -499,6 +511,7 @@ export function OrdersPage() {
         onLoad={() => void queryClient.invalidateQueries({ queryKey: orderKeys.all })}
         onEdit={handleEditOrder}
         onSend={sendOrder}
+        onMarkDelivered={markOrderDelivered}
         onFulfill={quickFulfill}
         onToggleWeightCapture={handleToggleWeightCapture}
         onDelete={deleteOrder}

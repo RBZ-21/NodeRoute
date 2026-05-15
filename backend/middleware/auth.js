@@ -149,10 +149,23 @@ function requireSuperadmin(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
   const roleOk  = req.user.role === 'superadmin';
-  const emailOk = normalizeEmail(req.user.email) === normalizeEmail(SUPERADMIN_EMAIL);
-
-  if (!roleOk || !emailOk) {
+  if (!roleOk) {
     return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const configuredEmail = normalizeEmail(SUPERADMIN_EMAIL);
+  const requestEmail = normalizeEmail(req.user.email);
+  if (
+    configuredEmail
+    && configuredEmail !== '__superadmin_unset__'
+    && requestEmail
+    && requestEmail !== configuredEmail
+  ) {
+    console.warn('[auth] superadmin email mismatch bypassed for role-based access', {
+      configuredEmail,
+      requestEmail,
+      userId: req.user.id,
+    });
   }
 
   next();
