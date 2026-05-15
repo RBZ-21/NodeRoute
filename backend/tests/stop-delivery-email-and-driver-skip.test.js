@@ -25,7 +25,8 @@ test('stop routes sync driver notes onto the linked invoice and mark it delivere
   for (const marker of [
     'mergeInvoiceNotesWithDriverNotes(linkedInvoice.notes, stop.driver_notes)',
     "await syncLinkedInvoiceForStop(data, req.context, { syncDriverNotes: true });",
-    "const invoice = await syncLinkedInvoiceForStop(stop, req.context, { markDelivered: true, syncDriverNotes: true });",
+    "const invoice = await syncLinkedInvoiceForStop(",
+    "{ ...stop, status: 'completed', driver_notes: driverNotes },",
     'updates.status = nextStatus;',
   ]) {
     assert.ok(stopsRouteSource.includes(marker), `stops route missing invoice sync marker ${marker}`);
@@ -56,7 +57,8 @@ test('driver app supports a two-tap proof-of-delivery completion path', () => {
     "const [autoDeliverAfterPhoto, setAutoDeliverAfterPhoto] = useState(false);",
     "await runAction('delivered', image);",
     "openPhotoCapture(true);",
-    "needsProofBeforeDelivery ? 'Capture Photo + Deliver' : 'Mark Delivered'",
+    "const deliveryButtonLabel = signatureRequired && needsProofBeforeDelivery",
+    "? 'Capture Photo + Deliver'",
   ]) {
     assert.ok(stopDetailPageSource.includes(marker), `driver POD flow missing marker ${marker}`);
   }
