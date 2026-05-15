@@ -51,6 +51,7 @@ export function StopDetailPage() {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [proofImage, setProofImage] = useState<string | null>(initialDraft?.proofImage || null);
   const [autoDeliverAfterPhoto, setAutoDeliverAfterPhoto] = useState(false);
+  const [autoDropOffAfterPhoto, setAutoDropOffAfterPhoto] = useState(false);
   const [autoDeliverAfterSignature, setAutoDeliverAfterSignature] = useState(false);
   const [showSignatureCapture, setShowSignatureCapture] = useState(false);
   const [submitting, setSubmitting] = useState<'arrived' | 'delivered' | 'failed' | 'notes' | 'skipped' | null>(null);
@@ -107,18 +108,25 @@ export function StopDetailPage() {
       setProofImage(image);
       pushToast('Proof-of-delivery photo captured.', 'success');
       event.target.value = '';
+      if (autoDropOffAfterPhoto) {
+        setAutoDropOffAfterPhoto(false);
+        await runAction('dropoff', image);
+        return;
+      }
       if (autoDeliverAfterPhoto) {
         setAutoDeliverAfterPhoto(false);
         await runAction('delivered', image);
       }
     } catch (error) {
+      setAutoDropOffAfterPhoto(false);
       setAutoDeliverAfterPhoto(false);
       pushToast(error instanceof Error ? error.message : 'Unable to read the image.', 'error');
     }
   }
 
-  function openPhotoCapture(autoDeliver = false) {
+  function openPhotoCapture(autoDeliver = false, autoDropOff = false) {
     setAutoDeliverAfterPhoto(autoDeliver);
+    setAutoDropOffAfterPhoto(autoDropOff);
     fileInputRef.current?.click();
   }
 
@@ -165,7 +173,7 @@ export function StopDetailPage() {
   }
 
   async function runAction(
-    action: 'arrived' | 'delivered' | 'failed' | 'skipped',
+    action: 'arrived' | 'delivered' | 'dropoff' | 'failed' | 'skipped',
     proofImageOverride: string | null = proofImage,
     stopOverride: DriverStop = activeStop,
   ) {
@@ -187,6 +195,13 @@ export function StopDetailPage() {
 
       if (action === 'delivered') {
         await markDelivered(stopOverride, proofImageOverride, notes);
+        clearStopDraft(stopOverride.id);
+        refreshOfflineDrafts();
+        setProofImage(null);
+      }
+
+      if (action === 'dropoff') {
+        await markDelivered(stopOverride, proofImageOverride, notes, { deliveryMode: 'drop_off' });
         clearStopDraft(stopOverride.id);
         refreshOfflineDrafts();
         setProofImage(null);
@@ -407,6 +422,24 @@ export function StopDetailPage() {
           className="min-h-12 rounded-2xl bg-emerald-500 px-4 py-3 text-base font-semibold text-white disabled:opacity-60"
         >
           {submitting === 'delivered' ? 'Completing stop...' : deliveryButtonLabel}
+        </button>
+        <button
+          type="button"
+          disabled={submitting !== null || !isOnline}
+          onClick={() => {
+            if (proofBlockedByMissingInvoice) {
+              pushToast('This stop requires an invoice before a proof-of-delivery photo can be saved.', 'error');
+              return;
+            }
+            if (needsProofBeforeDelivery) {
+              openPhotoCapture(false, true);
+              return;
+            }
+            void runAction('dropoff');
+          }}
+          className="min-h-12 rounded-2xl bg-sky-500 px-4 py-3 text-base font-semibold text-white disabled:opacity-60"
+        >
+          {submitting === 'dropoff' ? 'Recording drop off...' : 'Drop Off (No Signature)'}
         </button>
         <button
           type="button"

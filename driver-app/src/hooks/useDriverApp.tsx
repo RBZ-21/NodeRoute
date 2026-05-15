@@ -88,7 +88,12 @@ type DriverAppContextValue = {
   markArrived: (stop: DriverStop) => Promise<void>;
   deferStopToEnd: (stop: DriverStop) => Promise<void>;
   captureSignature: (stop: DriverStop, signatureData: string, signerName?: string) => Promise<void>;
-  markDelivered: (stop: DriverStop, proofImage: string | null, notes: string) => Promise<void>;
+  markDelivered: (
+    stop: DriverStop,
+    proofImage: string | null,
+    notes: string,
+    options?: { deliveryMode?: 'standard' | 'drop_off' }
+  ) => Promise<void>;
   markFailed: (stop: DriverStop, reason: string, notes: string) => Promise<void>;
   openInvoicePdf: (invoiceId: string) => Promise<void>;
   submitLog: (payload: Record<string, unknown>) => Promise<void>;
@@ -386,10 +391,19 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     pushToast(`Saved signature for ${stop.name || 'stop'}.`, 'success');
   }
 
-  async function markDelivered(stop: DriverStop, proofImage: string | null, notes: string) {
+  async function markDelivered(
+    stop: DriverStop,
+    proofImage: string | null,
+    notes: string,
+    options: { deliveryMode?: 'standard' | 'drop_off' } = {},
+  ) {
     const activeStop = stopById(stop.id) || stop;
+    const deliveryMode = options.deliveryMode === 'drop_off' ? 'drop_off' : 'standard';
+    const cleanedNotes = notes.trim();
+    const dropOffTag = deliveryMode === 'drop_off' ? 'Delivery method: Drop off (no signature captured).' : '';
+    const combinedNotes = [dropOffTag, cleanedNotes].filter(Boolean).join('\n');
 
-    if (companySettings.forceDriverSignature && !activeStop.invoice_has_signature) {
+    if (deliveryMode !== 'drop_off' && companySettings.forceDriverSignature && !activeStop.invoice_has_signature) {
       throw new Error('Capture a customer signature before marking this stop delivered.');
     }
 
@@ -405,8 +419,8 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
       await uploadProofOfDelivery(activeStop.invoice_id, proofImage);
     }
 
-    if (notes.trim()) {
-      await patchStop(activeStop.id, { driver_notes: notes.trim() });
+    if (combinedNotes) {
+      await patchStop(activeStop.id, { driver_notes: combinedNotes });
     }
 
     if (!isArrivedStatus(activeStop.status) && !isDeliveredStatus(activeStop.status)) {
@@ -418,9 +432,12 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      await markStopDeparted(activeStop.id);
+      await markStopDeparted(activeStop.id, deliveryMode === 'drop_off' ? { completion_type: 'drop_off' } : undefined);
     } catch {
-      await patchStop(activeStop.id, { status: 'completed' });
+      await patchStop(activeStop.id, {
+        status: 'completed',
+        ...(combinedNotes ? { driver_notes: combinedNotes } : {}),
+      });
     }
 
     const linkedDelivery = findLinkedDelivery(activeStop, deliveries);
@@ -432,7 +449,12 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    pushToast(`Marked ${activeStop.name || 'stop'} as delivered.`, 'success');
+    pushToast(
+      deliveryMode === 'drop_off'
+        ? `Marked ${activeStop.name || 'stop'} as a drop-off delivery.`
+        : `Marked ${activeStop.name || 'stop'} as delivered.`,
+      'success'
+    );
     await refreshData(true);
   }
 

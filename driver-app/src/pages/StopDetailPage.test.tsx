@@ -206,4 +206,30 @@ describe('StopDetailPage', () => {
     });
     expect(sendLocationMock).toHaveBeenCalled();
   });
+
+  it('records a drop-off delivery without requiring a signature', async () => {
+    driverAppValue = createDriverAppValue({
+      companySettings: {
+        forceDriverSignature: true,
+        forceDriverProofOfDelivery: false,
+        businessName: 'NodeRoute',
+      },
+    });
+
+    renderPage();
+
+    fireEvent.change(screen.getByPlaceholderText('Gate instructions, failed-delivery reason, or delivery notes'), {
+      target: { value: 'Left in the lobby cooler.' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Drop Off (No Signature)' }));
+
+    await waitFor(() => {
+      expect(markDeliveredMock).toHaveBeenCalledWith(
+        expect.objectContaining({ id: 'stop-1' }),
+        null,
+        'Left in the lobby cooler.',
+        { deliveryMode: 'drop_off' },
+      );
+    });
+  });
 });

@@ -124,9 +124,10 @@ export async function markStopArrived(stopId: string) {
   });
 }
 
-export async function markStopDeparted(stopId: string) {
+export async function markStopDeparted(stopId: string, payload?: Record<string, unknown>) {
   return request(`/api/stops/${stopId}/depart`, {
     method: 'POST',
+    body: payload ? JSON.stringify(payload) : undefined,
   });
 }
 
