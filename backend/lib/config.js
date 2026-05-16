@@ -52,6 +52,9 @@ const envSchema = z.object({
   TWILIO_FROM_NUMBER:         z.string().optional().default(''),
   COMPANY_NAME:               z.string().optional().default(''),
   DAILY_BLAST_CRON:           z.string().optional().default('30 6 * * 1-6'),
+  // Superadmin email gate — must match the user's email for requireSuperadmin to pass.
+  // Sentinel value '__superadmin_unset__' ensures the check fails closed when unset.
+  SUPERADMIN_EMAIL:           z.string().optional().default('__superadmin_unset__'),
 }).passthrough();
 
 const rawEnv       = envSchema.parse(process.env);
@@ -96,6 +99,7 @@ const TWILIO_FROM_NUMBER  = rawEnv.TWILIO_FROM_NUMBER;
 const COMPANY_NAME        = rawEnv.COMPANY_NAME;
 const DAILY_BLAST_CRON    = rawEnv.DAILY_BLAST_CRON;
 const hasTwilio           = !!(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_FROM_NUMBER);
+const SUPERADMIN_EMAIL    = rawEnv.SUPERADMIN_EMAIL;
 
 function validate(logger) {
   const fatal  = [];
@@ -104,6 +108,9 @@ function validate(logger) {
 
   if (!SUPABASE_URL)         fatal.push('SUPABASE_URL is not set');
   if (!SUPABASE_SERVICE_KEY) fatal.push('SUPABASE_SERVICE_KEY is not set');
+
+  if (!process.env.SUPERADMIN_EMAIL || SUPERADMIN_EMAIL === '__superadmin_unset__')
+    warns.push('SUPERADMIN_EMAIL is not set — requireSuperadmin will reject ALL requests including legitimate ones. Set it to the superadmin account email.');
 
   if (isProduction) {
     if (!process.env.JWT_SECRET || JWT_SECRET === DEV_JWT_SECRET)
@@ -206,4 +213,5 @@ module.exports = {
   COMPANY_NAME,
   DAILY_BLAST_CRON,
   hasTwilio,
+  SUPERADMIN_EMAIL,
 };

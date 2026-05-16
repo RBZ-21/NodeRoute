@@ -1,10 +1,11 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchWithAuth, sendWithAuth, uploadWithAuth } from '../lib/api';
 
 export type PurchaseOrder = {
   id: string;
   po_number?: string;
   vendor?: string;
+  notes?: string | null;
   total_cost?: number | string;
   confirmed_by?: string;
   created_at?: string;
@@ -21,6 +22,7 @@ export type VendorPoLine = {
   product_id?: string | null;
   item_number?: string | null;
   product_name?: string;
+  category?: string | null;
   unit?: string;
   ordered_qty?: number | string;
   received_qty?: number | string;
@@ -30,12 +32,20 @@ export type VendorPoLine = {
   unit_cost?: number | string;
   line_total?: number | string;
   received_total?: number | string;
+  lot_number?: string | null;
+  first_received_at?: string | null;
+  latest_received_at?: string | null;
+  first_receipt_lead_time_days?: number | null;
+  first_receipt_lead_time_hours?: number | null;
+  full_receipt_lead_time_days?: number | null;
+  lead_time_history?: VendorPoProductLeadTimeHistory | null;
 };
 
 export type VendorPoReceiptLine = {
   line_no: number;
   item_number?: string | null;
   product_name?: string;
+  lot_number?: string | null;
   qty_received?: number | string;
   requested_receive_qty?: number | string;
   accepted_receive_qty?: number | string;
@@ -55,6 +65,7 @@ export type VendorPoReceipt = {
   id: string;
   received_at?: string;
   received_by?: string;
+  carrier_name?: string | null;
   notes?: string | null;
   variance_audit?: {
     total_requested_qty?: number | string;
@@ -66,6 +77,21 @@ export type VendorPoReceipt = {
     line_count_applied?: number | string;
   };
   lines?: VendorPoReceiptLine[];
+};
+
+export type VendorPoLeadTimeHistory = {
+  vendor?: string;
+  receipt_count?: number;
+  average_days?: number | null;
+  median_days?: number | null;
+  minimum_days?: number | null;
+  maximum_days?: number | null;
+  latest_days?: number | null;
+};
+
+export type VendorPoProductLeadTimeHistory = VendorPoLeadTimeHistory & {
+  item_number?: string | null;
+  product_name?: string | null;
 };
 
 export type VendorPurchaseOrder = {
@@ -85,6 +111,12 @@ export type VendorPurchaseOrder = {
   total_backordered_qty?: number | string;
   total_ordered_cost?: number | string;
   total_received_cost?: number | string;
+  first_received_at?: string | null;
+  latest_received_at?: string | null;
+  first_receipt_lead_time_days?: number | null;
+  first_receipt_lead_time_hours?: number | null;
+  full_receipt_lead_time_days?: number | null;
+  lead_time_history?: VendorPoLeadTimeHistory | null;
   receipt_rules?: VendorPoReceiptRules;
   lines?: VendorPoLine[];
   receipts?: VendorPoReceipt[];
@@ -105,9 +137,13 @@ export type ScannedLineItem = {
   unit: string | null;
   unit_price: number | null;
   total: number | null;
+  item_type: 'weighted' | 'count' | 'unknown';
+  lot_number: string | null;
+  lot_number_confidence: 'none' | 'low' | 'medium' | 'high';
 };
 
 export type PoScanResult = {
+  scan_id?: string | null;
   vendor: string | null;
   po_number: string | null;
   date: string | null;
@@ -116,6 +152,7 @@ export type PoScanResult = {
 };
 
 export type ConfirmPoPayload = {
+  scan_id?: string | null;
   vendor: string | null;
   po_number: string | null;
   notes: string | null;
@@ -133,14 +170,24 @@ export type ConfirmPoPayload = {
   }[];
 };
 
+export type ConfirmPoResponse = {
+  success?: boolean;
+  errors?: string[];
+  lots_created?: number;
+  purchase_order?: PurchaseOrder | null;
+};
+
 export type ReceiveVendorPoPayload = {
+  scan_id?: string | null;
   lines: {
     line_no: number;
     qty_received: number;
     unit_cost?: number;
     item_number?: string;
     product_name?: string;
+    lot_number?: string;
   }[];
+  carrier_name?: string | null;
   notes?: string | null;
   receiptRules?: VendorPoReceiptRules;
 };
@@ -182,7 +229,7 @@ export function useConfirmPurchaseOrder() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: ConfirmPoPayload) =>
-      sendWithAuth<{ errors?: string[]; lots_created?: number }>(
+      sendWithAuth<ConfirmPoResponse>(
         '/api/purchase-orders/confirm',
         'POST',
         payload
@@ -204,18 +251,11 @@ export function useReceiveVendorPurchaseOrder() {
   });
 }
 
+/** Upload a PO or dock invoice image for AI scanning. Uses cookie-based auth. */
 export async function scanPoFile(file: File): Promise<PoScanResult> {
-  const formData = new FormData();
-  formData.append('file', file);
-  const token = localStorage.getItem('token') || sessionStorage.getItem('token') || '';
-  const res = await fetch('/api/ai/scan-po', {
-    method: 'POST',
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-    body: formData,
-  });
-  if (!res.ok) {
-    const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(String(err.error || res.statusText));
-  }
-  return res.json();
+  return uploadWithAuth<PoScanResult>('/api/ai/scan-po', 'image', file);
+}
+
+export function openPurchaseOrderPdf(orderId: string) {
+  return window.open(`/api/purchase-orders/${orderId}/pdf`, '_blank', 'noopener,noreferrer');
 }

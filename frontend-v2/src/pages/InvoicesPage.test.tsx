@@ -25,6 +25,7 @@ const baseInvoices = [
     due_date: '2026-04-15',
     amount: 125,
     status: 'pending',
+    estimated_weight_pending: true,
   },
   {
     id: 'inv-2',
@@ -118,5 +119,17 @@ describe('InvoicesPage', () => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/invoices/inv-1', 'DELETE');
     });
     expect(await screen.findByText('Invoice INV-100 deleted.')).toBeInTheDocument();
+  });
+
+  it('blocks printing while final weights are still pending', async () => {
+    renderInvoicesPage();
+
+    expect(await screen.findByText('INV-100')).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'View / Edit' })[0]);
+    expect(await screen.findByRole('heading', { name: 'INV-100' })).toBeInTheDocument();
+    expect(screen.getByText('Waiting on final weights')).toBeInTheDocument();
+    expect(screen.getByText(/Print is locked for this invoice/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Print / Save PDF' })).toBeDisabled();
   });
 });

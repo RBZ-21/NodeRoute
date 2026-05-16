@@ -72,6 +72,23 @@ export default defineConfig(({ mode }) => {
                 },
               },
             },
+            {
+              urlPattern: ({ request, url }) =>
+                request.method === 'GET' &&
+                url.origin === self.location.origin &&
+                /^\/api\/invoices\/[^/]+\/pdf$/.test(url.pathname),
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'nr-driver-invoice-pdfs',
+                expiration: {
+                  maxEntries: 20,
+                  maxAgeSeconds: 60 * 60 * 24,
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
           ],
         },
       }),
@@ -96,6 +113,11 @@ export default defineConfig(({ mode }) => {
     build: {
       outDir: 'dist',
       emptyOutDir: true,
+    },
+    test: {
+      environment: 'jsdom',
+      setupFiles: './src/test/setup.ts',
+      globals: true,
     },
   };
 });

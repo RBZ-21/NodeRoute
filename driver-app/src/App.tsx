@@ -6,6 +6,7 @@ import { LoginPage } from '@/pages/LoginPage';
 import { RoutePage } from '@/pages/RoutePage';
 import { StopDetailPage } from '@/pages/StopDetailPage';
 import { StopsPage } from '@/pages/StopsPage';
+import { SyncPage } from '@/pages/SyncPage';
 import { TemperatureLogPage } from '@/pages/TemperatureLogPage';
 
 function ProtectedRoute() {
@@ -23,6 +24,7 @@ export default function App() {
         <Route path="/stops/:stopId" element={<StopDetailPage />} />
         <Route path="/invoices" element={<InvoicesPage />} />
         <Route path="/temperature" element={<TemperatureLogPage />} />
+        <Route path="/sync" element={<SyncPage />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />
     </Routes>

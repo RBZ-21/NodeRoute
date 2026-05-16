@@ -1,5 +1,6 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { InventoryPage } from './InventoryPage';
 import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
@@ -48,6 +49,22 @@ const inventoryItems = [
     is_catch_weight: false,
   },
 ];
+const activeLots = [
+  {
+    id: 'lot-1',
+    lot_number: 'SAL-LOT-1',
+    product_id: 'SAL-1',
+    received_date: '2026-04-01',
+    expiration_date: '2026-04-20',
+  },
+  {
+    id: 'lot-2',
+    lot_number: 'TUN-LOT-9',
+    product_id: 'TUN-1',
+    received_date: '2026-04-03',
+    expiration_date: '2026-04-18',
+  },
+];
 
 const ledgerResponse = {
   summary: {
@@ -72,6 +89,7 @@ const ledgerResponse = {
 function mockInventoryApi() {
   fetchWithAuthMock.mockImplementation(async (url: string) => {
     if (url === '/api/inventory') return inventoryItems;
+    if (url === '/api/lots?active_only=true') return activeLots;
     if (url.startsWith('/api/inventory/ledger?')) return ledgerResponse;
     if (url === '/api/reporting/recent-sold-items?days=30') {
       return {
@@ -103,7 +121,7 @@ function mockInventoryApi() {
 }
 
 function renderInventoryPage() {
-  return renderWithQueryClient(<InventoryPage />);
+  return renderWithQueryClient(<MemoryRouter><InventoryPage /></MemoryRouter>);
 }
 
 describe('InventoryPage', () => {
@@ -119,6 +137,8 @@ describe('InventoryPage', () => {
     expect(await screen.findByText('Fresh Salmon')).toBeInTheDocument();
     expect(screen.getByText('$120.00')).toBeInTheDocument();
     expect(screen.getByText('Dock delivery')).toBeInTheDocument();
+    expect(screen.getByText('SAL-LOT-1')).toBeInTheDocument();
+    expect(screen.getByText('TUN-LOT-9')).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText('Search item/category'), { target: { value: 'pack' } });
 

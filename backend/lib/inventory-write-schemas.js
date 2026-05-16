@@ -152,12 +152,17 @@ const inventoryLotPatchBodySchema = z.object({
 const coerceOptionalNum = (v) => (v === '' || v == null ? undefined : Number(v));
 
 const inventoryProductPatchBodySchema = z.object({
+  item_number:         z.optional(z.preprocess((v) => (typeof v === 'string' ? v.trim() : v), z.string().min(1))),
   description:         z.optional(z.preprocess((v) => (typeof v === 'string' ? v.trim() : v), z.string().min(1))),
+  category:            z.optional(z.preprocess((v) => (typeof v === 'string' ? v.trim() : v), z.string().min(1))),
+  unit:                z.optional(z.preprocess((v) => (typeof v === 'string' ? v.trim() : v), z.string().min(1))),
   cost:                z.optional(z.preprocess(coerceOptionalNum, z.union([z.undefined(), z.number().nonnegative()]))),
   on_hand_qty:         z.optional(z.preprocess(coerceOptionalNum, z.union([z.undefined(), z.number().nonnegative()]))),
   default_price_per_lb: z.optional(z.preprocess(coerceOptionalNum, z.union([z.undefined(), z.number().nonnegative()]))),
   is_catch_weight:     z.optional(z.preprocess(coerceBool, z.boolean())),
   is_active:           z.optional(z.preprocess(coerceBool, z.boolean())),
+  reorder_point:       z.optional(z.preprocess(coerceOptionalNum, z.union([z.undefined(), z.number().nonnegative()]))),
+  barcode:             z.optional(z.preprocess((v) => (v === '' ? null : v), z.union([z.string(), z.null(), z.undefined()]))),
   notes: z.optional(z.preprocess(
     (v) => (v === '' || v === null ? null : v),
     z.union([z.string(), z.null()])

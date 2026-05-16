@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { useCompanyConfig } from '../hooks/useCompanyConfig';
 import { useQueryClient } from '@tanstack/react-query';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
@@ -6,18 +8,24 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { sendWithAuth } from '../lib/api';
-import type { CountSheetRow, InventoryItem, LedgerEntry, LedgerSummary } from '../types/inventory.types';
+import type { CountSheetRow, InventoryItem, InventoryLotSummary, LedgerEntry, LedgerSummary } from '../types/inventory.types';
 import { ActiveToggle, CatchWeightPriceInput, CatchWeightToggle, FtlToggle, InventoryLedger } from '../components/inventory';
 import {
+  useActiveInventoryLotsQuery,
   type LedgerParams,
   useAdjustMutation,
   useInventoryQuery,
   useLedgerQuery,
+  useAddInventoryItemMutation,
+  useEditInventoryItemMutation,
+  useLowStockQuery,
   useRecentSoldQuery,
   useRestockMutation,
+  useSetReorderPointMutation,
   useSpoilageMutation,
   useTransferMutation,
 } from '../hooks/useInventory';
+import { useReorderAlerts } from '../hooks/useAI';
 
 function asNumber(v: unknown): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function money(v: number) { return v.toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
@@ -34,6 +42,12 @@ function inventoryActionLabel(item: Pick<InventoryItem, 'item_number' | 'descrip
   const description = String(item.description || '').trim();
   if (itemNumber && description) return `${itemNumber} - ${description}`;
   return itemNumber || description || 'Unnamed item';
+}
+function formatInventoryLotDate(value: unknown) {
+  if (!value) return '';
+  const parsed = new Date(String(value));
+  if (Number.isNaN(parsed.getTime())) return String(value);
+  return parsed.toLocaleDateString();
 }
 function SummaryCard({ label, value }: { label: string; value: string }) {
   return <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className="text-2xl">{value}</CardTitle></CardHeader></Card>;
@@ -54,6 +68,32 @@ function countSheetEmptyMessage({
   if (!includeZeroStockInCounts) reasons.push('zero-stock items are hidden');
   if (!reasons.length) return 'No inventory rows are available for a count sheet yet.';
   return `No inventory rows match the current count-sheet filters because ${reasons.join(', ')}.`;
+}
+function InventoryLotsCell({ lots, isFtlProduct }: { lots: InventoryLotSummary[]; isFtlProduct?: boolean }) {
+  if (!lots.length) {
+    return <span className="text-xs text-muted-foreground">{isFtlProduct ? 'No active lots' : '—'}</span>;
+  }
+
+  const visibleLots = lots.slice(0, 2);
+  return (
+    <div className="space-y-1">
+      {visibleLots.map((lot) => (
+        <div key={lot.id || lot.lot_number} className="leading-tight">
+          <div className="font-mono text-xs font-semibold text-foreground">{lot.lot_number}</div>
+          <div className="text-[11px] text-muted-foreground">
+            {lot.expiration_date
+              ? `Exp ${formatInventoryLotDate(lot.expiration_date)}`
+              : lot.received_date
+                ? `Received ${formatInventoryLotDate(lot.received_date)}`
+                : 'Active lot'}
+          </div>
+        </div>
+      ))}
+      {lots.length > visibleLots.length && (
+        <div className="text-[11px] text-muted-foreground">+{lots.length - visibleLots.length} more active lot{lots.length - visibleLots.length === 1 ? '' : 's'}</div>
+      )}
+    </div>
+  );
 }
 
 // ── AI Health Analysis types ──────────────────────────────────────────────────
@@ -81,10 +121,14 @@ const PRIORITY_COLORS: Record<string, string> = {
 
 export function InventoryPage() {
   const queryClient = useQueryClient();
+  const navigate = useNavigate();
+  const { features } = useCompanyConfig();
 
   // ── Queries ───────────────────────────────────────────────────────────────
   const inventoryQuery = useInventoryQuery();
   const items = inventoryQuery.data ?? [];
+  const activeLotsQuery = useActiveInventoryLotsQuery();
+  const activeLots = activeLotsQuery.data ?? [];
 
   const [ledgerCommitted, setLedgerCommitted] = useState<LedgerParams>({
     itemFilter: '',
@@ -101,13 +145,28 @@ export function InventoryPage() {
   );
   const recentSoldItemKeys: Set<string> | null = recentSoldQuery.data ?? null;
 
+  const lowStockQuery = useLowStockQuery();
+  const lowStockItems = lowStockQuery.data ?? [];
+
   // ── Mutations ─────────────────────────────────────────────────────────────
-  const restockMutation  = useRestockMutation();
-  const adjustMutation   = useAdjustMutation();
-  const transferMutation = useTransferMutation();
-  const spoilageMutation = useSpoilageMutation();
+  const addItemMutation        = useAddInventoryItemMutation();
+  const editItemMutation       = useEditInventoryItemMutation();
+  const restockMutation        = useRestockMutation();
+  const adjustMutation         = useAdjustMutation();
+  const transferMutation       = useTransferMutation();
+  const spoilageMutation       = useSpoilageMutation();
+  const setReorderPointMutation = useSetReorderPointMutation();
 
   // ── Local UI state ────────────────────────────────────────────────────────
+  const [addItemOpen, setAddItemOpen] = useState(false);
+  const [addForm, setAddForm] = useState({ item_number: '', description: '', category: '', unit: 'lb', cost: '', on_hand_qty: '0', reorder_point: '', barcode: '' });
+  const [addItemError, setAddItemError] = useState('');
+
+  type EditForm = { item_number: string; description: string; category: string; unit: string; cost: string; reorder_point: string; barcode: string };
+  const [editingItemNumber, setEditingItemNumber] = useState<string | null>(null);
+  const [editForm, setEditForm] = useState<EditForm>({ item_number: '', description: '', category: '', unit: 'lb', cost: '', reorder_point: '', barcode: '' });
+  const [editItemError, setEditItemError] = useState('');
+
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   // Inline feedback for the Inventory Actions card specifically
@@ -140,6 +199,10 @@ export function InventoryPage() {
   const [aiLoading, setAiLoading] = useState(false);
   const [aiError, setAiError] = useState('');
   const aiRef = useRef<HTMLDivElement>(null);
+
+  // Smart Reorder Alerts
+  const [reorderAlertsEnabled, setReorderAlertsEnabled] = useState(false);
+  const reorderAlertsQuery = useReorderAlerts(reorderAlertsEnabled);
 
   // AI Markdown Recommendations
   type MarkdownRec = { product_id: string; product_name: string; lot_number: string | null; days_until_expiry: number; current_stock: number; suggested_discount_pct: number; urgency: string; message: string; suggested_action: string };
@@ -188,6 +251,70 @@ export function InventoryPage() {
   }
 
   // ── Inventory action helpers ───────────────────────────────────────────────
+  async function handleAddItem(e: React.FormEvent) {
+    e.preventDefault();
+    setAddItemError('');
+    if (!addForm.item_number.trim()) { setAddItemError('Item number is required.'); return; }
+    if (!addForm.description.trim()) { setAddItemError('Description is required.'); return; }
+    try {
+      await addItemMutation.mutateAsync({
+        item_number: addForm.item_number.trim(),
+        description: addForm.description.trim(),
+        category: addForm.category.trim() || 'Other',
+        unit: addForm.unit.trim() || 'lb',
+        cost: addForm.cost !== '' ? Number(addForm.cost) : undefined,
+        on_hand_qty: Number(addForm.on_hand_qty) || 0,
+        reorder_point: addForm.reorder_point !== '' ? Number(addForm.reorder_point) : null,
+        barcode: addForm.barcode.trim() || null,
+      });
+      setAddForm({ item_number: '', description: '', category: '', unit: 'lb', cost: '', on_hand_qty: '0', reorder_point: '', barcode: '' });
+      setAddItemOpen(false);
+      setNotice('Item added successfully.');
+    } catch (err) {
+      setAddItemError((err as Error).message || 'Failed to add item.');
+    }
+  }
+
+  function openEditItem(item: InventoryItem) {
+    setEditingItemNumber(item.item_number ?? '');
+    setEditForm({
+      item_number:   String(item.item_number ?? ''),
+      description:   String(item.description ?? item.name ?? ''),
+      category:      String(item.category ?? ''),
+      unit:          String(item.unit ?? 'lb'),
+      cost:          item.cost != null ? String(asNumber(item.cost)) : '',
+      reorder_point: item.reorder_point != null ? String(asNumber(item.reorder_point)) : '',
+      barcode:       String(item.barcode ?? ''),
+    });
+    setEditItemError('');
+  }
+
+  async function handleEditItem(e: React.FormEvent) {
+    e.preventDefault();
+    if (!editingItemNumber) return;
+    setEditItemError('');
+    if (!editForm.item_number.trim()) { setEditItemError('Item number is required.'); return; }
+    if (!editForm.description.trim()) { setEditItemError('Description is required.'); return; }
+    try {
+      await editItemMutation.mutateAsync({
+        itemNumber: editingItemNumber,
+        patch: {
+          item_number:   editForm.item_number.trim(),
+          description:   editForm.description.trim(),
+          category:      editForm.category.trim() || undefined,
+          unit:          editForm.unit || undefined,
+          cost:          editForm.cost !== '' ? Number(editForm.cost) : undefined,
+          reorder_point: editForm.reorder_point !== '' ? Number(editForm.reorder_point) : null,
+          barcode:       editForm.barcode.trim() || null,
+        },
+      });
+      setEditingItemNumber(null);
+      setNotice('Item updated.');
+    } catch (err) {
+      setEditItemError((err as Error).message || 'Failed to update item.');
+    }
+  }
+
   function patchCachedItem(updated: Pick<InventoryItem, 'item_number'> & Partial<InventoryItem>) {
     queryClient.setQueryData<InventoryItem[]>(['inventory'], (old) =>
       old?.map((it) => it.item_number === updated.item_number ? { ...it, ...updated } : it) ?? old,
@@ -306,6 +433,24 @@ export function InventoryPage() {
     recentSalesExclusionWindow,
     includeZeroStockInCounts,
   }), [countCategoryFilter, recentSalesExclusionWindow, includeZeroStockInCounts]);
+  const activeLotsByProduct = useMemo(() => {
+    const grouped = new Map<string, InventoryLotSummary[]>();
+    for (const lot of activeLots) {
+      const productId = String(lot.product_id || '').trim();
+      if (!productId) continue;
+      const existing = grouped.get(productId) ?? [];
+      existing.push(lot);
+      grouped.set(productId, existing);
+    }
+    for (const [productId, lots] of grouped.entries()) {
+      grouped.set(productId, [...lots].sort((a, b) => {
+        const aDate = new Date(String(a.received_date || a.created_at || 0)).getTime();
+        const bDate = new Date(String(b.received_date || b.created_at || 0)).getTime();
+        return bDate - aDate;
+      }));
+    }
+    return grouped;
+  }, [activeLots]);
 
   function exportCountSheetCsv() {
     const scope = countCategoryFilter === 'all' ? 'all-categories' : countCategoryFilter.toLowerCase().replace(/[^a-z0-9]+/g, '-');
@@ -336,6 +481,41 @@ export function InventoryPage() {
         <SummaryCard label="Out Of Stock" value={summary.outOfStock.toLocaleString()} />
         <SummaryCard label="Inventory Value" value={money(summary.inventoryValue)} />
       </div>
+
+      {/* ── Low-Stock Alert Banner ─────────────────────────────────────── */}
+      {lowStockItems.length > 0 && (
+        <Card className="border-rose-200 bg-rose-50">
+          <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between py-3">
+            <div>
+              <CardTitle className="text-base text-rose-700">{lowStockItems.length} Item{lowStockItems.length !== 1 ? 's' : ''} Below Reorder Threshold</CardTitle>
+              <CardDescription className="text-rose-600">These items have fallen at or below their set reorder points. Create purchase orders to replenish stock.</CardDescription>
+            </div>
+            <Button size="sm" variant="outline" onClick={() => navigate('/purchasing')}>Open Purchasing</Button>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
+              {lowStockItems.map((item) => (
+                <div key={item.item_number} className="flex items-center justify-between rounded-lg border border-rose-200 bg-white px-3 py-2">
+                  <div>
+                    <div className="text-sm font-medium">{item.description || item.name || item.item_number}</div>
+                    <div className="text-xs text-muted-foreground">
+                      On hand: <strong>{asNumber(item.on_hand_qty).toFixed(1)}</strong> · Reorder at: {asNumber(item.reorder_point).toFixed(1)} · Short by: <strong className="text-rose-600">{item.deficit.toFixed(1)}</strong> {item.unit || ''}
+                    </div>
+                  </div>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    className="ml-2 shrink-0 text-xs"
+                    onClick={() => navigate(`/purchasing?item=${encodeURIComponent(item.item_number || '')}&qty=${Math.ceil(item.deficit)}`)}
+                  >
+                    Order
+                  </Button>
+                </div>
+              ))}
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       {/* ── AI Health Analysis ─────────────────────────────────────────── */}
       <Card>
@@ -431,6 +611,74 @@ export function InventoryPage() {
                     </div>
                     <p className="mt-2 text-xs italic text-muted-foreground">"{rec.message}"</p>
                     <p className="mt-1 text-xs font-medium">→ {rec.suggested_action}</p>
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        )}
+      </Card>
+
+      {/* ── Smart Reorder Alerts ──────────────────────────────────────────── */}
+      <Card>
+        <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <CardTitle>✦ Smart Reorder Alerts</CardTitle>
+            <CardDescription>
+              {reorderAlertsQuery.data?.summary || 'AI-powered alerts for items approaching stockout based on recent sales velocity.'}
+            </CardDescription>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              if (!reorderAlertsEnabled) {
+                setReorderAlertsEnabled(true);
+              } else {
+                void reorderAlertsQuery.refetch();
+              }
+            }}
+            disabled={reorderAlertsQuery.isFetching}
+          >
+            {reorderAlertsQuery.isFetching ? 'Analyzing…' : reorderAlertsQuery.data ? 'Refresh' : 'Run Reorder Analysis'}
+          </Button>
+        </CardHeader>
+        {reorderAlertsQuery.isError && (
+          <CardContent>
+            <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">
+              {String((reorderAlertsQuery.error as Error)?.message || 'Reorder analysis failed')}
+            </div>
+          </CardContent>
+        )}
+        {reorderAlertsQuery.data && (
+          <CardContent>
+            {reorderAlertsQuery.data.alerts.length === 0 ? (
+              <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
+                All items have sufficient stock — no reorder alerts at this time.
+              </div>
+            ) : (
+              <div className="space-y-2">
+                {reorderAlertsQuery.data.alerts.map((alert, i) => (
+                  <div
+                    key={i}
+                    className={`rounded-md border px-4 py-3 text-sm ${
+                      alert.urgency === 'CRITICAL'
+                        ? 'border-red-200 bg-red-50 text-red-800'
+                        : alert.urgency === 'WARNING'
+                        ? 'border-yellow-200 bg-yellow-50 text-yellow-800'
+                        : 'border-blue-200 bg-blue-50 text-blue-800'
+                    }`}
+                  >
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div className="flex items-center gap-2">
+                        <span className="rounded-full border px-2 py-0.5 text-xs font-bold">{alert.urgency}</span>
+                        <span className="font-semibold">{alert.description}</span>
+                        <span className="text-xs opacity-70">#{alert.item_number}</span>
+                      </div>
+                      <span className="text-xs font-medium">{alert.days_until_stockout}d until stockout</span>
+                    </div>
+                    <p className="mt-1">{alert.reason}</p>
+                    <p className="mt-1 font-medium">→ Order {alert.suggested_order_qty.toLocaleString()} {alert.unit}</p>
                   </div>
                 ))}
               </div>
@@ -568,39 +816,218 @@ export function InventoryPage() {
                 {items.filter((i) => i.is_active === false).length} inactive item{items.filter((i) => i.is_active === false).length !== 1 ? 's' : ''} visible
               </span>
             )}
-            <Button variant="outline" onClick={() => void inventoryQuery.refetch()} className="ml-auto">Refresh</Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                void inventoryQuery.refetch();
+                void activeLotsQuery.refetch();
+              }}
+            >
+              Refresh
+            </Button>
+            <Button onClick={() => { setAddItemOpen((v) => !v); setAddItemError(''); }}>
+              {addItemOpen ? 'Cancel' : '+ Add Item'}
+            </Button>
           </div>
         </CardHeader>
+
+        {addItemOpen && (
+          <div className="border-b border-border bg-muted/30 px-4 py-4">
+            <form onSubmit={(e) => { void handleAddItem(e); }} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold">Item # <span className="text-destructive">*</span></span>
+                <Input value={addForm.item_number} onChange={(e) => setAddForm((f) => ({ ...f, item_number: e.target.value }))} placeholder="e.g. SALMON-001" required />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold">Description <span className="text-destructive">*</span></span>
+                <Input value={addForm.description} onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))} placeholder="e.g. Atlantic Salmon Fillet" required />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold">Category</span>
+                <Input value={addForm.category} onChange={(e) => setAddForm((f) => ({ ...f, category: e.target.value }))} placeholder="e.g. Seafood" list="inv-category-list" />
+                <datalist id="inv-category-list">
+                  {[...new Set(items.map((i) => i.category).filter(Boolean))].sort().map((c) => <option key={c as string} value={c as string} />)}
+                </datalist>
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold">Unit</span>
+                <select
+                  value={addForm.unit}
+                  onChange={(e) => setAddForm((f) => ({ ...f, unit: e.target.value }))}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                >
+                  <option value="each">each</option>
+                  <option value="lb">lb</option>
+                  <option value="kg">kg</option>
+                  <option value="oz">oz</option>
+                  <option value="case">case</option>
+                  <option value="gal">gal</option>
+                </select>
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold">Cost per unit ($)</span>
+                <Input type="number" min="0" step="0.01" value={addForm.cost} onChange={(e) => setAddForm((f) => ({ ...f, cost: e.target.value }))} placeholder="0.00" />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold">On-hand qty</span>
+                <Input type="number" min="0" step="0.01" value={addForm.on_hand_qty} onChange={(e) => setAddForm((f) => ({ ...f, on_hand_qty: e.target.value }))} placeholder="0" />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold">Reorder point</span>
+                <Input type="number" min="0" step="1" value={addForm.reorder_point} onChange={(e) => setAddForm((f) => ({ ...f, reorder_point: e.target.value }))} placeholder="e.g. 20" />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold">Barcode (UPC/EAN)</span>
+                <Input value={addForm.barcode} onChange={(e) => setAddForm((f) => ({ ...f, barcode: e.target.value }))} placeholder="optional" />
+              </label>
+              {addItemError && <div className="sm:col-span-2 lg:col-span-4 text-sm text-destructive">{addItemError}</div>}
+              <div className="sm:col-span-2 lg:col-span-4 flex gap-2">
+                <Button type="submit" disabled={addItemMutation.isPending}>
+                  {addItemMutation.isPending ? 'Saving…' : 'Save Item'}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => { setAddItemOpen(false); setAddItemError(''); }}>Cancel</Button>
+              </div>
+            </form>
+          </div>
+        )}
+
         <CardContent className="rounded-lg border border-border bg-card p-2">
           <Table>
-            <TableHeader><TableRow><TableHead>Item #</TableHead><TableHead>Description</TableHead><TableHead>Category</TableHead><TableHead>On Hand</TableHead><TableHead>Cost</TableHead><TableHead>Status</TableHead><TableHead title="Active items appear in orders and counts; inactive = seasonal/off-season">Active</TableHead><TableHead title="FDA Food Traceability List">FTL</TableHead><TableHead title="Sold by actual measured weight">Catch Wt</TableHead><TableHead title="Default price per pound">$/lb</TableHead></TableRow></TableHeader>
+            <TableHeader><TableRow>
+              <TableHead>Item #</TableHead>
+              <TableHead>Description</TableHead>
+              <TableHead>Category</TableHead>
+              {features.fsmaLotTracking && <TableHead>Active Lots</TableHead>}
+              <TableHead>On Hand</TableHead>
+              <TableHead>Cost</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead title="Stock level that triggers a reorder alert">Reorder Pt</TableHead>
+              <TableHead title="Active items appear in orders and counts; inactive = seasonal/off-season">Active</TableHead>
+              <TableHead />
+              {features.fsmaLotTracking && <TableHead title="FDA Food Traceability List">FTL</TableHead>}
+              {features.catchWeight     && <TableHead title="Sold by actual measured weight">Catch Wt</TableHead>}
+              {features.catchWeight     && <TableHead title="Default price per pound">$/lb</TableHead>}
+            </TableRow></TableHeader>
             <TableBody>
               {filtered.length ? filtered.map((item) => {
                 const qty = asNumber(item.on_hand_qty);
+                const itemLots = activeLotsByProduct.get(String(item.item_number || '').trim()) ?? [];
                 const isInactive = item.is_active === false;
                 const status = qty <= 0 ? <Badge variant="warning">Out</Badge> : qty <= 10 ? <Badge variant="secondary">Low</Badge> : <Badge variant="success">Healthy</Badge>;
                 return (
-                  <TableRow key={item.id} className={isInactive ? 'opacity-50' : ''}>
+                  <Fragment key={item.id}>
+                  <TableRow className={isInactive ? 'opacity-50' : ''}>
                     <TableCell className="font-medium">
                       {item.item_number ?? '-'}
                       {isInactive && <span className="ml-1.5 rounded bg-gray-200 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">Inactive</span>}
                     </TableCell>
                     <TableCell>{item.description ?? '-'}</TableCell>
                     <TableCell>{item.category ?? '-'}</TableCell>
+                    {features.fsmaLotTracking && <TableCell><InventoryLotsCell lots={itemLots} isFtlProduct={item.is_ftl_product} /></TableCell>}
                     <TableCell>{qty.toLocaleString()} {item.unit ?? ''}</TableCell>
                     <TableCell>{money(asNumber(item.cost))}</TableCell>
                     <TableCell>{status}</TableCell>
+                    <TableCell><ReorderPointCell item={item} onSaved={(val) => { setReorderPointMutation.mutate({ itemNumber: item.item_number ?? '', reorderPoint: val }); patchCachedItem({ ...item, reorder_point: val }); }} /></TableCell>
                     <TableCell><ActiveToggle item={item} onToggled={patchCachedItem} /></TableCell>
-                    <TableCell><FtlToggle item={item} onToggled={patchCachedItem} /></TableCell>
-                    <TableCell><CatchWeightToggle item={item} onToggled={patchCachedItem} /></TableCell>
-                    <TableCell>{item.is_catch_weight ? <CatchWeightPriceInput item={item} onSaved={patchCachedItem} /> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>
+                    {features.fsmaLotTracking && <TableCell><FtlToggle item={item} onToggled={patchCachedItem} /></TableCell>}
+                    {features.catchWeight     && <TableCell><CatchWeightToggle item={item} onToggled={patchCachedItem} /></TableCell>}
+                    {features.catchWeight     && <TableCell>{item.is_catch_weight ? <CatchWeightPriceInput item={item} onSaved={patchCachedItem} /> : <span className="text-xs text-muted-foreground">—</span>}</TableCell>}
+                    <TableCell>
+                      <Button size="sm" variant="ghost" className="text-xs h-7 px-2" onClick={() => openEditItem(item)}>Edit</Button>
+                    </TableCell>
                   </TableRow>
+                  {editingItemNumber === item.item_number && (
+                    <TableRow>
+                      <TableCell colSpan={9 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0)} className="bg-muted/30 p-0">
+                        <form onSubmit={(e) => { void handleEditItem(e); }} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 px-4 py-4">
+                          <label className="space-y-1 text-sm">
+                            <span className="font-semibold">Item # <span className="text-destructive">*</span></span>
+                            <Input value={editForm.item_number} onChange={(e) => setEditForm((f) => ({ ...f, item_number: e.target.value }))} required />
+                          </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-semibold">Description <span className="text-destructive">*</span></span>
+                            <Input value={editForm.description} onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))} required />
+                          </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-semibold">Category</span>
+                            <Input value={editForm.category} onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value }))} list="inv-category-list" />
+                          </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-semibold">Unit</span>
+                            <select value={editForm.unit} onChange={(e) => setEditForm((f) => ({ ...f, unit: e.target.value }))} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                              <option value="each">each</option>
+                              <option value="lb">lb</option>
+                              <option value="kg">kg</option>
+                              <option value="oz">oz</option>
+                              <option value="case">case</option>
+                              <option value="gal">gal</option>
+                            </select>
+                          </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-semibold">Cost per unit ($)</span>
+                            <Input type="number" min="0" step="0.01" value={editForm.cost} onChange={(e) => setEditForm((f) => ({ ...f, cost: e.target.value }))} />
+                          </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-semibold">Reorder point</span>
+                            <Input type="number" min="0" step="1" value={editForm.reorder_point} onChange={(e) => setEditForm((f) => ({ ...f, reorder_point: e.target.value }))} />
+                          </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-semibold">Barcode (UPC/EAN)</span>
+                            <Input value={editForm.barcode} onChange={(e) => setEditForm((f) => ({ ...f, barcode: e.target.value }))} />
+                          </label>
+                          {editItemError && <div className="sm:col-span-2 lg:col-span-4 text-sm text-destructive">{editItemError}</div>}
+                          <div className="sm:col-span-2 lg:col-span-4 flex gap-2">
+                            <Button type="submit" disabled={editItemMutation.isPending}>{editItemMutation.isPending ? 'Saving…' : 'Save Changes'}</Button>
+                            <Button type="button" variant="outline" onClick={() => setEditingItemNumber(null)}>Cancel</Button>
+                          </div>
+                        </form>
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  </Fragment>
                 );
-              }) : <TableRow><TableCell colSpan={9} className="text-muted-foreground">No inventory rows available.</TableCell></TableRow>}
+              }) : <TableRow><TableCell colSpan={9 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0)} className="text-muted-foreground">No inventory rows available.</TableCell></TableRow>}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function ReorderPointCell({ item, onSaved }: { item: InventoryItem; onSaved: (val: number | null) => void }) {
+  const current = item.reorder_point != null ? asNumber(item.reorder_point) : null;
+  const [editing, setEditing] = useState(false);
+  const [val, setVal] = useState(current !== null ? String(current) : '');
+
+  function commit() {
+    setEditing(false);
+    const num = val.trim() === '' ? null : Number(val);
+    if (num !== null && !Number.isFinite(num)) return;
+    onSaved(num);
+  }
+
+  if (!editing) {
+    return (
+      <button
+        className="min-w-[48px] rounded px-1 py-0.5 text-sm text-left hover:bg-muted/50 focus:outline-none focus:ring-1 focus:ring-ring"
+        onClick={() => { setVal(current !== null ? String(current) : ''); setEditing(true); }}
+        title="Click to set reorder point"
+      >
+        {current !== null ? current.toFixed(0) : <span className="text-muted-foreground text-xs">—</span>}
+      </button>
+    );
+  }
+
+  return (
+    <input
+      className="w-16 rounded border border-input bg-background px-1 py-0.5 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
+      autoFocus
+      value={val}
+      onChange={(e) => setVal(e.target.value)}
+      onBlur={commit}
+      onKeyDown={(e) => { if (e.key === 'Enter') commit(); if (e.key === 'Escape') setEditing(false); }}
+      placeholder="0"
+    />
   );
 }

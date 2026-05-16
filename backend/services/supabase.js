@@ -52,6 +52,7 @@ function defaultState() {
     inventory_yield_log: [],
     purchase_orders: [],
     temperature_logs: [],
+    route_mutation_audit_logs: [],
   };
 }
 

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { clearSession, fetchCurrentUser, redirectToLogin, requireAuthToken } from '../lib/api';
+import { fetchCurrentUser, redirectToLogin, requireAuthToken } from '../lib/api';
 
 const PUBLIC_PATHS = ['/login', '/portal', '/customer-portal', '/setup-password'];
 
@@ -41,16 +41,23 @@ export function useAuth(): AuthState {
 
     fetchCurrentUser()
       .then(() => { if (!cancelled) setState('ready'); })
-      .catch(() => {
-        if (!cancelled) {
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        // parseResponse already clears the session and redirects on 401.
+        // For other transient errors (429 rate-limit, 500, network) we should
+        // NOT end the session — just mark ready so the shell stays rendered.
+        const msg = err instanceof Error ? err.message : '';
+        if (msg === 'Unauthorized') {
           setState('redirecting');
-          clearSession();
-          redirectToLogin('Your session could not be verified. Please sign in again.');
+        } else {
+          setState('ready');
         }
       });
 
     return () => { cancelled = true; };
-  }, [pathname]);
+  // Empty deps: validate session once on mount, not on every navigation click.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   return state;
 }
