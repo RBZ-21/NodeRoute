@@ -726,6 +726,79 @@ describe('PurchasingPage', () => {
     expect(screen.getByText(/^Weighted$/)).toBeInTheDocument();
   });
 
+  it('prefills and saves a new vendor draft from scanned invoice details', async () => {
+    fetchMock.mockResolvedValueOnce({
+      ok: true,
+      json: async () => ({
+        vendor: 'Dockside Seafood',
+        vendor_details: {
+          name: 'Dockside Seafood LLC',
+          contact: 'Maria Buyer',
+          email: 'orders@dockside.test',
+          phone: '555-123-4567',
+          address: '10 Pier Road',
+          payment_terms: 'Net 14',
+        },
+        po_number: 'INV-42',
+        date: '2026-05-16',
+        total_cost: 62.5,
+        items: [
+          {
+            description: 'Fresh Salmon',
+            category: 'Seafood',
+            quantity: 5,
+            unit: 'lb',
+            unit_price: 12.5,
+            total: 62.5,
+            item_type: 'weighted',
+            lot_number: null,
+            lot_number_confidence: 'none',
+          },
+        ],
+      }),
+    });
+    sendWithAuthMock.mockResolvedValueOnce({
+      id: 'vendor-new',
+      name: 'Dockside Seafood LLC',
+      contact: 'Maria Buyer',
+      email: 'orders@dockside.test',
+      phone: '555-123-4567',
+      address: '10 Pier Road',
+      payment_terms: 'Net 14',
+      status: 'active',
+    });
+
+    renderPurchasingPage();
+
+    expect(await screen.findByText('PO-100')).toBeInTheDocument();
+
+    const fileInputs = document.querySelectorAll('input[type="file"]');
+    const uploadInput = fileInputs[0] as HTMLInputElement | undefined;
+    if (!uploadInput) throw new Error('Expected upload input');
+    const file = new File(['scan'], 'new-vendor-invoice.jpg', { type: 'image/jpeg' });
+    fireEvent.change(uploadInput, { target: { files: [file] } });
+
+    expect(await screen.findByText('New vendor detected from invoice')).toBeInTheDocument();
+    expect(screen.getAllByDisplayValue('Dockside Seafood LLC').length).toBeGreaterThan(0);
+    expect(screen.getByDisplayValue('orders@dockside.test')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('10 Pier Road')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save Vendor' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/vendors', 'POST', {
+        name: 'Dockside Seafood LLC',
+        contact: 'Maria Buyer',
+        email: 'orders@dockside.test',
+        phone: '555-123-4567',
+        address: '10 Pier Road',
+        payment_terms: 'Net 14',
+        status: 'active',
+      });
+    });
+    expect(await screen.findByText('Vendor "Dockside Seafood LLC" saved from the invoice scan.')).toBeInTheDocument();
+  });
+
   it('requires per-line approval before confirming scanned count items', async () => {
     sendWithAuthMock.mockResolvedValueOnce({ purchase_order: { id: 'po-301', po_number: 'PO-SCAN-COUNT' } });
     fetchMock.mockResolvedValueOnce({

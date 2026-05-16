@@ -113,7 +113,8 @@ Rules:
 7. If quantity or unit price is missing but a product row is visible, still return the line with null for the missing values.
 8. For each line item, classify whether it looks weighted merchandise, count-based merchandise, or unknown.
 9. Extract a lot number when one is visibly tied to the item. If no lot number is visible, return null and confidence "none".
-10. Only return an empty items array when there are truly no visible product or charge rows.`;
+10. Extract visible vendor contact details from the invoice header when present. Use null for missing vendor details.
+11. Only return an empty items array when there are truly no visible product or charge rows.`;
 
 const FORECAST_SCHEMA = {
   name: 'inventory_demand_forecast',
@@ -220,9 +221,22 @@ const PO_SCAN_SCHEMA = {
   schema: {
     type: 'object',
     additionalProperties: false,
-    required: ['vendor', 'po_number', 'date', 'items', 'total_cost'],
+    required: ['vendor', 'vendor_details', 'po_number', 'date', 'items', 'total_cost'],
     properties: {
       vendor: { type: ['string', 'null'] },
+      vendor_details: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['name', 'contact', 'email', 'phone', 'address', 'payment_terms'],
+        properties: {
+          name: { type: ['string', 'null'] },
+          contact: { type: ['string', 'null'] },
+          email: { type: ['string', 'null'] },
+          phone: { type: ['string', 'null'] },
+          address: { type: ['string', 'null'] },
+          payment_terms: { type: ['string', 'null'] },
+        },
+      },
       po_number: { type: ['string', 'null'] },
       date: { type: ['string', 'null'] },
       total_cost: { type: ['number', 'null'] },
@@ -1222,9 +1236,21 @@ function normalizePOScan(result) {
   });
 
   const computedTotal = normalizedItems.reduce((sum, item) => sum + numberOr(item.total, 0), 0);
+  const vendorDetails = result && typeof result.vendor_details === 'object' && result.vendor_details
+    ? result.vendor_details
+    : {};
+  const vendorName = stringOr(result && result.vendor != null ? result.vendor : vendorDetails.name) || null;
 
   return {
-    vendor: result && result.vendor != null ? stringOr(result.vendor) || null : null,
+    vendor: vendorName,
+    vendor_details: {
+      name: stringOr(vendorDetails.name || vendorName) || null,
+      contact: stringOr(vendorDetails.contact) || null,
+      email: stringOr(vendorDetails.email) || null,
+      phone: stringOr(vendorDetails.phone) || null,
+      address: stringOr(vendorDetails.address) || null,
+      payment_terms: stringOr(vendorDetails.payment_terms) || null,
+    },
     po_number: result && result.po_number != null ? stringOr(result.po_number) || null : null,
     date: result && result.date != null ? stringOr(result.date) || null : null,
     items: normalizedItems,

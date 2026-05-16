@@ -45,3 +45,31 @@ test('normalizePOScan infers item type from unit and keeps scan lot metadata', (
   assert.equal(result.items[1].lot_number_confidence, 'none');
   assert.equal(result.items[1].total, 36);
 });
+
+test('normalizePOScan keeps scanned vendor details for new vendor review', () => {
+  const result = normalizePOScan({
+    vendor: 'Dockside Seafood',
+    vendor_details: {
+      name: 'Dockside Seafood LLC',
+      contact: 'Maria Buyer',
+      email: 'orders@dockside.test',
+      phone: '555-123-4567',
+      address: '10 Pier Road',
+      payment_terms: 'Net 14',
+    },
+    po_number: 'INV-42',
+    date: '2026-05-16',
+    total_cost: 10,
+    items: [],
+  });
+
+  assert.equal(result.vendor, 'Dockside Seafood');
+  assert.deepEqual(result.vendor_details, {
+    name: 'Dockside Seafood LLC',
+    contact: 'Maria Buyer',
+    email: 'orders@dockside.test',
+    phone: '555-123-4567',
+    address: '10 Pier Road',
+    payment_terms: 'Net 14',
+  });
+});
