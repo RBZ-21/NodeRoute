@@ -1,3 +1,4 @@
+'use strict';
 const express = require('express');
 const { z } = require('zod');
 const { supabase, dbQuery } = require('../services/supabase');
@@ -90,38 +91,77 @@ const inventoryYieldBodySchema = z.object({
   notes: z.string().optional(),
 }).passthrough();
 
-// ── SEAFOOD INVENTORY (Supabase table: seafood_inventory) ────────────────────
-// Column names (updated to match current database):
-//   id uuid PK, description text NOT NULL (product name),
-//   category text, item_number text, unit text,
-//   cost numeric, on_hand_qty numeric, on_hand_weight numeric, notes text,
-//   lot_item text, created_at timestamptz DEFAULT now()
-// Analytics columns (migration 20260415_inventory_enhancements):
-//   avg_yield numeric, yield_count integer, updated_at timestamptz, alert_sent_at timestamptz
+// ── PRODUCTS (Supabase table: products — multi-vertical catalog) ─────────────
+// Key columns: id uuid PK, name text (aliased as `description` generated col),
+//   item_number text, category text, default_unit text, unit text (legacy label),
+//   cost numeric, price_per_unit numeric, on_hand_qty numeric, on_hand_weight numeric,
+//   lot_item text, is_catch_weight bool, is_ftl_regulated bool, is_deposit_item bool,
+//   requires_age_verification bool, temp_sensitive bool, case_qty numeric,
+//   avg_yield numeric, yield_count int, is_active bool, notes text
 
 router.get('/', authenticateToken, async (req, res) => {
-  const data = await dbQuery(supabase.from('seafood_inventory').select('*').order('category', { ascending: true }), res);
+  // Treat is_active = NULL as active so legacy rows (predating the column) and
+  // newly inserted rows that land with a null value are never hidden.
+  // Only explicit false = inactive (seasonal/off-season).
+  const data = await dbQuery(
+    supabase
+      .from('products')
+      .select('*')
+      .or('is_active.is.null,is_active.eq.true')
+      .order('category', { ascending: true }),
+    res,
+  );
   if (!data) return;
   res.json(filterRowsByContext(data, req.context));
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryCreateBodySchema), async (req, res) => {
   const { description, category, item_number, unit, cost, on_hand_qty, on_hand_weight, lot_item, notes } = req.validated.body;
-  const insertResult = await insertRecordWithOptionalScope(supabase, 'seafood_inventory', {
-    description,
+  // Always set is_active: true explicitly so the GET filter never hides the
+  // new row (Postgres neq/or logic excludes NULLs in certain drivers).
+  const insertResult = await insertRecordWithOptionalScope(supabase, 'products', {
+    name:           description,   // products.name is the canonical column; description is a generated alias
+    default_unit:   unit           || 'lb',
     category:       category       || 'Other',
     item_number,
     unit:           unit           || 'lb',
     cost:           parseFloat(cost)           || 0,
+    price_per_unit: parseFloat(cost)           || 0,
     on_hand_qty,
     on_hand_weight: parseFloat(on_hand_weight) || 0,
     lot_item:       needsLot(description) ? 'Y' : (lot_item || 'N'),
     notes:          notes || null,
+    is_active:      true,
   }, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
   if (!data) return;
   res.json(data);
+});
+
+// ── LOW STOCK ────────────────────────────────────────────────────────────────
+// Returns every product whose on_hand_qty is at or below its reorder_point.
+// Products with no reorder_point set are excluded.
+router.get('/low-stock', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const { data, error } = await supabase
+    .from('products')
+    .select('item_number, name, category, unit, on_hand_qty, cost, reorder_point, barcode, is_active, company_id, location_id')
+    .not('reorder_point', 'is', null)
+    .gt('reorder_point', 0);
+  if (error) return res.status(500).json({ error: error.message });
+  const scoped = filterRowsByContext(data || [], req.context);
+  const low = scoped
+    .filter((p) => {
+      const qty = toNumber(p.on_hand_qty, 0);
+      const threshold = toNumber(p.reorder_point, 0);
+      return qty <= threshold;
+    })
+    .map((p) => ({
+      ...p,
+      description: p.name,
+      deficit: Math.max(0, toNumber(p.reorder_point, 0) - toNumber(p.on_hand_qty, 0)),
+    }));
+  res.json(low);
 });
 
 // ── ANALYTICS & PREDICTIONS ──────────────────────────────────────────────────
@@ -132,7 +172,7 @@ router.get('/analytics', authenticateToken, async (req, res) => {
   const since = new Date(Date.now() - WINDOW_DAYS * 86400000).toISOString();
 
   const { data: products, error: pErr } = await supabase
-    .from('seafood_inventory')
+    .from('products')
     .select('item_number,description,category,unit,on_hand_qty,avg_yield,yield_count')
     .order('category');
   if (pErr) return res.status(500).json({ error: pErr.message });
@@ -212,7 +252,7 @@ router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), 
   const mailer = createMailer();
   if (!mailer) return res.status(503).json({ error: 'Email not configured (RESEND_API_KEY missing)' });
 
-  const { data: products, error } = await supabase.from('seafood_inventory').select('*');
+  const { data: products, error } = await supabase.from('products').select('*');
   if (error) return res.status(500).json({ error: error.message });
 
   const LOW_THRESHOLD = 10;
@@ -248,7 +288,7 @@ router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), 
       html,
     });
     const affectedIds = [...outOfStock, ...lowStock].map(i => i.id);
-    await supabase.from('seafood_inventory')
+    await supabase.from('products')
       .update({ alert_sent_at: new Date().toISOString() })
       .in('id', affectedIds);
     res.json({ sent: true, to, out_of_stock: outOfStock.length, low_stock: lowStock.length });
@@ -260,7 +300,7 @@ router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), 
 // GET /api/inventory/ai-analysis — full warehouse AI inventory health check
 router.get('/ai-analysis', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { data: products, error: pErr } = await supabase
-    .from('seafood_inventory')
+    .from('products')
     .select('item_number,description,category,unit,cost,on_hand_qty')
     .order('category');
   if (pErr) return res.status(500).json({ error: pErr.message });
@@ -304,10 +344,10 @@ router.get('/ai-analysis', authenticateToken, requireRole('admin', 'manager'), a
 
 // GET /api/inventory/lots — all lots, enriched with product description
 router.get('/lots', authenticateToken, async (req, res) => {
-  const { data: lots, error } = await supabase
-    .from('inventory_lots')
-    .select('*')
-    .order('created_at', { ascending: false });
+  const { active_only } = req.query;
+  let query = supabase.from('inventory_lots').select('*').order('created_at', { ascending: false });
+  if (active_only === 'true') query = query.eq('status', 'active');
+  const { data: lots, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
 
   // Enrich with product descriptions in one extra query
@@ -315,7 +355,7 @@ router.get('/lots', authenticateToken, async (req, res) => {
   let descMap = {};
   if (itemNumbers.length) {
     const { data: prods } = await supabase
-      .from('seafood_inventory')
+      .from('products')
       .select('item_number,description')
       .in('item_number', itemNumbers);
     (prods || []).forEach(p => { descMap[p.item_number] = p.description; });
@@ -353,7 +393,7 @@ router.post('/lots', authenticateToken, requireRole('admin', 'manager'), validat
   if (error) return res.status(500).json({ error: error.message });
 
   // Bump master product stock through unified ledger posting.
-  const { data: prod } = await supabase.from('seafood_inventory').select('*').eq('item_number', item_number).single();
+  const { data: prod } = await supabase.from('products').select('*').eq('item_number', item_number).single();
   if (prod) {
     try {
       await applyInventoryLedgerEntry({
@@ -394,7 +434,7 @@ router.patch('/lots/:lotId', authenticateToken, requireRole('admin', 'manager'),
   const fields = req.validated.body;
   const { data, error } = await supabase.from('inventory_lots').update(fields).eq('id', req.params.lotId).select().single();
   if (error) return res.status(500).json({ error: error.message });
-  const { data: prod } = await supabase.from('seafood_inventory').select('description').eq('item_number', data.item_number).single();
+  const { data: prod } = await supabase.from('products').select('description').eq('item_number', data.item_number).single();
   res.json({ ...data, item_description: prod?.description || null });
 });
 
@@ -455,7 +495,7 @@ router.post('/count', authenticateToken, requireRole('admin', 'manager'), valida
 
   const itemNumbers = normalized.map(entry => entry.item_number);
   const { data: existing, error: fetchErr } = await supabase
-    .from('seafood_inventory')
+    .from('products')
     .select('*')
     .in('item_number', itemNumbers);
   if (fetchErr) return res.status(500).json({ error: fetchErr.message });
@@ -490,7 +530,7 @@ router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager'), 
   const { qty: addQty, notes } = req.validated.body;
 
   const { data: item, error: fetchErr } = await supabase
-    .from('seafood_inventory').select('*').eq('item_number', req.params.id).single();
+    .from('products').select('*').eq('item_number', req.params.id).single();
   if (fetchErr) return res.status(404).json({ error: 'Product not found' });
 
   if (item.lot_item === 'Y') {
@@ -662,7 +702,7 @@ router.post('/:id/yield', authenticateToken, validateBody(inventoryYieldBodySche
   }]);
 
   const { data: item, error: fetchErr } = await supabase
-    .from('seafood_inventory')
+    .from('products')
     .select('avg_yield,yield_count')
     .eq('item_number', req.params.id).single();
   if (fetchErr) return res.status(404).json({ error: 'Product not found' });
@@ -671,7 +711,7 @@ router.post('/:id/yield', authenticateToken, validateBody(inventoryYieldBodySche
   const newAvg = parseFloat((((item?.avg_yield || 0) * (n - 1) + yield_pct) / n).toFixed(2));
 
   const { data, error } = await supabase
-    .from('seafood_inventory')
+    .from('products')
     .update({ avg_yield: newAvg, yield_count: n, updated_at: new Date().toISOString() })
     .eq('item_number', req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
@@ -697,7 +737,7 @@ router.post('/:id/reorder-alert', authenticateToken, requireRole('admin', 'manag
   const { email } = req.body;
 
   const { data: product, error: pErr } = await supabase
-    .from('seafood_inventory')
+    .from('products')
     .select('item_number,description,unit,on_hand_qty,cost')
     .eq('item_number', req.params.id)
     .single();
@@ -754,22 +794,30 @@ router.post('/:id/reorder-alert', authenticateToken, requireRole('admin', 'manag
 // ── EXISTING CRUD (must come after named sub-routes) ─────────────────────────
 
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryProductPatchBodySchema), async (req, res) => {
-  const existing = await dbQuery(supabase.from('seafood_inventory').select('*').eq('item_number', req.params.id).single(), res);
+  const existing = await dbQuery(supabase.from('products').select('*').eq('item_number', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Product not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
-  const fields = req.validated.body;
-  // Auto-enforce lot requirement when description is updated
-  if (fields.description && needsLot(fields.description)) fields.lot_item = 'Y';
-  const data = await dbQuery(supabase.from('seafood_inventory').update(fields).eq('item_number', req.params.id).select().single(), res);
+  const fields = { ...req.validated.body };
+  // Map description → name (description is a generated column; name is canonical)
+  if (fields.description !== undefined) {
+    if (needsLot(fields.description)) fields.lot_item = 'Y';
+    fields.name = fields.description;
+    delete fields.description;
+  }
+  // Keep default_unit in sync when unit is patched
+  if (fields.unit !== undefined) {
+    fields.default_unit = fields.unit;
+  }
+  const data = await dbQuery(supabase.from('products').update(fields).eq('item_number', req.params.id).select().single(), res);
   if (!data) return;
   res.json(data);
 });
 
 router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const existing = await dbQuery(supabase.from('seafood_inventory').select('*').eq('item_number', req.params.id).single(), res);
+  const existing = await dbQuery(supabase.from('products').select('*').eq('item_number', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Product not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
-  const data = await dbQuery(supabase.from('seafood_inventory').delete().eq('item_number', req.params.id), res);
+  const data = await dbQuery(supabase.from('products').delete().eq('item_number', req.params.id), res);
   if (data === null) return;
   res.json({ message: 'Deleted' });
 });

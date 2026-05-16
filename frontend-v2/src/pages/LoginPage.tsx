@@ -42,9 +42,9 @@ export function LoginPage() {
     const authError = readAndClearAuthError();
     if (authError) setError(authError);
 
-    const token = localStorage.getItem('nr_token');
+    // Session check: use nr_user as the lightweight indicator (token is HttpOnly cookie)
     const rawUser = localStorage.getItem('nr_user');
-    if (!token || !rawUser) return;
+    if (!rawUser) return;
 
     try {
       const parsed = JSON.parse(rawUser) as { role?: string };
@@ -62,23 +62,23 @@ export function LoginPage() {
     try {
       const response = await fetch('/auth/login', {
         method: 'POST',
+        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email: email.trim(), password }),
       });
       const payload = (await response.json()) as Partial<LoginResponse> & { error?: string };
-      if (!response.ok || !payload.token || !payload.user) {
+      if (!response.ok || !payload.user) {
         throw new Error(payload.error || 'Login failed');
       }
 
-      const me = await fetch('/auth/me', {
-        headers: { Authorization: `Bearer ${payload.token}` },
-      });
+      // Verify session via cookie (no Authorization header needed)
+      const me = await fetch('/auth/me', { credentials: 'include' });
       const mePayload = await me.json();
       if (!me.ok) {
         throw new Error(mePayload?.error || 'Session verification failed');
       }
 
-      localStorage.setItem('nr_token', payload.token);
+      // Store user profile for role-based UI — NOT the token
       localStorage.setItem('nr_user', JSON.stringify(mePayload));
       window.location.href = landingFor(mePayload?.role, next);
     } catch (loginError) {

@@ -15,8 +15,10 @@ function clearBackendModuleCache() {
 
 test('authenticateToken accepts legacy email-only token claims when user id lookup misses', async () => {
   const previousBackupPath = process.env.NODEROUTE_BACKUP_PATH;
+  const previousForceDemoMode = process.env.NODEROUTE_FORCE_DEMO_MODE;
   const backupPath = fs.mkdtempSync(path.join(os.tmpdir(), 'noderoute-auth-compat-'));
   process.env.NODEROUTE_BACKUP_PATH = backupPath;
+  process.env.NODEROUTE_FORCE_DEMO_MODE = 'true';
   clearBackendModuleCache();
 
   const { supabase } = require('../services/supabase');
@@ -41,7 +43,7 @@ test('authenticateToken accepts legacy email-only token claims when user id look
     { expiresIn: '1h' }
   );
 
-  const req = { headers: { authorization: `Bearer ${token}` } };
+  const req = { cookies: { token }, headers: {} };
   let statusCode = 0;
   const res = {
     status(code) {
@@ -61,6 +63,8 @@ test('authenticateToken accepts legacy email-only token claims when user id look
 
   if (previousBackupPath === undefined) delete process.env.NODEROUTE_BACKUP_PATH;
   else process.env.NODEROUTE_BACKUP_PATH = previousBackupPath;
+  if (previousForceDemoMode === undefined) delete process.env.NODEROUTE_FORCE_DEMO_MODE;
+  else process.env.NODEROUTE_FORCE_DEMO_MODE = previousForceDemoMode;
   clearBackendModuleCache();
   fs.rmSync(backupPath, { recursive: true, force: true });
 });

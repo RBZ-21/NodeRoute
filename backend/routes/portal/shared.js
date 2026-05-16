@@ -1,9 +1,11 @@
+'use strict';
+
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 const { supabase } = require('../../services/supabase');
 const { createConfiguredMailers } = require('../../services/email');
+const { PORTAL_JWT_SECRET } = require('../../lib/config');
 
-const JWT_SECRET = process.env.JWT_SECRET || 'noderoute-dev-secret-change-in-production';
 const PORTAL_CODE_TTL_MS = Number(process.env.PORTAL_CODE_TTL_MS || 10 * 60 * 1000);
 const PORTAL_MAX_VERIFY_ATTEMPTS = Number(process.env.PORTAL_MAX_VERIFY_ATTEMPTS || 5);
 const PORTAL_RESEND_COOLDOWN_MS = Number(process.env.PORTAL_RESEND_COOLDOWN_MS || 60 * 1000);
@@ -28,7 +30,7 @@ function signPortalJWT(email, name, context = {}) {
       companyId: context.companyId || null,
       locationId: context.locationId || null,
     },
-    JWT_SECRET,
+    PORTAL_JWT_SECRET,
     { expiresIn: '24h' }
   );
 }
@@ -190,7 +192,7 @@ function authenticatePortalToken(req, res, next) {
 
   let payload;
   try {
-    payload = jwt.verify(auth.slice(7), JWT_SECRET);
+    payload = jwt.verify(auth.slice(7), PORTAL_JWT_SECRET);
   } catch {
     return res.status(401).json({ error: 'Invalid or expired session' });
   }

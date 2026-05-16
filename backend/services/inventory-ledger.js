@@ -68,9 +68,10 @@ async function applyInventoryLedgerEntry({
     nextCost = roundCost(((prevQty * prevCost) + (appliedDelta * normalizedCost)) / nextQty);
   }
 
+  // on_hand_weight is a separate physical measurement — do NOT mirror on_hand_qty into it.
+  // Writing to on_hand_weight caused "column can only be updated to default" errors.
   const updatePayload = {
     on_hand_qty: nextQty,
-    on_hand_weight: nextQty,
     updated_at: nowIso,
   };
   if (nextCost !== prevCost) updatePayload.cost = nextCost;

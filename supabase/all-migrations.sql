@@ -75,6 +75,8 @@ create table if not exists invoices (
   notes              text,
   entree_invoice_id  text,
   signature_data     text,
+  proof_of_delivery_image_data text,
+  proof_of_delivery_uploaded_at timestamptz,
   signed_at          timestamptz,
   sent_at            timestamptz,
   created_at         timestamptz not null default now()

@@ -1,4 +1,5 @@
 import {
+  Camera,
   CheckCircle2,
   Gauge,
   Loader2,
@@ -8,14 +9,13 @@ import {
   Route as RouteIcon,
   Satellite,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { sendWithAuth } from '../lib/api';
 import { useDriverWorkspace } from '../hooks/useDriverWorkspace';
 import { useLocationSharing } from '../hooks/useLocationSharing';
-import { useSignatureCapture } from '../hooks/useSignatureCapture';
 import { DriverRouteTab } from './DriverRouteTab';
 import { SignatureModal } from './SignatureModal';
 import { asDriverNumber, dwellForStop, formatDateTime, formatMoney, greeting, routeProgress, stopStatus } from './driver.types';
@@ -25,12 +25,12 @@ export function DriverPage() {
   const ws = useDriverWorkspace();
   const loc = useLocationSharing();
 
-  const [activeTab, setActiveTab]         = useState<DriverTab>('route');
-  const [busyStopId, setBusyStopId]       = useState('');
-  const [signatureStopId, setSignatureStopId] = useState('');
-  const [signatureSaving, setSignatureSaving] = useState(false);
-
-  const sig = useSignatureCapture(signatureStopId);
+  const [activeTab, setActiveTab]             = useState<DriverTab>('route');
+  const [busyStopId, setBusyStopId]           = useState('');
+  const [signatureStopId, setSignatureStopId] = useState<string | number>('');
+  const [proofUploadStopId, setProofUploadStopId] = useState('');
+  const [proofUploadSaving, setProofUploadSaving] = useState(false);
+  const proofInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
     void ws.load();
@@ -84,20 +84,37 @@ export function DriverPage() {
     }
   }
 
-  async function markDepart(stopId: string) {
+  async function markDepart(stopId: string, options: { deliveryMode?: 'standard' | 'drop_off' } = {}) {
     if (!activeRoute) return;
     const stop = activeStops.find((s) => s.id === stopId) || null;
-    if (ws.companySettings.forceDriverSignature && stop?.invoice_id && !stop.invoice_has_signature) {
+    const deliveryMode = options.deliveryMode === 'drop_off' ? 'drop_off' : 'standard';
+    if (deliveryMode !== 'drop_off' && ws.companySettings.forceDriverSignature && stop?.invoice_id && !stop.invoice_has_signature) {
       setSignatureStopId(stopId);
       return;
     }
-    if (ws.companySettings.forceDriverSignature && !stop?.invoice_id) {
+    if (ws.companySettings.forceDriverProofOfDelivery && stop?.invoice_id && !stop.invoice_has_proof_of_delivery) {
+      setProofUploadStopId(stopId);
+      window.setTimeout(() => proofInputRef.current?.click(), 0);
+      return;
+    }
+    if (deliveryMode !== 'drop_off' && ws.companySettings.forceDriverSignature && !stop?.invoice_id) {
       ws.setError('Signature is required, but this stop has no invoice attached yet.');
+      return;
+    }
+    if (ws.companySettings.forceDriverProofOfDelivery && !stop?.invoice_id) {
+      ws.setError('Proof of delivery is required, but this stop has no invoice attached yet.');
       return;
     }
     setBusyStopId(stopId);
     try {
-      const record = await sendWithAuth<DwellRecord>(`/api/stops/${stopId}/depart`, 'POST', { routeId: activeRoute.id } as never);
+      const record = await sendWithAuth<DwellRecord>(
+        `/api/stops/${stopId}/depart`,
+        'POST',
+        {
+          routeId: activeRoute.id,
+          ...(deliveryMode === 'drop_off' ? { completion_type: 'drop_off' } : {}),
+        } as never
+      );
       ws.applyDwell(record);
     } catch (err) {
       ws.setError(String((err as Error).message || 'Could not complete this stop.'));
@@ -125,34 +142,50 @@ export function DriverPage() {
     }
   }
 
-  async function saveSignature() {
-    const stop = activeStops.find((s) => s.id === signatureStopId) || null;
-    const canvas = sig.canvasRef.current;
-    if (!stop?.invoice_id || !canvas) {
-      ws.setError('This stop is missing an invoice, so the signature could not be saved.');
+  function promptForProofOfDelivery(stopId: string) {
+    setProofUploadStopId(stopId);
+    proofInputRef.current?.click();
+  }
+
+  async function handleProofOfDeliverySelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    const stop = activeStops.find((s) => s.id === proofUploadStopId) || null;
+    if (!file || !stop?.invoice_id) return;
+    if (!/^image\/(png|jpeg|jpg)$/i.test(file.type)) {
+      ws.setError('Proof of delivery must be a PNG or JPG image.');
       return;
     }
-    if (!sig.hasSignatureRef.current) {
-      ws.setError('Please capture a customer signature first.');
+    if (file.size > 3_000_000) {
+      ws.setError('Proof of delivery image must be under 3 MB.');
       return;
     }
-    setSignatureSaving(true);
+
+    setProofUploadSaving(true);
     try {
-      const payload = await sendWithAuth<{ signed_at?: string; status?: string; emailSent?: boolean }>(
-        `/api/invoices/${stop.invoice_id}/sign`, 'POST',
-        { signature: canvas.toDataURL('image/png') } as never,
-      );
-      ws.updateStopInvoice(stop.id, {
-        invoice_has_signature: true,
-        invoice_signed_at: payload.signed_at || new Date().toISOString(),
-        invoice_status: payload.status || 'signed',
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+        reader.onerror = () => reject(new Error('Could not read the selected image.'));
+        reader.readAsDataURL(file);
       });
-      setSignatureStopId('');
-      ws.setError(payload.emailSent ? 'Signature saved and invoice emailed to the customer.' : '');
+
+      const payload = await sendWithAuth<{ proof_of_delivery_uploaded_at?: string }>(
+        `/api/invoices/${stop.invoice_id}/proof-of-delivery`,
+        'POST',
+        { proofImageData: dataUrl } as never,
+      );
+
+      ws.updateStopInvoice(stop.id, {
+        invoice_has_proof_of_delivery: true,
+        invoice_proof_of_delivery_uploaded_at: payload.proof_of_delivery_uploaded_at || new Date().toISOString(),
+      });
+      setProofUploadStopId('');
+      ws.setError('');
     } catch (err) {
-      ws.setError(String((err as Error).message || 'Could not save the signature.'));
+      ws.setError(String((err as Error).message || 'Could not upload proof of delivery.'));
     } finally {
-      setSignatureSaving(false);
+      setProofUploadSaving(false);
     }
   }
 
@@ -233,6 +266,14 @@ export function DriverPage() {
         ) : null}
 
         <main className="mt-4 space-y-4">
+          <input
+            ref={proofInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/jpg"
+            capture="environment"
+            className="hidden"
+            onChange={(event) => void handleProofOfDeliverySelected(event)}
+          />
           {!activeRoute ? (
             <Card>
               <CardContent className="p-10 text-center">
@@ -251,7 +292,9 @@ export function DriverPage() {
               onArrive={(id) => void markArrive(id)}
               onDepart={(id) => void markDepart(id)}
               onOpenSignature={setSignatureStopId}
+              onUploadProofOfDelivery={promptForProofOfDelivery}
               onDownloadInvoice={(id) => void downloadInvoice(id)}
+              onRouteReordered={() => void ws.load()}
             />
           ) : null}
 
@@ -306,14 +349,36 @@ export function DriverPage() {
                       {stopStatus(currentStop, activeRoute.id, ws.dwellRecords) === 'pending' ? (
                         <Button onClick={() => void markArrive(currentStop.id)}>Mark Arrived</Button>
                       ) : (
-                        <Button onClick={() => void markDepart(currentStop.id)}>Mark Departed</Button>
+                        <>
+                          <Button onClick={() => void markDepart(currentStop.id)}>Mark Departed</Button>
+                          <Button variant="outline" onClick={() => void markDepart(currentStop.id, { deliveryMode: 'drop_off' })}>
+                            Drop Off
+                          </Button>
+                        </>
                       )}
                       {currentStop.invoice_id ? (
                         <Button variant="outline" onClick={() => setSignatureStopId(currentStop.id)}>
                           Capture Signature
                         </Button>
                       ) : null}
+                      {currentStop.invoice_id ? (
+                        <Button variant="outline" onClick={() => promptForProofOfDelivery(currentStop.id)} disabled={proofUploadSaving && proofUploadStopId === currentStop.id}>
+                          <Camera className="mr-2 h-4 w-4" />
+                          {proofUploadSaving && proofUploadStopId === currentStop.id
+                            ? 'Uploading Photo...'
+                            : currentStop.invoice_has_proof_of_delivery
+                              ? 'Replace Delivery Photo'
+                              : 'Upload Delivery Photo'}
+                        </Button>
+                      ) : null}
                     </div>
+                    {ws.companySettings.forceDriverProofOfDelivery ? (
+                      <div className={`rounded-md px-3 py-2 text-xs ${currentStop.invoice_has_proof_of_delivery ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                        {currentStop.invoice_has_proof_of_delivery
+                          ? 'Proof-of-delivery photo uploaded for this stop.'
+                          : 'Proof-of-delivery photo is required before departure.'}
+                      </div>
+                    ) : null}
                   </>
                 ) : (
                   <div className="text-sm text-muted-foreground">
@@ -362,16 +427,22 @@ export function DriverPage() {
         </main>
       </div>
 
-      {signatureStopId ? (
+      {/* SignatureModal is self-contained — it manages its own canvas ref and save logic internally. */}
+      {signatureStopId !== '' ? (
         <SignatureModal
-          canvasRef={sig.canvasRef}
-          signatureSaving={signatureSaving}
-          onBegin={sig.beginSignature}
-          onMove={sig.moveSignature}
-          onEnd={sig.endSignature}
-          onClear={sig.clearSignature}
-          onSave={() => void saveSignature()}
+          stopId={signatureStopId}
           onClose={() => setSignatureStopId('')}
+          onSaved={() => {
+            const stop = activeStops.find((s) => s.id === signatureStopId);
+            if (stop) {
+              ws.updateStopInvoice(stop.id, {
+                invoice_has_signature: true,
+                invoice_signed_at: new Date().toISOString(),
+                invoice_status: 'signed',
+              });
+            }
+            setSignatureStopId('');
+          }}
         />
       ) : null}
     </div>

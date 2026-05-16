@@ -2,133 +2,84 @@ name: CI
 
 on:
   push:
-    branches:
-      - main
+    branches: [main, dev]
   pull_request:
-    branches:
-      - main
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+    branches: [main, dev]
 
 jobs:
-  backend-tests:
-    name: Backend Tests
+  backend-test:
+    name: Backend – Install & Test
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up Node 20
-        uses: actions/setup-node@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
-
-      - name: Cache backend node_modules
-        uses: actions/cache@v4
-        with:
-          path: backend/node_modules
-          key: ${{ runner.os }}-node20-backend-${{ hashFiles('backend/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node20-backend-
-
-      - name: Install backend dependencies
-        run: npm --prefix backend ci
-
-      - name: Run backend tests
+          cache: npm
+          cache-dependency-path: backend/package-lock.json
+      - name: Install backend
+        run: npm ci --prefix backend
+      - name: Test backend
         run: npm --prefix backend test
 
   frontend-build:
-    name: Frontend Builds
+    name: Frontend-v2 – Install, Type-check, Lint & Build
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up Node 20
-        uses: actions/setup-node@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: frontend-v2/package-lock.json
+      - name: Install frontend-v2
+        run: npm ci --prefix frontend-v2
+      - name: Type-check frontend-v2
+        run: npx --prefix frontend-v2 tsc -p frontend-v2/tsconfig.app.json --noEmit
+      - name: Lint frontend-v2
+        run: npm --prefix frontend-v2 run lint --if-present
+      - name: Build frontend-v2
+        run: npm --prefix frontend-v2 run build
+        env:
+          VITE_MAP_API_KEY: ''
+          VITE_API_URL: https://ci-placeholder.invalid
+      - name: Test frontend-v2
+        run: npm --prefix frontend-v2 test -- --run --passWithNoTests
 
-      - name: Cache frontend-v2 node_modules
-        uses: actions/cache@v4
-        with:
-          path: frontend-v2/node_modules
-          key: ${{ runner.os }}-node20-frontend-v2-${{ hashFiles('frontend-v2/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node20-frontend-v2-
-
-      - name: Cache landing-v2 node_modules
-        uses: actions/cache@v4
-        with:
-          path: landing-v2/node_modules
-          key: ${{ runner.os }}-node20-landing-v2-${{ hashFiles('landing-v2/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node20-landing-v2-
-
-      - name: Install frontend-v2 dependencies
-        working-directory: frontend-v2
-        run: npm ci
-
-      - name: Run frontend-v2 build
-        working-directory: frontend-v2
-        run: npm run build
-
-      - name: Install landing-v2 dependencies
-        working-directory: landing-v2
-        run: npm ci
-
-      - name: Run landing-v2 build
-        working-directory: landing-v2
-        run: npm run build
-
-  frontend-tests:
-    name: Frontend Tests
+  landing-build:
+    name: Landing-v2 – Install, Lint & Build
     runs-on: ubuntu-latest
-    timeout-minutes: 15
-
     steps:
-      - name: Check out repository
-        uses: actions/checkout@v6
-
-      - name: Set up Node 20
-        uses: actions/setup-node@v6
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: 20
+          cache: npm
+          cache-dependency-path: landing-v2/package-lock.json
+      - name: Install landing-v2
+        run: npm ci --prefix landing-v2
+      - name: Lint landing-v2
+        run: npm --prefix landing-v2 run lint --if-present
+      - name: Build landing-v2
+        run: npm --prefix landing-v2 run build
+        env:
+          VITE_MAP_API_KEY: ''
 
-      - name: Detect frontend-v2 test script
-        id: detect-test-script
-        shell: bash
-        run: |
-          if node -e "const pkg=require('./frontend-v2/package.json'); process.exit(pkg.scripts && pkg.scripts.test ? 0 : 1)"; then
-            echo "has_test_script=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has_test_script=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Cache frontend-v2 node_modules
-        if: steps.detect-test-script.outputs.has_test_script == 'true'
-        uses: actions/cache@v4
+  driver-app-build:
+    name: Driver App – Install, Type-check & Build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
         with:
-          path: frontend-v2/node_modules
-          key: ${{ runner.os }}-node20-frontend-v2-${{ hashFiles('frontend-v2/package-lock.json') }}
-          restore-keys: |
-            ${{ runner.os }}-node20-frontend-v2-
-
-      - name: Install frontend-v2 dependencies
-        if: steps.detect-test-script.outputs.has_test_script == 'true'
-        working-directory: frontend-v2
-        run: npm ci
-
-      - name: Run frontend-v2 tests
-        if: steps.detect-test-script.outputs.has_test_script == 'true'
-        working-directory: frontend-v2
-        run: npm run test
-
-      - name: Skip frontend-v2 tests when script is missing
-        if: steps.detect-test-script.outputs.has_test_script != 'true'
-        run: echo "frontend-v2 test script not found; skipping frontend tests."
+          node-version: 20
+          cache: npm
+          cache-dependency-path: driver-app/package-lock.json
+      - name: Install driver-app
+        run: npm ci --prefix driver-app
+      - name: Type-check driver-app
+        run: npx --prefix driver-app tsc -p driver-app/tsconfig.app.json --noEmit
+      - name: Build driver-app
+        run: npm --prefix driver-app run build
+        env:
+          VITE_MAP_API_KEY: ''

@@ -1,75 +1,112 @@
-@import url('https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700&family=Source+Sans+3:wght@400;500;600&display=swap');
-
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
 @layer base {
   :root {
-    /* Light mode — softer grey-blue base instead of near-white */
-    --background: 214 25% 93%;
-    --foreground: 217 33% 17%;
-    --card: 214 30% 97%;
-    --card-foreground: 217 33% 17%;
-    --primary: 213 70% 42%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 213 30% 88%;
-    --secondary-foreground: 213 31% 28%;
-    --muted: 214 22% 89%;
-    --muted-foreground: 215 20% 41%;
-    --accent: 214 50% 90%;
-    --accent-foreground: 213 61% 33%;
-    --destructive: 0 75% 46%;
-    --destructive-foreground: 0 0% 100%;
+    --background: 210 20% 96%;
+    --foreground: 222.2 47.4% 11.2%;
+    --card: 0 0% 99%;
+    --card-foreground: 222.2 47.4% 11.2%;
+    --popover: 0 0% 99%;
+    --popover-foreground: 222.2 47.4% 11.2%;
+    --primary: 218 70% 45%;
+    --primary-foreground: 210 40% 98%;
+    --secondary: 214 28% 91%;
+    --secondary-foreground: 222.2 47.4% 11.2%;
+    --muted: 214 24% 92%;
+    --muted-foreground: 215 16% 35%;
+    --accent: 214 24% 92%;
+    --accent-foreground: 222.2 47.4% 11.2%;
+    --destructive: 0 84.2% 60.2%;
+    --destructive-foreground: 210 40% 98%;
     --border: 214 22% 82%;
     --input: 214 22% 82%;
-    --ring: 213 70% 42%;
-    --radius: 0.72rem;
+    --ring: 218 70% 45%;
+    --radius: 0.5rem;
   }
 
   .dark {
-    /* Dark mode — deep navy matching brand tones */
-    --background: 222 28% 10%;
-    --foreground: 213 20% 86%;
-    --card: 222 24% 14%;
-    --card-foreground: 213 20% 86%;
-    --primary: 213 65% 55%;
-    --primary-foreground: 0 0% 100%;
-    --secondary: 217 22% 21%;
-    --secondary-foreground: 213 20% 78%;
-    --muted: 217 20% 18%;
-    --muted-foreground: 215 15% 52%;
-    --accent: 214 35% 22%;
-    --accent-foreground: 213 50% 76%;
-    --destructive: 0 62% 52%;
-    --destructive-foreground: 0 0% 100%;
-    --border: 217 18% 26%;
-    --input: 217 18% 26%;
-    --ring: 213 65% 55%;
-  }
-
-  * {
-    @apply border-border;
-  }
-
-  body {
-    @apply bg-background text-foreground antialiased;
-    font-family: 'Source Sans 3', 'Segoe UI', sans-serif;
-  }
-
-  h1,
-  h2,
-  h3,
-  h4 {
-    font-family: 'Manrope', 'Segoe UI', sans-serif;
+    --background: 223 36% 9%;
+    --foreground: 210 40% 98%;
+    --card: 223 32% 12%;
+    --card-foreground: 210 40% 98%;
+    --popover: 223 32% 12%;
+    --popover-foreground: 210 40% 98%;
+    --primary: 214 88% 64%;
+    --primary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 218 22% 20%;
+    --secondary-foreground: 210 40% 98%;
+    --muted: 219 24% 16%;
+    --muted-foreground: 214 18% 74%;
+    --accent: 218 22% 20%;
+    --accent-foreground: 210 40% 98%;
+    --destructive: 0 62.8% 30.6%;
+    --destructive-foreground: 210 40% 98%;
+    --border: 218 18% 28%;
+    --input: 218 18% 28%;
+    --ring: 214 88% 64%;
   }
 }
 
-@layer utilities {
-  .bg-enterprise-gradient {
-    background:
-      radial-gradient(1000px 420px at 5% -5%, rgba(30, 90, 168, 0.12), transparent 60%),
-      radial-gradient(850px 330px at 95% 4%, rgba(28, 108, 185, 0.09), transparent 58%),
-      hsl(var(--background));
+@layer base {
+  * {
+    @apply border-border;
+  }
+  body {
+    @apply bg-background text-foreground;
+  }
+}
+
+@layer components {
+  .weight-station-shell {
+    @apply rounded-lg border border-border overflow-hidden bg-card text-card-foreground shadow-panel;
+  }
+
+  .weight-station-topbar {
+    @apply border-b border-border bg-muted/70;
+  }
+
+  .weight-station-table thead {
+    @apply bg-slate-200/85 text-slate-700 dark:bg-slate-900 dark:text-slate-200;
+  }
+
+  .weight-station-row-selected {
+    @apply bg-blue-100 text-slate-950 dark:bg-blue-950/70 dark:text-blue-50;
+  }
+
+  .weight-station-row-pending {
+    @apply bg-amber-50/70 hover:bg-amber-100/80 dark:bg-amber-950/20 dark:hover:bg-amber-900/30;
+  }
+
+  .weight-station-widget {
+    @apply border-l border-border bg-slate-100/90 dark:bg-slate-950/50;
+  }
+
+  .weight-station-input {
+    @apply w-full rounded border-2 border-blue-500 bg-white px-3 py-3 text-center text-2xl font-bold tabular-nums text-slate-900 shadow-sm focus:outline-none focus:border-blue-700 focus:ring-2 focus:ring-blue-300 dark:border-blue-400 dark:bg-slate-900 dark:text-blue-50 dark:focus:border-blue-300 dark:focus:ring-blue-800;
+  }
+}
+
+/* Horizontal scroll hint for data tables on mobile */
+.table-scroll-container {
+  position: relative;
+}
+.table-scroll-container::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 32px;
+  background: linear-gradient(to right, transparent, hsl(var(--card) / 0.9));
+  pointer-events: none;
+  border-radius: 0 var(--radius) var(--radius) 0;
+  /* Only show on narrow screens */
+  display: none;
+}
+@media (max-width: 767px) {
+  .table-scroll-container::after {
+    display: block;
   }
 }

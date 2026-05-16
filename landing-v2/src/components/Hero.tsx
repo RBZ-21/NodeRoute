@@ -9,7 +9,7 @@ const stops = [
   { label: 'Invoices ready to close', value: '1' },
 ];
 
-export function Hero() {
+export function Hero({ onSignupClick }: { onSignupClick: () => void }) {
   return (
     <section id="top" className="relative overflow-hidden">
       <div className="pointer-events-none absolute inset-0 bg-radial-teal opacity-70" />
@@ -30,16 +30,22 @@ export function Hero() {
           </h1>
           <p className="mt-6 max-w-2xl text-[17px] leading-relaxed text-white/60 md:text-[19px]">
             NodeRoute helps you manage routes, ETAs, drivers, inventory, and invoices in one
-            place — so you’re not running the whole day through calls, texts, and spreadsheets.
+            place — so you're not running the whole day through calls, texts, and spreadsheets.
           </p>
 
           <div className="mt-8 flex flex-wrap gap-3">
+            <button
+              onClick={onSignupClick}
+              className="group inline-flex items-center gap-1.5 rounded-lg bg-teal px-4 py-2.5 text-[14px] font-semibold text-white transition-all hover:bg-teal-light"
+            >
+              Sign Up
+              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
+            </button>
             <a
               href={CTA.earlyAccess}
-              className="group inline-flex items-center gap-1.5 rounded-lg bg-teal px-4 py-2.5 text-[14px] font-semibold text-black transition-all hover:bg-teal-light"
+              className="inline-flex items-center rounded-lg border border-line-strong bg-ink-100 px-4 py-2.5 text-[14px] font-semibold text-white hover:border-white/30 transition-colors"
             >
               Request Early Access
-              <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </a>
             <a
               href={CTA.founder}
@@ -87,7 +93,7 @@ function EyebrowTag() {
 
 function LiveOpsCard() {
   return (
-    <div className="relative rounded-2xl border border-line-strong bg-ink-100/80 p-1.5 shadow-[0_30px_120px_-40px_rgba(61,186,127,0.25)]">
+    <div className="relative rounded-2xl border border-line-strong bg-ink-100/80 p-1.5 shadow-[0_30px_120px_-40px_rgba(35,103,181,0.25)]">
       <div className="rounded-xl border border-line bg-ink-200">
         <div className="flex items-center justify-between border-b border-line px-5 py-3">
           <div className="flex items-center gap-2">

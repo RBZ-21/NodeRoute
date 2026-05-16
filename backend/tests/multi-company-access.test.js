@@ -34,7 +34,7 @@ test('auth payload keeps tenant context claims', () => {
 test('auth middleware resolves token claims across id formats', () => {
   for (const marker of [
     "payload?.userId || payload?.id || payload?.sub",
-    "normalizeEmail(payload?.email)",
+    "payload?.email || payload?.userEmail",
     "return res.status(401).json({ error: 'User not found' })",
   ]) {
     assert.ok(authMiddlewareSource.includes(marker), `missing auth middleware compatibility marker ${marker}`);
