@@ -160,7 +160,7 @@ async function startAiScanHarness(t, { userRole = 'manager', parsedResult, throw
   };
 }
 
-async function postScanPo(baseUrl, { cookie, csrfToken, filePath, fileName, mimeType, authorization } = {}) {
+async function postScanPo(baseUrl, { cookie, csrfToken, filePath, fileName, mimeType, authorization, fieldName = 'file' } = {}) {
   const headers = {};
   if (cookie) headers.cookie = cookie;
   if (csrfToken) headers['x-csrf-token'] = csrfToken;
@@ -170,7 +170,7 @@ async function postScanPo(baseUrl, { cookie, csrfToken, filePath, fileName, mime
   if (filePath) {
     const form = new FormData();
     const blob = new Blob([fs.readFileSync(filePath)], { type: mimeType });
-    form.append('file', blob, fileName);
+    form.append(fieldName, blob, fileName);
     options.body = form;
   }
 
@@ -260,6 +260,23 @@ test('scan-po parses a PNG upload and records the scan workflow metadata', async
     ...parsedResult,
     scan_id: 'scan-test-001',
   });
+});
+
+test('scan-po accepts legacy image upload field used by the dashboard scanner', async (t) => {
+  const harness = await startAiScanHarness(t);
+
+  const response = await postScanPo(harness.baseUrl, {
+    cookie: harness.sessionCookie,
+    csrfToken: harness.csrfToken,
+    filePath: fixturePngPath,
+    fileName: 'dashboard-invoice.png',
+    mimeType: 'image/png',
+    fieldName: 'image',
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(harness.aiCalls.length, 1);
+  assert.equal(harness.workflowCalls[0].fileName, 'dashboard-invoice.png');
 });
 
 test('scan-po remaps PDF uploads to image/png for AI parsing while keeping the original file metadata', async (t) => {

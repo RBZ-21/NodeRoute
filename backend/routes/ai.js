@@ -438,26 +438,30 @@ router.post(
   authenticateToken,
   requireRole('admin', 'manager'),
   aiRateLimit('scan-po'),
-  upload.single('file'),
+  upload.fields([
+    { name: 'file', maxCount: 1 },
+    { name: 'image', maxCount: 1 },
+  ]),
   async (req, res) => {
-    if (!req.file) {
-      return res.status(400).json({ error: 'No file uploaded. Send the image as multipart field "file".' });
+    const uploadedFile = req.files?.file?.[0] || req.files?.image?.[0] || null;
+    if (!uploadedFile) {
+      return res.status(400).json({ error: 'No file uploaded. Send the image as multipart field "file" or "image".' });
     }
 
     const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
-    if (!allowed.includes(req.file.mimetype)) {
+    if (!allowed.includes(uploadedFile.mimetype)) {
       return res.status(400).json({ error: 'Unsupported file type. Upload a JPEG, PNG, WEBP, or PDF.' });
     }
 
     try {
-      const base64 = req.file.buffer.toString('base64');
-      const mimeType = req.file.mimetype === 'application/pdf' ? 'image/png' : req.file.mimetype;
+      const base64 = uploadedFile.buffer.toString('base64');
+      const mimeType = uploadedFile.mimetype === 'application/pdf' ? 'image/png' : uploadedFile.mimetype;
       const result = await parsePurchaseOrderImage(base64, mimeType);
       const scanRecord = await recordPoInvoiceScan({
         context: req.context || {},
         createdBy: req.user?.name || req.user?.email || 'system',
-        fileName: req.file.originalname || null,
-        mimeType: req.file.mimetype || null,
+        fileName: uploadedFile.originalname || null,
+        mimeType: uploadedFile.mimetype || null,
         parsed: result,
         source: 'ai-scan-po',
       });
