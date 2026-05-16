@@ -1,0 +1,245 @@
+import { fireEvent, screen } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { DashboardPage } from './DashboardPage';
+import { renderWithQueryClient } from '../test/renderWithQueryClient';
+
+const { fetchWithAuthMock, getUserRoleMock, navigateMock } = vi.hoisted(() => ({
+  fetchWithAuthMock: vi.fn(),
+  getUserRoleMock: vi.fn(),
+  navigateMock: vi.fn(),
+}));
+
+vi.mock('../lib/api', () => ({
+  fetchWithAuth: fetchWithAuthMock,
+  getUserRole: getUserRoleMock,
+}));
+
+vi.mock('react-router-dom', async () => {
+  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
+  return {
+    ...actual,
+    useNavigate: () => navigateMock,
+  };
+});
+
+function renderDashboardPage() {
+  return renderWithQueryClient(<DashboardPage />, {
+    wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter>,
+  });
+}
+
+describe('DashboardPage', () => {
+  beforeEach(() => {
+    fetchWithAuthMock.mockReset();
+    getUserRoleMock.mockReset();
+    navigateMock.mockReset();
+    getUserRoleMock.mockReturnValue('admin');
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url === '/api/stats') {
+        return {
+          totalDeliveries: 12,
+          completedToday: 8,
+          onTimeRate: 92,
+          activeDrivers: 3,
+          totalDrivers: 4,
+          failed: 1,
+          pendingCount: 2,
+          inTransitCount: 2,
+          yesterday: {
+            totalDeliveries: 10,
+            completedToday: 7,
+            onTimeRate: 88,
+            activeDrivers: 2,
+            totalDrivers: 4,
+            failed: 0,
+            pendingCount: 1,
+            inTransitCount: 1,
+          },
+        };
+      }
+      if (url === '/api/analytics') {
+        return {
+          avgStopTime: '14.2',
+          onTimeRate: '92',
+          avgSpeed: '31.4',
+          driverRankings: [
+            { name: 'Alex Driver', stopsPerHour: 2.4, avgStopMinutes: 14.2, avgSpeedMph: 31.4, onTimeRate: 96, milesToday: 42 },
+          ],
+          doorBreakdown: { 'Door code on file': 5, 'No code': 2 },
+        };
+      }
+      if (url === '/api/deliveries') {
+        return [
+          { id: 1, orderId: 'ORD-1', restaurantName: 'Blue Fin', driverName: 'Alex Driver', status: 'pending', deliveryDoor: 'Back', distanceMiles: 8.5, routeId: 'route-1', createdAt: '2026-04-10T00:00:00Z' },
+          { id: 2, orderId: 'ORD-2', restaurantName: 'Harbor Cafe', driverName: 'Jamie', status: 'in-transit', deliveryDoor: 'Front', distanceMiles: 3.2, routeId: 'route-1', createdAt: '2026-04-11T00:00:00Z' },
+        ];
+      }
+      if (url === '/api/drivers') {
+        return [
+          { id: 'd1', name: 'Alex Driver', status: 'on-duty', totalStopsToday: 10, milesToday: 42, avgStopMinutes: 14, avgSpeedMph: 31, onTimeRate: 96 },
+          { id: 'd2', name: 'Jamie', status: 'off-duty', totalStopsToday: 4, milesToday: 15, avgStopMinutes: 11, avgSpeedMph: 27, onTimeRate: 88 },
+        ];
+      }
+      if (url === '/api/routes') {
+        return [
+          { id: 'route-1', name: 'North Route', driver: 'Alex Driver', stop_ids: ['s1', 's2'], active_stop_ids: ['s1', 's2'], notes: 'Keep seafood cold.', created_at: '2026-04-10T00:00:00Z' },
+        ];
+      }
+      if (url === '/api/orders') {
+        return [
+          {
+            id: 'o1',
+            order_number: 'ORD-200',
+            customer_name: 'Blue Fin',
+            customer_id: 'cust-1',
+            status: 'pending',
+            created_at: '2026-04-11T00:00:00Z',
+            items: [{ is_catch_weight: true, actual_weight: null }],
+          },
+          {
+            id: 'o2',
+            order_number: 'ORD-201',
+            customer_name: 'Harbor Cafe',
+            customer_id: 'cust-2',
+            status: 'in_process',
+            created_at: '2026-04-12T00:00:00Z',
+            items: [{ is_catch_weight: true, actual_weight: 11.2 }],
+          },
+        ];
+      }
+      if (url === '/api/ops/vendor-purchase-orders') {
+        return [
+          { id: 'po1', status: 'open', total_ordered_cost: 1200 },
+          { id: 'po2', status: 'backordered', total_ordered_cost: 800 },
+        ];
+      }
+      return [];
+    });
+  });
+
+  it('renders admin dashboard data and navigates from command buttons', async () => {
+    renderDashboardPage();
+
+    expect(await screen.findByText('Operational Snapshot')).toBeInTheDocument();
+    expect(await screen.findByText('12')).toBeInTheDocument();
+    expect(screen.getAllByText('92%').length).toBeGreaterThan(0);
+    expect(screen.getByText('Alex Driver')).toBeInTheDocument();
+    expect(screen.getByText('Orders Needing Weights')).toBeInTheDocument();
+    expect(screen.getByText('Weights Entered')).toBeInTheDocument();
+    expect(screen.getByText('North Route')).toBeInTheDocument();
+    expect(screen.getByText('$2,000.00')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Orders Queue' }));
+    expect(navigateMock).toHaveBeenCalledWith('/orders');
+
+    fireEvent.click(screen.getByRole('button', { name: /Orders Needing Weights/i }));
+    expect(await screen.findByText('1 order with pending weights')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Weights Entered/i }));
+    expect(navigateMock).toHaveBeenCalledWith('/orders?action=weights-entered');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Purchasing' }));
+    expect(navigateMock).toHaveBeenCalledWith('/purchasing');
+  });
+
+  it('shows the dedicated driver handoff for driver users', async () => {
+    getUserRoleMock.mockReturnValue('driver');
+
+    renderDashboardPage();
+
+    expect(await screen.findByText('Driver Workspace Lives Separately')).toBeInTheDocument();
+    expect(fetchWithAuthMock).not.toHaveBeenCalled();
+  });
+
+  it('surfaces receiving exceptions in the purchasing command center', async () => {
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url === '/api/stats') {
+        return {
+          totalDeliveries: 12,
+          completedToday: 8,
+          onTimeRate: 92,
+          activeDrivers: 3,
+          totalDrivers: 4,
+          failed: 1,
+          pendingCount: 2,
+          inTransitCount: 2,
+          yesterday: {
+            totalDeliveries: 10,
+            completedToday: 7,
+            onTimeRate: 88,
+            activeDrivers: 2,
+            totalDrivers: 4,
+            failed: 0,
+            pendingCount: 1,
+            inTransitCount: 1,
+          },
+        };
+      }
+      if (url === '/api/analytics') {
+        return {
+          avgStopTime: '14.2',
+          onTimeRate: '92',
+          avgSpeed: '31.4',
+          driverRankings: [
+            { name: 'Alex Driver', stopsPerHour: 2.4, avgStopMinutes: 14.2, avgSpeedMph: 31.4, onTimeRate: 96, milesToday: 42 },
+          ],
+          doorBreakdown: { 'Door code on file': 5, 'No code': 2 },
+        };
+      }
+      if (url === '/api/deliveries') return [];
+      if (url === '/api/drivers') return [];
+      if (url === '/api/routes') return [];
+      if (url === '/api/orders') return [];
+      if (url === '/api/ops/vendor-purchase-orders') {
+        return [
+          {
+            id: 'po1',
+            po_number: 'PO-OPS-100',
+            vendor: 'Blue Ocean Seafood',
+            status: 'backordered',
+            total_ordered_cost: 1200,
+            receipts: [
+              {
+                id: 'receipt-1',
+                received_at: '2026-04-13T13:00:00Z',
+                lines: [
+                  {
+                    line_no: 2,
+                    product_name: 'Shipping Box',
+                    variance_type: 'short_receipt',
+                    quantity_variance_qty: -2,
+                    over_receipt_qty: 0,
+                  },
+                ],
+              },
+            ],
+          },
+        ];
+      }
+      return [];
+    });
+
+    renderDashboardPage();
+
+    expect(await screen.findByText('Receiving Exceptions')).toBeInTheDocument();
+    expect(screen.getByText('Recent Receiving Exceptions')).toBeInTheDocument();
+    expect(screen.getByText('Receipts w/ variance:')).toBeInTheDocument();
+    const exceptionMatches = await screen.findAllByText((_, element) => {
+      const text = element?.textContent || '';
+      return text.includes('Shipping Box:') && text.includes('short receipt') && text.includes('(-2.00)');
+    });
+    expect(exceptionMatches.length).toBeGreaterThan(0);
+  });
+
+  it('surfaces loading errors from dashboard APIs', async () => {
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url === '/api/stats') throw new Error('Stats service unavailable');
+      return [];
+    });
+
+    renderDashboardPage();
+
+    expect(await screen.findByText('Stats service unavailable')).toBeInTheDocument();
+  });
+});
