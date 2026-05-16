@@ -13,6 +13,7 @@ import {
   type CustomerInvoice,
   useCustomerInvoicesQuery,
   useCustomersQuery,
+  useDeleteCustomerMutation,
   useSaveCustomerMutation,
 } from '../hooks/useCustomers';
 
@@ -30,6 +31,7 @@ function customerStatus(customer: Customer): string {
 export function CustomersPage() {
   const customersQuery = useCustomersQuery();
   const saveCustomerMutation = useSaveCustomerMutation();
+  const deleteCustomerMutation = useDeleteCustomerMutation();
 
   const customers = customersQuery.data ?? [];
 
@@ -50,6 +52,7 @@ export function CustomersPage() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Customer>({});
   const [saving, setSaving] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Invoices: enabled only while the invoices tab is open for the selected customer.
   const invoicesQuery = useCustomerInvoicesQuery(
@@ -121,10 +124,28 @@ export function CustomersPage() {
     }
   }
 
+  function deleteCustomer() {
+    if (!selected?.id) return;
+    const customerName = selected.company_name || 'Customer';
+    deleteCustomerMutation.mutate(selected.id, {
+      onSuccess: () => {
+        setSelected(null);
+        setEditing(false);
+        setConfirmDelete(false);
+        setDraft({});
+        setNotice(`${customerName} deleted.`);
+      },
+      onError: (err) => {
+        setError(String((err as Error).message || 'Could not delete customer.'));
+      },
+    });
+  }
+
   function openCustomer(customer: Customer) {
     setSelected(customer);
     setDraft({ ...customer });
     setEditing(false);
+    setConfirmDelete(false);
     setDetailTab('info');
     setAddressLookupError('');
   }
@@ -436,7 +457,7 @@ export function CustomersPage() {
 
       {selected ? (
         <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setSelected(null)} />
+          <div className="absolute inset-0 bg-black/30" onClick={() => { setSelected(null); setConfirmDelete(false); }} />
           <div ref={panelRef} className="relative z-10 flex h-full w-full max-w-xl flex-col overflow-y-auto bg-background shadow-xl">
             <div className="flex items-center justify-between border-b px-6 py-4">
               <div>
@@ -444,15 +465,28 @@ export function CustomersPage() {
                 <p className="text-sm text-muted-foreground">{selected.customer_number}</p>
               </div>
               <div className="flex gap-2">
-                {!editing ? (
-                  <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
+                {!editing && !confirmDelete ? (
+                  <>
+                    <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
+                    <Button size="sm" variant="outline" className="border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => setConfirmDelete(true)}>
+                      Delete
+                    </Button>
+                  </>
+                ) : confirmDelete ? (
+                  <>
+                    <span className="self-center text-sm text-destructive">Delete?</span>
+                    <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)} disabled={deleteCustomerMutation.isPending}>No</Button>
+                    <Button size="sm" disabled={deleteCustomerMutation.isPending} onClick={deleteCustomer}>
+                      {deleteCustomerMutation.isPending ? 'Deleting...' : 'Yes'}
+                    </Button>
+                  </>
                 ) : (
                   <>
                     <Button size="sm" variant="outline" onClick={() => { setEditing(false); setDraft({ ...selected }); setAddressLookupError(''); }}>Cancel</Button>
                     <Button size="sm" disabled={saving} onClick={saveCustomer}>{saving ? 'Saving...' : 'Save'}</Button>
                   </>
                 )}
-                <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>✕</Button>
+                <Button size="sm" variant="ghost" onClick={() => { setSelected(null); setConfirmDelete(false); }}>✕</Button>
               </div>
             </div>
 

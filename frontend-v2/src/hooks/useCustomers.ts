@@ -72,3 +72,13 @@ export function useSaveCustomerMutation() {
     },
   });
 }
+
+export function useDeleteCustomerMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: number | string) => sendWithAuth(`/api/customers/${id}`, 'DELETE'),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['customers'] });
+    },
+  });
+}

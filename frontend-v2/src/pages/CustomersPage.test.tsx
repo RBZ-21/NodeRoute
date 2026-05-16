@@ -152,6 +152,29 @@ describe('CustomersPage', () => {
     expect(fetchWithAuthMock).toHaveBeenCalledTimes(2);
   });
 
+  it('deletes a customer from the edit panel and reloads the list', async () => {
+    sendWithAuthMock.mockResolvedValueOnce({});
+
+    renderCustomersPage();
+
+    const blueFinRow = (await screen.findByText('Blue Fin')).closest('tr') as HTMLElement | null;
+    if (!blueFinRow) throw new Error('Expected Blue Fin row');
+
+    fireEvent.click(within(blueFinRow).getByRole('button', { name: 'View / Edit' }));
+    expect(await screen.findByRole('heading', { name: 'Blue Fin' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    expect(screen.getByText('Delete?')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Yes' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/customers/cust-1', 'DELETE');
+    });
+    expect(await screen.findByText('Blue Fin deleted.')).toBeInTheDocument();
+    expect(screen.queryByRole('heading', { name: 'Blue Fin' })).not.toBeInTheDocument();
+    expect(fetchWithAuthMock).toHaveBeenCalledTimes(2);
+  });
+
   it('lifts a credit hold and surfaces API failures while refreshing', async () => {
     sendWithAuthMock.mockResolvedValueOnce({});
 
