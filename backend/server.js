@@ -1,92 +1,276 @@
-const express = require('express');
-const path = require('path');
-const app = express();
-const PORT = 3001;
+require('./instrument.js');
+require('dotenv').config({ path: require('path').join(__dirname, '../.env') });
 
-app.use(express.json());
+const Sentry = require('@sentry/node');
+const logger = require('./services/logger');
+const config = require('./lib/config');
+config.validate(logger);
+const express = require('express');
+const cookieParser = require('cookie-parser');
+const pinoHttp = require('pino-http');
+const fs = require('fs');
+const path = require('path');
+const { globalLimiter, authLimiter, aiLimiter } = require('./middleware/rateLimiter');
+
+// Route modules
+const authRouter          = require('./routes/auth');
+const usersRouter         = require('./routes/users');
+const ordersRouter        = require('./routes/orders');
+const invoicesRouter      = require('./routes/invoices');
+const inventoryRouter     = require('./routes/inventory');
+const deliveriesRouter    = require('./routes/deliveries');
+const stopsRouter         = require('./routes/stops');
+const routesRouter        = require('./routes/routes');
+const customersRouter     = require('./routes/customers');
+const forecastRouter      = require('./routes/forecast');
+const aiRouter            = require('./routes/ai');
+const portalRouter        = require('./routes/portal');
+const driverRouter        = require('./routes/driver');
+const driversRouter       = require('./routes/drivers');
+const vendorsRouter       = require('./routes/vendors');
+const purchaseOrdersRouter= require('./routes/purchase-orders');
+const trackingRouter      = require('./routes/tracking');
+const settingsRouter      = require('./routes/settings');
+const temperatureLogsRouter = require('./routes/temperature-logs');
+const opsRouter           = require('./routes/ops');
+const reportingRouter     = require('./routes/reporting').router;
+const lotsRouter          = require('./routes/lots');
+const integrationsRouter  = require('./routes/integrations');
+const warehouseRouter     = require('./routes/warehouse');
+const superadminRouter    = require('./routes/superadmin');
+const companyConfigRouter = require('./routes/company-config');
+const onboardingRouter    = require('./routes/onboarding');
+const waitlistRouter      = require('./routes/waitlist');
+const dwellRouter         = require('./routes/dwell');
+const salesRepsRouter     = require('./routes/sales-reps');
+const arHubRouter         = require('./routes/ar-hub');
+const vendorBillsRouter   = require('./routes/vendor-bills');
+const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
+
+const helmet = require('helmet');
+
+const app  = express();
+const PORT = config.PORT;
+
+app.set('trust proxy', 1);
+
+app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhookHandler);
+app.use(express.json({ limit: config.JSON_BODY_LIMIT }));
+app.use(cookieParser());
+app.disable('x-powered-by');
+
+// Helmet supplies headers not covered by the custom security middleware below:
+// dnsPrefetchControl, ieNoOpen, originAgentCluster, permittedCrossDomainPolicies,
+// crossOriginEmbedderPolicy, crossOriginResourcePolicy.
+// Headers already set explicitly below (CSP, HSTS, frameguard, noSniff,
+// referrerPolicy, crossOriginOpenerPolicy) are disabled here to avoid conflicts.
+app.use(helmet({
+  contentSecurityPolicy:        false,
+  crossOriginOpenerPolicy:      false,
+  frameguard:                   false,
+  hsts:                         false,
+  noSniff:                      false,
+  referrerPolicy:               false,
+  hidePoweredBy:                false, // already done with app.disable('x-powered-by')
+}));
+
+// Warn at startup if body limit is unusually large (potential DoS risk).
+(function warnBodyLimit() {
+  const raw = String(config.JSON_BODY_LIMIT || '1mb').toLowerCase();
+  const mb = raw.endsWith('mb') ? parseFloat(raw) : raw.endsWith('kb') ? parseFloat(raw) / 1024 : NaN;
+  if (!isNaN(mb) && mb > 1) {
+    logger.warn({ JSON_BODY_LIMIT: config.JSON_BODY_LIMIT }, 'JSON_BODY_LIMIT exceeds 1mb — verify this is intentional to avoid DoS risk');
+  }
+})();
+
+// ── Security headers ─────────────────────────────────────────────────────────
 app.use((req, res, next) => {
-  res.header('Access-Control-Allow-Origin', '*');
-  res.header('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader(
+    'Permissions-Policy',
+    'camera=(self), microphone=(), geolocation=(self), payment=()'
+  );
+  res.setHeader(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://maps.googleapis.com",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com",
+      "img-src 'self' data: blob: https:",
+      "connect-src 'self' https://*.supabase.co https://api.openai.com https://api.stripe.com https://api.resend.com https://maps.googleapis.com https://*.googleapis.com https://maps.gstatic.com https://*.gstatic.com wss://*.supabase.co",
+      "frame-src https://js.stripe.com",
+      "object-src 'none'",
+      "base-uri 'self'",
+    ].join('; ')
+  );
+  if (config.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+  }
   next();
 });
 
-const frontendDir = path.join(__dirname, '../frontend');
-app.use(express.static(frontendDir));
-app.get('/', (req, res) => res.sendFile(path.join(frontendDir, 'index.html')));
+app.use(pinoHttp({
+  logger,
+  autoLogging: { ignore: (req) => req.url === '/healthz' },
+  customLogLevel: (_req, res) => res.statusCode >= 500 ? 'error' : res.statusCode >= 400 ? 'warn' : 'info',
+  serializers: {
+    req(req) { return { method: req.method, url: req.url, id: req.id }; },
+    res(res) { return { statusCode: res.statusCode }; },
+  },
+}));
 
-const today = new Date();
-const d = (h, m) => { const dt = new Date(today); dt.setHours(h, m, 0, 0); return dt.toISOString(); };
+app.use(globalLimiter);
 
-const deliveries = [
-  { id: 1, orderId: 'NR-1001', restaurantName: 'Husk', driverName: 'Marcus Johnson', status: 'delivered', startTime: d(7,15), endTime: d(7,48), expectedWindowStart: d(7,30), expectedWindowEnd: d(8,0), distanceMiles: 3.2, stopDurationMinutes: 12, speedMph: 24, address: '76 Queen St, Charleston, SC', deliveryDoor: 'back dock', items: ['2x Bluefin Tuna (5lb)', '1x Oysters (100ct)', '3x Gulf Shrimp (2lb)'], onTime: true },
-  { id: 2, orderId: 'NR-1002', restaurantName: 'FIG', driverName: 'Sarah Chen', status: 'delivered', startTime: d(7,45), endTime: d(8,22), expectedWindowStart: d(8,0), expectedWindowEnd: d(8,30), distanceMiles: 2.8, stopDurationMinutes: 15, speedMph: 22, address: '232 Meeting St, Charleston, SC', deliveryDoor: 'front entrance', items: ['4x Grouper Fillet (3lb)', '2x Scallops (1lb)', '1x Lobster (2ct)'], onTime: true },
-  { id: 3, orderId: 'NR-1003', restaurantName: 'The Ordinary', driverName: 'Marcus Johnson', status: 'delivered', startTime: d(8,30), endTime: d(9,5), expectedWindowStart: d(8,45), expectedWindowEnd: d(9,15), distanceMiles: 4.1, stopDurationMinutes: 18, speedMph: 21, address: '544 King St, Charleston, SC', deliveryDoor: 'loading dock', items: ['10x East Coast Oysters (100ct)', '5x Littleneck Clams (50ct)', '2x Dungeness Crab (3lb)'], onTime: true },
-  { id: 4, orderId: 'NR-1004', restaurantName: "Hall's Chophouse", driverName: 'James Rivera', status: 'delivered', startTime: d(8,0), endTime: d(8,44), expectedWindowStart: d(8,15), expectedWindowEnd: d(8,45), distanceMiles: 5.6, stopDurationMinutes: 20, speedMph: 26, address: '434 King St, Charleston, SC', deliveryDoor: 'back dock', items: ['3x Swordfish Steak (2lb)', '2x Mahi-Mahi (4lb)', '1x Jumbo Lump Crabmeat (5lb)'], onTime: true },
-  { id: 5, orderId: 'NR-1005', restaurantName: '167 Raw', driverName: 'Priya Patel', status: 'in-transit', startTime: d(9,0), endTime: null, expectedWindowStart: d(9,15), expectedWindowEnd: d(9,45), distanceMiles: 3.9, stopDurationMinutes: null, speedMph: 23, address: '289 E Bay St, Charleston, SC', deliveryDoor: 'front entrance', items: ['6x Oysters Assorted (100ct)', '3x Shrimp Cocktail Pack (2lb)', '2x Snow Crab Legs (3lb)'], onTime: true },
-  { id: 6, orderId: 'NR-1006', restaurantName: "Edmund's Oast", driverName: 'Sarah Chen', status: 'in-transit', startTime: d(9,20), endTime: null, expectedWindowStart: d(9,30), expectedWindowEnd: d(10,0), distanceMiles: 2.5, stopDurationMinutes: null, speedMph: 19, address: '1081 Morrison Dr, Charleston, SC', deliveryDoor: 'loading dock', items: ['4x Flounder (3lb)', '2x Redfish (4lb)', '1x Soft Shell Crab (6ct)'], onTime: true },
-  { id: 7, orderId: 'NR-1007', restaurantName: 'Zero Restaurant', driverName: 'James Rivera', status: 'failed', startTime: d(8,50), endTime: d(9,30), expectedWindowStart: d(9,0), expectedWindowEnd: d(9,30), distanceMiles: 6.2, stopDurationMinutes: 5, speedMph: 18, address: '140 Ester Lee Dr, Charleston, SC', deliveryDoor: 'back dock', items: ['2x Black Sea Bass (3lb)', '1x Red Snapper (5lb)'], onTime: false },
-  { id: 8, orderId: 'NR-1008', restaurantName: 'The Darling Oyster Bar', driverName: 'Priya Patel', status: 'delivered', startTime: d(7,30), endTime: d(8,10), expectedWindowStart: d(7,45), expectedWindowEnd: d(8,15), distanceMiles: 3.7, stopDurationMinutes: 14, speedMph: 25, address: '513 King St, Charleston, SC', deliveryDoor: 'front entrance', items: ['8x Oysters Premium (100ct)', '4x Cherrystone Clams (50ct)', '2x Manilla Clams (50ct)'], onTime: true },
-  { id: 9, orderId: 'NR-1009', restaurantName: 'Maison', driverName: 'Marcus Johnson', status: 'pending', startTime: null, endTime: null, expectedWindowStart: d(10,0), expectedWindowEnd: d(10,30), distanceMiles: 4.8, stopDurationMinutes: null, speedMph: null, address: '691 King St, Charleston, SC', deliveryDoor: 'back dock', items: ['3x Whole Branzino (2lb)', '2x Dover Sole (1lb)', '1x Halibut (6lb)'], onTime: null },
-  { id: 10, orderId: 'NR-1010', restaurantName: 'Delaney Oyster House', driverName: 'Sarah Chen', status: 'pending', startTime: null, endTime: null, expectedWindowStart: d(10,15), expectedWindowEnd: d(10,45), distanceMiles: 5.1, stopDurationMinutes: null, speedMph: null, address: '115 Calhoun St, Charleston, SC', deliveryDoor: 'loading dock', items: ['12x Oysters Local (100ct)', '5x Blue Crab (6ct)', '2x Spiny Lobster (2ct)'], onTime: null },
-  { id: 11, orderId: 'NR-1011', restaurantName: 'Husk', driverName: 'James Rivera', status: 'delivered', startTime: d(6,45), endTime: d(7,20), expectedWindowStart: d(7,0), expectedWindowEnd: d(7,30), distanceMiles: 3.2, stopDurationMinutes: 11, speedMph: 27, address: '76 Queen St, Charleston, SC', deliveryDoor: 'back dock', items: ['1x Swordfish Loin (4lb)', '2x Tuna Steak (2lb)'], onTime: true },
-  { id: 12, orderId: 'NR-1012', restaurantName: 'FIG', driverName: 'Priya Patel', status: 'in-transit', startTime: d(9,45), endTime: null, expectedWindowStart: d(9,45), expectedWindowEnd: d(10,15), distanceMiles: 2.8, stopDurationMinutes: null, speedMph: 20, address: '232 Meeting St, Charleston, SC', deliveryDoor: 'front entrance', items: ['3x Sea Scallops (1lb)', '4x Gulf Shrimp (2lb)', '1x King Crab Legs (3lb)'], onTime: false },
+// CORS
+app.use((req, res, next) => {
+  const origin         = req.headers.origin || '';
+  const allowedOrigins = config.CORS_ORIGINS;
+  if (allowedOrigins.length > 0 && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
+  }
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,sentry-trace,baggage');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+});
+
+const frontendV2DistDir = path.join(__dirname, '../frontend-v2/dist');
+const landingV2DistDir  = path.join(__dirname, '../landing-v2/dist');
+const driverAppDistDir  = path.join(__dirname, '../driver-app/dist');
+const frontendV2Entry   = path.join(frontendV2DistDir, 'index.html');
+const landingV2Entry    = path.join(landingV2DistDir, 'index.html');
+const driverAppEntry    = path.join(driverAppDistDir, 'index.html');
+
+function requireBuildArtifact(buildName, entryPath, buildCommand) {
+  if (!fs.existsSync(entryPath)) {
+    throw new Error(
+      `${buildName} build artifact is required before starting the server. ` +
+      `Expected ${path.relative(path.join(__dirname, '..'), entryPath)}. ` +
+      `Run \`${buildCommand}\`.`
+    );
+  }
+}
+
+requireBuildArtifact('frontend-v2', frontendV2Entry, 'npm --prefix frontend-v2 run build');
+requireBuildArtifact('landing-v2',  landingV2Entry,  'npm --prefix landing-v2 run build');
+requireBuildArtifact('driver-app',  driverAppEntry,   'npm --prefix driver-app run build');
+
+app.use('/dashboard-v2', express.static(frontendV2DistDir, { index: false }));
+app.use('/driver-app', express.static(driverAppDistDir, { index: false }));
+app.use(express.static(landingV2DistDir, { index: false }));
+
+// Mount routers
+app.use('/auth', authLimiter, authRouter);
+app.use('/api/users', usersRouter);
+app.use('/api/orders', ordersRouter);
+app.use('/api/invoices', invoicesRouter);
+app.use('/api/inventory', inventoryRouter);
+app.use('/api', deliveriesRouter);
+app.use('/api/stops', stopsRouter);
+app.use('/api/routes', routesRouter);
+app.use('/api/customers', customersRouter);
+app.use('/api/forecast', forecastRouter);
+app.use('/api/ai', aiLimiter, aiRouter);
+app.use('/api/portal', portalRouter);
+app.use('/api/driver', driverRouter);
+app.use('/api/drivers', driversRouter);
+app.use('/api/vendors', vendorsRouter);
+app.use('/api/purchase-orders', purchaseOrdersRouter);
+app.use('/api/track', trackingRouter);
+app.use('/api/settings', settingsRouter);
+app.use('/api/temperature-logs', temperatureLogsRouter);
+app.use('/api/ops', opsRouter);
+app.use('/api/reporting', reportingRouter);
+app.use('/api/lots', lotsRouter);
+app.use('/api/integrations', integrationsRouter);
+app.use('/api/warehouse', warehouseRouter);
+// restore-session must be reachable while holding an impersonation token
+// (role=admin), so it runs with only authenticateToken — before the guarded router.
+const { authenticateToken: _authenticateToken } = require('./middleware/auth');
+app.post('/api/superadmin/restore-session', _authenticateToken, superadminRouter.restoreSessionHandler);
+
+app.use('/api/superadmin', superadminRouter);
+app.use('/api/company-config', companyConfigRouter);
+app.use('/api/onboarding', onboardingRouter);
+app.use('/api/waitlist', waitlistRouter);
+app.use('/api/dwell', dwellRouter);
+app.use('/api/sales-reps', salesRepsRouter);
+app.use('/api/ar', arHubRouter);
+app.use('/api/vendor-bills', vendorBillsRouter);
+
+const { authenticateToken, requireRole } = require('./middleware/auth');
+
+// Issue #6 fix: Maps key restricted to admin+ roles — drivers no longer have access.
+app.get('/api/config/maps-key', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
+  res.json({ key: config.GOOGLE_MAPS_KEY });
+});
+
+app.get('/healthz', (req, res) => res.json({ ok: true }));
+
+if (config.NODE_ENV !== 'production') {
+  app.get('/debug-sentry', function mainHandler(_req, _res) {
+    throw new Error('My first Sentry error!');
+  });
+}
+
+app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager'), (req, res, next) => {
+  req.body.role = req.body.role || 'driver'; next();
+}, (req, res) => res.redirect(307, '/api/users/invite'));
+
+// ── Pages ─────────────────────────────────────────────────────────────────────
+app.get('/', (req, res) => res.sendFile(landingV2Entry));
+app.get('/login', (req, res) => res.sendFile(frontendV2Entry));
+app.get('/dashboard', (req, res) => res.redirect('/dashboard-v2'));
+app.get('/dashboard-v2', (req, res) => res.sendFile(frontendV2Entry));
+app.get(/^\/dashboard-v2\/.*/, (req, res) => res.sendFile(frontendV2Entry));
+app.get('/driver-app', (req, res) => res.sendFile(driverAppEntry));
+app.get(/^\/driver-app\/.*/, (req, res) => res.sendFile(driverAppEntry));
+
+const frontendV2Routes = [
+  '/orders', '/deliveries', '/map', '/drivers', '/routes', '/stops',
+  '/customers', '/users', '/invoices', '/analytics', '/inventory',
+  '/forecast', '/financials', '/purchasing', '/vendors', '/warehouse',
+  '/planning', '/integrations', '/aihelp', '/settings', '/reports',
+  '/admin/traceability',
+  '/superadmin/companies',
+  '/superadmin/waitlist',
+  '/sales-rep',
+  '/ar-hub',
 ];
+app.get(frontendV2Routes, (req, res) => res.sendFile(frontendV2Entry));
 
-const drivers = [
-  { name: 'Marcus Johnson', phone: '(843) 555-0101', status: 'on-duty', vehicleId: 'NR-VAN-01', totalStopsToday: 4, avgStopMinutes: 13.7, avgSpeedMph: 23.7, onTimeRate: 100, milesToday: 15.3 },
-  { name: 'Sarah Chen', phone: '(843) 555-0102', status: 'on-duty', vehicleId: 'NR-VAN-02', totalStopsToday: 3, avgStopMinutes: 15.0, avgSpeedMph: 20.3, onTimeRate: 100, milesToday: 10.4 },
-  { name: 'James Rivera', phone: '(843) 555-0103', status: 'on-duty', vehicleId: 'NR-VAN-03', totalStopsToday: 3, avgStopMinutes: 12.0, avgSpeedMph: 23.7, onTimeRate: 66.7, milesToday: 15.0 },
-  { name: 'Priya Patel', phone: '(843) 555-0104', status: 'on-duty', vehicleId: 'NR-VAN-04', totalStopsToday: 3, avgStopMinutes: 14.0, avgSpeedMph: 22.7, onTimeRate: 75.0, milesToday: 10.4 },
-];
+app.get('/landing',         (req, res) => res.sendFile(landingV2Entry));
+app.get('/driver',          (req, res) => res.sendFile(frontendV2Entry));
+app.get('/portal',          (req, res) => res.sendFile(frontendV2Entry));
+app.get('/customer-portal', (req, res) => res.sendFile(frontendV2Entry));
+app.get('/track',           (req, res) => res.sendFile(frontendV2Entry));
+app.get('/track/:token',    (req, res) => res.redirect(`/track?t=${encodeURIComponent(req.params.token)}`));
+app.get('/setup-password',  (req, res) => res.sendFile(frontendV2Entry));
 
-app.get('/api/stats', (req, res) => {
-  const total = deliveries.length;
-  const delivered = deliveries.filter(d => d.status === 'delivered').length;
-  const failed = deliveries.filter(d => d.status === 'failed').length;
-  const inTransit = deliveries.filter(d => d.status === 'in-transit').length;
-  const onTimeDelivered = deliveries.filter(d => d.status === 'delivered' && d.onTime).length;
-  const onTimeRate = delivered > 0 ? Math.round((onTimeDelivered / delivered) * 100) : 0;
-  const activeDrivers = drivers.filter(d => d.status === 'on-duty').length;
-  res.json({
-    totalDeliveries: total, delivered, inTransit,
-    pending: deliveries.filter(d => d.status === 'pending').length,
-    failed, onTimeRate, activeDrivers, totalDrivers: drivers.length,
-    yesterday: { totalDeliveries: 11, onTimeRate: 82, activeDrivers: 3, failed: 2 }
+app.use('/api', (req, res) => {
+  res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
+});
+
+Sentry.setupExpressErrorHandler(app);
+
+// eslint-disable-next-line no-unused-vars
+app.use((err, req, res, next) => {
+  logger.error({ err, method: req.method, url: req.url }, 'Unhandled server error');
+  const message = config.NODE_ENV === 'production'
+    ? 'Internal server error'
+    : err.message;
+  res.status(err.status || 500).json({
+    error: message || 'Internal server error',
+    sentry: res.sentry || undefined,
   });
 });
 
-app.get('/api/deliveries', (req, res) => res.json(deliveries));
-app.get('/api/drivers', (req, res) => res.json(drivers));
-
-app.get('/api/analytics', (req, res) => {
-  const completed = deliveries.filter(d => d.status === 'delivered');
-  const avgStopTime = completed.reduce((s, d) => s + d.stopDurationMinutes, 0) / completed.length;
-  const withSpeed = deliveries.filter(d => d.speedMph);
-  const avgSpeed = withSpeed.reduce((s, d) => s + d.speedMph, 0) / withSpeed.length;
-  const onTimeRate = Math.round((completed.filter(d => d.onTime).length / completed.length) * 100);
-
-  const deliveriesByHour = Array(24).fill(0);
-  deliveries.forEach(d => {
-    const t = d.endTime || d.startTime;
-    if (t) deliveriesByHour[new Date(t).getHours()]++;
-  });
-
-  const weeklyTrend = [8, 11, 9, 13, 10, 12, deliveries.length];
-
-  const driverRankings = drivers.map(d => ({
-    name: d.name, stopsPerHour: parseFloat((d.totalStopsToday / 3).toFixed(1)),
-    avgStopMinutes: d.avgStopMinutes, avgSpeedMph: d.avgSpeedMph,
-    onTimeRate: d.onTimeRate, milesToday: d.milesToday
-  })).sort((a, b) => b.onTimeRate - a.onTimeRate);
-
-  const doorBreakdown = {};
-  deliveries.forEach(d => { doorBreakdown[d.deliveryDoor] = (doorBreakdown[d.deliveryDoor] || 0) + 1; });
-
-  res.json({
-    avgStopTime: parseFloat(avgStopTime.toFixed(1)),
-    avgSpeed: parseFloat(avgSpeed.toFixed(1)),
-    onTimeRate, deliveriesByHour, weeklyTrend, driverRankings, doorBreakdown
-  });
+app.listen(PORT, '0.0.0.0', () => {
+  logger.info({ port: PORT, pid: process.pid, env: config.NODE_ENV }, 'Server listening');
 });
-
-app.listen(PORT, () => console.log(`NodeRoute API running on http://localhost:${PORT}`));

@@ -137,3 +137,13 @@ dist
 # Vite logs files
 vite.config.js.timestamp-*
 vite.config.ts.timestamp-*
+
+# Auth data
+backend/data/users.json
+backend/data/
+
+# Nested lock files inside node_modules
+**/node_modules/.package-lock.json
+
+# Local agent worktrees
+.claude/worktrees/
