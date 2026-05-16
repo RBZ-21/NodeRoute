@@ -18,6 +18,10 @@ const temperatureLogBodySchema = z.object({
   temperature: z.coerce.number(),
   logged_at: z.string().optional(),
   loggedAt: z.string().optional(),
+  route_id: z.any().optional(),
+  routeId: z.any().optional(),
+  stop_id: z.any().optional(),
+  stopId: z.any().optional(),
   storage_area: z.string().optional(),
   storageArea: z.string().optional(),
   unit: z.string().optional(),
@@ -60,8 +64,38 @@ function normalizeTemperaturePayload(body, user) {
     corrective_action: body.corrective_action || body.correctiveAction || null,
     initials: body.initials || null,
     notes: body.notes || null,
+    route_id: body.route_id || body.routeId || null,
+    stop_id: body.stop_id || body.stopId || null,
     recorded_by: user?.name || user?.email || null,
   };
+}
+
+function csvEscape(value) {
+  const text = value == null ? '' : String(value);
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function buildTemperatureLogCsv(rows) {
+  const headers = [
+    'logged_at',
+    'route_id',
+    'stop_id',
+    'storage_area',
+    'temperature',
+    'unit',
+    'check_type',
+    'corrective_action',
+    'initials',
+    'recorded_by',
+    'notes',
+  ];
+
+  const lines = [
+    headers.join(','),
+    ...rows.map((row) => headers.map((header) => csvEscape(row?.[header])).join(',')),
+  ];
+
+  return lines.join('\n');
 }
 
 router.get('/', authenticateToken, requireRole('admin', 'manager'), validateQuery(temperatureLogQuerySchema), async (req, res) => {
@@ -75,7 +109,22 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), validateQuer
   res.json(rows);
 });
 
-router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBody(temperatureLogBodySchema), async (req, res) => {
+router.get('/export.csv', authenticateToken, requireRole('admin', 'manager'), validateQuery(temperatureLogQuerySchema), async (req, res) => {
+  const data = await dbQuery(supabase.from('temperature_logs').select('*').order('logged_at', { ascending: false }), res);
+  if (!data) return;
+
+  let rows = filterRowsByContext(data, req.context);
+  const { date } = req.validated.query;
+  if (date) {
+    rows = rows.filter((row) => dateKey(row.logged_at) === date);
+  }
+
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="temperature-logs${date ? `-${date}` : ''}.csv"`);
+  res.send(buildTemperatureLogCsv(rows));
+});
+
+router.post('/', authenticateToken, requireRole('admin', 'manager', 'driver'), validateBody(temperatureLogBodySchema), async (req, res) => {
   const payload = normalizeTemperaturePayload(req.validated.body, req.user);
   const insertResult = await insertRecordWithOptionalScope(supabase, 'temperature_logs', payload, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
@@ -83,3 +132,5 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
 });
 
 module.exports = router;
+module.exports.buildTemperatureLogCsv = buildTemperatureLogCsv;
+module.exports.normalizeTemperaturePayload = normalizeTemperaturePayload;

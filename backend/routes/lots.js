@@ -1,10 +1,104 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { loadCompanySettings } = require('../services/company-settings');
+const { createMailer } = require('../services/email');
+const {
+  buildLotNoticeEmail,
+  groupLotNoticeRecipients,
+} = require('../services/lot-traceability-notice');
 const { validateBody } = require('../lib/zod-validate');
 const { lotCreateBodySchema, lotFtlPatchBodySchema } = require('../lib/lots-schemas');
 
 const router = express.Router();
+
+async function loadLotTraceData(lotNumber) {
+  const { data: lotRows, error: lotErr } = await supabase
+    .from('lot_codes')
+    .select('id, lot_number, product_id, vendor_id, quantity_received, unit_of_measure, received_date, received_by, expiration_date, notes, created_at')
+    .eq('lot_number', lotNumber)
+    .limit(1);
+  const lot = lotRows?.[0] || null;
+
+  if (lotErr) {
+    return { status: 500, error: lotErr.message };
+  }
+  if (!lot) {
+    return { status: 404, error: `Lot "${lotNumber}" not found` };
+  }
+
+  const [ordersResult, stopsResult, productResult] = await Promise.all([
+    supabase
+      .from('orders')
+      .select('id, order_number, customer_name, customer_email, customer_address, status, items, created_at')
+      .contains('items', JSON.stringify([{ lot_number: lotNumber }])),
+
+    supabase
+      .from('stops')
+      .select('id, name, address, notes, shipped_lots, created_at')
+      .contains('shipped_lots', JSON.stringify([{ lot_number: lotNumber }])),
+
+    lot.product_id
+      ? supabase.from('seafood_inventory').select('item_number, description, category, unit').eq('item_number', lot.product_id).limit(1)
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+
+  if (ordersResult.error) return { status: 500, error: ordersResult.error.message };
+  if (stopsResult.error) return { status: 500, error: stopsResult.error.message };
+  if (productResult.error) return { status: 500, error: productResult.error.message };
+  const product = productResult.data?.[0] || null;
+
+  const orders = (ordersResult.data || []).map((order) => {
+    const lotItems = (order.items || []).filter(
+      (it) => it.lot_number === lotNumber || String(it.lot_id) === String(lot.id)
+    );
+    const quantity = lotItems.reduce((sum, it) => {
+      const qty = parseFloat(it.quantity_from_lot ?? it.requested_weight ?? it.quantity ?? 0) || 0;
+      return sum + qty;
+    }, 0);
+    return {
+      order_id: order.id,
+      order_number: order.order_number,
+      customer: order.customer_name,
+      customer_email: order.customer_email,
+      status: order.status,
+      quantity,
+      delivery_date: order.created_at,
+    };
+  });
+
+  const stops = (stopsResult.data || []).map((stop) => {
+    const lotEntry = (stop.shipped_lots || []).find((sl) => sl.lot_number === lotNumber);
+    return {
+      stop_id: stop.id,
+      stop_name: stop.name,
+      address: stop.address,
+      quantity: lotEntry?.quantity ?? null,
+      delivered_at: stop.created_at,
+    };
+  });
+
+  return {
+    status: 200,
+    data: {
+      lot: {
+        lot_number: lot.lot_number,
+        product_id: lot.product_id,
+        product: product?.description || lot.product_id || null,
+        vendor: lot.vendor_id,
+        received_date: lot.received_date,
+        received_by: lot.received_by,
+        quantity_received: lot.quantity_received,
+        unit_of_measure: lot.unit_of_measure,
+        expiration_date: lot.expiration_date,
+        notes: lot.notes,
+        created_at: lot.created_at,
+      },
+      orders,
+      stops,
+    },
+  };
+}
 
 // ── GET /api/lots ─────────────────────────────────────────────────────────────
 // List lot codes, optionally filtered by product_id.
@@ -62,96 +156,17 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
 // Admin only. Must be fast — single DB query set.
 router.get('/:lotNumber/trace', authenticateToken, requireRole('admin'), async (req, res) => {
   const lotNumber = req.params.lotNumber;
-
-  // 1. Fetch the lot record
-  const { data: lotRows, error: lotErr } = await supabase
-    .from('lot_codes')
-    .select('id, lot_number, product_id, vendor_id, quantity_received, unit_of_measure, received_date, received_by, expiration_date, notes, created_at')
-    .eq('lot_number', lotNumber)
-    .limit(1);
-  const lot = lotRows?.[0] || null;
-
-  if (lotErr) return res.status(500).json({ error: lotErr.message });
-  if (!lot) return res.status(404).json({ error: `Lot "${lotNumber}" not found` });
-
-  // 2. Find orders that contain this lot (JSONB containment — uses GIN index)
-  const [ordersResult, stopsResult, productResult] = await Promise.all([
-    supabase
-      .from('orders')
-      .select('id, order_number, customer_name, customer_email, customer_address, status, items, created_at')
-      .contains('items', JSON.stringify([{ lot_number: lotNumber }])),
-
-    supabase
-      .from('stops')
-      .select('id, name, address, notes, shipped_lots, created_at')
-      .contains('shipped_lots', JSON.stringify([{ lot_number: lotNumber }])),
-
-    lot.product_id
-      ? supabase.from('seafood_inventory').select('item_number, description, category, unit').eq('item_number', lot.product_id).limit(1)
-      : Promise.resolve({ data: null, error: null }),
-  ]);
-
-  if (ordersResult.error) return res.status(500).json({ error: ordersResult.error.message });
-  if (stopsResult.error)  return res.status(500).json({ error: stopsResult.error.message });
-  if (productResult.error) return res.status(500).json({ error: productResult.error.message });
-  const product = productResult.data?.[0] || null;
-
-  // Extract per-order lot quantity from items JSONB
-  const orders = (ordersResult.data || []).map((order) => {
-    const lotItems = (order.items || []).filter(
-      (it) => it.lot_number === lotNumber || String(it.lot_id) === String(lot.id)
-    );
-    const quantity = lotItems.reduce((sum, it) => {
-      const q = parseFloat(it.quantity_from_lot ?? it.requested_weight ?? it.quantity ?? 0) || 0;
-      return sum + q;
-    }, 0);
-    return {
-      order_id:      order.id,
-      order_number:  order.order_number,
-      customer:      order.customer_name,
-      customer_email: order.customer_email,
-      status:        order.status,
-      quantity,
-      delivery_date: order.created_at,
-    };
-  });
-
-  const stops = (stopsResult.data || []).map((stop) => {
-    const lotEntry = (stop.shipped_lots || []).find((sl) => sl.lot_number === lotNumber);
-    return {
-      stop_id:      stop.id,
-      stop_name:    stop.name,
-      address:      stop.address,
-      quantity:     lotEntry?.quantity ?? null,
-      delivered_at: stop.created_at,
-    };
-  });
-
-  res.json({
-    lot: {
-      lot_number:        lot.lot_number,
-      product_id:        lot.product_id,
-      product:           product?.description || lot.product_id || null,
-      vendor:            lot.vendor_id,
-      received_date:     lot.received_date,
-      received_by:       lot.received_by,
-      quantity_received: lot.quantity_received,
-      unit_of_measure:   lot.unit_of_measure,
-      expiration_date:   lot.expiration_date,
-      notes:             lot.notes,
-      created_at:        lot.created_at,
-    },
-    orders,
-    stops,
-  });
+  const traceData = await loadLotTraceData(lotNumber);
+  if (traceData.error) return res.status(traceData.status).json({ error: traceData.error });
+  res.json(traceData.data);
 });
 
 // ── GET /api/traceability/report ──────────────────────────────────────────────
 // Paginated lot-movement report for admins.
-// Query params: ?lot=, ?product_id=, ?date_from=, ?date_to=, ?page=, ?limit=
+// Query params: ?lot=, ?product_id=, ?vendor=, ?date_from=, ?date_to=, ?page=, ?limit=
 // Returns rows suitable for CSV export.
 router.get('/traceability/report', authenticateToken, requireRole('admin'), async (req, res) => {
-  const { lot, product_id, date_from, date_to, page = '1', limit: limitParam = '50' } = req.query;
+  const { lot, product_id, vendor, date_from, date_to, page = '1', limit: limitParam = '50' } = req.query;
 
   const pageNum  = Math.max(1, parseInt(page, 10)  || 1);
   const pageSize = Math.min(200, parseInt(limitParam, 10) || 50);
@@ -164,6 +179,7 @@ router.get('/traceability/report', authenticateToken, requireRole('admin'), asyn
 
   if (lot)        query = query.ilike('lot_number', `%${lot}%`);
   if (product_id) query = query.eq('product_id', product_id);
+  if (vendor)     query = query.ilike('vendor_id', `%${vendor}%`);
   if (date_from)  query = query.gte('received_date', date_from);
   if (date_to)    query = query.lte('received_date', date_to);
 
@@ -221,6 +237,50 @@ router.get('/traceability/report', authenticateToken, requireRole('admin'), asyn
     page_size: pageSize,
     total: count ?? rows.length,
     rows,
+  });
+});
+
+// ── POST /api/lots/:lotNumber/notice ─────────────────────────────────────────
+// Sends a standalone traceability notice to customers linked to the lot.
+router.post('/:lotNumber/notice', authenticateToken, requireRole('admin'), async (req, res) => {
+  const lotNumber = req.params.lotNumber;
+  const mailer = createMailer();
+  if (!mailer) return res.status(503).json({ error: 'Email not configured on server' });
+
+  const traceData = await loadLotTraceData(lotNumber);
+  if (traceData.error) return res.status(traceData.status).json({ error: traceData.error });
+
+  const recipients = groupLotNoticeRecipients(traceData.data.orders);
+  if (!recipients.length) {
+    return res.status(422).json({ error: 'No customer email addresses were found for this lot' });
+  }
+
+  const settings = await loadCompanySettings(
+    req.context?.activeCompanyId || req.context?.companyId,
+    req.context?.companyName || 'NodeRoute Systems',
+  );
+
+  for (const recipientGroup of recipients) {
+    const email = buildLotNoticeEmail({
+      businessName: settings.businessName,
+      lot: traceData.data.lot,
+      customerName: recipientGroup.customerName,
+      orders: recipientGroup.orders,
+    });
+    await mailer.sendMail({
+      from: process.env.EMAIL_FROM,
+      to: recipientGroup.recipient,
+      subject: email.subject,
+      text: email.text,
+      html: email.html,
+    });
+  }
+
+  res.json({
+    sent: true,
+    lot_number: traceData.data.lot.lot_number,
+    recipient_count: recipients.length,
+    order_count: traceData.data.orders.length,
   });
 });
 

@@ -113,6 +113,7 @@ describe('RoutesPage', () => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes', 'POST', {
         name: 'South Route',
         driver: 'Jamie Driver',
+        driverId: 'driver-2',
         notes: 'Afternoon run',
         stopIds: [],
       });
@@ -149,6 +150,7 @@ describe('RoutesPage', () => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-1', 'PATCH', {
         name: 'Updated Route',
         driver: 'Jamie Driver',
+        driverId: 'driver-2',
         notes: 'Updated notes',
       });
     });
@@ -237,5 +239,39 @@ describe('RoutesPage', () => {
       });
     });
     expect(await screen.findByText(/marked as departed/i)).toBeInTheDocument();
+  });
+
+  it('applies an AI driver suggestion as a linked driver user assignment', async () => {
+    sendWithAuthMock
+      .mockResolvedValueOnce({
+        assignments: [
+          {
+            route_id: 'route-1',
+            route_name: 'North Route',
+            recommended_driver_name: 'Jamie Driver',
+            reasoning: 'Least-loaded driver.',
+            confidence: 'high',
+          },
+        ],
+        unassignable_routes: [],
+        summary: '1 route suggested.',
+      })
+      .mockResolvedValueOnce({});
+
+    renderRoutesPage();
+
+    expect(await screen.findByText('North Route')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Suggest Assignments' }));
+
+    expect(await screen.findByText('Least-loaded driver.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-1', 'PATCH', {
+        driver: 'Jamie Driver',
+        driverId: 'driver-2',
+      });
+    });
+    expect(await screen.findByText('Assigned Jamie Driver to the route.')).toBeInTheDocument();
   });
 });

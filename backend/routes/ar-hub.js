@@ -3,11 +3,12 @@
 const express = require('express');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { OPEN_UNPAID_INVOICE_STATUSES } = require('../services/invoice-delivery');
 const { filterRowsByContext, rowMatchesContext } = require('../services/operating-context');
 const { sendInvoiceEmail } = require('../services/invoice-email');
 
 const router = express.Router();
-const OPEN_STATUSES = ['pending', 'signed', 'sent', 'overdue'];
+const OPEN_STATUSES = [...OPEN_UNPAID_INVOICE_STATUSES];
 
 function daysSince(dateString) {
   if (!dateString) return 0;

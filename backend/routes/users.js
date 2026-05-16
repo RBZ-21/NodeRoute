@@ -100,6 +100,10 @@ async function sendInviteEmail({ name, email, role, inviteUrl }) {
   return result;
 }
 
+function isAdminLike(user) {
+  return user?.role === 'admin' || user?.role === 'superadmin';
+}
+
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const data = await dbQuery(supabase.from('users').select('*').order('created_at', { ascending: true }), res);
   if (!data) return;
@@ -137,7 +141,7 @@ router.post('/', authenticateToken, requireRole('admin'), validateBody(userCreat
 
 router.post('/invite', authenticateToken, requireRole('admin', 'manager'), validateBody(userInviteBodySchema), async (req, res) => {
   const { name, email, role, companyId, companyName, locationId, locationName } = req.validated.body;
-  if (role === 'admin' && req.user.role !== 'admin') return res.status(403).json({ error: 'Only admins can invite admins' });
+  if (role === 'admin' && !isAdminLike(req.user)) return res.status(403).json({ error: 'Only admins can invite admins' });
 
   const context = req.context || {};
   const targetCompanyId = companyId || String(context.activeCompanyId || context.companyId || '').trim() || null;
@@ -226,7 +230,7 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), valid
 
 // Any user can update their own profile; admins can update anyone
 router.patch('/:id', authenticateToken, validateBody(userPatchBodySchema), async (req, res) => {
-  if (req.user.id !== req.params.id && req.user.role !== 'admin')
+  if (req.user.id !== req.params.id && !isAdminLike(req.user))
     return res.status(403).json({ error: 'Forbidden' });
   const { name, phone, vehicle_id } = req.validated.body;
   const updates = { name };
@@ -243,7 +247,9 @@ router.delete('/:id', authenticateToken, requireRole('admin'), async (req, res) 
   const u = users && users[0];
   if (!u) return res.status(404).json({ error: 'User not found' });
   if (!rowMatchesContext(u, req.context)) return res.status(403).json({ error: 'Forbidden' });
-  if (u.role === 'admin') return res.status(403).json({ error: 'Cannot delete admin' });
+  if ((u.role === 'admin' || u.role === 'superadmin') && req.user.role !== 'superadmin') {
+    return res.status(403).json({ error: `Cannot delete ${u.role}` });
+  }
   const delResult = await dbQuery(supabase.from('users').delete().eq('id', req.params.id), res);
   if (delResult === null) return;
   res.json({ message: 'User deleted' });

@@ -3,7 +3,7 @@ import { useDriverApp } from '@/hooks/useDriverApp';
 import { useToast } from '@/hooks/useToast';
 
 export function TemperatureLogPage() {
-  const { currentRoute, stopById, submitLog } = useDriverApp();
+  const { currentRoute, isOnline, queuedTemperatureLogCount, stopById, submitLog } = useDriverApp();
   const { pushToast } = useToast();
   const currentStop = currentRoute?.stops.find((stop) => stop.status !== 'completed' && stop.status !== 'failed') || currentRoute?.stops[0] || null;
   const [temperature, setTemperature] = useState('');
@@ -31,6 +31,8 @@ export function TemperatureLogPage() {
         storage_area: storageArea,
         unit,
         check_type: checkType,
+        route_id: currentRoute?.id || null,
+        stop_id: stop?.id || null,
         notes: contextualNotes,
       });
 
@@ -46,8 +48,15 @@ export function TemperatureLogPage() {
   return (
     <section className="space-y-4">
       <div className="rounded-[2rem] bg-sand p-4 text-sm text-amber-900 shadow-card">
-        Logs are submitted to `/api/temperature-logs`. If the backend keeps its current role guard, driver submissions will return a permissions error until that API is opened to drivers.
+        Temperature checks are attached to the current route and stop automatically so dispatch and compliance exports stay aligned.
       </div>
+
+      {!isOnline || queuedTemperatureLogCount > 0 ? (
+        <div className="rounded-[2rem] bg-white p-4 text-sm text-slate-700 shadow-card">
+          {!isOnline ? 'You are offline. New temperature logs will be queued and synced automatically when service returns.' : null}
+          {queuedTemperatureLogCount > 0 ? `${!isOnline ? ' ' : ''}${queuedTemperatureLogCount} queued log${queuedTemperatureLogCount === 1 ? ' is' : 's are'} waiting to sync.` : null}
+        </div>
+      ) : null}
 
       <div className="rounded-[2rem] bg-white p-5 shadow-card">
         <p className="text-xs font-semibold uppercase tracking-[0.2em] text-slate-500">Current context</p>

@@ -4,25 +4,27 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { type Invoice, type InvoiceLotEntry, useDeleteInvoice, useInvoices, useUpdateInvoice } from '../hooks/useInvoices';
+import { type Invoice, type InvoiceLotEntry, useDeleteInvoice, useInvoices, useResendInvoiceEmail, useUpdateInvoice } from '../hooks/useInvoices';
 
-type InvoiceStatus = 'draft' | 'sent' | 'paid' | 'overdue' | 'cancelled' | 'other';
+type InvoiceStatus = 'pending' | 'sent' | 'delivered' | 'paid' | 'overdue' | 'void' | 'other';
 
 const statusColors = {
-  draft: 'gray',
+  pending: 'gray',
   sent: 'blue',
+  delivered: 'green',
   paid: 'green',
   overdue: 'red',
-  cancelled: 'gray',
+  void: 'gray',
 } as const;
 
 function normalizeStatus(value: string | undefined): InvoiceStatus {
   const s = String(value || '').trim().toLowerCase();
-  if (s === 'draft') return 'draft';
-  if (s === 'sent') return 'sent';
+  if (s === 'pending' || s === 'draft') return 'pending';
+  if (s === 'signed' || s === 'sent') return 'sent';
+  if (s === 'delivered') return 'delivered';
   if (s === 'paid') return 'paid';
   if (s === 'overdue') return 'overdue';
-  if (s === 'cancelled' || s === 'canceled') return 'cancelled';
+  if (s === 'void' || s === 'cancelled' || s === 'canceled') return 'void';
   return 'other';
 }
 
@@ -59,12 +61,17 @@ function totalLotQuantity(lots: InvoiceLotEntry[] | undefined): number {
 function totalLotWeight(lots: InvoiceLotEntry[] | undefined): number {
   return (lots || []).reduce((sum, lot) => sum + Number(lot.weight || 0), 0);
 }
+function invoicePrintBlocked(invoice: Invoice): boolean {
+  return invoice.estimated_weight_pending === true;
+}
 
 export function InvoicesPage() {
   const { data: invoices = [], isLoading, isError, error, refetch } = useInvoices();
   const updateInvoice = useUpdateInvoice();
   const deleteInvoice = useDeleteInvoice();
+  const resendInvoiceEmail = useResendInvoiceEmail();
 
+  const [actionError, setActionError] = useState('');
   const [notice, setNotice] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | InvoiceStatus>('all');
   const [search, setSearch] = useState('');
@@ -94,7 +101,7 @@ export function InvoicesPage() {
     total: invoices.length,
     paid: invoices.filter((i) => normalizeStatus(i.status) === 'paid').length,
     overdue: invoices.filter((i) => normalizeStatus(i.status) === 'overdue').length,
-    outstanding: invoices.filter((i) => ['sent', 'draft'].includes(normalizeStatus(i.status))).length,
+    outstanding: invoices.filter((i) => ['pending', 'sent', 'delivered'].includes(normalizeStatus(i.status))).length,
   }), [invoices]);
 
   function openInvoice(inv: Invoice) {
@@ -201,10 +208,26 @@ export function InvoicesPage() {
     );
   }
 
+  function resendInvoice(inv: Invoice) {
+    const id = inv.id;
+    if (!id) return;
+    resendInvoiceEmail.mutate(id, {
+      onSuccess: () => {
+        setActionError('');
+        setNotice(`Invoice ${invoiceId(inv)} emailed.`);
+      },
+      onError: (mutationError) => {
+        setNotice('');
+        setActionError(String((mutationError as Error)?.message || 'Could not resend invoice email'));
+      },
+    });
+  }
+
   return (
     <div className="space-y-5">
       {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading invoices...</div> : null}
       {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load invoices')}</div> : null}
+      {actionError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{actionError}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -225,11 +248,12 @@ export function InvoicesPage() {
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | InvoiceStatus)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
                 <option value="all">All</option>
-                <option value="draft">Draft</option>
+                <option value="pending">Pending</option>
                 <option value="sent">Sent</option>
+                <option value="delivered">Delivered</option>
                 <option value="paid">Paid</option>
                 <option value="overdue">Overdue</option>
-                <option value="cancelled">Cancelled</option>
+                <option value="void">Voided</option>
               </select>
             </label>
             <label className="space-y-1 text-sm">
@@ -272,7 +296,18 @@ export function InvoicesPage() {
                       <TableCell className="hidden md:table-cell whitespace-nowrap">{formatDate(inv.dueDate || inv.due_date)}</TableCell>
                       <TableCell className="hidden md:table-cell whitespace-nowrap">{formatDate(inv.paidDate || inv.paid_date)}</TableCell>
                       <TableCell className="text-right">
-                        <Button size="sm" className="whitespace-nowrap" onClick={() => openInvoice(inv)}>View / Edit</Button>
+                        <div className="flex justify-end gap-2">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            className="whitespace-nowrap"
+                            disabled={resendInvoiceEmail.isPending}
+                            onClick={() => resendInvoice(inv)}
+                          >
+                            {resendInvoiceEmail.isPending ? 'Sending...' : 'Resend Email'}
+                          </Button>
+                          <Button size="sm" className="whitespace-nowrap" onClick={() => openInvoice(inv)}>View / Edit</Button>
+                        </div>
                       </TableCell>
                     </TableRow>
                   );
@@ -296,8 +331,29 @@ export function InvoicesPage() {
               </div>
               <div className="flex flex-wrap gap-2">
                 {!confirmDelete && (
-                  <Button size="sm" variant="outline" onClick={() => printInvoiceSummary(selected)}>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={invoicePrintBlocked(selected)}
+                    onClick={() => {
+                      if (invoicePrintBlocked(selected)) {
+                        setNotice(`Invoice ${invoiceId(selected)} cannot be printed until final weights are entered.`);
+                        return;
+                      }
+                      printInvoiceSummary(selected);
+                    }}
+                  >
                     Print / Save PDF
+                  </Button>
+                )}
+                {!confirmDelete && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={resendInvoiceEmail.isPending}
+                    onClick={() => resendInvoice(selected)}
+                  >
+                    {resendInvoiceEmail.isPending ? 'Sending...' : 'Resend Email'}
                   </Button>
                 )}
                 {!editing && !confirmDelete && (
@@ -327,7 +383,7 @@ export function InvoicesPage() {
                 <div className="rounded-lg border border-border bg-muted/20 px-4 py-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Invoice Summary</div>
                   <div className="mt-2 space-y-1 text-sm">
-                    <div>Status: <strong className="capitalize">{String(selected.status || 'draft').replace('_', ' ')}</strong></div>
+                    <div>Status: <strong className="capitalize">{String(selected.status || 'pending').replace('_', ' ')}</strong></div>
                     <div>Amount: <strong>{formatAmount(draft.amount)}</strong></div>
                     <div>Issued: <strong>{formatDate(selected.created_at || selected.issuedDate || selected.issued_date)}</strong></div>
                     <div>Due: <strong>{formatDate(draft.dueDate || draft.due_date)}</strong></div>
@@ -339,10 +395,15 @@ export function InvoicesPage() {
                     <div>Lots tracked: <strong>{(selected.lot_numbers || []).length.toLocaleString()}</strong></div>
                     <div>Total lot qty: <strong>{totalLotQuantity(selected.lot_numbers).toLocaleString()}</strong></div>
                     <div>Total weight: <strong>{totalLotWeight(selected.lot_numbers).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} lbs</strong></div>
-                    <div>Printable record: <strong>Ready</strong></div>
+                    <div>Printable record: <strong>{invoicePrintBlocked(selected) ? 'Waiting on final weights' : 'Ready'}</strong></div>
                   </div>
                 </div>
               </div>
+              {invoicePrintBlocked(selected) ? (
+                <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                  Print is locked for this invoice because weight-based items are still marked as estimated. Finish final weight entry before creating a customer-facing PDF.
+                </div>
+              ) : null}
               <InvoiceField label="Invoice #" value={draft.invoiceNumber || draft.invoice_number} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, invoiceNumber: v }))} />
               <InvoiceField label="Customer" value={draft.customerName || draft.customer_name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, customerName: v }))} />
               <div className="flex items-start gap-3">
@@ -354,11 +415,12 @@ export function InvoicesPage() {
                 <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Status</span>
                 {editing ? (
                   <select value={draft.status || ''} onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value }))} className="flex-1 h-10 rounded-md border border-input bg-background px-3 text-sm">
-                    <option value="draft">Draft</option>
+                    <option value="pending">Pending</option>
                     <option value="sent">Sent</option>
+                    <option value="delivered">Delivered</option>
                     <option value="paid">Paid</option>
                     <option value="overdue">Overdue</option>
-                    <option value="cancelled">Cancelled</option>
+                    <option value="void">Voided</option>
                   </select>
                 ) : (
                   <span className="text-sm capitalize">{selected.status || '-'}</span>

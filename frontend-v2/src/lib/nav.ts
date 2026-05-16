@@ -7,7 +7,7 @@ import {
   DollarSign, FileText, BarChart2, Package, TrendingUp,
   ShoppingBag, ScanLine, Store, Warehouse, CalendarCog, Plug,
   ClipboardList, Bot, Building2, ListChecks, ShieldCheck,
-  FileBarChart2,
+  FileBarChart2, LayoutGrid,
 } from 'lucide-react';
 import type { Role } from './api';
 
@@ -15,10 +15,10 @@ import type { Role } from './api';
 export type TabId =
   | 'dashboard' | 'orders' | 'deliveries' | 'reports' | 'map'
   | 'drivers' | 'routes' | 'stops' | 'customers' | 'users'
-  | 'invoices' | 'analytics' | 'inventory' | 'forecast' | 'financials'
+  | 'invoices' | 'analytics' | 'inventory' | 'inventory-dashboard' | 'forecast' | 'financials'
   | 'purchasing' | 'vendors' | 'warehouse' | 'planning' | 'integrations'
   | 'aihelp' | 'settings' | 'traceability' | 'companies' | 'waitlist'
-  | 'compliance' | 'dsr';
+  | 'compliance' | 'dsr' | 'superadmin-overview';
 
 export type GroupId =
   | 'top' | 'logistics' | 'people' | 'financials'
@@ -68,6 +68,14 @@ export const navGroups: NavGroup[] = [
     allowedRoles: SA_ONLY,
     items: [
       {
+        id: 'superadmin-overview',
+        label: 'Platform Overview',
+        path: '/superadmin',
+        icon: LayoutGrid,
+        allowedRoles: SA_ONLY,
+        component: lazyNamed(() => import('../pages/SuperadminPage'), 'SuperadminPage'),
+      },
+      {
         id: 'companies',
         label: 'All Companies',
         path: '/superadmin/companies',
@@ -93,11 +101,19 @@ export const navGroups: NavGroup[] = [
     items: [
       {
         id: 'dashboard',
-        label: 'Dashboard',
+        label: 'Delivery Dashboard',
         path: '/dashboard',
         icon: LayoutDashboard,
         allowedRoles: SA_ADMIN_MGR,
         component: lazyNamed(() => import('../pages/DashboardPage'), 'DashboardPage'),
+      },
+      {
+        id: 'inventory-dashboard',
+        label: 'Inventory Dashboard',
+        path: '/inventory',
+        icon: Package,
+        allowedRoles: SA_ADMIN_MGR,
+        component: lazyNamed(() => import('../pages/InventoryPage'), 'InventoryPage'),
       },
       {
         id: 'orders',
@@ -162,7 +178,6 @@ export const navGroups: NavGroup[] = [
     items: [
       { id: 'financials', label: 'Financial Overview', path: '/financials', icon: DollarSign, allowedRoles: SA_ADMIN,     component: lazyNamed(() => import('../pages/FinancialsPage'),   'FinancialsPage') },
       { id: 'analytics',  label: 'Analytics',          path: '/analytics',  icon: BarChart2,  allowedRoles: SA_ADMIN,     component: lazyNamed(() => import('../pages/AnalyticsPage'),    'AnalyticsPage') },
-      { id: 'inventory',  label: 'Inventory',          path: '/inventory',  icon: Package,    allowedRoles: SA_ADMIN_MGR, component: lazyNamed(() => import('../pages/InventoryPage'),    'InventoryPage') },
       { id: 'forecast',   label: 'Forecasting',        path: '/forecast',   icon: TrendingUp, allowedRoles: SA_ADMIN,     component: lazyNamed(() => import('../pages/ForecastingPage'),  'ForecastingPage') },
     ],
   },

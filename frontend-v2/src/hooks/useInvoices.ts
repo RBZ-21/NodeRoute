@@ -29,6 +29,7 @@ export type Invoice = {
   paid_date?: string;
   notes?: string;
   created_at?: string;
+  estimated_weight_pending?: boolean;
   lot_numbers?: InvoiceLotEntry[];
 };
 
@@ -54,6 +55,14 @@ export function useDeleteInvoice() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string | number) => sendWithAuth(`/api/invoices/${id}`, 'DELETE'),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['invoices'] }),
+  });
+}
+
+export function useResendInvoiceEmail() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string | number) => sendWithAuth(`/api/invoices/${id}/resend`, 'POST'),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['invoices'] }),
   });
 }

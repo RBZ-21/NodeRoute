@@ -56,6 +56,7 @@ export type ReportResponse = {
 export type ReportParams = {
   lot: string;
   product: string;
+  vendor: string;
   dateFrom: string;
   dateTo: string;
   page: number;
@@ -80,6 +81,7 @@ export function useTraceabilityReportQuery(params: ReportParams) {
       'traceability-report',
       params.lot,
       params.product,
+      params.vendor,
       params.dateFrom,
       params.dateTo,
       params.page,
@@ -88,6 +90,7 @@ export function useTraceabilityReportQuery(params: ReportParams) {
       const p = new URLSearchParams({ page: String(params.page), limit: '50' });
       if (params.lot)      p.set('lot',        params.lot);
       if (params.product)  p.set('product_id', params.product);
+      if (params.vendor)   p.set('vendor',     params.vendor);
       if (params.dateFrom) p.set('date_from',  params.dateFrom);
       if (params.dateTo)   p.set('date_to',    params.dateTo);
       return fetchWithAuth<ReportResponse>(`/api/lots/traceability/report?${p}`);

@@ -38,11 +38,16 @@ const lotsRouter          = require('./routes/lots');
 const integrationsRouter  = require('./routes/integrations');
 const warehouseRouter     = require('./routes/warehouse');
 const superadminRouter    = require('./routes/superadmin');
+const companyConfigRouter = require('./routes/company-config');
+const onboardingRouter    = require('./routes/onboarding');
 const waitlistRouter      = require('./routes/waitlist');
 const dwellRouter         = require('./routes/dwell');
 const salesRepsRouter     = require('./routes/sales-reps');
 const arHubRouter         = require('./routes/ar-hub');
+const vendorBillsRouter   = require('./routes/vendor-bills');
 const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
+
+const helmet = require('helmet');
 
 const app  = express();
 const PORT = config.PORT;
@@ -53,6 +58,21 @@ app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stri
 app.use(express.json({ limit: config.JSON_BODY_LIMIT }));
 app.use(cookieParser());
 app.disable('x-powered-by');
+
+// Helmet supplies headers not covered by the custom security middleware below:
+// dnsPrefetchControl, ieNoOpen, originAgentCluster, permittedCrossDomainPolicies,
+// crossOriginEmbedderPolicy, crossOriginResourcePolicy.
+// Headers already set explicitly below (CSP, HSTS, frameguard, noSniff,
+// referrerPolicy, crossOriginOpenerPolicy) are disabled here to avoid conflicts.
+app.use(helmet({
+  contentSecurityPolicy:        false,
+  crossOriginOpenerPolicy:      false,
+  frameguard:                   false,
+  hsts:                         false,
+  noSniff:                      false,
+  referrerPolicy:               false,
+  hidePoweredBy:                false, // already done with app.disable('x-powered-by')
+}));
 
 // Warn at startup if body limit is unusually large (potential DoS risk).
 (function warnBodyLimit() {
@@ -170,11 +190,19 @@ app.use('/api/reporting', reportingRouter);
 app.use('/api/lots', lotsRouter);
 app.use('/api/integrations', integrationsRouter);
 app.use('/api/warehouse', warehouseRouter);
+// restore-session must be reachable while holding an impersonation token
+// (role=admin), so it runs with only authenticateToken — before the guarded router.
+const { authenticateToken: _authenticateToken } = require('./middleware/auth');
+app.post('/api/superadmin/restore-session', _authenticateToken, superadminRouter.restoreSessionHandler);
+
 app.use('/api/superadmin', superadminRouter);
+app.use('/api/company-config', companyConfigRouter);
+app.use('/api/onboarding', onboardingRouter);
 app.use('/api/waitlist', waitlistRouter);
 app.use('/api/dwell', dwellRouter);
 app.use('/api/sales-reps', salesRepsRouter);
 app.use('/api/ar', arHubRouter);
+app.use('/api/vendor-bills', vendorBillsRouter);
 
 const { authenticateToken, requireRole } = require('./middleware/auth');
 

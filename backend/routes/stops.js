@@ -8,6 +8,12 @@ const {
   insertRecordWithOptionalScope,
   rowMatchesContext,
 } = require('../services/operating-context');
+const {
+  extractOrderNumberFromStopNotes,
+  mergeInvoiceNotesWithDriverNotes,
+  statusAfterDeliveryCompletion,
+} = require('../services/invoice-delivery');
+const { syncRouteMutation } = require('../services/route-stop-sync');
 
 const STOP_FIELDS = [
   'route_id', 'customer_id', 'address', 'status', 'name',
@@ -20,11 +26,87 @@ const STOP_FIELDS = [
 // Fields a driver is allowed to self-update on their own stops
 const DRIVER_ALLOWED_FIELDS = ['driver_notes', 'door_code', 'status'];
 
+function appendDropOffDriverNote(existingNotes) {
+  const marker = 'Delivery method: drop off (no signature captured).';
+  const normalized = String(existingNotes || '').trim();
+  if (normalized.toLowerCase().includes(marker.toLowerCase())) return normalized || marker;
+  return [normalized, marker].filter(Boolean).join('\n');
+}
+
 function isRouteAssignedToUser(route, user) {
   if (!route || !user) return false;
   if (route.driver_id && String(route.driver_id) === String(user.id)) return true;
   if (route.driver && String(route.driver).toLowerCase().trim() === String(user.name || '').toLowerCase().trim()) return true;
   return false;
+}
+
+async function loadLinkedInvoiceForStop(stop, context) {
+  if (!stop) return null;
+
+  if (stop.invoice_id) {
+    const { data: invoice } = await supabase
+      .from('invoices').select('*').eq('id', stop.invoice_id).single();
+    if (invoice && rowMatchesContext(invoice, context)) return invoice;
+  }
+
+  const orderNumber = extractOrderNumberFromStopNotes(stop.notes);
+  if (!orderNumber) return null;
+
+  const { data: orders, error: orderError } = await supabase
+    .from('orders')
+    .select('id, invoice_id, order_number, company_id, location_id')
+    .eq('order_number', orderNumber)
+    .limit(1);
+  if (orderError || !Array.isArray(orders) || !orders.length) return null;
+
+  const order = orders.find((candidate) => rowMatchesContext(candidate, context));
+  if (!order) return null;
+
+  if (order.invoice_id) {
+    const { data: invoice } = await supabase
+      .from('invoices').select('*').eq('id', order.invoice_id).single();
+    if (invoice && rowMatchesContext(invoice, context)) return invoice;
+  }
+
+  const { data: invoices, error: invoiceError } = await supabase
+    .from('invoices')
+    .select('*')
+    .eq('order_id', order.id)
+    .limit(1);
+  if (invoiceError || !Array.isArray(invoices) || !invoices.length) return null;
+  return invoices.find((candidate) => rowMatchesContext(candidate, context)) || null;
+}
+
+async function syncLinkedInvoiceForStop(stop, context, { markDelivered = false, syncDriverNotes = false } = {}) {
+  const linkedInvoice = await loadLinkedInvoiceForStop(stop, context);
+  if (!linkedInvoice) return null;
+
+  const updates = {};
+
+  if (syncDriverNotes && stop.driver_notes !== undefined) {
+    const nextNotes = mergeInvoiceNotesWithDriverNotes(linkedInvoice.notes, stop.driver_notes);
+    if (nextNotes !== (linkedInvoice.notes || null)) {
+      updates.notes = nextNotes;
+    }
+  }
+
+  if (markDelivered) {
+    const nextStatus = statusAfterDeliveryCompletion(linkedInvoice.status);
+    if (nextStatus && nextStatus !== String(linkedInvoice.status || '').trim().toLowerCase()) {
+      updates.status = nextStatus;
+    }
+  }
+
+  if (!Object.keys(updates).length) return linkedInvoice;
+
+  const { data, error } = await supabase
+    .from('invoices')
+    .update(updates)
+    .eq('id', linkedInvoice.id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data || { ...linkedInvoice, ...updates };
 }
 
 async function authorizeDwellEvent(req, res, stopId) {
@@ -128,6 +210,14 @@ router.patch('/:id', authenticateToken, async (req, res) => {
       const { data, error } = await supabase
         .from('stops').update(update).eq('id', req.params.id).select().single();
       if (error) return res.status(500).json({ error: error.message });
+      if (update.driver_notes !== undefined) {
+        try {
+          await syncLinkedInvoiceForStop(data, req.context, { syncDriverNotes: true });
+        } catch (invoiceSyncError) {
+          // Driver notes on the stop remain the source of truth; invoice sync is best-effort.
+          console.error('[stops] invoice driver-notes sync failed:', invoiceSyncError.message);
+        }
+      }
       return res.json(data);
     }
 
@@ -143,9 +233,39 @@ router.patch('/:id', authenticateToken, async (req, res) => {
       if (req.body[field] !== undefined) update[field] = req.body[field];
     }
     if (!Object.keys(update).length) return res.status(400).json({ error: 'No valid fields provided' });
+
+    // State machine — prevent stop status regression.
+    if (update.status !== undefined) {
+      const currentStatus = String(existing.status || 'pending').toLowerCase();
+      const nextStatus    = String(update.status).toLowerCase();
+      const stopTransitions = {
+        pending:   ['arrived', 'completed', 'deferred'],
+        arrived:   ['completed', 'deferred'],
+        completed: [],
+        deferred:  ['pending', 'arrived'],
+      };
+      const allowedNext = stopTransitions[currentStatus];
+      if (!allowedNext) {
+        return res.status(400).json({ error: `Unknown current stop status: '${currentStatus}'` });
+      }
+      if (!allowedNext.includes(nextStatus)) {
+        return res.status(400).json({
+          error: `Cannot change stop status from '${currentStatus}' to '${nextStatus}'`,
+        });
+      }
+      update.status = nextStatus;
+    }
+
     const { data, error } = await supabase
       .from('stops').update(update).eq('id', req.params.id).select().single();
     if (error) return res.status(500).json({ error: error.message });
+    if (update.driver_notes !== undefined) {
+      try {
+        await syncLinkedInvoiceForStop(data, req.context, { syncDriverNotes: true });
+      } catch (invoiceSyncError) {
+        console.error('[stops] invoice driver-notes sync failed:', invoiceSyncError.message);
+      }
+    }
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -196,7 +316,11 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
   try {
     const auth = await authorizeDwellEvent(req, res, req.params.id);
     if (!auth.ok) return;
-    const { route } = auth;
+    const { route, stop } = auth;
+    const completionType = String(req.body?.completion_type || '').trim().toLowerCase();
+    const driverNotes = completionType === 'drop_off'
+      ? appendDropOffDriverNote(stop?.driver_notes)
+      : stop?.driver_notes;
 
     const { data: openRecords, error: findErr } = await supabase
       .from('dwell_records')
@@ -222,27 +346,20 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
       .single();
     if (updateErr) return res.status(500).json({ error: updateErr.message });
 
-    await supabase.from('stops').update({ status: 'completed' }).eq('id', req.params.id);
+    await supabase.from('stops').update({
+      status: 'completed',
+      ...(driverNotes ? { driver_notes: driverNotes } : {}),
+    }).eq('id', req.params.id);
 
-    // Fire delivery confirmation email non-fatally
+    // Fire delivery confirmation email non-fatally using the invoice already linked to this stop
     try {
-      const { stop } = auth;
-      if (stop.customer_id) {
-        const { data: order } = await supabase
-          .from('orders')
-          .select('invoice_id')
-          .eq('customer_id', stop.customer_id)
-          .not('invoice_id', 'is', null)
-          .order('created_at', { ascending: false })
-          .limit(1)
-          .single();
-        if (order?.invoice_id) {
-          const { data: invoice } = await supabase
-            .from('invoices').select('*').eq('id', order.invoice_id).single();
-          const email = invoice?.customer_email || invoice?.contact_email || invoice?.billing_email;
-          if (invoice && email) await sendInvoiceEmail(invoice, 'Invoice');
-        }
-      }
+      const invoice = await syncLinkedInvoiceForStop(
+        { ...stop, status: 'completed', driver_notes: driverNotes },
+        req.context,
+        { markDelivered: true, syncDriverNotes: true }
+      );
+      const email = invoice?.customer_email || invoice?.contact_email || invoice?.billing_email;
+      if (invoice && email) await sendInvoiceEmail(invoice, 'Invoice');
     } catch { /* email failure must never block the depart response */ }
 
     res.json(updated);
@@ -286,7 +403,7 @@ router.post('/:id/move-to-end', authenticateToken, requireRole('admin', 'manager
     if (!stop.route_id) return res.status(400).json({ error: 'Stop is not assigned to a route' });
 
     const { data: route, error: routeErr } = await supabase
-      .from('routes').select('active_stop_ids').eq('id', stop.route_id).single();
+      .from('routes').select('stop_ids, active_stop_ids').eq('id', stop.route_id).single();
     if (routeErr || !route) return res.status(404).json({ error: 'Route not found' });
 
     const current = Array.isArray(route.active_stop_ids) ? route.active_stop_ids : [];
@@ -295,6 +412,20 @@ router.post('/:id/move-to-end', authenticateToken, requireRole('admin', 'manager
     const { error: updateErr } = await supabase
       .from('routes').update({ active_stop_ids: reordered }).eq('id', stop.route_id);
     if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+    const syncResult = await syncRouteMutation(supabase, {
+      routeId: stop.route_id,
+      stopIds: Array.isArray(route.stop_ids) ? route.stop_ids : reordered,
+      activeStopIds: reordered,
+      action: 'move_to_end',
+      actor: req.user,
+      context: req.context,
+      metadata: {
+        stopId,
+        requestedByRole: req.user.role,
+      },
+    });
+    if (syncResult.error) return res.status(500).json({ error: syncResult.error.message });
 
     res.json({ ok: true, new_position: reordered.length });
   } catch (err) {
@@ -350,6 +481,20 @@ router.post('/:id/defer', authenticateToken, async (req, res) => {
       .update({ active_stop_ids: activeIds })
       .eq('id', route.id);
     if (updateErr) return res.status(500).json({ error: updateErr.message });
+
+    const syncResult = await syncRouteMutation(supabase, {
+      routeId: route.id,
+      stopIds: Array.isArray(route.stop_ids) ? route.stop_ids : activeIds,
+      activeStopIds: activeIds,
+      action: 'defer',
+      actor: req.user,
+      context: req.context,
+      metadata: {
+        stopId,
+        requestedByRole: req.user.role,
+      },
+    });
+    if (syncResult.error) return res.status(500).json({ error: syncResult.error.message });
 
     res.json({
       route_id: route.id,

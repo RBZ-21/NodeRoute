@@ -20,6 +20,8 @@ type Props = {
   onLoad: () => void;
   onEdit: (order: Order) => void;
   onSend: (order: Order) => void;
+  onMarkDelivered: (order: Order) => void;
+  onResendInvoice: (order: Order) => void;
   onFulfill: (order: Order) => void;
   onToggleWeightCapture: (order: Order) => void;
   onDelete: (id: string) => void;
@@ -31,7 +33,7 @@ function hasCatchWeightPending(order: Order): boolean {
 
 export function OrdersWorkbench({
   orders, customerIdParam, search, setSearch, status, setStatus,
-  weightCaptureOrderId, role, onLoad, onEdit, onSend, onFulfill,
+  weightCaptureOrderId, role, onLoad, onEdit, onSend, onMarkDelivered, onResendInvoice, onFulfill,
   onToggleWeightCapture, onDelete,
 }: Props) {
   const filtered = useMemo(() => {
@@ -70,6 +72,7 @@ export function OrdersWorkbench({
               <option value="all">All</option>
               <option value="pending">Pending</option>
               <option value="in_process">In Process</option>
+              <option value="delivered">Delivered</option>
               <option value="invoiced">Invoiced</option>
               <option value="cancelled">Cancelled</option>
             </select>
@@ -96,6 +99,7 @@ export function OrdersWorkbench({
                 filtered.map((order) => {
                   const parsedStatus = normalizedStatus(order.status);
                   const pendingWeights = hasCatchWeightPending(order);
+                  const linkedInvoiceId = order.invoice_id || order.invoiceId;
                   return (
                     <TableRow key={order.id}>
                       <TableCell className="font-medium">
@@ -124,6 +128,12 @@ export function OrdersWorkbench({
                           <Button variant="ghost" size="sm" onClick={() => onEdit(order)}>Edit Order</Button>
                           {parsedStatus === 'pending' ? (
                             <Button variant="secondary" size="sm" onClick={() => onSend(order)}>Send to Processing</Button>
+                          ) : null}
+                          {parsedStatus === 'pending' ? (
+                            <Button variant="outline" size="sm" onClick={() => onMarkDelivered(order)}>Mark as Delivered</Button>
+                          ) : null}
+                          {linkedInvoiceId ? (
+                            <Button variant="outline" size="sm" onClick={() => onResendInvoice(order)}>Resend Invoice Email</Button>
                           ) : null}
                           {parsedStatus === 'in_process' ? (
                             <Button variant="secondary" size="sm" onClick={() => onFulfill(order)}>Quick Fulfill</Button>
