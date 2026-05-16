@@ -1,0 +1,6 @@
+[build]
+buildCommand = "npm run install:all && npm run build"
+
+[deploy]
+startCommand = "node backend/server.js"
+restartPolicyType = "on_failure"
