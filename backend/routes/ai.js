@@ -24,6 +24,7 @@ const {
   detectPricingAnomalies,
 } = require('../services/ai');
 const { recordPoInvoiceScan } = require('../services/purchase-order-workflows');
+const { getAiScanErrorResponse } = require('../services/ai-errors');
 const { filterRowsByContext } = require('../services/operating-context');
 
 const router = express.Router();
@@ -470,10 +471,11 @@ router.post(
         scan_id: scanRecord?.id || null,
       });
     } catch (err) {
-      if (String(err.message || '').includes('OPENAI_API_KEY')) {
-        return res.status(503).json({ error: 'AI service is not configured.' });
-      }
-      res.status(500).json({ error: 'PO scan failed: ' + err.message });
+      const { status, body } = getAiScanErrorResponse(
+        err,
+        'PO scan failed. Please try again with a clearer image or enter the details manually.'
+      );
+      res.status(status).json(body);
     }
   }
 );

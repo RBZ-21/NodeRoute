@@ -318,7 +318,28 @@ test('scan-po returns 503 when AI scanning is unavailable', async (t) => {
   });
 
   assert.equal(response.status, 503);
-  assert.deepEqual(response.body, { error: 'AI service is not configured.' });
+  assert.deepEqual(response.body, { error: 'AI service is not configured. Update OPENAI_API_KEY and restart the server.' });
+  assert.equal(harness.workflowCalls.length, 0);
+});
+
+test('scan-po does not expose provider authentication details when the AI key is invalid', async (t) => {
+  const providerError = new Error('401 Incorrect API key provided: sk-proj-secret0z0b');
+  providerError.status = 401;
+  const harness = await startAiScanHarness(t, {
+    thrownError: providerError,
+  });
+
+  const response = await postScanPo(harness.baseUrl, {
+    cookie: harness.sessionCookie,
+    csrfToken: harness.csrfToken,
+    filePath: fixturePngPath,
+    fileName: 'sample-po.png',
+    mimeType: 'image/png',
+  });
+
+  assert.equal(response.status, 503);
+  assert.deepEqual(response.body, { error: 'AI service is not configured. Update OPENAI_API_KEY and restart the server.' });
+  assert.doesNotMatch(JSON.stringify(response.body), /sk-proj|Incorrect API key|secret0z0b/i);
   assert.equal(harness.workflowCalls.length, 0);
 });
 
@@ -335,7 +356,7 @@ test('scan-po returns a clear failure when the AI vision request fails', async (
     mimeType: 'image/png',
   });
 
-  assert.equal(response.status, 500);
-  assert.deepEqual(response.body, { error: 'PO scan failed: model could not read image' });
+  assert.equal(response.status, 502);
+  assert.deepEqual(response.body, { error: 'PO scan failed. Please try again with a clearer image or enter the details manually.' });
   assert.equal(harness.workflowCalls.length, 0);
 });
