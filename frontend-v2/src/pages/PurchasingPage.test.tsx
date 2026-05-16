@@ -4,9 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PurchasingPage } from './PurchasingPage';
 import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
-const { fetchWithAuthMock, sendWithAuthMock } = vi.hoisted(() => ({
+const { fetchWithAuthMock, sendWithAuthMock, uploadWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
   sendWithAuthMock: vi.fn(),
+  uploadWithAuthMock: vi.fn(),
 }));
 
 const openMock = vi.fn();
@@ -15,6 +16,7 @@ const fetchMock = vi.fn();
 vi.mock('../lib/api', () => ({
   fetchWithAuth: fetchWithAuthMock,
   sendWithAuth: sendWithAuthMock,
+  uploadWithAuth: uploadWithAuthMock,
 }));
 
 const baseOrders = [
@@ -338,6 +340,7 @@ describe('PurchasingPage', () => {
   beforeEach(() => {
     fetchWithAuthMock.mockReset();
     sendWithAuthMock.mockReset();
+    uploadWithAuthMock.mockReset();
     openMock.mockReset();
     fetchMock.mockReset();
     openMock.mockReturnValue({
@@ -351,6 +354,10 @@ describe('PurchasingPage', () => {
     });
     vi.stubGlobal('open', openMock);
     vi.stubGlobal('fetch', fetchMock);
+    uploadWithAuthMock.mockImplementation(async () => {
+      const response = await fetchMock();
+      return response.json();
+    });
     mockPurchasingApi();
   });
 
@@ -476,6 +483,7 @@ describe('PurchasingPage', () => {
               product_name: 'Shipping Box',
             },
           ],
+          carrier_name: null,
           notes: 'Pallet 3 shorted 2 boxes',
           receiptRules: {
             over_receipt_policy: 'cap',

@@ -69,9 +69,8 @@ export async function sendWithAuth<T>(url: string, method: 'POST' | 'PATCH' | 'D
 /**
  * Upload a file (multipart/form-data) with auth cookies.
  * Do NOT set Content-Type manually — the browser must set it with the
- * correct boundary for multipart. CSRF token is omitted intentionally
- * because the upload routes are protected by authenticateToken (JWT cookie)
- * only, not by CSRF middleware.
+ * correct boundary for multipart. Mutating upload routes still need the
+ * readable CSRF token header because authenticateToken enforces it for POSTs.
  *
  * @param url    - The endpoint, e.g. '/api/purchase-orders/scan'
  * @param field  - The multer field name expected by the server, e.g. 'image'
@@ -83,7 +82,10 @@ export async function uploadWithAuth<T>(url: string, field: string, file: File):
   const response = await fetch(url, {
     method: 'POST',
     credentials: 'include',
-    // No Content-Type header — browser sets multipart/form-data + boundary automatically
+    headers: {
+      'X-CSRF-Token': getCsrfToken(),
+    },
+    // No Content-Type header: browser sets multipart/form-data + boundary automatically.
     body: formData,
   });
   return parseResponse<T>(response, url);
