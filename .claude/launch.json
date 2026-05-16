@@ -2,10 +2,18 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "Landing Page",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5173"],
+      "cwd": "landing-v2",
+      "port": 5173
+    },
+    {
       "name": "Backend API",
       "runtimeExecutable": "node",
       "runtimeArgs": ["backend/server.js"],
-      "port": 3001
+      "port": 3001,
+      "autoPort": true
     },
     {
       "name": "Frontend (static)",

@@ -1,0 +1,285 @@
+const COMPANY_FIELD_CANDIDATES = ['company_id', 'organization_id', 'tenant_id', 'org_id'];
+const COMPANY_NAME_FIELD_CANDIDATES = ['company_name', 'organization_name', 'tenant_name'];
+const COMPANY_LIST_FIELD_CANDIDATES = ['company_ids', 'organization_ids', 'tenant_ids', 'accessible_company_ids'];
+const LOCATION_FIELD_CANDIDATES = ['location_id', 'site_id', 'warehouse_id'];
+const LOCATION_NAME_FIELD_CANDIDATES = ['location_name', 'site_name', 'warehouse_name'];
+const LOCATION_LIST_FIELD_CANDIDATES = ['location_ids', 'site_ids', 'warehouse_ids', 'accessible_location_ids'];
+const PLATFORM_ROLE_CANDIDATES = ['platform_role', 'scope_role'];
+const {
+  DEFAULT_COMPANY_ID,
+  DEFAULT_COMPANY_NAME,
+  DEFAULT_LOCATION_ID,
+  DEFAULT_LOCATION_NAME,
+} = require('../lib/config');
+const OPTIONAL_SCOPE_FIELDS = [
+  'location_id',
+  'location_name',
+  'company_id',
+  'company_name',
+  'address',
+  'charges',
+  'tax_enabled',
+  'tax_rate',
+  'order_id',
+  'invoice_id',
+  'tracking_token',
+  'tracking_expires_at',
+  'logged_at',
+  'storage_area',
+  'temperature',
+  'unit',
+  'check_type',
+  'corrective_action',
+  'driver_id',
+  'driver_name',
+  'route_id',
+  'stop_id',
+  'active_stop_ids',
+  'billing_name',
+  'billing_contact',
+  'billing_email',
+  'billing_phone',
+  'billing_address',
+  'initials',
+  'recorded_by',
+];
+
+// Lazy-load logger to avoid circular dependency at module init time.
+let _logger = null;
+function getLogger() {
+  if (!_logger) _logger = require('./logger');
+  return _logger;
+}
+
+function firstValue(source, keys) {
+  if (!source || typeof source !== 'object') return null;
+  for (const key of keys) {
+    if (source[key] !== undefined && source[key] !== null && source[key] !== '') {
+      return source[key];
+    }
+  }
+  return null;
+}
+
+function normalizeId(value) {
+  if (value === undefined || value === null) return null;
+  const normalized = String(value).trim();
+  return normalized || null;
+}
+
+function parseIdList(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) {
+    return value.map(normalizeId).filter(Boolean);
+  }
+  if (typeof value === 'string') {
+    const trimmed = value.trim();
+    if (!trimmed) return [];
+    if (trimmed.startsWith('[')) {
+      try {
+        return JSON.parse(trimmed).map(normalizeId).filter(Boolean);
+      } catch {
+        return trimmed.split(',').map(normalizeId).filter(Boolean);
+      }
+    }
+    return trimmed.split(',').map(normalizeId).filter(Boolean);
+  }
+  return [];
+}
+
+function getUserOperatingContext(user) {
+  const companyId = normalizeId(firstValue(user, COMPANY_FIELD_CANDIDATES) || DEFAULT_COMPANY_ID);
+  const companyName = normalizeId(firstValue(user, COMPANY_NAME_FIELD_CANDIDATES) || DEFAULT_COMPANY_NAME);
+  const baseLocationId = normalizeId(firstValue(user, LOCATION_FIELD_CANDIDATES) || DEFAULT_LOCATION_ID);
+  const locationName = normalizeId(firstValue(user, LOCATION_NAME_FIELD_CANDIDATES) || DEFAULT_LOCATION_NAME);
+  const platformRole = normalizeId(firstValue(user, PLATFORM_ROLE_CANDIDATES));
+  const accessibleLocationIds = [
+    ...parseIdList(firstValue(user, LOCATION_LIST_FIELD_CANDIDATES)),
+    ...(baseLocationId ? [baseLocationId] : []),
+  ].filter((value, index, all) => all.indexOf(value) === index);
+  const accessibleCompanyIds = [
+    ...parseIdList(firstValue(user, COMPANY_LIST_FIELD_CANDIDATES)),
+    ...(companyId ? [companyId] : []),
+  ].filter((value, index, all) => all.indexOf(value) === index);
+
+  return {
+    companyId,
+    companyName,
+    accessibleCompanyIds,
+    locationId: baseLocationId,
+    locationName,
+    accessibleLocationIds,
+    platformRole,
+    isGlobalOperator: ['platform_admin', 'super_admin'].includes(String(platformRole || '').toLowerCase()),
+  };
+}
+
+function buildRequestContext(req, user) {
+  const userContext = getUserOperatingContext(user);
+  const logger = getLogger();
+
+  const requestedCompanyId = normalizeId(
+    req?.headers?.['x-company-id'] ||
+    req?.query?.companyId ||
+    req?.body?.companyId ||
+    null
+  );
+  let activeCompanyId = userContext.companyId;
+  if (requestedCompanyId) {
+    const canUseRequestedCompany =
+      userContext.isGlobalOperator ||
+      userContext.accessibleCompanyIds.includes(requestedCompanyId);
+    if (canUseRequestedCompany) {
+      activeCompanyId = requestedCompanyId;
+    } else {
+      // Log rejected context-shift attempts for audit visibility.
+      logger.warn(
+        { userId: user?.id, role: user?.role, requestedCompanyId, allowedCompanyIds: userContext.accessibleCompanyIds },
+        'Context shift rejected: x-company-id not in accessibleCompanyIds'
+      );
+    }
+  }
+
+  const requestedLocationId = normalizeId(
+    req?.headers?.['x-location-id'] ||
+    req?.query?.locationId ||
+    req?.body?.locationId ||
+    null
+  );
+  let activeLocationId = userContext.locationId;
+  if (requestedLocationId) {
+    const canUseRequestedLocation =
+      userContext.isGlobalOperator ||
+      userContext.accessibleLocationIds.includes(requestedLocationId);
+    if (canUseRequestedLocation) {
+      activeLocationId = requestedLocationId;
+    } else {
+      // Log rejected context-shift attempts for audit visibility.
+      logger.warn(
+        { userId: user?.id, role: user?.role, requestedLocationId, allowedLocationIds: userContext.accessibleLocationIds },
+        'Context shift rejected: x-location-id not in accessibleLocationIds'
+      );
+    }
+  }
+
+  return {
+    ...userContext,
+    requestedCompanyId,
+    activeCompanyId,
+    requestedLocationId,
+    activeLocationId,
+  };
+}
+
+function userResponseWithContext(user) {
+  const context = getUserOperatingContext(user);
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    companyId: context.companyId,
+    companyName: context.companyName,
+    activeCompanyId: context.companyId,
+    accessibleCompanyIds: context.accessibleCompanyIds,
+    locationId: context.locationId,
+    locationName: context.locationName,
+    accessibleLocationIds: context.accessibleLocationIds,
+    platformRole: context.platformRole,
+  };
+}
+
+function extractRowCompanyId(row) {
+  return normalizeId(firstValue(row, COMPANY_FIELD_CANDIDATES));
+}
+
+function extractRowLocationId(row) {
+  return normalizeId(firstValue(row, LOCATION_FIELD_CANDIDATES));
+}
+
+function rowMatchesContext(row, context) {
+  if (!row || !context || context.isGlobalOperator) return true;
+
+  const rowCompanyId = extractRowCompanyId(row);
+  const rowLocationId = extractRowLocationId(row);
+  const activeCompanyId = normalizeId(context.activeCompanyId || context.companyId);
+  const allowedCompanies = Array.isArray(context.accessibleCompanyIds) ? context.accessibleCompanyIds : [];
+
+  if (activeCompanyId && rowCompanyId && rowCompanyId !== activeCompanyId) return false;
+  if (!activeCompanyId && context.companyId && rowCompanyId && rowCompanyId !== context.companyId) return false;
+  if (!activeCompanyId && allowedCompanies.length && rowCompanyId && !allowedCompanies.includes(rowCompanyId)) return false;
+
+  const allowedLocations = context.accessibleLocationIds || [];
+  if (context.activeLocationId && rowLocationId && rowLocationId !== context.activeLocationId) return false;
+  if (!context.activeLocationId && allowedLocations.length && rowLocationId && !allowedLocations.includes(rowLocationId)) return false;
+
+  return true;
+}
+
+function filterRowsByContext(rows, context) {
+  if (!Array.isArray(rows)) return rows;
+  return rows.filter((row) => rowMatchesContext(row, context));
+}
+
+function buildScopeFields(context, overrides = {}) {
+  const scoped = { ...overrides };
+  const companyId = normalizeId(overrides.company_id || overrides.companyId || context.activeCompanyId || context.companyId);
+  const locationId = normalizeId(overrides.location_id || overrides.locationId || context.activeLocationId || context.locationId);
+
+  if (companyId) scoped.company_id = companyId;
+  if (locationId) scoped.location_id = locationId;
+  return scoped;
+}
+
+function isMissingColumnError(error) {
+  const message = String(error?.message || '').toLowerCase();
+  return (
+    message.includes('column') && message.includes('does not exist')
+  ) || message.includes('schema cache');
+}
+
+function findMissingScopeField(error, record) {
+  const message = String(error?.message || '').toLowerCase();
+  for (const key of OPTIONAL_SCOPE_FIELDS) {
+    if (record[key] !== undefined && message.includes(key)) {
+      return key;
+    }
+  }
+
+  return OPTIONAL_SCOPE_FIELDS.find((key) => record[key] !== undefined) || null;
+}
+
+async function executeWithOptionalScope(execute, record) {
+  const candidate = { ...record };
+  let result = await execute(candidate);
+
+  while (result.error && isMissingColumnError(result.error)) {
+    const missingField = findMissingScopeField(result.error, candidate);
+    if (!missingField) break;
+    delete candidate[missingField];
+    result = await execute(candidate);
+  }
+
+  result.appliedRecord = { ...candidate };
+  return result;
+}
+
+async function insertRecordWithOptionalScope(supabase, table, record, context) {
+  const scopedRecord = { ...record, ...buildScopeFields(context) };
+  return executeWithOptionalScope(
+    (candidate) => supabase.from(table).insert([candidate]).select().single(),
+    scopedRecord
+  );
+}
+
+module.exports = {
+  buildRequestContext,
+  buildScopeFields,
+  executeWithOptionalScope,
+  filterRowsByContext,
+  getUserOperatingContext,
+  insertRecordWithOptionalScope,
+  isMissingColumnError,
+  rowMatchesContext,
+  userResponseWithContext,
+};
