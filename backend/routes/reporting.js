@@ -2,6 +2,7 @@ const express = require('express');
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { filterRowsByContext } = require('../services/operating-context');
+const { readOpsData, summarizeVendorPo } = require('./ops-utils');
 
 const router = express.Router();
 
@@ -16,6 +17,11 @@ function toNumber(value, fallback = 0) {
 
 function toDateOrNull(value) {
   if (!value) return null;
+  if (typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) {
+    const [year, month, day] = value.trim().split('-').map((part) => parseInt(part, 10));
+    const localDate = new Date(year, (month || 1) - 1, day || 1);
+    return Number.isFinite(localDate.getTime()) ? localDate : null;
+  }
   const d = new Date(value);
   return Number.isFinite(d.getTime()) ? d : null;
 }
@@ -158,6 +164,7 @@ function computeRollups({ orders, invoices, routes, inventory, startDate, endDat
     driverRow.revenue += invoiceRevenue;
 
     for (const line of parseInvoiceItems(invoice)) {
+      // Prefer human-readable description/name over SKU for label; keep SKU as stable grouping key
       const skuLabel = line.description || line.name || line.item_number || 'Unknown SKU';
       const skuKey = normalize(line.item_number) || normalize(skuLabel) || `sku:${invoice.id}:${customerRow.sku_line_count}`;
       if (!bySku.has(skuKey)) bySku.set(skuKey, createAccumulator(skuLabel));
@@ -194,6 +201,335 @@ function computeRollups({ orders, invoices, routes, inventory, startDate, endDat
     route: sortRows(Array.from(byRoute.values()), limit),
     driver: sortRows(Array.from(byDriver.values()), limit),
     sku: sortRows(Array.from(bySku.values()), limit),
+  };
+}
+
+function startOfDay(date) {
+  const next = new Date(date);
+  next.setHours(0, 0, 0, 0);
+  return next;
+}
+
+function endOfDay(date) {
+  const next = new Date(date);
+  next.setHours(23, 59, 59, 999);
+  return next;
+}
+
+function startOfWeek(date) {
+  const next = startOfDay(date);
+  const day = next.getDay();
+  const diff = (day + 6) % 7;
+  next.setDate(next.getDate() - diff);
+  return next;
+}
+
+function startOfMonth(date) {
+  return new Date(date.getFullYear(), date.getMonth(), 1);
+}
+
+function startOfYear(date) {
+  return new Date(date.getFullYear(), 0, 1);
+}
+
+function dateRangeForPreset(preset, now = new Date()) {
+  const end = endOfDay(now);
+  if (preset === 'daily') return { start: startOfDay(now), end };
+  if (preset === 'weekly') return { start: startOfWeek(now), end };
+  if (preset === 'monthly') return { start: startOfMonth(now), end };
+  if (preset === 'yearly') return { start: startOfYear(now), end };
+  return { start: null, end: null };
+}
+
+/**
+ * Returns the human-readable label for an invoice line item.
+ * Prefers description/name over item_number so reports show product names, not SKU codes.
+ */
+function itemLabelFromLine(line) {
+  return String(line.description || line.name || line.item_number || 'Unknown Item').trim() || 'Unknown Item';
+}
+
+function normalizeFulfillment(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === 'pickup' ? 'pickup' : normalized === 'delivery' ? 'delivery' : 'unknown';
+}
+
+function computeSalesSummary({ orders, invoices, startDate, endDate, itemQuery = '' }) {
+  const filteredOrders = (orders || []).filter((order) => inDateRange(order.created_at, startDate, endDate));
+  const filteredInvoices = (invoices || []).filter((invoice) => inDateRange(invoice.created_at, startDate, endDate));
+  const orderMap = new Map((orders || []).map((order) => [String(order.id), order]));
+  const query = normalize(itemQuery);
+  const itemRows = new Map();
+
+  let totalSales = 0;
+  let deliverySales = 0;
+  let pickupSales = 0;
+  let unknownSales = 0;
+
+  for (const invoice of filteredInvoices) {
+    const order = invoice.order_id ? orderMap.get(String(invoice.order_id)) : null;
+    const channel = normalizeFulfillment(order?.fulfillment_type);
+    const total = round2(toNumber(invoice.total, 0));
+    totalSales += total;
+    if (channel === 'delivery') deliverySales += total;
+    else if (channel === 'pickup') pickupSales += total;
+    else unknownSales += total;
+
+    for (const line of parseInvoiceItems(invoice)) {
+      const label = itemLabelFromLine(line);
+      const itemNumber = String(line.item_number || '').trim();
+      const key = normalize(itemNumber || label) || `item:${invoice.id}:${label}`;
+      const qty = round2(toNumber(line.quantity ?? line.qty, 0));
+      const revenue = lineRevenue(line);
+      const haystack = `${normalize(itemNumber)} ${normalize(label)}`;
+      if (query && !haystack.includes(query)) continue;
+
+      const row = itemRows.get(key) || {
+        key,
+        label,
+        item_number: itemNumber || null,
+        qty: 0,
+        revenue: 0,
+        invoice_count: 0,
+        delivery_revenue: 0,
+        pickup_revenue: 0,
+      };
+      row.qty += qty;
+      row.revenue += revenue;
+      row.invoice_count += 1;
+      if (channel === 'delivery') row.delivery_revenue += revenue;
+      if (channel === 'pickup') row.pickup_revenue += revenue;
+      itemRows.set(key, row);
+    }
+  }
+
+  const items = [...itemRows.values()]
+    .map((row) => ({
+      ...row,
+      qty: round2(row.qty),
+      revenue: round2(row.revenue),
+      delivery_revenue: round2(row.delivery_revenue),
+      pickup_revenue: round2(row.pickup_revenue),
+    }))
+    .sort((a, b) => b.revenue - a.revenue || b.qty - a.qty || a.label.localeCompare(b.label));
+
+  const availableItems = [...new Map(
+    filteredInvoices.flatMap((invoice) => parseInvoiceItems(invoice).map((line) => {
+      const label = itemLabelFromLine(line);
+      const itemNumber = String(line.item_number || '').trim();
+      const key = normalize(itemNumber || label);
+      return [key, { key, label, item_number: itemNumber || null }];
+    }))
+  ).values()].sort((a, b) => a.label.localeCompare(b.label));
+
+  return {
+    overview: {
+      total_sales: round2(totalSales),
+      delivery_sales: round2(deliverySales),
+      pickup_sales: round2(pickupSales),
+      unknown_sales: round2(unknownSales),
+      invoice_count: filteredInvoices.length,
+      order_count: filteredOrders.length,
+      average_invoice: filteredInvoices.length ? round2(totalSales / filteredInvoices.length) : 0,
+      item_count: items.length,
+    },
+    items,
+    available_items: availableItems,
+  };
+}
+
+function computeRecentSoldItems({ invoices, startDate, endDate }) {
+  const filteredInvoices = (invoices || []).filter((invoice) => inDateRange(invoice.created_at, startDate, endDate));
+  const soldByKey = new Map();
+
+  for (const invoice of filteredInvoices) {
+    for (const line of parseInvoiceItems(invoice)) {
+      const label = itemLabelFromLine(line);
+      const itemNumber = String(line.item_number || '').trim();
+      const key = normalize(itemNumber || label);
+      if (!key) continue;
+      if (!soldByKey.has(key)) {
+        soldByKey.set(key, {
+          key,
+          item_number: itemNumber || null,
+          label,
+          invoice_count: 0,
+          qty: 0,
+        });
+      }
+      const row = soldByKey.get(key);
+      row.invoice_count += 1;
+      row.qty += toNumber(line.quantity ?? line.qty, 0);
+    }
+  }
+
+  return [...soldByKey.values()]
+    .map((row) => ({
+      ...row,
+      qty: round2(row.qty),
+    }))
+    .sort((a, b) => a.label.localeCompare(b.label));
+}
+
+function computeDailyOps({ date, inventory, vendorPurchaseOrders, rollups, lowStockThreshold = 5, topCustomerLimit = 10 }) {
+  const targetDate = toDateOrNull(date) || new Date();
+  const startDate = startOfDay(targetDate);
+  const endDate = endOfDay(targetDate);
+
+  const byCategory = new Map();
+  let inventorySkuCount = 0;
+  let lowStockSkuCount = 0;
+
+  for (const item of inventory || []) {
+    const category = String(item.category || 'Uncategorized').trim() || 'Uncategorized';
+    const onHandQty = Math.max(0, toNumber(item.on_hand_qty, 0));
+    const unitCost = Math.max(0, toNumber(item.cost, 0));
+    const estimatedStockValue = onHandQty * unitCost;
+    inventorySkuCount += 1;
+    if (onHandQty <= lowStockThreshold) lowStockSkuCount += 1;
+
+    if (!byCategory.has(category)) {
+      byCategory.set(category, {
+        category,
+        sku_count: 0,
+        total_on_hand_qty: 0,
+        estimated_stock_value: 0,
+        low_stock_sku_count: 0,
+      });
+    }
+
+    const row = byCategory.get(category);
+    row.sku_count += 1;
+    row.total_on_hand_qty += onHandQty;
+    row.estimated_stock_value += estimatedStockValue;
+    if (onHandQty <= lowStockThreshold) row.low_stock_sku_count += 1;
+  }
+
+  const onHandByCategory = Array.from(byCategory.values())
+    .map((row) => ({
+      ...row,
+      total_on_hand_qty: round2(row.total_on_hand_qty),
+      estimated_stock_value: round2(row.estimated_stock_value),
+    }))
+    .sort((a, b) => b.estimated_stock_value - a.estimated_stock_value || b.sku_count - a.sku_count || a.category.localeCompare(b.category));
+
+  const vendorFillMap = new Map();
+  const shortShipLines = [];
+  let totalRequestedQty = 0;
+  let totalAcceptedQty = 0;
+  let totalShortQty = 0;
+  let totalOverReceiptQty = 0;
+  let receiptCount = 0;
+  let shortReceiptLineCount = 0;
+  let shortReceiptPoCount = 0;
+
+  for (const sourcePo of vendorPurchaseOrders || []) {
+    const po = summarizeVendorPo(sourcePo);
+    const vendorName = String(po.vendor || po.vendor_name || 'Unassigned Vendor').trim() || 'Unassigned Vendor';
+    const vendorKey = normalize(vendorName) || po.id;
+    let poHadReceiptToday = false;
+    let poHadShortReceiptToday = false;
+
+    for (const receipt of po.receipts || []) {
+      if (!inDateRange(receipt.received_at, startDate, endDate)) continue;
+      poHadReceiptToday = true;
+      receiptCount += 1;
+
+      if (!vendorFillMap.has(vendorKey)) {
+        vendorFillMap.set(vendorKey, {
+          vendor: vendorName,
+          po_count: 0,
+          receipt_count: 0,
+          line_count: 0,
+          requested_qty: 0,
+          accepted_qty: 0,
+          short_qty: 0,
+          over_receipt_qty: 0,
+          short_receipt_line_count: 0,
+          fill_rate_pct: 0,
+        });
+      }
+
+      const vendorRow = vendorFillMap.get(vendorKey);
+      vendorRow.receipt_count += 1;
+
+      for (const line of receipt.lines || []) {
+        const requestedQty = Math.max(0, toNumber(line.requested_receive_qty ?? line.qty_received, 0));
+        const acceptedQty = Math.max(0, toNumber(line.accepted_receive_qty ?? line.qty_received, 0));
+        const shortQty = Math.max(0, -toNumber(line.quantity_variance_qty, 0));
+        const overReceiptQty = Math.max(0, toNumber(line.over_receipt_qty, 0));
+
+        vendorRow.line_count += 1;
+        vendorRow.requested_qty += requestedQty;
+        vendorRow.accepted_qty += acceptedQty;
+        vendorRow.short_qty += shortQty;
+        vendorRow.over_receipt_qty += overReceiptQty;
+
+        totalRequestedQty += requestedQty;
+        totalAcceptedQty += acceptedQty;
+        totalShortQty += shortQty;
+        totalOverReceiptQty += overReceiptQty;
+
+        if (shortQty > 0 || normalize(line.variance_type) === 'short_receipt') {
+          vendorRow.short_receipt_line_count += 1;
+          shortReceiptLineCount += 1;
+          poHadShortReceiptToday = true;
+          shortShipLines.push({
+            po_number: po.po_number || po.id,
+            vendor: vendorName,
+            product_name: line.product_name || line.item_number || `Line ${line.line_no || '?'}`,
+            short_qty: round2(shortQty),
+            requested_qty: round2(requestedQty),
+            accepted_qty: round2(acceptedQty),
+            received_at: receipt.received_at || null,
+          });
+        }
+      }
+    }
+
+    if (poHadReceiptToday) {
+      vendorFillMap.get(vendorKey).po_count += 1;
+    }
+    if (poHadShortReceiptToday) {
+      shortReceiptPoCount += 1;
+    }
+  }
+
+  const vendorFill = Array.from(vendorFillMap.values())
+    .map((row) => ({
+      ...row,
+      requested_qty: round2(row.requested_qty),
+      accepted_qty: round2(row.accepted_qty),
+      short_qty: round2(row.short_qty),
+      over_receipt_qty: round2(row.over_receipt_qty),
+      fill_rate_pct: row.requested_qty > 0 ? round2((row.accepted_qty / row.requested_qty) * 100) : 0,
+    }))
+    .sort((a, b) => b.short_qty - a.short_qty || a.fill_rate_pct - b.fill_rate_pct || b.requested_qty - a.requested_qty || a.vendor.localeCompare(b.vendor));
+
+  const topCustomers = (rollups?.customer || []).slice(0, topCustomerLimit);
+
+  return {
+    overview: {
+      fill_rate_pct: totalRequestedQty > 0 ? round2((totalAcceptedQty / totalRequestedQty) * 100) : 0,
+      requested_qty: round2(totalRequestedQty),
+      accepted_qty: round2(totalAcceptedQty),
+      short_qty: round2(totalShortQty),
+      over_receipt_qty: round2(totalOverReceiptQty),
+      receipt_count: receiptCount,
+      vendor_count: vendorFill.length,
+      short_receipt_line_count: shortReceiptLineCount,
+      short_receipt_po_count: shortReceiptPoCount,
+      category_count: onHandByCategory.length,
+      inventory_sku_count: inventorySkuCount,
+      low_stock_sku_count: lowStockSkuCount,
+      top_customer_count: topCustomers.length,
+    },
+    top_customers: topCustomers,
+    on_hand_by_category: onHandByCategory,
+    vendor_fill: vendorFill,
+    short_ship_lines: shortShipLines
+      .sort((a, b) => b.short_qty - a.short_qty || String(b.received_at || '').localeCompare(String(a.received_at || '')))
+      .slice(0, 20),
   };
 }
 
@@ -241,4 +577,124 @@ router.get('/rollups', authenticateToken, requireRole('admin', 'manager'), async
   }
 });
 
-module.exports = { router, computeRollups };
+router.get('/sales-summary', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const preset = String(req.query.preset || 'range').trim().toLowerCase();
+  const presetRange = dateRangeForPreset(preset);
+  const startDate = preset === 'range' ? toDateOrNull(req.query.start) : presetRange.start;
+  const endDate = preset === 'range' ? toDateOrNull(req.query.end) : presetRange.end;
+  const itemQuery = String(req.query.item || '').trim();
+
+  try {
+    const [ordersResult, invoicesResult] = await Promise.all([
+      supabase.from('orders').select('*'),
+      supabase.from('invoices').select('*'),
+    ]);
+
+    const ordersMissing = isMissingTableError(ordersResult.error);
+    const error = (!ordersMissing && ordersResult.error) || invoicesResult.error;
+    if (error) return res.status(500).json({ error: error.message });
+
+    const payload = computeSalesSummary({
+      orders: filterRowsByContext((ordersMissing ? [] : (ordersResult.data || [])), req.context),
+      invoices: filterRowsByContext(invoicesResult.data || [], req.context),
+      startDate,
+      endDate,
+      itemQuery,
+    });
+
+    res.json({
+      generated_at: new Date().toISOString(),
+      filters: {
+        preset,
+        start: startDate ? startDate.toISOString() : null,
+        end: endDate ? endDate.toISOString() : null,
+        item: itemQuery || null,
+      },
+      ...payload,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Could not build sales summary' });
+  }
+});
+
+router.get('/recent-sold-items', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const days = Math.max(1, Math.min(parseInt(req.query.days || '30', 10), 365));
+  const endDate = endOfDay(new Date());
+  const startDate = startOfDay(new Date(endDate.getTime() - (days - 1) * 86400000));
+
+  try {
+    const invoicesResult = await supabase.from('invoices').select('*');
+    if (invoicesResult.error) return res.status(500).json({ error: invoicesResult.error.message });
+
+    const items = computeRecentSoldItems({
+      invoices: filterRowsByContext(invoicesResult.data || [], req.context),
+      startDate,
+      endDate,
+    });
+
+    res.json({
+      generated_at: new Date().toISOString(),
+      filters: {
+        days,
+        start: startDate.toISOString(),
+        end: endDate.toISOString(),
+      },
+      item_count: items.length,
+      items,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Could not build recent sold items report' });
+  }
+});
+
+router.get('/daily-ops', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const targetDate = toDateOrNull(req.query.date) || new Date();
+  const startDate = startOfDay(targetDate);
+  const endDate = endOfDay(targetDate);
+
+  try {
+    const [ordersResult, invoicesResult, routesResult, inventoryResult] = await Promise.all([
+      supabase.from('orders').select('*'),
+      supabase.from('invoices').select('*'),
+      supabase.from('routes').select('*'),
+      supabase.from('seafood_inventory').select('item_number,description,category,cost,on_hand_qty'),
+    ]);
+
+    const ordersMissing = isMissingTableError(ordersResult.error);
+    if (ordersMissing) {
+      console.warn('[reporting] orders table not found; generating daily ops without order-level joins');
+    }
+    const error = (!ordersMissing && ordersResult.error) || invoicesResult.error || routesResult.error || inventoryResult.error;
+    if (error) return res.status(500).json({ error: error.message });
+
+    const scopedInventory = filterRowsByContext(inventoryResult.data || [], req.context);
+    const rollups = computeRollups({
+      orders: filterRowsByContext((ordersMissing ? [] : (ordersResult.data || [])), req.context),
+      invoices: filterRowsByContext(invoicesResult.data || [], req.context),
+      routes: filterRowsByContext(routesResult.data || [], req.context),
+      inventory: scopedInventory,
+      startDate,
+      endDate,
+      limit: 10,
+    });
+    const opsData = readOpsData();
+    const payload = computeDailyOps({
+      date: targetDate,
+      inventory: scopedInventory,
+      vendorPurchaseOrders: opsData.vendorPurchaseOrders || [],
+      rollups,
+    });
+
+    res.json({
+      generated_at: new Date().toISOString(),
+      filters: {
+        date: startDate.toISOString(),
+      },
+      ...payload,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Could not build daily operations report' });
+  }
+});
+
+module.exports = { router, computeRollups, computeSalesSummary, computeRecentSoldItems, computeDailyOps };

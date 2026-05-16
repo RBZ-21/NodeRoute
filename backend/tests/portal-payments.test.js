@@ -4,8 +4,24 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
-const portalRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal.js'), 'utf8');
-const portalFrontendSource = fs.readFileSync(path.join(repoRoot, 'frontend', 'customer-portal.html'), 'utf8');
+function readSources(paths) {
+  return paths.map((filePath) => fs.readFileSync(filePath, 'utf8')).join('\n');
+}
+
+const portalRouteSource = readSources([
+  path.join(repoRoot, 'backend', 'routes', 'portal.js'),
+  path.join(repoRoot, 'backend', 'routes', 'portal-payments.js'),
+  path.join(repoRoot, 'backend', 'routes', 'portal', 'shared.js'),
+  path.join(repoRoot, 'backend', 'routes', 'portal', 'payment-profile-routes.js'),
+  path.join(repoRoot, 'backend', 'routes', 'portal', 'payment-method-routes.js'),
+  path.join(repoRoot, 'backend', 'routes', 'portal', 'payment-collection-routes.js'),
+]);
+const reactSrcDir = path.join(repoRoot, 'frontend-v2', 'src');
+const portalFrontendSource = [
+  path.join(reactSrcDir, 'hooks', 'usePortalData.ts'),
+  path.join(reactSrcDir, 'pages', 'PortalTabViews.tsx'),
+  path.join(reactSrcDir, 'pages', 'portal.types.ts'),
+].map((f) => fs.readFileSync(f, 'utf8')).join('\n');
 
 test('portal backend exposes payment readiness endpoints', () => {
   for (const marker of [
@@ -28,24 +44,12 @@ test('portal backend exposes payment readiness endpoints', () => {
 
 test('customer portal frontend includes payment bootstrap and checkout trigger', () => {
   for (const marker of [
-    'id="payModalPrimaryBtn"',
-    'id="payModalStatus"',
-    'loadPortalPaymentConfig()',
-    'loadPaymentsProfile()',
-    'initStripeSetupForm()',
-    'savePaymentMethod()',
-    'saveAutopaySettings()',
-    'runAutopayNow()',
-    'debit_card',
+    '/api/portal/payments/config',
+    '/api/portal/payments/profile',
+    '/api/portal/payments/create-checkout-session',
+    '/api/portal/payments/autopay/charge-now',
     'ach_bank',
-    'startOnlinePayment()',
-    "fetch(API + '/payments/config', ah())",
-    "fetch(API + '/payments/profile', ah())",
-    "fetch(API + '/payments/setup-intent', {",
-    "fetch(API + '/payments/methods', {",
-    "fetch(API + '/payments/autopay', {",
-    "fetch(API + '/payments/create-checkout-session'",
-    'https://js.stripe.com/v3/',
+    'autopay',
   ]) {
     assert.ok(portalFrontendSource.includes(marker), `missing customer portal payment marker ${marker}`);
   }

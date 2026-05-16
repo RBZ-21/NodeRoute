@@ -1,12 +1,20 @@
-require('dotenv').config({ path: require('path').join(__dirname, '../../.env') });
-
 const fs = require('fs');
 const path = require('path');
 const bcrypt = require('bcryptjs');
 
+const isNodeTestRunner = process.argv.includes('--test') || process.execArgv.includes('--test');
+const nodeEnv = String(process.env.NODE_ENV || '').toLowerCase();
+const isTestMode = nodeEnv === 'test' || isNodeTestRunner;
+const forceDemoMode = String(process.env.NODEROUTE_FORCE_DEMO_MODE || '').toLowerCase() === 'true';
+const allowLiveSupabaseInTests = isTestMode && String(process.env.NODEROUTE_ALLOW_LIVE_SUPABASE_TESTS || '').toLowerCase() === 'true';
+if (!isTestMode || allowLiveSupabaseInTests) {
+  require('dotenv').config({ path: path.join(__dirname, '../../.env') });
+}
+
 const hasSupabaseConfig = !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY);
-const isProduction = String(process.env.NODE_ENV || '').toLowerCase() === 'production';
-const isDemoMode = !hasSupabaseConfig;
+const isProduction = nodeEnv === 'production';
+const shouldUseCloudSupabase = hasSupabaseConfig && !forceDemoMode && (!isTestMode || allowLiveSupabaseInTests);
+const isDemoMode = !shouldUseCloudSupabase;
 
 const backupRoot = process.env.NODEROUTE_BACKUP_PATH
   ? path.resolve(process.env.NODEROUTE_BACKUP_PATH)
@@ -44,6 +52,7 @@ function defaultState() {
     inventory_yield_log: [],
     purchase_orders: [],
     temperature_logs: [],
+    route_mutation_audit_logs: [],
   };
 }
 
@@ -84,10 +93,50 @@ function normalizeTableName(tableName) {
   return tableName;
 }
 
+function parseOrExpression(expression) {
+  return String(expression || '')
+    .split(',')
+    .map((clause) => clause.trim())
+    .filter(Boolean)
+    .map((clause) => {
+      const parts = clause.split('.');
+      if (parts.length < 3) return null;
+      const [field, operator, ...rest] = parts;
+      let value = rest.join('.');
+      if (value === 'null') value = null;
+      if (operator === 'is') return { type: 'is', field, value };
+      if (operator === 'gte') return { type: 'gte', field, value };
+      if (operator === 'lte') return { type: 'lte', field, value };
+      if (operator === 'gt') return { type: 'gt', field, value };
+      if (operator === 'lt') return { type: 'lt', field, value };
+      if (operator === 'eq') return { type: 'eq', field, value };
+      return null;
+    })
+    .filter(Boolean);
+}
+
+function containsValue(haystack, needle) {
+  if (Array.isArray(haystack) && Array.isArray(needle)) {
+    return needle.every((expected) =>
+      haystack.some((candidate) => containsValue(candidate, expected))
+    );
+  }
+  if (haystack && typeof haystack === 'object' && needle && typeof needle === 'object') {
+    return Object.entries(needle).every(([key, expected]) => containsValue(haystack[key], expected));
+  }
+  return haystack === needle;
+}
+
 function matchesFilter(row, filter) {
   const value = row?.[filter.field];
   if (filter.type === 'eq') {
     return String(value) === String(filter.value);
+  }
+  if (filter.type === 'is') {
+    return filter.value === null ? value == null : value === filter.value;
+  }
+  if (filter.type === 'in') {
+    return Array.isArray(filter.value) && filter.value.map(String).includes(String(value));
   }
   if (filter.type === 'ilike') {
     const haystack = String(value ?? '').toLowerCase();
@@ -99,6 +148,32 @@ function matchesFilter(row, filter) {
   }
   if (filter.type === 'lte') {
     return value != null && value <= filter.value;
+  }
+  if (filter.type === 'gt') {
+    return value != null && value > filter.value;
+  }
+  if (filter.type === 'lt') {
+    return value != null && value < filter.value;
+  }
+  if (filter.type === 'not') {
+    if (filter.operator === 'is') {
+      return !(filter.value === null ? value == null : value === filter.value);
+    }
+    return true;
+  }
+  if (filter.type === 'or') {
+    return (filter.value || []).some((candidate) => matchesFilter(row, candidate));
+  }
+  if (filter.type === 'contains') {
+    let expected = filter.value;
+    if (typeof expected === 'string') {
+      try {
+        expected = JSON.parse(expected);
+      } catch {
+        return false;
+      }
+    }
+    return containsValue(value, expected);
   }
   return true;
 }
@@ -152,6 +227,16 @@ class DemoQuery {
     return this;
   }
 
+  is(field, value) {
+    this.filters.push({ type: 'is', field, value });
+    return this;
+  }
+
+  in(field, values) {
+    this.filters.push({ type: 'in', field, value: values });
+    return this;
+  }
+
   gte(field, value) {
     this.filters.push({ type: 'gte', field, value });
     return this;
@@ -159,6 +244,31 @@ class DemoQuery {
 
   lte(field, value) {
     this.filters.push({ type: 'lte', field, value });
+    return this;
+  }
+
+  gt(field, value) {
+    this.filters.push({ type: 'gt', field, value });
+    return this;
+  }
+
+  lt(field, value) {
+    this.filters.push({ type: 'lt', field, value });
+    return this;
+  }
+
+  not(field, operator, value) {
+    this.filters.push({ type: 'not', field, operator, value });
+    return this;
+  }
+
+  or(expression) {
+    this.filters.push({ type: 'or', value: parseOrExpression(expression) });
+    return this;
+  }
+
+  contains(field, value) {
+    this.filters.push({ type: 'contains', field, value });
     return this;
   }
 
@@ -335,6 +445,16 @@ class ResilientQuery {
     return this;
   }
 
+  is(field, value) {
+    this.filters.push({ type: 'is', field, value });
+    return this;
+  }
+
+  in(field, values) {
+    this.filters.push({ type: 'in', field, value: values });
+    return this;
+  }
+
   gte(field, value) {
     this.filters.push({ type: 'gte', field, value });
     return this;
@@ -342,6 +462,31 @@ class ResilientQuery {
 
   lte(field, value) {
     this.filters.push({ type: 'lte', field, value });
+    return this;
+  }
+
+  gt(field, value) {
+    this.filters.push({ type: 'gt', field, value });
+    return this;
+  }
+
+  lt(field, value) {
+    this.filters.push({ type: 'lt', field, value });
+    return this;
+  }
+
+  not(field, operator, value) {
+    this.filters.push({ type: 'not', field, operator, value });
+    return this;
+  }
+
+  or(expression) {
+    this.filters.push({ type: 'or', value: parseOrExpression(expression) });
+    return this;
+  }
+
+  contains(field, value) {
+    this.filters.push({ type: 'contains', field, value });
     return this;
   }
 
@@ -380,16 +525,30 @@ class ResilientQuery {
     if (spec.operation === 'update') query = query.update(spec.payload);
     if (spec.operation === 'delete') query = query.delete();
 
+    if (spec.selectCalled) query = query.select(...(spec.selectArgs || []));
+
     for (const filter of spec.filters || []) {
       if (filter.type === 'eq') query = query.eq(filter.field, filter.value);
       if (filter.type === 'ilike') query = query.ilike(filter.field, filter.value);
+      if (filter.type === 'is' && typeof query.is === 'function') query = query.is(filter.field, filter.value);
+      if (filter.type === 'in' && typeof query.in === 'function') query = query.in(filter.field, filter.value);
       if (filter.type === 'gte' && typeof query.gte === 'function') query = query.gte(filter.field, filter.value);
       if (filter.type === 'lte' && typeof query.lte === 'function') query = query.lte(filter.field, filter.value);
+      if (filter.type === 'gt' && typeof query.gt === 'function') query = query.gt(filter.field, filter.value);
+      if (filter.type === 'lt' && typeof query.lt === 'function') query = query.lt(filter.field, filter.value);
+      if (filter.type === 'not' && typeof query.not === 'function') query = query.not(filter.field, filter.operator, filter.value);
+      if (filter.type === 'or' && typeof query.or === 'function') {
+        const expression = (filter.value || []).map((candidate) => {
+          const rawValue = candidate.value === null ? 'null' : candidate.value;
+          return `${candidate.field}.${candidate.type}.${rawValue}`;
+        }).join(',');
+        query = query.or(expression);
+      }
+      if (filter.type === 'contains' && typeof query.contains === 'function') query = query.contains(filter.field, filter.value);
     }
 
     if (spec.orderBy) query = query.order(spec.orderBy.field, { ascending: spec.orderBy.ascending !== false });
     if (spec.limitCount != null) query = query.limit(spec.limitCount);
-    if (spec.selectCalled) query = query.select(...(spec.selectArgs || []));
     if (spec.shouldSingle) query = query.single();
     return query;
   }
@@ -478,7 +637,7 @@ function createResilientSupabaseClient(cloudClient) {
 
 let supabase;
 
-if (hasSupabaseConfig) {
+if (shouldUseCloudSupabase) {
   const { createClient } = require('@supabase/supabase-js');
   const cloudSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
   supabase = createResilientSupabaseClient(cloudSupabase);
@@ -490,7 +649,13 @@ if (hasSupabaseConfig) {
     stateRef: localState,
     onWrite: persistLocalState,
   });
-  console.warn('Supabase env vars are missing. Running in demo mode with local persistent backup data.');
+  if (forceDemoMode) {
+    console.warn('Running in forced demo mode with local persistent backup data.');
+  } else if (isTestMode && hasSupabaseConfig && !allowLiveSupabaseInTests) {
+    console.warn('Ignoring Supabase cloud credentials during tests. Set NODEROUTE_ALLOW_LIVE_SUPABASE_TESTS=true to opt into live integration tests.');
+  } else {
+    console.warn('Running in demo mode with local persistent backup data.');
+  }
 }
 
 async function dbQuery(promise, res) {

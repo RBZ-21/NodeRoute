@@ -1,7 +1,6 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const { filterRowsByContext, rowMatchesContext } = require('../services/operating-context');
-const { dwellRecords } = require('./stops');
 
 const router = express.Router();
 
@@ -90,6 +89,13 @@ function buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes) {
   };
 }
 
+function routeHasStarted(route) {
+  if (!route) return false;
+  if (route.dispatched_at) return true;
+  const status = normalize(route.status);
+  return status === 'active' || status === 'completed';
+}
+
 router.get('/:token', async (req, res) => {
   const token = String(req.params.token || '').trim();
   if (!token) return res.status(400).json({ error: 'Tracking token required' });
@@ -146,6 +152,7 @@ router.get('/:token', async (req, res) => {
   const matchedStopIndex = findMatchingStopIndex(order, orderedStops);
   const destination = buildDestination(order, orderedStops, matchedStopIndex);
   const driverName = order.driver_name || route?.driver || 'NodeRoute Driver';
+  const outingStarted = routeHasStarted(route);
 
   const { data: driverLocations, error: driverLocationError } = await supabase
     .from('driver_locations')
@@ -168,10 +175,18 @@ router.get('/:token', async (req, res) => {
     updatedAt: driverLocation?.updated_at || null,
   };
 
-  const relevantDwell = dwellRecords.filter((record) => String(record.routeId || '') === String(order.route_id || ''));
-  const completedStopIds = new Set(relevantDwell.filter((record) => record.departedAt).map((record) => record.stopId));
-  const activeDwell = relevantDwell.find((record) => !record.departedAt) || null;
-  const activeDwellMinutes = activeDwell ? (Date.now() - new Date(activeDwell.arrivedAt).getTime()) / 60000 : 0;
+  let completedStopIds = new Set();
+  let activeDwellMinutes = 0;
+  if (order.route_id) {
+    const { data: dwellRows } = await supabase
+      .from('dwell_records')
+      .select('stop_id, arrived_at, departed_at')
+      .eq('route_id', order.route_id);
+    const relevantDwell = dwellRows || [];
+    completedStopIds = new Set(relevantDwell.filter((r) => r.departed_at).map((r) => r.stop_id));
+    const activeDwell = relevantDwell.find((r) => !r.departed_at) || null;
+    activeDwellMinutes = activeDwell ? (Date.now() - new Date(activeDwell.arrived_at).getTime()) / 60000 : 0;
+  }
 
   const stopsBeforeYou =
     matchedStopIndex >= 0
@@ -179,7 +194,7 @@ router.get('/:token', async (req, res) => {
       : 0;
 
   const delivered = order.status === 'invoiced' || order.status === 'delivered';
-  const eta = delivered ? null : buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes);
+  const eta = delivered || !outingStarted ? null : buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes);
 
   res.json({
     orderId: order.id,
@@ -187,6 +202,10 @@ router.get('/:token', async (req, res) => {
     status: order.status,
     deliveryAddress: order.customer_address,
     customerName: order.customer_name,
+    customerEmail: order.customer_email || null,
+    customerPhone: order.customer_phone || null,
+    outingStarted,
+    routeDispatchedAt: route?.dispatched_at || null,
     stopsBeforeYou,
     totalRouteStops: orderedStops.length,
     driver,
@@ -196,3 +215,6 @@ router.get('/:token', async (req, res) => {
 });
 
 module.exports = router;
+module.exports.buildEta = buildEta;
+module.exports.findMatchingStopIndex = findMatchingStopIndex;
+module.exports.buildDestination = buildDestination;
