@@ -47,6 +47,7 @@ const {
   insertRecordWithOptionalScope,
   rowMatchesContext,
 } = require('../services/operating-context');
+const { statusAfterDeliveryCompletion } = require('../services/invoice-delivery');
 
 function normalizeText(value) {
   return String(value ?? '').trim();
@@ -501,6 +502,55 @@ async function findInvoiceForOrder(order) {
   return null;
 }
 
+async function markOrderDelivered(order, req, res) {
+  const deliveredAt = new Date().toISOString();
+  const stop = await findOrderStop(order);
+  let invoiceId = null;
+  let emailSent = false;
+  let emailError = '';
+
+  if (stop?.id) {
+    const stopUpdate = {
+      status: 'completed',
+      departed_at: stop.departed_at || deliveredAt,
+    };
+    const stopResult = await executeWithOptionalScope(
+      (candidate) => supabase.from('stops').update(candidate).eq('id', stop.id).select().single(),
+      stopUpdate
+    );
+    if (stopResult.error) {
+      if (res) res.status(500).json({ error: stopResult.error.message });
+      return null;
+    }
+  }
+
+  const invoice = await findInvoiceForOrder(order);
+  if (invoice?.id) {
+    invoiceId = invoice.id;
+    const invoiceResult = await executeWithOptionalScope(
+      (candidate) => supabase.from('invoices').update(candidate).eq('id', invoice.id).select().single(),
+      { status: statusAfterDeliveryCompletion(invoice.status) }
+    );
+    if (invoiceResult.error) {
+      if (res) res.status(500).json({ error: invoiceResult.error.message });
+      return null;
+    }
+
+    try {
+      const emailResult = await sendInvoiceEmail(
+        { ...invoice, ...(invoiceResult.data || {}) },
+        'Invoice'
+      );
+      emailSent = !!emailResult?.sent;
+      emailError = emailResult?.sent ? '' : String(emailResult?.error || '');
+    } catch (error) {
+      emailError = error?.message || 'Failed to send invoice email';
+    }
+  }
+
+  return { deliveredAt, invoiceId, emailSent, emailError };
+}
+
 async function createOrUpdateProcessingInvoice(order, fulfilledItems, overrides, req, res) {
   const existingInvoice = await findInvoiceForOrder(order);
   const invoiceOrder = { ...order };
@@ -798,6 +848,18 @@ router.patch('/:id', validate(orderUpdateSchema), authenticateToken, requireRole
     }, res);
     if (!refreshed) return;
     return res.json(enrichOrderResponse({ ...mergedOrder, ...refreshed, items: mergedOrder.items || [], invoice_id: invoice.id }));
+  }
+
+  if (normalizeOrderStatus(mergedOrder.status) === 'delivered') {
+    const deliverySync = await markOrderDelivered(mergedOrder, req, res);
+    if (!deliverySync) return;
+    return res.json({
+      ...data,
+      delivered_at: deliverySync.deliveredAt,
+      invoice_id: deliverySync.invoiceId || mergedOrder.invoice_id || null,
+      emailSent: deliverySync.emailSent,
+      emailError: deliverySync.emailError || null,
+    });
   }
 
   res.json(data);

@@ -1,6 +1,6 @@
 // Shared types and pure helpers for the Orders feature.
 
-export type OrderStatus = 'pending' | 'in_process' | 'processed' | 'invoiced' | 'cancelled' | 'unknown';
+export type OrderStatus = 'pending' | 'in_process' | 'processed' | 'delivered' | 'invoiced' | 'cancelled' | 'unknown';
 
 export type OrderItem = {
   name?: string;
@@ -38,6 +38,8 @@ export type Order = {
   id: string;
   customer_id?: string;
   customerId?: string;
+  invoice_id?: string | null;
+  invoiceId?: string | null;
   order_number?: string;
   customer_name?: string;
   customer_email?: string;
@@ -180,7 +182,7 @@ export function calcOrderTotal(order: Order): number {
 
 export function normalizedStatus(value: string | undefined): OrderStatus {
   const status = String(value || '').toLowerCase();
-  if (status === 'pending' || status === 'in_process' || status === 'processed' || status === 'invoiced' || status === 'cancelled') return status;
+  if (status === 'pending' || status === 'in_process' || status === 'processed' || status === 'delivered' || status === 'invoiced' || status === 'cancelled') return status;
   return 'unknown';
 }
 
@@ -188,6 +190,7 @@ export function statusVariant(status: OrderStatus): 'warning' | 'secondary' | 's
   if (status === 'pending')    return 'warning';
   if (status === 'in_process') return 'secondary';
   if (status === 'processed')  return 'secondary';
+  if (status === 'delivered')  return 'success';
   if (status === 'invoiced')   return 'success';
   return 'neutral';
 }

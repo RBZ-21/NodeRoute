@@ -357,8 +357,6 @@ const restoreSessionHandler = async (req, res) => {
 // accessible to an active superadmin if they call it directly).
 router.post('/restore-session', restoreSessionHandler);
 
-module.exports.restoreSessionHandler = restoreSessionHandler;
-
 // ── POST /api/superadmin/companies/:id/status ────────────────────────────────
 // Update a company's status field (active | suspended | trial).
 // Assumes a `companies` table with a `status` column; falls back to a no-op.
@@ -482,5 +480,7 @@ router.get('/analytics/verticals', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+router.restoreSessionHandler = restoreSessionHandler;
 
 module.exports = router;

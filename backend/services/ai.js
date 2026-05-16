@@ -53,7 +53,15 @@ Rules:
 
 const CHAT_SYSTEM_PROMPT = `You are a knowledgeable operations assistant for NodeRoute, a food wholesale distribution and delivery management platform. You are helping {name} (role: {role}).
 
-You help users navigate the platform, understand features, troubleshoot issues, and optimize their workflows. Be concise, practical, and operational. Answer directly and avoid filler.
+You help users navigate the platform, understand features, troubleshoot issues, and optimize their workflows.
+
+Chat rules:
+1. Use live account data when it is provided. Lead with concrete findings from that data instead of generic product copy.
+2. If the user asks for status, today, list, summary, risk, or what needs attention, summarize the relevant live data first.
+3. If matching entities are provided (customers, products, vendors, routes, orders, invoices), mention them by name when relevant.
+4. If the live data is incomplete, say what you could verify and what you could not verify. Do not pretend you checked something that is not in context.
+5. Only tell the user where to click after you have already answered the question as directly as possible.
+6. Keep answers concise, practical, and operational. Avoid filler and avoid generic "open this page" answers when live data exists.
 
 {knowledge}`;
 
@@ -1280,46 +1288,83 @@ function checkChatRateLimit(userId) {
 
 function heuristicChatReply(message, dbContext = {}) {
   const msg = String(message || '').toLowerCase();
-  if (msg.includes('order') || msg.includes('delivery') || msg.includes('deliver')) {
-    const count = dbContext.recentOrders && dbContext.recentOrders.length;
-    return count
-      ? `There are ${count} recent order(s) in your account. Open the Orders section to review statuses and details.`
-      : 'Use the Orders section to view and manage delivery statuses and order details.';
+  const overview = dbContext.overview || {};
+  const searchTerms = Array.isArray(dbContext.search_terms) ? dbContext.search_terms : [];
+  const matchingCustomers = Array.isArray(dbContext.matchingCustomers) ? dbContext.matchingCustomers : [];
+  const matchingProducts = Array.isArray(dbContext.matchingProducts) ? dbContext.matchingProducts : [];
+  const matchingRoutes = Array.isArray(dbContext.matchingRoutes) ? dbContext.matchingRoutes : [];
+  const matchingOrders = Array.isArray(dbContext.matchingOrders) ? dbContext.matchingOrders : [];
+  const matchingInvoices = Array.isArray(dbContext.matchingInvoices) ? dbContext.matchingInvoices : [];
+
+  if (msg.includes('today') || msg.includes('overview') || msg.includes('summary') || msg.includes('urgent')) {
+    return [
+      `Right now I can see ${intOr(overview.active_route_count, 0)} active route(s), ${intOr(overview.recent_order_count, 0)} recent order(s), ${intOr(overview.low_inventory_count, 0)} low-stock item(s), and ${intOr(overview.overdue_invoice_count, 0)} overdue invoice(s).`,
+      intOr(overview.credit_hold_count, 0) > 0
+        ? `${intOr(overview.credit_hold_count, 0)} customer account(s) are also on credit hold.`
+        : 'I do not see any customer accounts on credit hold in the current context.',
+    ].join(' ');
   }
-  if (msg.includes('inventory') || msg.includes('stock') || msg.includes('low stock')) {
-    const low = dbContext.lowInventory && dbContext.lowInventory.length;
-    return low
-      ? `${low} item(s) are currently low on stock. Open Inventory to review and reorder.`
-      : 'Check the Inventory section for current stock levels and reorder suggestions.';
+  if (msg.includes('order') || msg.includes('delivery') || msg.includes('deliver')) {
+    const count = Array.isArray(dbContext.recentOrders) ? dbContext.recentOrders.length : 0;
+    const orderExamples = (dbContext.recentOrders || [])
+      .slice(0, 3)
+      .map((order) => `${order.order_number || 'order'} (${order.customer_name || 'unknown customer'}: ${order.status || 'unknown'})`);
+    if (matchingOrders.length) {
+      return `I found ${matchingOrders.length} recent matching order(s) for ${searchTerms.join(', ')}: ${matchingOrders.map((order) => `${order.order_number || 'order'} (${order.status || 'unknown status'})`).join(', ')}.`;
+    }
+    return count
+      ? `There are ${count} recent order(s) in view. Recent examples: ${orderExamples.join(', ')}.`
+      : 'I do not see recent orders in the current context. Check Orders for the full delivery queue.';
+  }
+  if (msg.includes('inventory') || msg.includes('stock') || msg.includes('low stock') || msg.includes('product')) {
+    if (matchingProducts.length) {
+      return `I found ${matchingProducts.length} matching product(s): ${matchingProducts.map((item) => `${item.description} (${numberOr(item.on_hand_qty, 0)} ${item.unit || 'units'} on hand)`).join(', ')}.`;
+    }
+    const lowItems = (dbContext.lowInventory || []).slice(0, 5);
+    return lowItems.length
+      ? `Low-stock items in the current context include ${lowItems.map((item) => `${item.description} (${numberOr(item.on_hand_qty, 0)} ${item.unit || 'units'})`).join(', ')}.`
+      : 'I do not see any low-stock items in the current context.';
   }
   if (msg.includes('invoice') || msg.includes('overdue') || msg.includes('payment')) {
-    const overdue = dbContext.overdueInvoices && dbContext.overdueInvoices.length;
-    return overdue
-      ? `${overdue} invoice(s) are currently overdue. Go to Financials > Invoices to review and follow up.`
-      : 'Open Financials > Invoices to track outstanding and overdue balances.';
+    if (matchingInvoices.length) {
+      return `I found ${matchingInvoices.length} matching invoice(s): ${matchingInvoices.map((invoice) => `${invoice.invoice_number || invoice.id} for ${invoice.customer_name || 'unknown customer'} (${invoice.status || 'unknown'})`).join(', ')}.`;
+    }
+    const overdueInvoices = (dbContext.overdueInvoices || []).slice(0, 5);
+    return overdueInvoices.length
+      ? `Overdue invoices in the current context include ${overdueInvoices.map((invoice) => `${invoice.customer_name || 'unknown customer'} ($${numberOr(invoice.total, 0).toFixed(2)})`).join(', ')}.`
+      : 'I do not see overdue invoices in the current context.';
   }
   if (msg.includes('route') || msg.includes('driver')) {
-    const routes = dbContext.activeRoutes && dbContext.activeRoutes.length;
-    return routes
-      ? `There are ${routes} active route(s) today. Open Routes to view stop sequences and driver assignments.`
-      : 'Open the Routes section to view and manage today\'s delivery routes.';
+    if (matchingRoutes.length) {
+      return `I found ${matchingRoutes.length} matching route(s): ${matchingRoutes.map((route) => `${route.name} (driver: ${route.driver || 'unassigned'})`).join(', ')}.`;
+    }
+    const routes = (dbContext.activeRoutes || []).slice(0, 5);
+    return routes.length
+      ? `Active routes in the current context include ${routes.map((route) => `${route.name} (driver: ${route.driver || 'unassigned'})`).join(', ')}.`
+      : 'I do not see active routes in the current context.';
   }
   if (msg.includes('customer') || msg.includes('credit hold') || msg.includes('hold')) {
-    const holds = dbContext.creditHoldCustomers && dbContext.creditHoldCustomers.length;
-    return holds
-      ? `${holds} customer(s) are currently on credit hold. Open Customers to review account statuses.`
-      : 'Open the Customers section to manage accounts and credit hold statuses.';
+    if (matchingCustomers.length) {
+      return `I found ${matchingCustomers.length} matching customer record(s): ${matchingCustomers.map((customer) => `${customer.company_name}${customer.credit_hold_reason ? ` [credit hold: ${customer.credit_hold_reason}]` : ''}`).join(', ')}.`;
+    }
+    const holds = (dbContext.creditHoldCustomers || []).slice(0, 5);
+    return holds.length
+      ? `Customers currently on credit hold include ${holds.map((customer) => `${customer.company_name} (${customer.credit_hold_reason})`).join(', ')}.`
+      : 'I do not see any customers on credit hold in the current context.';
   }
   if (msg.includes('vendor') || msg.includes('supplier') || msg.includes('purchase order')) {
-    return 'Open Operations > Purchasing to manage vendor POs and receiving. Use Planning to generate draft orders from demand projections.';
+    const openPos = (dbContext.vendorPurchaseOrders || []).slice(0, 5);
+    return openPos.length
+      ? `Open vendor purchasing activity includes ${openPos.map((po) => `${po.po_number || 'PO'} for ${po.vendor || 'unknown vendor'} (${po.status || 'unknown status'})`).join(', ')}.`
+      : 'I do not see open vendor purchase orders in the current context.';
   }
   if (msg.includes('forecast') || msg.includes('reorder') || msg.includes('plan')) {
-    return 'Open Operations > Planning to review demand forecasts and generate draft purchase orders based on stock levels and usage history.';
+    const lowItems = (dbContext.lowInventory || []).slice(0, 3);
+    return lowItems.length
+      ? `Planning should focus first on ${lowItems.map((item) => `${item.description} (${numberOr(item.on_hand_qty, 0)} ${item.unit || 'units'} on hand)`).join(', ')}.`
+      : 'Planning data is limited here, but Inventory and Planning are the right places to review reorder risk.';
   }
-  if (msg.includes('analytic') || msg.includes('report') || msg.includes('performance')) {
-    return 'Open Financials > Analytics for unified performance rollups by customer, route, driver, and SKU.';
-  }
-  return 'I\'m having trouble connecting right now. Navigate to the relevant section in NodeRoute, or try again in a moment.';
+  return 'I can answer more specifically if you ask about orders, inventory, invoices, customers, routes, vendors, or a named account or product.';
 }
 
 async function generateChatReply(userName, userRole, message, history = []) {
@@ -2167,22 +2212,53 @@ Prior invoices on this account: ${invoice.prior_invoice_count || 'Unknown'}`;
 
 async function generateChatReplyWithContext(userName, userRole, message, history = [], dbContext = {}) {
   const client = getClient();
-
   const contextParts = [];
+  const overview = dbContext.overview || {};
+  const searchTerms = Array.isArray(dbContext.search_terms) ? dbContext.search_terms : [];
+
+  if (Object.keys(overview).length) {
+    contextParts.push(
+      `## Live Account Snapshot\n- Active routes: ${intOr(overview.active_route_count, 0)}\n- Recent orders: ${intOr(overview.recent_order_count, 0)}\n- Low-stock items: ${intOr(overview.low_inventory_count, 0)}\n- Overdue invoices: ${intOr(overview.overdue_invoice_count, 0)}\n- Credit-hold customers: ${intOr(overview.credit_hold_count, 0)}\n- Open vendor POs: ${intOr(overview.open_vendor_po_count, 0)}`
+    );
+  }
+  if (searchTerms.length) {
+    contextParts.push(`## User Search Terms\n${searchTerms.map((term) => `- ${term}`).join('\n')}`);
+  }
+  if (dbContext.matchingCustomers && dbContext.matchingCustomers.length) {
+    contextParts.push(`## Matching Customers\n${dbContext.matchingCustomers.map((customer) => `- ${customer.company_name}${customer.credit_hold_reason ? ` [credit hold: ${customer.credit_hold_reason}]` : ''}`).join('\n')}`);
+  }
+  if (dbContext.matchingProducts && dbContext.matchingProducts.length) {
+    contextParts.push(`## Matching Products\n${dbContext.matchingProducts.map((item) => `- ${item.description}: ${numberOr(item.on_hand_qty, 0)} ${item.unit || 'units'} on hand`).join('\n')}`);
+  }
+  if (dbContext.matchingOrders && dbContext.matchingOrders.length) {
+    contextParts.push(`## Matching Orders\n${dbContext.matchingOrders.map((order) => `- ${order.order_number || 'order'} for ${order.customer_name || 'unknown customer'}: ${order.status || 'unknown status'}`).join('\n')}`);
+  }
+  if (dbContext.matchingInvoices && dbContext.matchingInvoices.length) {
+    contextParts.push(`## Matching Invoices\n${dbContext.matchingInvoices.map((invoice) => `- ${invoice.invoice_number || invoice.id} for ${invoice.customer_name || 'unknown customer'}: ${invoice.status || 'unknown status'} ($${numberOr(invoice.total, 0).toFixed(2)})`).join('\n')}`);
+  }
+  if (dbContext.matchingRoutes && dbContext.matchingRoutes.length) {
+    contextParts.push(`## Matching Routes\n${dbContext.matchingRoutes.map((route) => `- ${route.name}: driver=${route.driver || 'unassigned'}`).join('\n')}`);
+  }
+  if (dbContext.matchingVendors && dbContext.matchingVendors.length) {
+    contextParts.push(`## Matching Vendors\n${dbContext.matchingVendors.map((vendor) => `- ${vendor.name}`).join('\n')}`);
+  }
   if (dbContext.recentOrders && dbContext.recentOrders.length) {
-    contextParts.push(`## Recent Orders (last 10)\n${dbContext.recentOrders.map((o) => `- Order for ${o.customer_name || 'unknown'}: status=${o.status}, date=${o.date || o.created_at}`).join('\n')}`);
+    contextParts.push(`## Recent Orders\n${dbContext.recentOrders.slice(0, 10).map((o) => `- ${o.order_number || 'order'} for ${o.customer_name || 'unknown'}: ${o.status || 'unknown status'}, ${o.date || o.created_at}`).join('\n')}`);
   }
   if (dbContext.lowInventory && dbContext.lowInventory.length) {
-    contextParts.push(`## Low Inventory Items\n${dbContext.lowInventory.map((i) => `- ${i.description}: ${i.on_hand_qty} ${i.unit} on hand`).join('\n')}`);
+    contextParts.push(`## Low Inventory Items\n${dbContext.lowInventory.slice(0, 10).map((i) => `- ${i.description}: ${numberOr(i.on_hand_qty, 0)} ${i.unit || 'units'} on hand`).join('\n')}`);
   }
   if (dbContext.overdueInvoices && dbContext.overdueInvoices.length) {
-    contextParts.push(`## Overdue Invoices (${dbContext.overdueInvoices.length})\n${dbContext.overdueInvoices.slice(0, 10).map((inv) => `- ${inv.customer_name}: $${numberOr(inv.total, 0).toFixed(2)} overdue`).join('\n')}`);
+    contextParts.push(`## Overdue Invoices\n${dbContext.overdueInvoices.slice(0, 10).map((inv) => `- ${inv.customer_name || 'unknown'}: $${numberOr(inv.total, 0).toFixed(2)} overdue (${inv.invoice_number || inv.id})`).join('\n')}`);
   }
   if (dbContext.creditHoldCustomers && dbContext.creditHoldCustomers.length) {
-    contextParts.push(`## Customers on Credit Hold\n${dbContext.creditHoldCustomers.map((c) => `- ${c.company_name}: ${c.credit_hold_reason}`).join('\n')}`);
+    contextParts.push(`## Customers on Credit Hold\n${dbContext.creditHoldCustomers.slice(0, 10).map((c) => `- ${c.company_name}: ${c.credit_hold_reason}`).join('\n')}`);
   }
   if (dbContext.activeRoutes && dbContext.activeRoutes.length) {
-    contextParts.push(`## Active Routes Today\n${dbContext.activeRoutes.map((r) => `- ${r.name}: driver=${r.driver || 'unassigned'}`).join('\n')}`);
+    contextParts.push(`## Active Routes Today\n${dbContext.activeRoutes.slice(0, 10).map((r) => `- ${r.name}: driver=${r.driver || 'unassigned'}`).join('\n')}`);
+  }
+  if (dbContext.vendorPurchaseOrders && dbContext.vendorPurchaseOrders.length) {
+    contextParts.push(`## Open Vendor Purchase Orders\n${dbContext.vendorPurchaseOrders.slice(0, 10).map((po) => `- ${po.po_number || 'PO'} for ${po.vendor || 'unknown vendor'}: ${po.status || 'unknown status'} ($${numberOr(po.total_cost, 0).toFixed(2)})`).join('\n')}`);
   }
 
   const liveContext = contextParts.length
@@ -2218,10 +2294,262 @@ async function generateChatReplyWithContext(userName, userRole, message, history
   }
 }
 
+// ── BULK REORDER ALERTS ────────────────────────────────────────────────────────
+async function generateBulkReorderAlerts(items) {
+  // items: [{ item_number, description, on_hand_qty, unit, cost, daily_usage, days_until_stockout, reorder_qty }]
+  const urgentOnly = items
+    .filter((i) => i.days_until_stockout !== null && i.days_until_stockout <= 14)
+    .sort((a, b) => (a.days_until_stockout ?? 99) - (b.days_until_stockout ?? 99))
+    .slice(0, 25);
+
+  if (!urgentOnly.length) {
+    return { alerts: [], summary: 'No items require immediate reordering.' };
+  }
+
+  const itemList = urgentOnly.map((i) =>
+    `${i.description} (#${i.item_number}): ${i.on_hand_qty} ${i.unit} on hand, ${i.daily_usage.toFixed(2)} ${i.unit}/day, ${i.days_until_stockout}d until stockout, suggest ${i.reorder_qty} ${i.unit}`
+  ).join('\n');
+
+  const userMessage = `You are a seafood inventory manager. Analyze these items nearing stockout and return a ranked reorder plan:\n\n${itemList}\n\nReturn a JSON object with:\n- alerts: array of { item_number, description, urgency ("CRITICAL"|"WARNING"|"LOW"), days_until_stockout, suggested_order_qty, unit, reason }\n- summary: one-sentence overview`;
+
+  const BULK_REORDER_SCHEMA = {
+    name: 'bulk_reorder_alerts',
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['alerts', 'summary'],
+      properties: {
+        summary: { type: 'string' },
+        alerts: {
+          type: 'array',
+          items: {
+            type: 'object',
+            additionalProperties: false,
+            required: ['item_number', 'description', 'urgency', 'days_until_stockout', 'suggested_order_qty', 'unit', 'reason'],
+            properties: {
+              item_number:        { type: 'string' },
+              description:        { type: 'string' },
+              urgency:            { type: 'string', enum: ['CRITICAL', 'WARNING', 'LOW'] },
+              days_until_stockout:{ type: 'integer' },
+              suggested_order_qty:{ type: 'number' },
+              unit:               { type: 'string' },
+              reason:             { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+  };
+
+  try {
+    const result = await callAI({
+      systemPrompt: 'You are an expert seafood inventory analyst. Return only valid JSON.',
+      userMessage,
+      maxTokens: 800,
+      schema: BULK_REORDER_SCHEMA,
+    });
+    if (result && Array.isArray(result.alerts)) return result;
+    return { alerts: urgentOnly.map((i) => ({
+      item_number: i.item_number,
+      description: i.description,
+      urgency: i.days_until_stockout <= 3 ? 'CRITICAL' : i.days_until_stockout <= 7 ? 'WARNING' : 'LOW',
+      days_until_stockout: i.days_until_stockout,
+      suggested_order_qty: i.reorder_qty,
+      unit: i.unit,
+      reason: `${i.days_until_stockout} days of stock remaining at current velocity`,
+    })), summary: `${urgentOnly.length} items need restocking.` };
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    return { alerts: urgentOnly.map((i) => ({
+      item_number: i.item_number,
+      description: i.description,
+      urgency: i.days_until_stockout <= 3 ? 'CRITICAL' : i.days_until_stockout <= 7 ? 'WARNING' : 'LOW',
+      days_until_stockout: i.days_until_stockout,
+      suggested_order_qty: i.reorder_qty,
+      unit: i.unit,
+      reason: `${i.days_until_stockout} days of stock remaining at current velocity`,
+    })), summary: `${urgentOnly.length} items need restocking.` };
+  }
+}
+
+// ── LATE PAYMENT RISK SCORING ──────────────────────────────────────────────────
+const LATE_PAYMENT_RISK_SCHEMA = {
+  name: 'late_payment_risk',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['risks', 'summary'],
+    properties: {
+      summary: { type: 'string' },
+      risks: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['customer_name', 'risk_level', 'risk_score', 'flag_reason', 'recommended_action'],
+          properties: {
+            customer_name:       { type: 'string' },
+            risk_level:          { type: 'string', enum: ['HIGH', 'MEDIUM', 'LOW'] },
+            risk_score:          { type: 'integer' },
+            flag_reason:         { type: 'string' },
+            recommended_action:  { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+};
+
+async function scoreLatePaymentRisk(customerData) {
+  // customerData: [{ customer_name, total_open, days_overdue_max, invoice_count, oldest_invoice_days, buckets }]
+  const atRisk = customerData.filter((c) => c.total_open > 0).slice(0, 30);
+  if (!atRisk.length) return { risks: [], summary: 'No open AR to analyze.' };
+
+  const customerList = atRisk.map((c) =>
+    `${c.customer_name}: $${c.total_open.toFixed(2)} open, ${c.invoice_count} invoices, oldest ${c.oldest_invoice_days}d, max overdue ${c.days_overdue_max}d`
+  ).join('\n');
+
+  const userMessage = `You are an AR collections analyst. Score the late payment risk for each customer:\n\n${customerList}\n\nReturn JSON with:\n- risks: array of { customer_name, risk_level ("HIGH"|"MEDIUM"|"LOW"), risk_score (0-100), flag_reason, recommended_action }\n- summary: one-sentence overview of portfolio risk`;
+
+  try {
+    const result = await callAI({
+      systemPrompt: 'You are an expert accounts receivable analyst. Return only valid JSON.',
+      userMessage,
+      maxTokens: 900,
+      schema: LATE_PAYMENT_RISK_SCHEMA,
+    });
+    if (result && Array.isArray(result.risks)) return result;
+    throw new Error('bad shape');
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    const risks = atRisk.map((c) => {
+      const score = Math.min(100, Math.round((c.days_overdue_max / 90) * 50 + (c.total_open / 5000) * 50));
+      return {
+        customer_name: c.customer_name,
+        risk_level: score >= 70 ? 'HIGH' : score >= 40 ? 'MEDIUM' : 'LOW',
+        risk_score: score,
+        flag_reason: c.days_overdue_max > 60 ? 'Invoice 60+ days overdue' : c.total_open > 2000 ? 'High balance outstanding' : 'Open AR',
+        recommended_action: score >= 70 ? 'Escalate — call immediately' : score >= 40 ? 'Send payment reminder' : 'Monitor',
+      };
+    });
+    return { risks, summary: `${risks.filter((r) => r.risk_level === 'HIGH').length} high-risk accounts identified.` };
+  }
+}
+
+// ── PRICING ANOMALY DETECTION ──────────────────────────────────────────────────
+function detectPricingAnomalies(orders) {
+  // Compute per-item average price from all orders, then flag outliers > 25% below average
+  const priceSums = {};   // item_number → { sum, count, description }
+  for (const order of orders) {
+    for (const item of (order.items || [])) {
+      const num = String(item.item_number || '').trim();
+      if (!num) continue;
+      const price = Number(item.unit_price ?? item.price_per_lb ?? 0);
+      if (!Number.isFinite(price) || price <= 0) continue;
+      if (!priceSums[num]) priceSums[num] = { sum: 0, count: 0, description: item.name || item.description || num };
+      priceSums[num].sum += price;
+      priceSums[num].count += 1;
+    }
+  }
+
+  const anomalies = [];
+  for (const order of orders) {
+    for (const item of (order.items || [])) {
+      const num = String(item.item_number || '').trim();
+      if (!num || !priceSums[num] || priceSums[num].count < 2) continue;
+      const avg = priceSums[num].sum / priceSums[num].count;
+      const price = Number(item.unit_price ?? item.price_per_lb ?? 0);
+      if (!Number.isFinite(price) || price <= 0) continue;
+      const pct_below = (avg - price) / avg;
+      if (pct_below >= 0.25) {
+        anomalies.push({
+          order_id: order.id,
+          order_number: order.order_number,
+          customer_name: order.customer_name,
+          item_number: num,
+          description: priceSums[num].description,
+          sale_price: price,
+          avg_price: Math.round(avg * 100) / 100,
+          pct_below: Math.round(pct_below * 1000) / 10,
+          severity: pct_below >= 0.5 ? 'HIGH' : 'MEDIUM',
+        });
+      }
+    }
+  }
+
+  return {
+    anomalies: anomalies.sort((a, b) => b.pct_below - a.pct_below).slice(0, 50),
+    summary: anomalies.length
+      ? `${anomalies.length} pricing anomaly${anomalies.length > 1 ? 'ies' : ''} detected.`
+      : 'No significant pricing anomalies found.',
+  };
+}
+
+// ── VENDOR LIST SCORING ────────────────────────────────────────────────────────
+const VENDOR_LIST_SCORE_SCHEMA = {
+  name: 'vendor_list_scores',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['scores', 'summary'],
+    properties: {
+      summary: { type: 'string' },
+      scores: {
+        type: 'array',
+        items: {
+          type: 'object',
+          additionalProperties: false,
+          required: ['vendor', 'score', 'grade', 'strengths', 'risks'],
+          properties: {
+            vendor:    { type: 'string' },
+            score:     { type: 'integer' },
+            grade:     { type: 'string', enum: ['A', 'B', 'C', 'D', 'F'] },
+            strengths: { type: 'array', items: { type: 'string' } },
+            risks:     { type: 'array', items: { type: 'string' } },
+          },
+        },
+      },
+    },
+  },
+};
+
+async function scoreVendorList(vendorSummaries) {
+  // vendorSummaries: [{ vendor, po_count, total_value, short_ship_count, avg_lead_days }]
+  if (!vendorSummaries.length) return { scores: [], summary: 'No vendor data.' };
+
+  const list = vendorSummaries.map((v) =>
+    `${v.vendor}: ${v.po_count} POs, $${v.total_value.toFixed(2)} total, ${v.short_ship_count} exceptions, ~${v.avg_lead_days}d lead time`
+  ).join('\n');
+
+  const userMessage = `Score these vendors on reliability, fill rate, and value:\n\n${list}\n\nReturn JSON:\n- scores: array of { vendor, score (0-100), grade ("A"|"B"|"C"|"D"|"F"), strengths: string[], risks: string[] }\n- summary: one-sentence overview`;
+
+  try {
+    const result = await callAI({
+      systemPrompt: 'You are a vendor performance analyst for a seafood distributor. Return only valid JSON.',
+      userMessage,
+      maxTokens: 700,
+      schema: VENDOR_LIST_SCORE_SCHEMA,
+    });
+    if (result && Array.isArray(result.scores)) return result;
+    throw new Error('bad shape');
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    const scores = vendorSummaries.map((v) => {
+      const score = Math.max(0, Math.min(100, Math.round(100 - (v.short_ship_count / Math.max(1, v.po_count)) * 60)));
+      const grade = score >= 90 ? 'A' : score >= 80 ? 'B' : score >= 70 ? 'C' : score >= 60 ? 'D' : 'F';
+      return { vendor: v.vendor, score, grade, strengths: score >= 80 ? ['Consistent delivery'] : [], risks: v.short_ship_count > 0 ? [`${v.short_ship_count} exceptions`] : [] };
+    });
+    return { scores, summary: 'Vendor scores estimated from PO data.' };
+  }
+}
+
 module.exports = {
   forecastDemand,
   analyzeInventory,
   generateReorderAlert,
+  generateBulkReorderAlerts,
+  scoreLatePaymentRisk,
+  detectPricingAnomalies,
   generateWalkthrough,
   generateOrderIntakeDraft,
   normalizePOScan,
@@ -2230,10 +2558,12 @@ module.exports = {
   generateChatReply,
   generateChatReplyWithContext,
   checkChatRateLimit,
+  heuristicChatReply,
   optimizeRoute,
   scoreCustomerRisk,
   detectAnomalies,
   scoreVendorPerformance,
+  scoreVendorList,
   optimizeDriverAssignments,
   generateMarkdownRecommendations,
   generateInvoiceFollowUp,

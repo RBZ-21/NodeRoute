@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
-import type { InventoryItem, InventoryLotSummary, LedgerResponse, RecentSoldItemsResponse } from '../types/inventory.types';
+import type { InventoryItem, InventoryLotSummary, LedgerResponse, LowStockItem, RecentSoldItemsResponse } from '../types/inventory.types';
 
 export type LedgerParams = {
   itemFilter: string;
@@ -108,6 +108,73 @@ export function useTransferMutation() {
         qty,
         notes,
       }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['inventory'] });
+    },
+  });
+}
+
+export function useEditInventoryItemMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemNumber, patch }: {
+      itemNumber: string;
+      patch: Partial<{
+        item_number: string;
+        description: string;
+        category: string;
+        unit: string;
+        cost: number;
+        on_hand_qty: number;
+        reorder_point: number | null;
+        barcode: string | null;
+        notes: string | null;
+      }>;
+    }) => sendWithAuth<InventoryItem>(`/api/inventory/${encodeURIComponent(itemNumber)}`, 'PATCH', patch),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['inventory'] });
+    },
+  });
+}
+
+export function useAddInventoryItemMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (item: {
+      item_number: string;
+      description: string;
+      category?: string;
+      unit?: string;
+      cost?: number;
+      on_hand_qty: number;
+      reorder_point?: number | null;
+      barcode?: string | null;
+    }) => sendWithAuth<InventoryItem>('/api/inventory', 'POST', item),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: ['inventory'] });
+    },
+  });
+}
+
+export function useLowStockQuery(enabled = true) {
+  return useQuery({
+    queryKey: ['inventory', 'low-stock'] as const,
+    queryFn: () =>
+      fetchWithAuth<LowStockItem[]>('/api/inventory/low-stock').then((d) => (Array.isArray(d) ? d : [])),
+    staleTime: 60_000,
+    enabled,
+  });
+}
+
+export function useSetReorderPointMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ itemNumber, reorderPoint }: { itemNumber: string; reorderPoint: number | null }) =>
+      sendWithAuth<InventoryItem>(
+        `/api/inventory/${encodeURIComponent(itemNumber)}`,
+        'PATCH',
+        { reorder_point: reorderPoint },
+      ),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: ['inventory'] });
     },

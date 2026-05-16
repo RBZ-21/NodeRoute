@@ -19,6 +19,17 @@ test('fulfillment route sends invoice email through shared service when possible
   }
 });
 
+test('manual delivered orders also send the linked invoice email and surface the result', () => {
+  for (const marker of [
+    'async function markOrderDelivered(order, req, res)',
+    "const emailResult = await sendInvoiceEmail(",
+    "emailSent: deliverySync.emailSent,",
+    "emailError: deliverySync.emailError || null,",
+  ]) {
+    assert.ok(ordersRouteSource.includes(marker), `orders route missing delivered-email marker ${marker}`);
+  }
+});
+
 test('shared invoice email service owns delivery logic for invoice attachments', () => {
   for (const marker of [
     "const { createMailer } = require('./email');",

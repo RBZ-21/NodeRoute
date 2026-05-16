@@ -20,6 +20,7 @@ import {
   useVendorPurchaseOrders,
 } from '../hooks/usePurchasing';
 import { useVendorsQuery } from '../hooks/useVendors';
+import { useVendorPerformance } from '../hooks/useAI';
 
 type PurchaseItemDraft = {
   description: string;
@@ -292,7 +293,9 @@ const emptyLine = (): PurchaseItemDraft => ({
 
 export function PurchasingPage() {
   const [searchParams] = useSearchParams();
-  const vendorParam = String(searchParams.get('vendor') || '').trim();
+  const vendorParam   = String(searchParams.get('vendor') || '').trim();
+  const itemParam     = String(searchParams.get('item') || '').trim();
+  const qtyParam      = String(searchParams.get('qty') || '').trim();
 
   const { data: orders = [], isLoading, isError, error, refetch } = usePurchaseOrders(vendorParam || undefined);
   const { data: vendorPurchaseOrders = [], isLoading: vendorPoLoading, isError: vendorPoError, error: vendorPoErrorValue, refetch: refetchVendorPos } = useVendorPurchaseOrders();
@@ -306,7 +309,12 @@ export function PurchasingPage() {
   const [vendor, setVendor] = useState('');
   const [poNumber, setPoNumber] = useState('');
   const [notes, setNotes] = useState('');
-  const [lines, setLines] = useState<PurchaseItemDraft[]>([emptyLine()]);
+  const [lines, setLines] = useState<PurchaseItemDraft[]>(() => {
+    if (itemParam) {
+      return [{ ...emptyLine(), item_number: itemParam, quantity: qtyParam || '' }];
+    }
+    return [emptyLine()];
+  });
   const [vendorFilter, setVendorFilter] = useState<'all' | string>(vendorParam || 'all');
 
   const [scanLoading, setScanLoading] = useState(false);
@@ -317,6 +325,7 @@ export function PurchasingPage() {
   const [receiveScanResult, setReceiveScanResult] = useState<PoScanResult | null>(null);
   const [activeReceivePo, setActiveReceivePo] = useState<VendorPurchaseOrder | null>(null);
   const [receiveNotes, setReceiveNotes] = useState('');
+  const [carrierName, setCarrierName] = useState('');
   const [receiveLines, setReceiveLines] = useState<ReceiveLineDraft[]>([]);
   const [receiveRules, setReceiveRules] = useState<VendorPoReceiptRules>({
     over_receipt_policy: 'cap',
@@ -326,6 +335,12 @@ export function PurchasingPage() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const receiveFileInputRef = useRef<HTMLInputElement>(null);
   const receiveCameraInputRef = useRef<HTMLInputElement>(null);
+
+  const [vendorPerfEnabled, setVendorPerfEnabled] = useState(false);
+  const vendorPerfQuery = useVendorPerformance(vendorPerfEnabled);
+
+  const [barcodeScan, setBarcodeScan] = useState('');
+  const [barcodeMatch, setBarcodeMatch] = useState<{ lineIndex: number; lineName: string } | null>(null);
 
   const summary = useMemo(() => ({
     count: orders.length,
@@ -541,6 +556,24 @@ export function PurchasingPage() {
   function setCountItemApproval(index: number, approved: boolean) {
     setLines((cur) => cur.map((line, lineIndex) => (lineIndex === index ? { ...line, count_item_approved: approved } : line)));
   }
+  function handleBarcodeSubmit(scanValue: string) {
+    const normalized = scanValue.trim().toLowerCase();
+    if (!normalized || !activeReceivePo) return;
+    const lines = activeReceivePo.lines || [];
+    const idx = lines.findIndex((l) => {
+      const barcode = String((l as Record<string, unknown>).barcode || '').trim().toLowerCase();
+      const itemNo  = String(l.item_number || '').trim().toLowerCase();
+      return barcode === normalized || itemNo === normalized;
+    });
+    if (idx >= 0) {
+      setBarcodeMatch({ lineIndex: idx, lineName: lines[idx].product_name || lines[idx].item_number || `Line ${idx + 1}` });
+      updateReceiveLine(idx, 'qty_received', String(asNumber(receiveLines[idx]?.qty_received || 0) + 1));
+    } else {
+      setBarcodeMatch(null);
+    }
+    setBarcodeScan('');
+  }
+
   function updateReceiveLine(index: number, key: keyof ReceiveLineDraft, value: string) {
     setReceiveLines((cur) => cur.map((l, i) => (i === index ? { ...l, [key]: value } : l)));
   }
@@ -552,6 +585,7 @@ export function PurchasingPage() {
   function loadReceiveDraft(po: VendorPurchaseOrder) {
     setActiveReceivePo(po);
     setReceiveNotes('');
+    setCarrierName('');
     setReceiveScanLoading(false);
     setReceiveScanError('');
     setReceiveScanResult(null);
@@ -760,6 +794,7 @@ export function PurchasingPage() {
         payload: {
           scan_id: receiveScanResult?.scan_id || null,
           lines: payloadLines,
+          carrier_name: carrierName.trim() || null,
           notes: receiveNotes.trim() || null,
           receiptRules: receiveRules,
         },
@@ -792,12 +827,92 @@ export function PurchasingPage() {
           Filtered by vendor from Vendors page: <strong>{vendorParam}</strong>
         </div>
       ) : null}
+      {itemParam ? (
+        <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
+          New PO pre-filled for low-stock item: <strong>{itemParam}</strong>
+          {qtyParam ? ` · Suggested qty: ${qtyParam}` : ''}
+          {' '}— Review and adjust below, then submit.
+        </div>
+      ) : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">
         <StatCard label="Purchase Orders" value={summary.count.toLocaleString()} />
         <StatCard label="Total Spend" value={money(summary.spend)} />
         <StatCard label="Active Vendors" value={summary.vendors.toLocaleString()} />
       </div>
+
+      {/* ── Vendor Performance Scorecard ── */}
+      <Card>
+        <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
+          <div>
+            <CardTitle>✦ Vendor Performance Scorecard</CardTitle>
+            <CardDescription>
+              {vendorPerfQuery.data?.summary || 'AI-scored vendor reliability based on order history, short-ships, and lead times.'}
+            </CardDescription>
+          </div>
+          <Button
+            size="sm"
+            variant="outline"
+            onClick={() => {
+              if (!vendorPerfEnabled) {
+                setVendorPerfEnabled(true);
+              } else {
+                void vendorPerfQuery.refetch();
+              }
+            }}
+            disabled={vendorPerfQuery.isFetching}
+          >
+            {vendorPerfQuery.isFetching ? 'Scoring…' : vendorPerfQuery.data ? 'Refresh' : 'Score Vendors'}
+          </Button>
+        </CardHeader>
+        {vendorPerfQuery.isError && (
+          <CardContent>
+            <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">
+              {String((vendorPerfQuery.error as Error)?.message || 'Vendor scoring failed')}
+            </div>
+          </CardContent>
+        )}
+        {vendorPerfQuery.data && (
+          <CardContent>
+            {vendorPerfQuery.data.scores.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No vendor data available to score. Confirm purchase orders to build vendor history.</p>
+            ) : (
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {vendorPerfQuery.data.scores.map((v, i) => (
+                  <div key={i} className="rounded-lg border border-border bg-muted/20 p-4 space-y-2">
+                    <div className="flex items-center justify-between">
+                      <span className="font-semibold text-sm truncate pr-2">{v.vendor}</span>
+                      <span className={`rounded-full px-2.5 py-0.5 text-sm font-bold border ${
+                        v.grade === 'A' ? 'bg-green-100 border-green-300 text-green-800'
+                        : v.grade === 'B' ? 'bg-blue-100 border-blue-300 text-blue-800'
+                        : v.grade === 'C' ? 'bg-yellow-100 border-yellow-300 text-yellow-800'
+                        : 'bg-red-100 border-red-300 text-red-800'
+                      }`}>{v.grade}</span>
+                    </div>
+                    <div className="text-xs text-muted-foreground">Score: {v.score}/100</div>
+                    {v.strengths.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-emerald-700 mb-0.5">Strengths</p>
+                        <ul className="text-xs text-emerald-700 space-y-0.5">
+                          {v.strengths.map((s, j) => <li key={j}>✓ {s}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                    {v.risks.length > 0 && (
+                      <div>
+                        <p className="text-xs font-semibold text-red-700 mb-0.5">Risks</p>
+                        <ul className="text-xs text-red-700 space-y-0.5">
+                          {v.risks.map((r, j) => <li key={j}>⚠ {r}</li>)}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </CardContent>
+        )}
+      </Card>
 
       {/* AI PO Scanner */}
       <Card>
@@ -1226,6 +1341,10 @@ export function PurchasingPage() {
                   </select>
                 </label>
                 <label className="space-y-1 text-sm">
+                  <span className="font-semibold text-muted-foreground">Carrier / Shipping Company</span>
+                  <Input value={carrierName} onChange={(e) => setCarrierName(e.target.value)} placeholder="e.g. Armory Transportation, FedEx (optional)" />
+                </label>
+                <label className="space-y-1 text-sm">
                   <span className="font-semibold text-muted-foreground">Receipt Notes</span>
                   <Input value={receiveNotes} onChange={(e) => setReceiveNotes(e.target.value)} placeholder="Driver shorted 2 cases on pallet 3" />
                 </label>
@@ -1271,6 +1390,28 @@ export function PurchasingPage() {
                     </div>
                   </div>
                 ) : null}
+              </div>
+
+              <div className="rounded-lg border border-border bg-background px-4 py-3">
+                <div className="text-sm font-semibold mb-2">Barcode Scan Receiving</div>
+                <div className="flex gap-2">
+                  <Input
+                    value={barcodeScan}
+                    onChange={(e) => setBarcodeScan(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleBarcodeSubmit(barcodeScan); }}
+                    placeholder="Scan or type barcode / item number — press Enter"
+                    className="flex-1"
+                  />
+                  <Button variant="outline" onClick={() => handleBarcodeSubmit(barcodeScan)}>Apply</Button>
+                </div>
+                {barcodeMatch && (
+                  <div className="mt-2 text-sm text-emerald-700">
+                    +1 added to <strong>{barcodeMatch.lineName}</strong> (line {barcodeMatch.lineIndex + 1})
+                  </div>
+                )}
+                {barcodeScan.trim() && !barcodeMatch && (
+                  <div className="mt-2 text-sm text-rose-600">No line matched "{barcodeScan.trim()}"</div>
+                )}
               </div>
 
               <div className="table-scroll-container overflow-x-auto rounded-lg border border-border bg-background">
