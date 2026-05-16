@@ -147,6 +147,14 @@ export type PoScanResult = {
   _fallback?: boolean;
   _fallback_reason?: string;
   vendor: string | null;
+  vendor_details?: {
+    name?: string | null;
+    contact?: string | null;
+    email?: string | null;
+    phone?: string | null;
+    address?: string | null;
+    payment_terms?: string | null;
+  } | null;
   po_number: string | null;
   date: string | null;
   total_cost: number | null;

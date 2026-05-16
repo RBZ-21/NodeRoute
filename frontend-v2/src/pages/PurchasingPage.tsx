@@ -19,7 +19,7 @@ import {
   useReceiveVendorPurchaseOrder,
   useVendorPurchaseOrders,
 } from '../hooks/usePurchasing';
-import { useVendorsQuery } from '../hooks/useVendors';
+import { type Vendor, useSaveVendorMutation, useVendorsQuery } from '../hooks/useVendors';
 import { useVendorPerformance } from '../hooks/useAI';
 
 type PurchaseItemDraft = {
@@ -33,6 +33,8 @@ type PurchaseItemDraft = {
   expiration_date: string;
   count_item_approved: boolean;
 };
+
+type VendorDraft = Pick<Vendor, 'name' | 'contact' | 'email' | 'phone' | 'address' | 'payment_terms' | 'status'>;
 
 type ReceiveLineDraft = {
   line_no: number;
@@ -135,6 +137,21 @@ function vendorCatalogItemNumbers(vendorRecord: { catalog_item_numbers?: string[
         .filter(Boolean)
     )
   );
+}
+
+function buildScannedVendorDraft(result: PoScanResult): VendorDraft | null {
+  const details = result.vendor_details || {};
+  const name = String(details.name || result.vendor || '').trim();
+  if (!name) return null;
+  return {
+    name,
+    contact: String(details.contact || '').trim(),
+    email: String(details.email || '').trim(),
+    phone: String(details.phone || '').trim(),
+    address: String(details.address || '').trim(),
+    payment_terms: String(details.payment_terms || '').trim(),
+    status: 'active',
+  };
 }
 
 function buildLeadTimeProductKey(itemNumber: unknown, description: unknown) {
@@ -300,9 +317,10 @@ export function PurchasingPage() {
   const { data: orders = [], isLoading, isError, error, refetch } = usePurchaseOrders(vendorParam || undefined);
   const { data: vendorPurchaseOrders = [], isLoading: vendorPoLoading, isError: vendorPoError, error: vendorPoErrorValue, refetch: refetchVendorPos } = useVendorPurchaseOrders();
   const { data: products = [] } = useInventoryProducts();
-  const { data: vendorRecords = [] } = useVendorsQuery();
+  const { data: vendorRecords = [], refetch: refetchVendors } = useVendorsQuery();
   const confirmPo = useConfirmPurchaseOrder();
   const receiveVendorPo = useReceiveVendorPurchaseOrder();
+  const saveVendorMutation = useSaveVendorMutation();
 
   const [notice, setNotice] = useState('');
   const [formError, setFormError] = useState('');
@@ -320,6 +338,7 @@ export function PurchasingPage() {
   const [scanLoading, setScanLoading] = useState(false);
   const [scanError, setScanError] = useState('');
   const [scanResult, setScanResult] = useState<PoScanResult | null>(null);
+  const [scannedVendorDraft, setScannedVendorDraft] = useState<VendorDraft | null>(null);
   const [receiveScanLoading, setReceiveScanLoading] = useState(false);
   const [receiveScanError, setReceiveScanError] = useState('');
   const [receiveScanResult, setReceiveScanResult] = useState<PoScanResult | null>(null);
@@ -383,6 +402,11 @@ export function PurchasingPage() {
   const selectedVendorRecord = useMemo(
     () => vendorRecords.find((record) => normalizeVendorName(record.name) === normalizeVendorName(vendor)) || null,
     [vendorRecords, vendor],
+  );
+  const scannedVendorNeedsSave = Boolean(
+    scannedVendorDraft?.name &&
+    normalizeVendorName(scannedVendorDraft.name) === normalizeVendorName(vendor) &&
+    !selectedVendorRecord
   );
   const selectedVendorCatalog = useMemo(
     () => vendorCatalogItemNumbers(selectedVendorRecord),
@@ -597,7 +621,16 @@ export function PurchasingPage() {
   }
 
   function applyScanResult(result: PoScanResult) {
-    if (result.vendor) setVendor(result.vendor);
+    const vendorDraft = buildScannedVendorDraft(result);
+    const existingVendor = vendorDraft
+      ? vendorRecords.find((record) => {
+        const savedName = normalizeVendorName(record.name);
+        return savedName === normalizeVendorName(vendorDraft.name) || savedName === normalizeVendorName(result.vendor);
+      })
+      : null;
+    const resolvedVendorName = existingVendor?.name || vendorDraft?.name || result.vendor || '';
+    if (resolvedVendorName) setVendor(resolvedVendorName);
+    setScannedVendorDraft(vendorDraft && !existingVendor ? vendorDraft : null);
     if (result.po_number) setPoNumber(result.po_number);
     const draftLines: PurchaseItemDraft[] = (result.items || []).map((item) => ({
       description: item.description ?? '',
@@ -658,6 +691,21 @@ export function PurchasingPage() {
       setScanError(String((err as Error).message || 'PO scan failed'));
     } finally {
       setScanLoading(false);
+    }
+  }
+
+  async function saveScannedVendor() {
+    if (!scannedVendorDraft?.name) return;
+    setFormError('');
+    try {
+      const saved = await saveVendorMutation.mutateAsync({ id: undefined, draft: scannedVendorDraft });
+      const savedName = String(saved.name || scannedVendorDraft.name || '').trim();
+      if (savedName) setVendor(savedName);
+      setScannedVendorDraft(null);
+      await refetchVendors();
+      setNotice(`Vendor "${savedName || 'New Vendor'}" saved from the invoice scan.`);
+    } catch (err) {
+      setFormError(String((err as Error).message || 'Could not save scanned vendor'));
     }
   }
 
@@ -748,7 +796,7 @@ export function PurchasingPage() {
           setNotice(failed
             ? `PO saved with ${response.errors?.length || 0} line errors.${poLabel}${lotsMsg}`
             : `Purchase order confirmed and inventory updated.${poLabel}${lotsMsg}`);
-          setVendor(''); setPoNumber(''); setNotes(''); setLines([emptyLine()]); setScanResult(null);
+          setVendor(''); setPoNumber(''); setNotes(''); setLines([emptyLine()]); setScanResult(null); setScannedVendorDraft(null);
         },
         onError: (err) => setFormError(String((err as Error).message || 'Failed to confirm purchase order')),
       }
@@ -1002,6 +1050,52 @@ export function PurchasingPage() {
                   This vendor is not linked to a vendor master record yet, so product search is still pulling from all inventory. Create or rename the vendor in Vendors to start using a scoped catalog.
                 </div>
               )}
+            </div>
+          ) : null}
+
+          {scannedVendorNeedsSave && scannedVendorDraft ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-950">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
+                <div>
+                  <div className="font-semibold">New vendor detected from invoice</div>
+                  <div className="text-xs text-amber-900/80">
+                    Review the scanned details below, then save it to Vendors so future invoices link to the vendor catalog and history.
+                  </div>
+                </div>
+                <Button size="sm" onClick={() => void saveScannedVendor()} disabled={saveVendorMutation.isPending}>
+                  {saveVendorMutation.isPending ? 'Saving...' : 'Save Vendor'}
+                </Button>
+              </div>
+              <div className="mt-3 grid gap-3 md:grid-cols-2 lg:grid-cols-3">
+                <label className="space-y-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-amber-900/80">Name</span>
+                  <Input value={scannedVendorDraft.name || ''} onChange={(e) => {
+                    const nextName = e.target.value;
+                    setScannedVendorDraft((draft) => draft ? { ...draft, name: nextName } : draft);
+                    setVendor(nextName);
+                  }} />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-amber-900/80">Contact</span>
+                  <Input value={scannedVendorDraft.contact || ''} onChange={(e) => setScannedVendorDraft((draft) => draft ? { ...draft, contact: e.target.value } : draft)} placeholder="Accounts payable" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-amber-900/80">Email</span>
+                  <Input value={scannedVendorDraft.email || ''} onChange={(e) => setScannedVendorDraft((draft) => draft ? { ...draft, email: e.target.value } : draft)} placeholder="orders@vendor.com" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-amber-900/80">Phone</span>
+                  <Input value={scannedVendorDraft.phone || ''} onChange={(e) => setScannedVendorDraft((draft) => draft ? { ...draft, phone: e.target.value } : draft)} placeholder="(555) 123-4567" />
+                </label>
+                <label className="space-y-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-amber-900/80">Payment Terms</span>
+                  <Input value={scannedVendorDraft.payment_terms || ''} onChange={(e) => setScannedVendorDraft((draft) => draft ? { ...draft, payment_terms: e.target.value } : draft)} placeholder="Net 30" />
+                </label>
+                <label className="space-y-1 md:col-span-2 lg:col-span-1">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-amber-900/80">Address</span>
+                  <Input value={scannedVendorDraft.address || ''} onChange={(e) => setScannedVendorDraft((draft) => draft ? { ...draft, address: e.target.value } : draft)} placeholder="Vendor address" />
+                </label>
+              </div>
             </div>
           ) : null}
 
