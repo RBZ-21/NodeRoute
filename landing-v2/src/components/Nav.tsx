@@ -70,10 +70,5 @@ export function Nav() {
 }
 
 function Logo() {
-  return (
-    <span className="relative inline-flex h-7 w-7 items-center justify-center rounded-md border border-line-strong bg-ink-200">
-      <span className="absolute inset-[5px] rounded-[3px] border border-teal/60" />
-      <span className="relative h-1.5 w-1.5 rounded-full bg-teal animate-pulse-dot" />
-    </span>
-  );
+  return <img src="/noderoute-logo.png" alt="NodeRoute" className="h-8 object-contain" />;
 }
