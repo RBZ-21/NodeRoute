@@ -1,7 +1,9 @@
-import { CheckCircle2, ClipboardList, FileSignature, MapPin } from 'lucide-react';
+import { Camera, CheckCircle2, ClipboardList, FileSignature, MapPin, SkipForward } from 'lucide-react';
+import { useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { sendWithAuth } from '../lib/api';
 import { dwellForStop, formatDateTime, routeProgress, stopBadgeVariant, stopStatus } from './driver.types';
 import type { CompanySettings, DriverRoute, DwellRecord } from './driver.types';
 
@@ -13,13 +15,33 @@ type Props = {
   onArrive: (stopId: string) => void;
   onDepart: (stopId: string) => void;
   onOpenSignature: (stopId: string) => void;
+  onUploadProofOfDelivery: (stopId: string) => void;
   onDownloadInvoice: (invoiceId: string) => void;
+  onRouteReordered: () => void;
 };
 
 export function DriverRouteTab({
   activeRoute, dwellRecords, busyStopId, companySettings,
-  onArrive, onDepart, onOpenSignature, onDownloadInvoice,
+  onArrive, onDepart, onOpenSignature, onUploadProofOfDelivery, onDownloadInvoice, onRouteReordered,
 }: Props) {
+  const [driverNotes, setDriverNotes] = useState<Record<string, string>>({});
+  const [savingNote, setSavingNote] = useState('');
+  const [skipBusy, setSkipBusy] = useState('');
+
+  async function saveDriverNote(stopId: string) {
+    setSavingNote(stopId);
+    try {
+      await sendWithAuth(`/api/stops/${stopId}`, 'PATCH', { driver_notes: driverNotes[stopId] ?? '' });
+    } finally { setSavingNote(''); }
+  }
+
+  async function skipStop(stopId: string) {
+    setSkipBusy(stopId);
+    try {
+      await sendWithAuth(`/api/stops/${stopId}/skip`, 'POST', {});
+      onRouteReordered();
+    } finally { setSkipBusy(''); }
+  }
   const stops = activeRoute.stops || [];
   const progress = routeProgress(stops, dwellRecords, activeRoute.id);
 
@@ -70,6 +92,18 @@ export function DriverRouteTab({
                     {stop.invoice_number ? <Badge variant="neutral">Invoice {stop.invoice_number}</Badge> : null}
                   </div>
                   {stop.notes ? <div className="text-sm text-muted-foreground">Notes: {stop.notes}</div> : null}
+                  <div className="flex gap-2 items-end">
+                    <textarea
+                      className="w-full rounded-md border border-input bg-background px-3 py-1.5 text-sm resize-none"
+                      rows={2}
+                      placeholder="Add driver notes (door codes, instructions)…"
+                      value={driverNotes[stop.id] ?? (stop.driver_notes || '')}
+                      onChange={(e) => setDriverNotes((n) => ({ ...n, [stop.id]: e.target.value }))}
+                    />
+                    <Button size="sm" variant="outline" disabled={savingNote === stop.id} onClick={() => saveDriverNote(stop.id)}>
+                      {savingNote === stop.id ? 'Saving…' : 'Save'}
+                    </Button>
+                  </div>
                   {record?.arrivedAt ? (
                     <div className="text-xs text-muted-foreground">
                       Arrived: {formatDateTime(record.arrivedAt)}
@@ -83,14 +117,27 @@ export function DriverRouteTab({
                         : 'Signature is required before the driver can move to the next field.'}
                     </div>
                   ) : null}
+                  {companySettings.forceDriverProofOfDelivery ? (
+                    <div className={`rounded-md px-3 py-2 text-xs ${stop.invoice_has_proof_of_delivery ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                      {stop.invoice_has_proof_of_delivery
+                        ? 'Proof-of-delivery photo uploaded.'
+                        : 'A delivery photo is required before the driver can move to the next stop.'}
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="flex w-full flex-col gap-2 md:w-56">
                   {status === 'pending' ? (
-                    <Button disabled={isBusy} onClick={() => onArrive(stop.id)}>
-                      <MapPin className="mr-2 h-4 w-4" />
-                      {isBusy ? 'Saving...' : 'Arrive'}
-                    </Button>
+                    <>
+                      <Button disabled={isBusy} onClick={() => onArrive(stop.id)}>
+                        <MapPin className="mr-2 h-4 w-4" />
+                        {isBusy ? 'Saving...' : 'Arrive'}
+                      </Button>
+                      <Button variant="outline" disabled={skipBusy === stop.id} onClick={() => skipStop(stop.id)}>
+                        <SkipForward className="mr-2 h-4 w-4" />
+                        {skipBusy === stop.id ? 'Moving…' : 'Skip — move to end'}
+                      </Button>
+                    </>
                   ) : null}
                   {status === 'arrived' ? (
                     <>
@@ -98,6 +145,12 @@ export function DriverRouteTab({
                         <Button variant="outline" disabled={isBusy} onClick={() => onOpenSignature(stop.id)}>
                           <FileSignature className="mr-2 h-4 w-4" />
                           {stop.invoice_has_signature ? 'View Signature Flow' : 'Capture Signature'}
+                        </Button>
+                      ) : null}
+                      {stop.invoice_id ? (
+                        <Button variant="outline" disabled={isBusy} onClick={() => onUploadProofOfDelivery(stop.id)}>
+                          <Camera className="mr-2 h-4 w-4" />
+                          {stop.invoice_has_proof_of_delivery ? 'Replace Delivery Photo' : 'Upload Delivery Photo'}
                         </Button>
                       ) : null}
                       <Button disabled={isBusy} onClick={() => onDepart(stop.id)}>

@@ -106,7 +106,9 @@ router.get('/routes', authenticateToken, requireRole('driver'), async (req, res)
       invoice_number: invoice?.invoice_number || null,
       invoice_status: invoice?.status || null,
       invoice_signed_at: invoice?.signed_at || null,
-      invoice_has_signature: !!invoice?.signature_data,
+      invoice_has_signature: !!(invoice?.signature_data || s.signature_data),
+      invoice_has_proof_of_delivery: !!invoice?.proof_of_delivery_image_data,
+      invoice_proof_of_delivery_uploaded_at: invoice?.proof_of_delivery_uploaded_at || null,
     };
   });
 

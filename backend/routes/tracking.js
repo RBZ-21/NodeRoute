@@ -89,6 +89,13 @@ function buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes) {
   };
 }
 
+function routeHasStarted(route) {
+  if (!route) return false;
+  if (route.dispatched_at) return true;
+  const status = normalize(route.status);
+  return status === 'active' || status === 'completed';
+}
+
 router.get('/:token', async (req, res) => {
   const token = String(req.params.token || '').trim();
   if (!token) return res.status(400).json({ error: 'Tracking token required' });
@@ -145,6 +152,7 @@ router.get('/:token', async (req, res) => {
   const matchedStopIndex = findMatchingStopIndex(order, orderedStops);
   const destination = buildDestination(order, orderedStops, matchedStopIndex);
   const driverName = order.driver_name || route?.driver || 'NodeRoute Driver';
+  const outingStarted = routeHasStarted(route);
 
   const { data: driverLocations, error: driverLocationError } = await supabase
     .from('driver_locations')
@@ -186,7 +194,7 @@ router.get('/:token', async (req, res) => {
       : 0;
 
   const delivered = order.status === 'invoiced' || order.status === 'delivered';
-  const eta = delivered ? null : buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes);
+  const eta = delivered || !outingStarted ? null : buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes);
 
   res.json({
     orderId: order.id,
@@ -196,6 +204,8 @@ router.get('/:token', async (req, res) => {
     customerName: order.customer_name,
     customerEmail: order.customer_email || null,
     customerPhone: order.customer_phone || null,
+    outingStarted,
+    routeDispatchedAt: route?.dispatched_at || null,
     stopsBeforeYou,
     totalRouteStops: orderedStops.length,
     driver,

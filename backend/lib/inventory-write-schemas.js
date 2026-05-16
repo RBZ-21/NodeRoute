@@ -1,97 +1,186 @@
+'use strict';
+/**
+ * Zod schemas for inventory write operations.
+ *
+ * optional*(schema) pattern
+ * ─────────────────────────
+ * z.preprocess coerces the raw value (e.g. "" → undefined) THEN the outer
+ * .optional() makes the key itself optional on PATCH payloads, so omitted
+ * keys pass through as-is without triggering validation errors.
+ */
 const { z } = require('zod');
 
-const blankToUndefined = z.union([
-  z.literal('').transform(() => undefined),
-  z.null().transform(() => undefined),
-  z.undefined(),
-]);
+// Coerce empty-string → undefined so optional fields behave correctly.
+// In Zod v4, z.optional() must wrap the whole z.preprocess() so that absent
+// keys short-circuit before the preprocess runs.  '' is handled inside the
+// inner union so it also resolves to undefined (stripped from output).
+const emptyToUndef = (v) => (v === '' ? undefined : v);
 
-const optionalTrimmedString = z.preprocess((value) => {
-  if (value === undefined || value === null) return undefined;
-  return String(value).trim();
-}, z.string().optional());
-
-const optionalNullableString = z.preprocess((value) => {
-  if (value === undefined) return undefined;
-  if (value === null) return null;
-  const trimmed = String(value).trim();
-  return trimmed === '' ? null : trimmed;
-}, z.string().nullable().optional());
-
-const optionalCoercedNumber = z.union([
-  z.number().finite(),
-  z.string().trim().min(1).pipe(z.coerce.number().finite()),
-  blankToUndefined,
-]).optional();
-
-const optionalCoercedBoolean = z.union([
-  z.boolean(),
-  z.string().trim().toLowerCase().transform((value, ctx) => {
-    if (['true', '1', 'yes', 'on'].includes(value)) return true;
-    if (['false', '0', 'no', 'off'].includes(value)) return false;
-    ctx.addIssue({ code: 'custom', message: 'Invalid boolean value' });
-    return z.NEVER;
-  }),
-  blankToUndefined,
-]).optional();
-
-const countedQuantity = z.preprocess((value) => {
-  if (typeof value === 'string' && value.trim() === '') return Number.NaN;
-  return value;
-}, z.coerce.number().finite().nonnegative());
-
-function stripUndefinedFields(body) {
-  return Object.fromEntries(
-    Object.entries(body).filter(([, value]) => value !== undefined)
-  );
+function optionalStr(schema) {
+  return z.optional(z.preprocess(emptyToUndef, z.union([z.undefined(), schema])));
+}
+function optionalNum(schema) {
+  return z.optional(z.preprocess(
+    (v) => (v === '' || v == null ? undefined : Number(v)),
+    z.union([z.undefined(), schema])
+  ));
 }
 
-const nonEmptyPatch = schema => schema
-  .transform(stripUndefinedFields)
-  .refine(
-    body => Object.keys(body).length > 0,
-    { message: 'At least one field is required' }
-  );
+const LotCreateSchema = z.object({
+  product_name: z.string().min(1),
+  lot_number:   z.string().min(1),
+  quantity:     z.number().positive(),
+  unit:         z.string().min(1),
+  location_id:  z.string().uuid().optional(),
+  supplier:     z.string().optional(),
+  notes:        z.string().optional(),
+  expiry_date:  z.string().optional(),
+  cost_per_unit: z.number().nonnegative().optional(),
+});
 
-const inventoryCountBodySchema = z.object({
-  notes: optionalTrimmedString,
-  items: z.array(z.object({
-    item_number: z.coerce.string().trim().min(1),
-    counted_qty: countedQuantity,
-  }).strict()).min(1),
+const LotPatchSchema = z.object({
+  product_name: optionalStr(z.string().min(1)),
+  lot_number:   optionalStr(z.string().min(1)),
+  quantity:     optionalNum(z.number().nonnegative()),
+  unit:         optionalStr(z.string().min(1)),
+  location_id:  optionalStr(z.string().uuid()),
+  supplier:     optionalStr(z.string()),
+  notes:        optionalStr(z.string()),
+  expiry_date:  optionalStr(z.string()),
+  cost_per_unit: optionalNum(z.number().nonnegative()),
 }).strict();
 
-const inventoryLotPatchBodySchema = nonEmptyPatch(z.object({
-  lot_number: optionalTrimmedString,
-  batch_number: optionalNullableString,
-  supplier_name: optionalNullableString,
-  country_of_origin: optionalNullableString,
-  certifications: optionalNullableString,
-  storage_temp: optionalNullableString,
-  received_date: optionalNullableString,
-  expiry_date: optionalNullableString,
-  best_before_date: optionalNullableString,
-  qty_on_hand: optionalCoercedNumber,
-  cost_per_unit: optionalCoercedNumber,
-  status: optionalTrimmedString,
-  notes: optionalNullableString,
-}).strict());
+const RestockSchema = z.object({
+  lot_id:   z.string().uuid(),
+  quantity: z.number().positive(),
+  notes:    z.string().optional(),
+});
 
-const inventoryProductPatchBodySchema = nonEmptyPatch(z.object({
-  description: optionalTrimmedString,
-  category: optionalTrimmedString,
-  item_number: optionalTrimmedString,
-  unit: optionalTrimmedString,
-  cost: optionalCoercedNumber,
-  on_hand_qty: optionalCoercedNumber,
-  on_hand_weight: optionalCoercedNumber,
-  lot_item: optionalTrimmedString,
-  notes: optionalNullableString,
-  is_catch_weight: optionalCoercedBoolean,
-  default_price_per_lb: optionalCoercedNumber,
-}).strict());
+const AdjustSchema = z.object({
+  lot_id:   z.string().uuid(),
+  quantity: z.number(),
+  reason:   z.string().optional(),
+});
+
+const PickSchema = z.object({
+  lot_id:      z.string().uuid(),
+  quantity:    z.number().positive(),
+  order_id:    z.string().optional(),
+  customer_id: z.string().optional(),
+});
+
+const SpoilageSchema = z.object({
+  lot_id:   z.string().uuid(),
+  quantity: z.number().positive(),
+  reason:   z.string().optional(),
+});
+
+const TransferSchema = z.object({
+  lot_id:          z.string().uuid(),
+  quantity:        z.number().positive(),
+  to_location_id:  z.string().uuid(),
+  from_location_id: z.string().uuid().optional(),
+});
+
+const CountSchema = z.object({
+  lot_id:    z.string().uuid(),
+  quantity:  z.number().nonnegative(),
+  notes:     z.string().optional(),
+});
+
+const YieldSchema = z.object({
+  input_lot_ids:  z.array(z.string().uuid()).min(1),
+  output_lots:    z.array(z.object({
+    product_name: z.string().min(1),
+    lot_number:   z.string().min(1),
+    quantity:     z.number().positive(),
+    unit:         z.string().min(1),
+  })).min(1),
+  notes: z.string().optional(),
+});
+
+// ── Inventory write schemas used by the /inventory routes ─────────────────────
+
+function coerceNum(v) {
+  return Number(v);
+}
+
+function coerceBool(v) {
+  if (v === true  || v === 'yes'  || v === 'true'  || v === '1' || v === 1)  return true;
+  if (v === false || v === 'no'   || v === 'false' || v === '0' || v === 0)  return false;
+  return v; // pass through so Zod's boolean validator rejects invalid strings
+}
+
+const stripUndef = (obj) =>
+  Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined));
+
+const inventoryCountBodySchema = z.object({
+  notes: z.optional(z.preprocess(
+    (v) => { if (typeof v === 'string') { const t = v.trim(); return t === '' ? undefined : t; } return v; },
+    z.string().min(1)
+  )),
+  items: z.array(
+    z.object({
+      item_number: z.preprocess(
+        (v) => String(v ?? '').trim(),
+        z.string().min(1, 'item_number is required')
+      ),
+      counted_qty: z.preprocess(
+        (v) => { if (v === '' || v == null) return NaN; return Number(v); },
+        z.number().nonnegative('counted_qty must be >= 0')
+      ),
+    })
+  ).min(1, 'at least one item is required'),
+});
+
+const inventoryLotPatchBodySchema = z.object({
+  qty_on_hand:   z.optional(z.preprocess(coerceNum, z.number().nonnegative())),
+  cost_per_unit: z.optional(z.preprocess(coerceNum, z.number().nonnegative())),
+  supplier_name: z.optional(z.preprocess(
+    (v) => (typeof v === 'string' ? v.trim() : v),
+    z.string().min(1)
+  )),
+  notes: z.optional(z.preprocess(
+    (v) => (v === '' ? null : v),
+    z.union([z.string(), z.null()])
+  )),
+}).strict()
+  .transform(stripUndef)
+  .refine((obj) => Object.keys(obj).length > 0, { message: 'at least one field is required' });
+
+// Treats '' as undefined (field absent) so stripUndef removes it from the output.
+const coerceOptionalNum = (v) => (v === '' || v == null ? undefined : Number(v));
+
+const inventoryProductPatchBodySchema = z.object({
+  item_number:         z.optional(z.preprocess((v) => (typeof v === 'string' ? v.trim() : v), z.string().min(1))),
+  description:         z.optional(z.preprocess((v) => (typeof v === 'string' ? v.trim() : v), z.string().min(1))),
+  category:            z.optional(z.preprocess((v) => (typeof v === 'string' ? v.trim() : v), z.string().min(1))),
+  unit:                z.optional(z.preprocess((v) => (typeof v === 'string' ? v.trim() : v), z.string().min(1))),
+  cost:                z.optional(z.preprocess(coerceOptionalNum, z.union([z.undefined(), z.number().nonnegative()]))),
+  on_hand_qty:         z.optional(z.preprocess(coerceOptionalNum, z.union([z.undefined(), z.number().nonnegative()]))),
+  default_price_per_lb: z.optional(z.preprocess(coerceOptionalNum, z.union([z.undefined(), z.number().nonnegative()]))),
+  is_catch_weight:     z.optional(z.preprocess(coerceBool, z.boolean())),
+  is_active:           z.optional(z.preprocess(coerceBool, z.boolean())),
+  reorder_point:       z.optional(z.preprocess(coerceOptionalNum, z.union([z.undefined(), z.number().nonnegative()]))),
+  barcode:             z.optional(z.preprocess((v) => (v === '' ? null : v), z.union([z.string(), z.null(), z.undefined()]))),
+  notes: z.optional(z.preprocess(
+    (v) => (v === '' || v === null ? null : v),
+    z.union([z.string(), z.null()])
+  )),
+}).strict()
+  .transform(stripUndef)
+  .refine((obj) => Object.keys(obj).length > 0, { message: 'at least one field is required' });
 
 module.exports = {
+  LotCreateSchema,
+  LotPatchSchema,
+  RestockSchema,
+  AdjustSchema,
+  PickSchema,
+  SpoilageSchema,
+  TransferSchema,
+  CountSchema,
+  YieldSchema,
   inventoryCountBodySchema,
   inventoryLotPatchBodySchema,
   inventoryProductPatchBodySchema,

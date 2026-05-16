@@ -1,26 +1,18 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CustomersPage } from './CustomersPage';
+import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
-const { fetchWithAuthMock, sendWithAuthMock, navigateMock } = vi.hoisted(() => ({
+const { fetchWithAuthMock, sendWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
   sendWithAuthMock: vi.fn(),
-  navigateMock: vi.fn(),
 }));
 
 vi.mock('../lib/api', () => ({
   fetchWithAuth: fetchWithAuthMock,
   sendWithAuth: sendWithAuthMock,
 }));
-
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
-  return {
-    ...actual,
-    useNavigate: () => navigateMock,
-  };
-});
 
 const baseCustomers = [
   {
@@ -51,57 +43,55 @@ const baseCustomers = [
 function mockCustomersApi(customers = baseCustomers) {
   fetchWithAuthMock.mockImplementation(async (url: string) => {
     if (url === '/api/customers') return customers;
+    if (String(url).startsWith('/api/invoices?customer_id=')) return [];
     return [];
   });
 }
 
 function renderCustomersPage() {
-  return render(
-    <MemoryRouter>
-      <CustomersPage />
-    </MemoryRouter>
-  );
+  return renderWithQueryClient(<CustomersPage />, {
+    wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter>,
+  });
 }
 
 describe('CustomersPage', () => {
   beforeEach(() => {
     fetchWithAuthMock.mockReset();
     sendWithAuthMock.mockReset();
-    navigateMock.mockReset();
     vi.stubGlobal('confirm', vi.fn(() => true));
     mockCustomersApi();
   });
 
-  it('renders customer summaries, filters the workbench, and navigates to related pages', async () => {
+  it('renders customer summaries, filters the workbench, and opens customer detail views', async () => {
     renderCustomersPage();
 
     expect(await screen.findByText('Blue Fin')).toBeInTheDocument();
     expect(screen.getByText('Harbor Cafe')).toBeInTheDocument();
-    expect(screen.getByText('$1,470.50')).toBeInTheDocument();
+    expect(screen.getByText('Total')).toBeInTheDocument();
+    expect(screen.getAllByText('Credit Hold').length).toBeGreaterThan(0);
     expect(screen.getByText('Past due invoices')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByDisplayValue('All'), { target: { value: 'on-hold' } });
+    fireEvent.change(screen.getByDisplayValue('All'), { target: { value: 'credit-hold' } });
     await waitFor(() => {
       expect(screen.queryByText('Blue Fin')).not.toBeInTheDocument();
       expect(screen.getByText('Harbor Cafe')).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByPlaceholderText('Name or email'), { target: { value: 'bluefin' } });
+    fireEvent.change(screen.getByPlaceholderText('Name, #, email...'), { target: { value: 'bluefin' } });
     await waitFor(() => {
-      expect(screen.getByText('No customers found for the selected filters.')).toBeInTheDocument();
+      expect(screen.getByText('No customers found.')).toBeInTheDocument();
     });
 
-    fireEvent.change(screen.getByDisplayValue('On Hold'), { target: { value: 'all' } });
-    fireEvent.change(screen.getByPlaceholderText('Name or email'), { target: { value: '' } });
+    fireEvent.change(screen.getByDisplayValue('Credit Hold'), { target: { value: 'all' } });
+    fireEvent.change(screen.getByPlaceholderText('Name, #, email...'), { target: { value: '' } });
 
     const blueFinRow = (await screen.findByText('Blue Fin')).closest('tr') as HTMLElement | null;
     if (!blueFinRow) throw new Error('Expected Blue Fin row');
 
-    fireEvent.click(within(blueFinRow).getByRole('button', { name: 'View Orders' }));
-    expect(navigateMock).toHaveBeenCalledWith('/orders?customerId=cust-1');
-
-    fireEvent.click(within(blueFinRow).getByRole('button', { name: 'View Invoices' }));
-    expect(navigateMock).toHaveBeenCalledWith('/invoices?customerId=cust-1');
+    fireEvent.click(within(blueFinRow).getByRole('button', { name: 'View / Edit' }));
+    expect(await screen.findByRole('heading', { name: 'Blue Fin' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'invoices' }));
+    expect(await screen.findByText('No invoices found for this customer.')).toBeInTheDocument();
   });
 
   it('places a credit hold and reloads the customer list', async () => {
@@ -118,7 +108,7 @@ describe('CustomersPage', () => {
     fireEvent.change(screen.getByPlaceholderText(/Overdue balance/i), {
       target: { value: 'Late payments over 90 days' },
     });
-    fireEvent.click(screen.getAllByRole('button', { name: 'Place Hold' })[0]);
+    fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Place Hold' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/customers/cust-1/hold', 'POST', {
@@ -126,6 +116,39 @@ describe('CustomersPage', () => {
       });
     });
     expect(await screen.findByText('Credit hold placed on Blue Fin.')).toBeInTheDocument();
+    expect(fetchWithAuthMock).toHaveBeenCalledTimes(2);
+  });
+
+  it('adds a customer from the customer dashboard and reloads the list', async () => {
+    sendWithAuthMock.mockResolvedValueOnce({});
+
+    renderCustomersPage();
+
+    expect(await screen.findByText('Blue Fin')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add Customer' }));
+    expect(await screen.findByText('Create a new customer directly from the customer dashboard.')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('Blue Fin Seafood'), { target: { value: 'Dockside Market' } });
+    fireEvent.change(screen.getByPlaceholderText('Receiving Manager'), { target: { value: 'Jamie Smith' } });
+    fireEvent.change(screen.getByPlaceholderText('ops@example.com'), { target: { value: 'dockside@example.com' } });
+    fireEvent.change(screen.getByPlaceholderText('(555) 010-0103'), { target: { value: '555-0199' } });
+    fireEvent.change(screen.getByPlaceholderText('123 Dock Street'), { target: { value: '99 Harbor Way' } });
+    fireEvent.change(screen.getByPlaceholderText('Net 30'), { target: { value: 'Net 15' } });
+    fireEvent.click(screen.getAllByRole('button', { name: 'Add Customer' })[0]);
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/customers', 'POST', {
+        company_name: 'Dockside Market',
+        contact_name: 'Jamie Smith',
+        email: 'dockside@example.com',
+        phone: '555-0199',
+        address: '99 Harbor Way',
+        payment_terms: 'Net 15',
+        status: 'active',
+      });
+    });
+    expect(await screen.findByText('Customer Dockside Market added.')).toBeInTheDocument();
     expect(fetchWithAuthMock).toHaveBeenCalledTimes(2);
   });
 

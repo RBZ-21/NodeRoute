@@ -1,7 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { RoutesPage } from './RoutesPage';
+import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
 const { fetchWithAuthMock, sendWithAuthMock, navigateMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
@@ -37,6 +38,7 @@ const baseRoutes = [
 
 const baseStops = [
   { id: 'stop-1', name: 'Blue Fin', address: '1 Dock St', notes: 'Order ORD-100' },
+  { id: 'stop-2', name: 'Harbor Wholesale', address: '77 Pier Ave', notes: 'Will call' },
 ];
 
 const baseOrders = [
@@ -49,32 +51,38 @@ const baseDrivers = [
   { id: 'driver-2', name: 'Jamie Driver', email: 'jamie@example.com' },
 ];
 
+const baseCustomers = [
+  { id: 'cust-1', company_name: 'Blue Fin', address: '1 Dock St' },
+  { id: 'cust-2', company_name: 'Harbor Wholesale', address: '77 Pier Ave' },
+];
+
 function mockRoutesApi({
   routes = baseRoutes,
   stops = baseStops,
   orders = baseOrders,
   drivers = baseDrivers,
+  customers = baseCustomers,
 }: {
   routes?: unknown[];
   stops?: unknown[];
   orders?: unknown[];
   drivers?: unknown[];
+  customers?: unknown[];
 } = {}) {
   fetchWithAuthMock.mockImplementation(async (url: string) => {
     if (url === '/api/routes') return routes;
     if (url === '/api/stops') return stops;
     if (url === '/api/orders?status=pending') return orders;
     if (url === '/api/users') return drivers;
+    if (url === '/api/customers') return customers;
     return [];
   });
 }
 
 function renderRoutesPage() {
-  return render(
-    <MemoryRouter>
-      <RoutesPage />
-    </MemoryRouter>
-  );
+  return renderWithQueryClient(<RoutesPage />, {
+    wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter>,
+  });
 }
 
 describe('RoutesPage', () => {
@@ -105,6 +113,7 @@ describe('RoutesPage', () => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes', 'POST', {
         name: 'South Route',
         driver: 'Jamie Driver',
+        driverId: 'driver-2',
         notes: 'Afternoon run',
         stopIds: [],
       });
@@ -112,10 +121,16 @@ describe('RoutesPage', () => {
     expect(await screen.findByText('Route "South Route" created.')).toBeInTheDocument();
   });
 
-  it('opens the edit panel, saves changes, and adds stops from pending orders', async () => {
+  it('opens the edit panel, saves changes, adds a stop from a customer, and adds stops from pending orders', async () => {
+    mockRoutesApi({
+      orders: [
+        { id: 'order-3', order_number: 'ORD-102', customer_name: 'Dockside Grill', customer_address: '9 Bay Rd', status: 'pending' },
+      ],
+    });
     sendWithAuthMock
       .mockResolvedValueOnce({})
-      .mockResolvedValueOnce({ id: 'stop-2' })
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ id: 'stop-4' })
       .mockResolvedValueOnce({});
 
     renderRoutesPage();
@@ -135,30 +150,43 @@ describe('RoutesPage', () => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-1', 'PATCH', {
         name: 'Updated Route',
         driver: 'Jamie Driver',
+        driverId: 'driver-2',
         notes: 'Updated notes',
       });
     });
     expect(await screen.findByText('Route updated.')).toBeInTheDocument();
 
-    const pendingOrdersSection = screen.getByText('Add Stops from Pending Orders').closest('div');
-    if (!pendingOrdersSection) throw new Error('Expected pending orders section');
-    fireEvent.click(within(pendingOrdersSection).getAllByRole('checkbox')[0]);
-    fireEvent.click(screen.getByRole('button', { name: 'Add 1 Stop to Route' }));
+    fireEvent.change(screen.getByPlaceholderText('Search customers or orders…'), { target: { value: 'Harbor' } });
+    fireEvent.mouseDown(await screen.findByText('Harbor Wholesale'));
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Route' }));
 
-    await waitFor(() => {
-      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/stops', 'POST', {
-        name: 'Blue Fin',
-        address: '1 Dock St',
-        notes: 'Order ORD-100',
-      });
-    });
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-1', 'PATCH', {
         stopIds: ['stop-1', 'stop-2'],
         activeStopIds: ['stop-1', 'stop-2'],
       });
     });
-    expect(await screen.findByText('1 stop added to route.')).toBeInTheDocument();
+    expect(await screen.findByText('"Harbor Wholesale" added to route.')).toBeInTheDocument();
+
+    const pendingOrdersSection = screen.getByText('Batch Add from Pending Orders').closest('div');
+    if (!pendingOrdersSection) throw new Error('Expected pending orders section');
+    fireEvent.click(within(pendingOrdersSection).getAllByRole('checkbox')[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Add 1 Stop to Route' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/stops', 'POST', {
+        name: 'Dockside Grill',
+        address: '9 Bay Rd',
+        notes: 'Order ORD-102',
+      });
+    });
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-1', 'PATCH', {
+        stopIds: ['stop-1', 'stop-2', 'stop-4'],
+        activeStopIds: ['stop-1', 'stop-2', 'stop-4'],
+      });
+    });
+    expect(await screen.findByText('1 stop added.')).toBeInTheDocument();
   });
 
   it('filters the route list and deletes a route after confirmation', async () => {
@@ -189,5 +217,61 @@ describe('RoutesPage', () => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-1', 'DELETE');
     });
     expect(await screen.findByText('Route deleted.')).toBeInTheDocument();
+  });
+
+  it('dispatches a pending route and explains that ETA is now allowed to go live', async () => {
+    mockRoutesApi({
+      routes: [
+        { id: 'route-3', name: 'Dock Run', driver: 'Jamie Driver', status: 'pending', stop_ids: [], active_stop_ids: [], created_at: '2026-04-11T00:00:00Z' },
+      ],
+    });
+    sendWithAuthMock.mockResolvedValueOnce({});
+
+    renderRoutesPage();
+
+    expect(await screen.findByText('Dock Run')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Dispatch Route' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-3', 'PATCH', {
+        status: 'active',
+        dispatched_at: expect.any(String),
+      });
+    });
+    expect(await screen.findByText(/marked as departed/i)).toBeInTheDocument();
+  });
+
+  it('applies an AI driver suggestion as a linked driver user assignment', async () => {
+    sendWithAuthMock
+      .mockResolvedValueOnce({
+        assignments: [
+          {
+            route_id: 'route-1',
+            route_name: 'North Route',
+            recommended_driver_name: 'Jamie Driver',
+            reasoning: 'Least-loaded driver.',
+            confidence: 'high',
+          },
+        ],
+        unassignable_routes: [],
+        summary: '1 route suggested.',
+      })
+      .mockResolvedValueOnce({});
+
+    renderRoutesPage();
+
+    expect(await screen.findByText('North Route')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Suggest Assignments' }));
+
+    expect(await screen.findByText('Least-loaded driver.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-1', 'PATCH', {
+        driver: 'Jamie Driver',
+        driverId: 'driver-2',
+      });
+    });
+    expect(await screen.findByText('Assigned Jamie Driver to the route.')).toBeInTheDocument();
   });
 });

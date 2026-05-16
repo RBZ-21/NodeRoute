@@ -1,6 +1,8 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { MemoryRouter } from 'react-router-dom';
 import { InventoryPage } from './InventoryPage';
+import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
 const { fetchWithAuthMock, sendWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
@@ -47,6 +49,22 @@ const inventoryItems = [
     is_catch_weight: false,
   },
 ];
+const activeLots = [
+  {
+    id: 'lot-1',
+    lot_number: 'SAL-LOT-1',
+    product_id: 'SAL-1',
+    received_date: '2026-04-01',
+    expiration_date: '2026-04-20',
+  },
+  {
+    id: 'lot-2',
+    lot_number: 'TUN-LOT-9',
+    product_id: 'TUN-1',
+    received_date: '2026-04-03',
+    expiration_date: '2026-04-18',
+  },
+];
 
 const ledgerResponse = {
   summary: {
@@ -71,9 +89,39 @@ const ledgerResponse = {
 function mockInventoryApi() {
   fetchWithAuthMock.mockImplementation(async (url: string) => {
     if (url === '/api/inventory') return inventoryItems;
+    if (url === '/api/lots?active_only=true') return activeLots;
     if (url.startsWith('/api/inventory/ledger?')) return ledgerResponse;
+    if (url === '/api/reporting/recent-sold-items?days=30') {
+      return {
+        item_count: 1,
+        items: [{ key: 'box-1', item_number: 'BOX-1', label: 'Shipping Box', invoice_count: 1, qty: 4 }],
+      };
+    }
+    if (url === '/api/reporting/recent-sold-items?days=60') {
+      return {
+        item_count: 2,
+        items: [
+          { key: 'sal-1', item_number: 'SAL-1', label: 'Fresh Salmon', invoice_count: 2, qty: 10 },
+          { key: 'box-1', item_number: 'BOX-1', label: 'Shipping Box', invoice_count: 1, qty: 4 },
+        ],
+      };
+    }
+    if (url === '/api/reporting/recent-sold-items?days=90') {
+      return {
+        item_count: 3,
+        items: [
+          { key: 'sal-1', item_number: 'SAL-1', label: 'Fresh Salmon', invoice_count: 2, qty: 10 },
+          { key: 'tun-1', item_number: 'TUN-1', label: 'Tuna Steaks', invoice_count: 1, qty: 2 },
+          { key: 'box-1', item_number: 'BOX-1', label: 'Shipping Box', invoice_count: 1, qty: 4 },
+        ],
+      };
+    }
     return null;
   });
+}
+
+function renderInventoryPage() {
+  return renderWithQueryClient(<MemoryRouter><InventoryPage /></MemoryRouter>);
 }
 
 describe('InventoryPage', () => {
@@ -84,11 +132,13 @@ describe('InventoryPage', () => {
   });
 
   it('renders inventory summaries and filters the inventory overview table', async () => {
-    render(<InventoryPage />);
+    renderInventoryPage();
 
     expect(await screen.findByText('Fresh Salmon')).toBeInTheDocument();
     expect(screen.getByText('$120.00')).toBeInTheDocument();
     expect(screen.getByText('Dock delivery')).toBeInTheDocument();
+    expect(screen.getByText('SAL-LOT-1')).toBeInTheDocument();
+    expect(screen.getByText('TUN-LOT-9')).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText('Search item/category'), { target: { value: 'pack' } });
 
@@ -101,7 +151,7 @@ describe('InventoryPage', () => {
   it('validates and submits a restock action, then refreshes inventory data', async () => {
     sendWithAuthMock.mockResolvedValueOnce({});
 
-    render(<InventoryPage />);
+    renderInventoryPage();
 
     expect(await screen.findByText('Fresh Salmon')).toBeInTheDocument();
 
@@ -118,7 +168,7 @@ describe('InventoryPage', () => {
         notes: 'Dock delivery',
       });
     });
-    expect(await screen.findByText('Restocked SAL-1 by 25.')).toBeInTheDocument();
+    expect(await screen.findByText('Restocked SAL-1 - Fresh Salmon by 25.')).toBeInTheDocument();
   });
 
   it('validates transfer input and supports successful transfer and spoilage actions', async () => {
@@ -126,21 +176,21 @@ describe('InventoryPage', () => {
       .mockResolvedValueOnce({ transfer_ref: 'TR-100' })
       .mockResolvedValueOnce({});
 
-    render(<InventoryPage />);
+    renderInventoryPage();
 
     expect(await screen.findByText('Fresh Salmon')).toBeInTheDocument();
 
     const transferCard = screen.getByRole('heading', { name: 'Transfer Inventory' }).closest('div.rounded-lg') as HTMLElement | null;
     if (!transferCard) throw new Error('Expected transfer card');
 
-    fireEvent.change(within(transferCard).getByLabelText('From Item'), { target: { value: 'SAL-1' } });
-    fireEvent.change(within(transferCard).getByLabelText('To Item'), { target: { value: 'SAL-1' } });
+    fireEvent.change(within(transferCard).getByLabelText('From Item'), { target: { value: '1' } });
+    fireEvent.change(within(transferCard).getByLabelText('To Item'), { target: { value: '1' } });
     fireEvent.change(within(transferCard).getByLabelText('Quantity'), { target: { value: '4' } });
     fireEvent.click(within(transferCard).getByRole('button', { name: 'Transfer Stock' }));
 
-    expect(await screen.findByText('Transfer source and destination must be different.')).toBeInTheDocument();
+    expect(await screen.findByText('Source and destination must be different.')).toBeInTheDocument();
 
-    fireEvent.change(within(transferCard).getByLabelText('To Item'), { target: { value: 'TUN-1' } });
+    fireEvent.change(within(transferCard).getByLabelText('To Item'), { target: { value: '2' } });
     fireEvent.change(within(transferCard).getByLabelText('Notes'), { target: { value: 'Move to backup stock' } });
     fireEvent.click(within(transferCard).getByRole('button', { name: 'Transfer Stock' }));
 
@@ -152,12 +202,12 @@ describe('InventoryPage', () => {
         notes: 'Move to backup stock',
       });
     });
-    expect(await screen.findByText('Transfer completed (TR-100).')).toBeInTheDocument();
+    expect(await screen.findByText('Transfer completed for SAL-1 - Fresh Salmon -> TUN-1 - Tuna Steaks (TR-100).')).toBeInTheDocument();
 
     const spoilageCard = screen.getByRole('heading', { name: 'Record Spoilage' }).closest('div.rounded-lg') as HTMLElement | null;
     if (!spoilageCard) throw new Error('Expected spoilage card');
 
-    fireEvent.change(within(spoilageCard).getByLabelText('Item'), { target: { value: 'TUN-1' } });
+    fireEvent.change(within(spoilageCard).getByLabelText('Item'), { target: { value: '2' } });
     fireEvent.change(within(spoilageCard).getByLabelText('Quantity'), { target: { value: '2' } });
     fireEvent.change(within(spoilageCard).getByLabelText('Reason'), { target: { value: 'Temperature excursion' } });
     fireEvent.change(within(spoilageCard).getByLabelText('Notes'), { target: { value: 'Walk-in issue' } });
@@ -170,7 +220,7 @@ describe('InventoryPage', () => {
         notes: 'Walk-in issue',
       });
     });
-    expect(await screen.findByText('Spoilage recorded for TUN-1.')).toBeInTheDocument();
+    expect(await screen.findByText('Spoilage recorded for TUN-1 - Tuna Steaks.')).toBeInTheDocument();
   });
 
   it('applies ledger filters and updates inline FTL and catch-weight settings', async () => {
@@ -187,7 +237,7 @@ describe('InventoryPage', () => {
       return null;
     });
 
-    render(<InventoryPage />);
+    renderInventoryPage();
 
     expect(await screen.findByText('Fresh Salmon')).toBeInTheDocument();
 
@@ -238,5 +288,105 @@ describe('InventoryPage', () => {
       });
     });
     expect(await screen.findByRole('button', { name: '$14.5000' })).toBeInTheDocument();
+  });
+
+  it('builds category-based inventory count reports for printing', async () => {
+    const printMock = vi.fn();
+    const focusMock = vi.fn();
+    const writeMock = vi.fn();
+    const closeMock = vi.fn();
+    const openMock = vi.spyOn(window, 'open').mockReturnValue({
+      document: {
+        write: writeMock,
+        close: closeMock,
+      },
+      focus: focusMock,
+      print: printMock,
+    } as unknown as Window);
+
+    renderInventoryPage();
+
+    expect(await screen.findByText('Fresh Salmon')).toBeInTheDocument();
+
+    const reportCard = screen.getByRole('heading', { name: 'Inventory Count Reports' }).closest('div.rounded-lg') as HTMLElement | null;
+    if (!reportCard) throw new Error('Expected inventory count reports card');
+
+    fireEvent.change(within(reportCard).getByLabelText('Category Scope'), { target: { value: 'Packaging' } });
+    fireEvent.click(within(reportCard).getByLabelText('Include zero-stock items'));
+    fireEvent.click(within(reportCard).getByRole('button', { name: 'Print Count Sheet' }));
+
+    expect(openMock).toHaveBeenCalled();
+    expect(writeMock).toHaveBeenCalled();
+    const printedHtml = String(writeMock.mock.calls[0]?.[0] || '');
+    expect(printedHtml).toContain('Inventory Count Sheet');
+    expect(printedHtml).toContain('Packaging');
+    expect(printedHtml).toContain('Shipping Box');
+    expect(printedHtml).not.toContain('Fresh Salmon');
+    expect(printedHtml).toContain('Physical Count');
+    expect(focusMock).toHaveBeenCalled();
+    expect(printMock).toHaveBeenCalled();
+
+    openMock.mockRestore();
+  });
+
+  it('excludes items not sold in the selected recent-sales window from count sheets', async () => {
+    const printMock = vi.fn();
+    const focusMock = vi.fn();
+    const writeMock = vi.fn();
+    const closeMock = vi.fn();
+    const openMock = vi.spyOn(window, 'open').mockReturnValue({
+      document: {
+        write: writeMock,
+        close: closeMock,
+      },
+      focus: focusMock,
+      print: printMock,
+    } as unknown as Window);
+
+    renderInventoryPage();
+
+    expect(await screen.findByText('Fresh Salmon')).toBeInTheDocument();
+
+    const reportCard = screen.getByRole('heading', { name: 'Inventory Count Reports' }).closest('div.rounded-lg') as HTMLElement | null;
+    if (!reportCard) throw new Error('Expected inventory count reports card');
+
+    fireEvent.change(within(reportCard).getByLabelText('Recent Sales Filter'), { target: { value: '30' } });
+
+    await waitFor(() => {
+      expect(fetchWithAuthMock).toHaveBeenCalledWith('/api/reporting/recent-sold-items?days=30');
+    });
+
+    await waitFor(() => {
+      expect(within(reportCard).getByRole('button', { name: 'Print Count Sheet' })).not.toBeDisabled();
+    });
+    fireEvent.click(within(reportCard).getByRole('button', { name: 'Print Count Sheet' }));
+
+    const printedHtml = String(writeMock.mock.calls[0]?.[0] || '');
+    expect(printedHtml).toContain('Shipping Box');
+    expect(printedHtml).not.toContain('Fresh Salmon');
+    expect(printedHtml).not.toContain('Tuna Steaks');
+
+    openMock.mockRestore();
+  });
+
+  it('explains why count sheets are empty when filters exclude every row', async () => {
+    renderInventoryPage();
+
+    expect(await screen.findByText('Fresh Salmon')).toBeInTheDocument();
+
+    const reportCard = screen.getByRole('heading', { name: 'Inventory Count Reports' }).closest('div.rounded-lg') as HTMLElement | null;
+    if (!reportCard) throw new Error('Expected inventory count reports card');
+
+    fireEvent.change(within(reportCard).getByLabelText('Category Scope'), { target: { value: 'Seafood' } });
+    fireEvent.change(within(reportCard).getByLabelText('Recent Sales Filter'), { target: { value: '30' } });
+    fireEvent.click(within(reportCard).getByLabelText('Include zero-stock items'));
+
+    await waitFor(() => {
+      expect(fetchWithAuthMock).toHaveBeenCalledWith('/api/reporting/recent-sold-items?days=30');
+    });
+
+    expect(await within(reportCard).findByText('No count-sheet rows match the current filters.')).toBeInTheDocument();
+    expect(within(reportCard).getByText(/category scope is limited to Seafood/i)).toBeInTheDocument();
+    expect(within(reportCard).getByRole('button', { name: 'Print Count Sheet' })).toBeDisabled();
   });
 });

@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { TrackPage } from './TrackPage';
+import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
 type MockResponse = {
   ok: boolean;
@@ -65,7 +66,7 @@ describe('TrackPage', () => {
   it('shows an incomplete-link error when the tracking token is missing', () => {
     setTrackUrl('');
 
-    render(<TrackPage />);
+    renderWithQueryClient(<TrackPage />);
 
     expect(screen.getByText('No tracking token')).toBeInTheDocument();
     expect(fetchMock).not.toHaveBeenCalled();
@@ -74,7 +75,7 @@ describe('TrackPage', () => {
   it('surfaces expired and invalid tracking links from API responses', async () => {
     fetchMock.mockResolvedValueOnce(mockJsonResponse({}, 410));
 
-    const { unmount } = render(<TrackPage />);
+    const { unmount } = renderWithQueryClient(<TrackPage />);
 
     expect(await screen.findByText('Tracking link expired')).toBeInTheDocument();
     unmount();
@@ -83,7 +84,7 @@ describe('TrackPage', () => {
     setTrackUrl('?token=missing-token');
     fetchMock.mockResolvedValueOnce(mockJsonResponse({}, 404));
 
-    render(<TrackPage />);
+    renderWithQueryClient(<TrackPage />);
 
     expect(await screen.findByText('Tracking link not found')).toBeInTheDocument();
     expect(fetchMock).toHaveBeenCalledWith('/api/track/missing-token');
@@ -92,7 +93,7 @@ describe('TrackPage', () => {
   it('renders tracking details for a successful response', async () => {
     fetchMock.mockResolvedValueOnce(mockJsonResponse(baseTrackingData));
 
-    render(<TrackPage />);
+    renderWithQueryClient(<TrackPage />);
 
     expect(await screen.findByText('NodeRoute Delivery Tracker')).toBeInTheDocument();
     expect(screen.getByText('Order #100')).toBeInTheDocument();
@@ -111,10 +112,29 @@ describe('TrackPage', () => {
     });
   });
 
+  it('holds ETA and live-map messaging until the route has actually departed', async () => {
+    fetchMock.mockResolvedValueOnce(
+      mockJsonResponse({
+        ...baseTrackingData,
+        outingStarted: false,
+        eta: null,
+      }),
+    );
+
+    renderWithQueryClient(<TrackPage />);
+
+    expect(await screen.findByText('Route Scheduled')).toBeInTheDocument();
+    expect(screen.getByText('Waiting to depart')).toBeInTheDocument();
+    expect(screen.getByText('ETA will appear once this outing leaves the shop.')).toBeInTheDocument();
+    expect(screen.getByText(/Customer ETA updates stay paused until dispatch starts/i)).toBeInTheDocument();
+    expect(screen.getByText(/Live map tracking turns on after this route is dispatched/i)).toBeInTheDocument();
+    expect(screen.queryByText(/Estimated delivery by/)).not.toBeInTheDocument();
+  });
+
   it('toggles delivery notifications and persists the preference to localStorage', async () => {
     fetchMock.mockResolvedValueOnce(mockJsonResponse(baseTrackingData));
 
-    render(<TrackPage />);
+    renderWithQueryClient(<TrackPage />);
 
     const button = await screen.findByRole('button', { name: 'Notify off' });
     expect(localStorage.getItem('nr-track-notify:track-token')).toBeNull();

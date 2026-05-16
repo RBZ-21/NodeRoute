@@ -31,52 +31,54 @@ const features = [
 
 export function Solution() {
   return (
-    <Section>
-      <div className="divider mb-20" />
-      <SectionEyebrow>The approach</SectionEyebrow>
-      <SectionHeading>A simpler way to stay on top of the day.</SectionHeading>
-      <SectionLede>
-        NodeRoute is designed for teams that need better visibility without adding more
-        complexity. It gives you one place to track what’s happening, what changed, and what
-        still needs attention.
-      </SectionLede>
+    <section className="bg-cream-dim">
+      <Section>
+        <div className="mb-20 h-px bg-black/10" />
+        <SectionEyebrow>The approach</SectionEyebrow>
+        <SectionHeading className="text-ink-100">A simpler way to stay on top of the day.</SectionHeading>
+        <SectionLede className="text-ink-400">
+          NodeRoute is designed for teams that need better visibility without adding more
+          complexity. It gives you one place to track what's happening, what changed, and what
+          still needs attention.
+        </SectionLede>
 
-      <div className="mt-12 flex items-center gap-3">
-        <span className="h-px flex-1 bg-line" />
-        <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-white/40">
-          What NodeRoute helps you manage
-        </span>
-        <span className="h-px flex-1 bg-line" />
-      </div>
-
-      <div className="mt-8 grid gap-px overflow-hidden rounded-2xl border border-line bg-line md:grid-cols-3">
-        {features.map((f) => (
-          <div
-            key={f.title}
-            className="group relative flex flex-col gap-3 bg-ink-100 p-7 transition-colors hover:bg-ink-200"
-          >
-            <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-line-strong bg-ink-0 text-teal-light">
-              <f.icon className="h-[18px] w-[18px]" />
-            </span>
-            <h3 className="font-display text-[19px] font-semibold leading-tight tracking-tight text-white">
-              {f.title}
-            </h3>
-            <p className="text-[14px] leading-relaxed text-white/55">{f.body}</p>
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-teal/0 to-transparent transition-all group-hover:via-teal/40" />
-          </div>
-        ))}
-        <div className="flex flex-col justify-between bg-ink-100 p-7">
-          <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-white/50">
-            One surface
+        <div className="mt-12 flex items-center gap-3">
+          <span className="h-px flex-1 bg-black/10" />
+          <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink-400">
+            What NodeRoute helps you manage
           </span>
-          <p className="mt-3 font-display text-[22px] font-semibold leading-snug tracking-tight text-white">
-            Less juggling. More follow-through.
-          </p>
-          <p className="mt-3 text-[13px] text-white/50">
-            Designed to reduce the end-of-day scramble, not add to it.
-          </p>
+          <span className="h-px flex-1 bg-black/10" />
         </div>
-      </div>
-    </Section>
+
+        <div className="mt-8 grid gap-4 md:grid-cols-3">
+          {features.map((f) => (
+            <div
+              key={f.title}
+              className="group relative flex flex-col gap-3 rounded-2xl border border-black/10 bg-white p-7 shadow-[0_10px_30px_-18px_rgba(17,17,17,0.18)] transition-colors hover:bg-cream"
+            >
+              <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-black/10 bg-cream text-teal-light">
+                <f.icon className="h-[18px] w-[18px]" />
+              </span>
+              <h3 className="font-display text-[19px] font-semibold leading-tight tracking-tight text-ink-100">
+                {f.title}
+              </h3>
+              <p className="text-[14px] leading-relaxed text-ink-500">{f.body}</p>
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 h-px bg-gradient-to-r from-transparent via-teal/0 to-transparent transition-all group-hover:via-teal/30" />
+            </div>
+          ))}
+          <div className="flex flex-col justify-between rounded-2xl border border-black/10 bg-white p-7 shadow-[0_10px_30px_-18px_rgba(17,17,17,0.18)]">
+            <span className="font-mono text-[11px] uppercase tracking-[0.2em] text-ink-400">
+              One surface
+            </span>
+            <p className="mt-3 font-display text-[22px] font-semibold leading-snug tracking-tight text-ink-100">
+              Less juggling. More follow-through.
+            </p>
+            <p className="mt-3 text-[13px] text-ink-500">
+              Designed to reduce the end-of-day scramble, not add to it.
+            </p>
+          </div>
+        </div>
+      </Section>
+    </section>
   );
 }

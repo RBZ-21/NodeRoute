@@ -3,13 +3,63 @@ const crypto = require('crypto');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { required, maxLen, isArray, maxItems, compose } = require('../lib/validate');
+const { validate } = require('../lib/zodValidate');
+const {
+  orderCreateSchema, orderUpdateSchema, orderActualWeightSchema,
+  orderSendSchema, orderFulfillSchema,
+} = require('../lib/schemas');
+// Driver-invoices endpoint (Step 14) - best placed here to avoid extra mounting.
+// This endpoint serves both drivers (restricted to their route) and admins/managers.
+async function fetchInvoicesForRoute(routeId, user) {
+  if (!routeId) return { invoices: [], orders: [] };
+  const role = String(user?.role || '').toLowerCase();
+  if (role === 'driver') {
+    // Enforce route ownership when possible
+    try {
+      const { data: route, error: routeErr } = await supabase.from('routes').select('id, driver_id').eq('id', routeId).single();
+      if (routeErr) throw routeErr;
+      if (route?.driver_id && String(route.driver_id) !== String(user?.id)) {
+        return { invoices: [], orders: [], error: 'Not authorized for this route' };
+      }
+    } catch (e) {
+      return { invoices: [], orders: [], error: (e && e.message) || 'Authorization failed' };
+    }
+  }
+  const { data: orders, error: oErr } = await supabase.from('orders').select('id, order_number, invoice_id, route_id').eq('route_id', routeId);
+  if (oErr) throw oErr;
+  const invoiceIds = (orders || []).map((o) => o.invoice_id).filter((id) => id);
+  let invoices = [];
+  if (invoiceIds.length) {
+    const { data: invs, error: iErr } = await supabase.from('invoices').select('*').in('id', invoiceIds);
+    if (iErr) throw iErr;
+    invoices = invs;
+  }
+  return { invoices, orders };
+}
+const { triggerPrintJob } = require('../services/printer');
+const printRouter = require('./print');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
+const { sendInvoiceEmail } = require('../services/invoice-email');
+const { invoiceLotEntriesFromItems } = require('../services/invoice-lots');
 const {
   executeWithOptionalScope,
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
 } = require('../services/operating-context');
+const { statusAfterDeliveryCompletion } = require('../services/invoice-delivery');
+
+function normalizeText(value) {
+  return String(value ?? '').trim();
+}
+
+function lotMapKey(value) {
+  return normalizeText(value);
+}
+
+function isMissingFtlColumnError(error) {
+  return !!error?.message && error.message.includes('seafood_inventory.is_ftl_product does not exist');
+}
 
 // ── FSMA 204 lot validation ────────────────────────────────────────────────────
 // For each item that references an FTL-flagged product, lot_id is required.
@@ -19,7 +69,7 @@ async function validateFtlLots(items) {
 
   // Collect item_numbers that appear in this order
   const itemNumbers = items
-    .map((it) => String(it.item_number || '').trim())
+    .map((it) => normalizeText(it.item_number))
     .filter(Boolean);
 
   if (!itemNumbers.length) return null;
@@ -30,6 +80,7 @@ async function validateFtlLots(items) {
     .select('item_number, description, is_ftl_product')
     .in('item_number', itemNumbers);
 
+  if (isMissingFtlColumnError(prodErr)) return null;
   if (prodErr) return `Could not verify FTL product status: ${prodErr.message}`;
 
   const ftlSet = new Set(
@@ -40,13 +91,13 @@ async function validateFtlLots(items) {
 
   // Collect lot_ids that need to be validated
   const lotIds = items
-    .filter((it) => ftlSet.has(String(it.item_number || '').trim()) && it.lot_id)
-    .map((it) => parseInt(it.lot_id, 10))
-    .filter((id) => Number.isFinite(id));
+    .filter((it) => ftlSet.has(normalizeText(it.item_number)) && normalizeText(it.lot_id))
+    .map((it) => normalizeText(it.lot_id))
+    .filter(Boolean);
 
   // Check each FTL item has a lot_id
   for (const item of items) {
-    const itemNum = String(item.item_number || '').trim();
+    const itemNum = normalizeText(item.item_number);
     if (!ftlSet.has(itemNum)) continue;
     if (!item.lot_id) {
       const prodName = (products || []).find((p) => p.item_number === itemNum)?.description || itemNum;
@@ -64,13 +115,16 @@ async function validateFtlLots(items) {
 
   if (lotErr) return `Could not verify lot assignments: ${lotErr.message}`;
 
-  const lotMap = {};
-  (lots || []).forEach((l) => { lotMap[l.id] = l; });
+  const lotMap = Object.create(null);
+  (lots || []).forEach((l) => {
+    const key = lotMapKey(l?.id);
+    if (key) lotMap[key] = l;
+  });
 
   for (const item of items) {
-    const itemNum = String(item.item_number || '').trim();
+    const itemNum = normalizeText(item.item_number);
     if (!ftlSet.has(itemNum) || !item.lot_id) continue;
-    const lotId = parseInt(item.lot_id, 10);
+    const lotId = lotMapKey(item.lot_id);
     const lot = lotMap[lotId];
     if (!lot) return `Lot ID ${item.lot_id} not found.`;
     if (lot.product_id && lot.product_id !== itemNum) {
@@ -86,7 +140,7 @@ async function enrichItemsWithLotData(items) {
   if (!Array.isArray(items) || !items.length) return items || [];
 
   const lotIds = [...new Set(
-    items.map((it) => parseInt(it.lot_id, 10)).filter((id) => Number.isFinite(id))
+    items.map((it) => normalizeText(it.lot_id)).filter(Boolean)
   )];
   if (!lotIds.length) return items;
 
@@ -95,12 +149,15 @@ async function enrichItemsWithLotData(items) {
     .select('id, lot_number, expiration_date')
     .in('id', lotIds);
 
-  const lotMap = {};
-  (lots || []).forEach((l) => { lotMap[l.id] = l; });
+  const lotMap = Object.create(null);
+  (lots || []).forEach((l) => {
+    const key = lotMapKey(l?.id);
+    if (key) lotMap[key] = l;
+  });
 
   return items.map((item) => {
-    const lotId = parseInt(item.lot_id, 10);
-    if (!Number.isFinite(lotId) || !lotMap[lotId]) return item;
+    const lotId = lotMapKey(item.lot_id);
+    if (!lotId || !lotMap[lotId]) return item;
     const lot = lotMap[lotId];
     const qtyFromLot = parseFloat(item.quantity_from_lot ?? item.requested_weight ?? item.quantity ?? 0) || 0;
     return {
@@ -135,6 +192,14 @@ function parseBoolean(value) {
   return value === true || value === 'true' || value === 1 || value === '1' || value === 'on';
 }
 
+function normalizeFulfillmentType(value) {
+  return String(value || '').trim().toLowerCase() === 'pickup' ? 'pickup' : 'delivery';
+}
+
+function normalizeOrderStatus(value) {
+  return String(value || '').trim().toLowerCase();
+}
+
 function asMoney(value) {
   return parseFloat((parseFloat(value || 0) || 0).toFixed(2));
 }
@@ -149,26 +214,71 @@ function itemQuantity(item) {
   return parseFloat(item?.requested_qty || item?.quantity || 0) || 0;
 }
 
+function itemCount(item) {
+  return parseFloat(item?.requested_qty || item?.quantity || 0) || 0;
+}
+
+function isWeightManagedItem(item) {
+  return !!item?.is_catch_weight || String(item?.unit || '').toLowerCase() === 'lb' || item?.requested_weight !== undefined;
+}
+
+function itemNeedsActualWeight(item) {
+  return isWeightManagedItem(item) && !(parseFloat(item?.actual_weight) > 0);
+}
+
+function allWeightsCaptured(items) {
+  return Array.isArray(items) && items.length > 0 && items.every((item) => !itemNeedsActualWeight(item));
+}
+
 async function findInventoryMatchForFulfillment(item) {
-  const explicitItemNumber = String(item?.item_number || '').trim();
+  const explicitProductId = normalizeText(item?.product_id);
+  if (explicitProductId) {
+    const byId = await supabase
+      .from('seafood_inventory')
+      .select('id,item_number,description,on_hand_qty,cost')
+      .eq('id', explicitProductId)
+      .single();
+    if (!byId.error && byId.data) return byId.data;
+  }
+
+  const explicitItemNumber = normalizeText(item?.item_number);
   if (explicitItemNumber) {
     const byNumber = await supabase
       .from('seafood_inventory')
-      .select('item_number,description,on_hand_qty,cost')
+      .select('id,item_number,description,on_hand_qty,cost')
       .eq('item_number', explicitItemNumber)
       .single();
     if (!byNumber.error && byNumber.data) return byNumber.data;
   }
 
-  const name = String(item?.name || item?.description || '').trim();
+  const name = normalizeText(item?.name || item?.description);
   if (!name) return null;
   const byName = await supabase
     .from('seafood_inventory')
-    .select('item_number,description,on_hand_qty,cost')
+    .select('id,item_number,description,on_hand_qty,cost')
     .ilike('description', name)
     .limit(1);
   if (byName.error || !Array.isArray(byName.data) || !byName.data.length) return null;
   return byName.data[0];
+}
+
+async function billingOverridesForOrderCustomer(customerName) {
+  if (!customerName) return {};
+  const { data: customer } = await supabase
+    .from('Customers')
+    .select('billing_name,billing_contact,billing_email,billing_phone,billing_address,phone_number,contact_name,address')
+    .eq('company_name', customerName)
+    .limit(1)
+    .single();
+  if (!customer) return {};
+
+  const billingOverrides = {};
+  if (customer.billing_name) billingOverrides.billing_name = customer.billing_name;
+  if (customer.billing_contact || customer.contact_name) billingOverrides.billing_contact = customer.billing_contact || customer.contact_name;
+  if (customer.billing_email) billingOverrides.billing_email = customer.billing_email;
+  if (customer.billing_phone || customer.phone_number) billingOverrides.billing_phone = customer.billing_phone || customer.phone_number;
+  if (customer.billing_address || customer.address) billingOverrides.billing_address = customer.billing_address || customer.address;
+  return billingOverrides;
 }
 
 // Compute catch weight display fields — appended to items in GET responses.
@@ -212,19 +322,32 @@ function invoiceItemsFromOrder(order, fulfilledItems) {
         total: asMoney(weight * pricePerLb),
         is_catch_weight: true,
         weight_confirmed: hasActual,
+        item_number: it.item_number || null,
+        lot_id: it.lot_id || null,
+        lot_number: it.lot_number || null,
+        quantity_from_lot: it.quantity_from_lot || null,
+        lot_expiration: it.lot_expiration || null,
       };
     }
     const qty = itemQuantity(it);
     const unitPrice = parseFloat(it.unit_price || it.unitPrice || 0) || 0;
     return {
       description: it.name || it.description || '',
-      notes: it.notes || null,
+      notes:
+        it.notes
+        || (String(it.unit || '').toLowerCase() === 'lb' && itemCount(it) > 0 ? `Ordered Qty: ${itemCount(it)}` : null),
       quantity: qty,
+      requested_qty: it.requested_qty || null,
       requested_weight: it.requested_weight || null,
       actual_weight: it.actual_weight || null,
       unit: it.unit || (it.requested_weight ? 'lb' : 'each'),
       unit_price: unitPrice,
       total: asMoney(qty * unitPrice),
+      item_number: it.item_number || null,
+      lot_id: it.lot_id || null,
+      lot_number: it.lot_number || null,
+      quantity_from_lot: it.quantity_from_lot || null,
+      lot_expiration: it.lot_expiration || null,
     };
   });
 
@@ -255,10 +378,9 @@ function invoicePayloadForOrder(order, fulfilledItems = null, overrides = {}) {
   const taxEnabled = parseBoolean(order.tax_enabled);
   const taxRate = normalizeTaxRate(order.tax_rate);
   const sourceItems = Array.isArray(fulfilledItems) ? fulfilledItems : (order.items || []);
-  const estimatedWeightPending = sourceItems.some(
-    (it) => it.is_catch_weight && !(parseFloat(it.actual_weight) > 0)
-  );
+  const estimatedWeightPending = sourceItems.some((it) => itemNeedsActualWeight(it));
   const items = invoiceItemsFromOrder(order, fulfilledItems);
+  const lotNumbers = invoiceLotEntriesFromItems(sourceItems);
   const totals = totalsForItems(items, taxEnabled, taxRate);
   return {
     invoice_number: overrides.invoice_number || `INV-${Date.now().toString().slice(-6)}`,
@@ -271,6 +393,7 @@ function invoicePayloadForOrder(order, fulfilledItems = null, overrides = {}) {
     billing_phone: overrides.billing_phone || null,
     billing_address: overrides.billing_address || order.customer_address || null,
     items,
+    lot_numbers: lotNumbers,
     ...totals,
     tax_enabled: taxEnabled,
     tax_rate: taxRate,
@@ -280,6 +403,30 @@ function invoicePayloadForOrder(order, fulfilledItems = null, overrides = {}) {
     notes: overrides.notes !== undefined ? overrides.notes : order.notes || 'Awaiting final weights',
     estimated_weight_pending: estimatedWeightPending,
   };
+}
+
+function isMissingEstimatedWeightPendingError(error) {
+  return !!error?.message && error.message.includes("estimated_weight_pending");
+}
+
+function isMissingLotNumbersError(error) {
+  return !!error?.message && error.message.includes('lot_numbers');
+}
+
+function withoutEstimatedWeightPending(payload) {
+  const next = { ...payload };
+  delete next.estimated_weight_pending;
+  return next;
+}
+
+function withoutOptionalInvoiceFields(payload, { stripEstimatedWeightPending = false, stripLotNumbers = false } = {}) {
+  let next = { ...payload };
+  if (stripEstimatedWeightPending) next = withoutEstimatedWeightPending(next);
+  if (stripLotNumbers) {
+    next = { ...next };
+    delete next.lot_numbers;
+  }
+  return next;
 }
 
 async function updateRecord(table, id, payload, res) {
@@ -294,6 +441,54 @@ async function updateRecord(table, id, payload, res) {
   return updateResult.data;
 }
 
+async function findOrderStop(order) {
+  const orderNumber = String(order?.order_number || '').trim();
+  if (!orderNumber) return null;
+  const { data, error } = await supabase
+    .from('stops')
+    .select('*')
+    .ilike('notes', `Order ${orderNumber}`)
+    .limit(1);
+  if (error || !Array.isArray(data) || !data.length) return null;
+  return data[0];
+}
+
+async function syncOrderStop(order, req, removeOnly = false) {
+  const fulfillmentType = normalizeFulfillmentType(order?.fulfillment_type);
+  const name = String(order?.customer_name || '').trim();
+  const address = String(order?.customer_address || '').trim();
+  const stopNotes = `Order ${order.order_number || order.id}`;
+  const existingStop = await findOrderStop(order);
+
+  if (removeOnly || fulfillmentType === 'pickup' || !name || !address) {
+    if (existingStop?.id) {
+      await supabase.from('stops').delete().eq('id', existingStop.id);
+    }
+    return null;
+  }
+
+  const payload = {
+    name,
+    address,
+    lat: parseFloat(order?.customer_lat) || 0,
+    lng: parseFloat(order?.customer_lng) || 0,
+    notes: stopNotes,
+    route_id: order?.route_id || null,
+  };
+
+  if (existingStop?.id) {
+    await executeWithOptionalScope(
+      (candidate) => supabase.from('stops').update(candidate).eq('id', existingStop.id).select().single(),
+      payload
+    );
+    return existingStop.id;
+  }
+
+  const insertResult = await insertRecordWithOptionalScope(supabase, 'stops', payload, req.context);
+  if (insertResult.error) throw insertResult.error;
+  return insertResult.data?.id || null;
+}
+
 async function findInvoiceForOrder(order) {
   if (order.invoice_id) {
     const byId = await supabase.from('invoices').select('*').eq('id', order.invoice_id).single();
@@ -305,6 +500,55 @@ async function findInvoiceForOrder(order) {
     return byOrderId.data[0];
   }
   return null;
+}
+
+async function markOrderDelivered(order, req, res) {
+  const deliveredAt = new Date().toISOString();
+  const stop = await findOrderStop(order);
+  let invoiceId = null;
+  let emailSent = false;
+  let emailError = '';
+
+  if (stop?.id) {
+    const stopUpdate = {
+      status: 'completed',
+      departed_at: stop.departed_at || deliveredAt,
+    };
+    const stopResult = await executeWithOptionalScope(
+      (candidate) => supabase.from('stops').update(candidate).eq('id', stop.id).select().single(),
+      stopUpdate
+    );
+    if (stopResult.error) {
+      if (res) res.status(500).json({ error: stopResult.error.message });
+      return null;
+    }
+  }
+
+  const invoice = await findInvoiceForOrder(order);
+  if (invoice?.id) {
+    invoiceId = invoice.id;
+    const invoiceResult = await executeWithOptionalScope(
+      (candidate) => supabase.from('invoices').update(candidate).eq('id', invoice.id).select().single(),
+      { status: statusAfterDeliveryCompletion(invoice.status) }
+    );
+    if (invoiceResult.error) {
+      if (res) res.status(500).json({ error: invoiceResult.error.message });
+      return null;
+    }
+
+    try {
+      const emailResult = await sendInvoiceEmail(
+        { ...invoice, ...(invoiceResult.data || {}) },
+        'Invoice'
+      );
+      emailSent = !!emailResult?.sent;
+      emailError = emailResult?.sent ? '' : String(emailResult?.error || '');
+    } catch (error) {
+      emailError = error?.message || 'Failed to send invoice email';
+    }
+  }
+
+  return { deliveredAt, invoiceId, emailSent, emailError };
 }
 
 async function createOrUpdateProcessingInvoice(order, fulfilledItems, overrides, req, res) {
@@ -323,15 +567,73 @@ async function createOrUpdateProcessingInvoice(order, fulfilledItems, overrides,
   );
 
   if (existingInvoice?.id) {
-    return updateRecord('invoices', existingInvoice.id, payload, res);
+    let updateResult = await executeWithOptionalScope(
+      (candidate) => supabase.from('invoices').update(candidate).eq('id', existingInvoice.id).select().single(),
+      payload
+    );
+    if (isMissingEstimatedWeightPendingError(updateResult.error)) {
+      updateResult = await executeWithOptionalScope(
+        (candidate) => supabase.from('invoices').update(candidate).eq('id', existingInvoice.id).select().single(),
+        withoutOptionalInvoiceFields(payload, { stripEstimatedWeightPending: true })
+      );
+    }
+    if (isMissingLotNumbersError(updateResult.error)) {
+      updateResult = await executeWithOptionalScope(
+        (candidate) => supabase.from('invoices').update(candidate).eq('id', existingInvoice.id).select().single(),
+        withoutOptionalInvoiceFields(payload, {
+          stripEstimatedWeightPending: isMissingEstimatedWeightPendingError(updateResult.error),
+          stripLotNumbers: true,
+        })
+      );
+    }
+    if (updateResult.error) {
+      if (res) res.status(500).json({ error: updateResult.error.message });
+      return null;
+    }
+    return updateResult.data;
   }
 
-  const invoiceInsert = await insertRecordWithOptionalScope(supabase, 'invoices', payload, req.context);
+  let invoiceInsert = await insertRecordWithOptionalScope(supabase, 'invoices', payload, req.context);
+  if (isMissingEstimatedWeightPendingError(invoiceInsert.error)) {
+    invoiceInsert = await insertRecordWithOptionalScope(
+      supabase,
+      'invoices',
+      withoutOptionalInvoiceFields(payload, { stripEstimatedWeightPending: true }),
+      req.context
+    );
+  }
+  if (isMissingLotNumbersError(invoiceInsert.error)) {
+    invoiceInsert = await insertRecordWithOptionalScope(
+      supabase,
+      'invoices',
+      withoutOptionalInvoiceFields(payload, {
+        stripEstimatedWeightPending: isMissingEstimatedWeightPendingError(invoiceInsert.error),
+        stripLotNumbers: true,
+      }),
+      req.context
+    );
+  }
   if (invoiceInsert.error) {
     if (res) res.status(500).json({ error: invoiceInsert.error.message });
     return null;
   }
   return invoiceInsert.data;
+}
+
+async function sendFulfillmentInvoiceIfPossible(invoice) {
+  if (!invoice?.id) {
+    return { sent: false, skipped: true, reason: 'Invoice missing' };
+  }
+  if (!(invoice.billing_email || invoice.customer_email)) {
+    return { sent: false, skipped: true, reason: 'No email on file for this customer' };
+  }
+
+  try {
+    return await sendInvoiceEmail(invoice, 'Invoice');
+  } catch (error) {
+    console.error('Fulfillment invoice email error:', error.message);
+    return { sent: false, error: error.message };
+  }
 }
 
 // ── ORDERS ────────────────────────────────────────────────────────────────────
@@ -341,31 +643,34 @@ router.get('/', authenticateToken, async (req, res) => {
   res.json(filterRowsByContext(data || [], req.context));
 });
 
-router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { customerName, customerEmail, customerAddress, items, charges, notes } = req.body;
+// Driver-visible invoices for a specific route (consolidated path for Step 14)
+router.get('/driver-invoices', authenticateToken, async (req, res) => {
+  const routeId = req.query.routeId;
+  if (!routeId) return res.status(400).json({ error: 'routeId is required' });
+  const user = req.user || {};
+  const { invoices, orders, error } = await fetchInvoicesForRoute(routeId, user)
+    .catch((err) => ({ invoices: [], orders: [], error: err?.message || 'Failed to fetch invoices' }));
+  if (error) return res.status(403).json({ error });
+  res.json({ invoices, orders });
+});
 
-  const valErr = compose(
-    required(customerName, 'customerName'),
-    maxLen(customerName, 'customerName', 200),
-    maxLen(customerEmail, 'customerEmail', 200),
-    maxLen(customerAddress, 'customerAddress', 500),
-    maxLen(notes, 'notes', 2000),
-    items !== undefined ? isArray(items, 'items') : null,
-    items !== undefined ? maxItems(items, 'items', 200) : null,
-    charges !== undefined ? isArray(charges, 'charges') : null,
-    charges !== undefined ? maxItems(charges, 'charges', 20) : null,
-  );
-  if (valErr) return res.status(400).json({ error: valErr });
+// Mount basic print endpoint under /print
+router.use('/print', printRouter);
+
+router.post('/', validate(orderCreateSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const { customerName, customerEmail, customerAddress, items, charges, notes } = req.body;
+  const fulfillmentType = normalizeFulfillmentType(req.body.fulfillmentType ?? req.body.fulfillment_type);
 
   // Block orders for customers on credit hold
   if (customerName) {
-    const { data: heldCustomer } = await supabase
+    const { data: heldCustomers, error: heldCustomerErr } = await supabase
       .from('Customers')
       .select('id, company_name, credit_hold, credit_hold_reason')
       .ilike('company_name', customerName.trim())
       .eq('credit_hold', true)
-      .limit(1)
-      .maybeSingle();
+      .limit(1);
+    if (heldCustomerErr) return res.status(500).json({ error: heldCustomerErr.message });
+    const heldCustomer = heldCustomers?.[0] || null;
     if (heldCustomer) {
       const reason = heldCustomer.credit_hold_reason ? ` Reason: ${heldCustomer.credit_hold_reason}` : '';
       return res.status(422).json({
@@ -390,7 +695,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
     order_number: orderNumber,
     customer_name: customerName,
     customer_email: customerEmail || null,
-    customer_address: customerAddress || null,
+    customer_address: fulfillmentType === 'delivery' ? customerAddress || null : null,
     items: enrichedItems || [],
     charges: Array.isArray(charges) ? charges : [],
     status: 'pending',
@@ -398,13 +703,26 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
     tax_enabled: taxEnabled,
     tax_rate: taxRate,
     driver_name: null,
-    route_id: null,
+    route_id: req.body.routeId || null,
     tracking_token: trackingToken,
     tracking_expires_at: trackingExpiry(),
   }, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
   if (!data) return;
+  // Trigger print job for the newly created order (best-effort, non-fatal if printing fails)
+  try {
+    await triggerPrintJob(data, enrichedItems, req.context);
+  } catch (printErr) {
+    // Do not fail the request due to print errors; log for investigation
+    // eslint-disable-next-line no-console
+    console.error('[print-trigger] failed', printErr?.message || printErr);
+  }
+  try {
+    await syncOrderStop({ ...data, fulfillment_type: fulfillmentType }, req);
+  } catch (stopErr) {
+    return res.status(500).json({ error: stopErr.message || 'Could not create delivery stop' });
+  }
   res.json({
     ...data,
     tracking_url: data.tracking_token ? buildTrackingUrl(req, data.tracking_token) : null,
@@ -420,7 +738,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
 // Capture actual weight for a single catch-weight line item.
 // Recalculates line total and returns the updated order.
-router.patch('/:id/items/:itemIndex/actual-weight', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.patch('/:id/items/:itemIndex/actual-weight', validate(orderActualWeightSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const order = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!order) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
@@ -432,8 +750,8 @@ router.patch('/:id/items/:itemIndex/actual-weight', authenticateToken, requireRo
   }
 
   const item = items[idx];
-  if (!item.is_catch_weight) {
-    return res.status(400).json({ error: 'Item at this index is not a catch weight item' });
+  if (!isWeightManagedItem(item)) {
+    return res.status(400).json({ error: 'Item at this index does not require weight capture' });
   }
 
   const actualWeight = parseFloat(req.body.actual_weight);
@@ -441,41 +759,48 @@ router.patch('/:id/items/:itemIndex/actual-weight', authenticateToken, requireRo
     return res.status(400).json({ error: 'actual_weight must be a positive number greater than 0' });
   }
   const rounded = parseFloat(actualWeight.toFixed(3));
-  const pricePerLb = parseFloat(item.price_per_lb) || 0;
+  const pricePerLb = item.is_catch_weight ? (parseFloat(item.price_per_lb) || 0) : (parseFloat(item.unit_price) || 0);
 
   const updatedItems = items.map((it, i) => {
     if (i !== idx) return it;
-    return { ...it, actual_weight: rounded, total: asMoney(rounded * pricePerLb) };
+    const updatedItem = { ...it, actual_weight: rounded, total: asMoney(rounded * pricePerLb) };
+    return updatedItem;
   });
 
   // eslint-disable-next-line no-console
-  console.log(`[catch-weight] order=${order.id} item=${idx} actual_weight=${rounded} user=${req.user?.id || req.user?.email} ts=${new Date().toISOString()}`);
+  console.log(`[weight-capture] order=${order.id} item=${idx} actual_weight=${rounded} user=${req.user?.id || req.user?.email} ts=${new Date().toISOString()}`);
 
   const updated = await updateRecord('orders', req.params.id, { items: updatedItems }, res);
   if (!updated) return;
-  res.json(enrichOrderResponse(updated));
+  const invoice = await createOrUpdateProcessingInvoice(
+    { ...order, ...updated, items: updatedItems },
+    updatedItems,
+    { notes: order.notes || 'Awaiting final weights' },
+    req,
+    res
+  );
+  if (!invoice) return;
+
+  const orderStatus = allWeightsCaptured(updatedItems) ? 'processed' : 'in_process';
+  const orderWithInvoice = await updateRecord('orders', req.params.id, {
+    invoice_id: invoice.id,
+    status: orderStatus,
+  }, res);
+  if (!orderWithInvoice) return;
+
+  res.json(enrichOrderResponse({ ...orderWithInvoice, items: updatedItems, invoice_id: invoice.id }));
 });
 
-router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const valErr = compose(
-    maxLen(req.body.customerName, 'customerName', 200),
-    maxLen(req.body.customerEmail, 'customerEmail', 200),
-    maxLen(req.body.customerAddress, 'customerAddress', 500),
-    maxLen(req.body.notes, 'notes', 2000),
-    req.body.items !== undefined ? isArray(req.body.items, 'items') : null,
-    req.body.items !== undefined ? maxItems(req.body.items, 'items', 200) : null,
-    req.body.charges !== undefined ? isArray(req.body.charges, 'charges') : null,
-    req.body.charges !== undefined ? maxItems(req.body.charges, 'charges', 20) : null,
-  );
-  if (valErr) return res.status(400).json({ error: valErr });
+router.patch('/:id', validate(orderUpdateSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
 
   const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
+  const fulfillmentType = normalizeFulfillmentType(req.body.fulfillmentType ?? req.body.fulfillment_type ?? existing.fulfillment_type);
   const updates = {};
   if (req.body.customerName !== undefined) updates.customer_name = req.body.customerName;
   if (req.body.customerEmail !== undefined) updates.customer_email = req.body.customerEmail || null;
-  if (req.body.customerAddress !== undefined) updates.customer_address = req.body.customerAddress || null;
+  if (req.body.customerAddress !== undefined) updates.customer_address = fulfillmentType === 'delivery' ? (req.body.customerAddress || null) : null;
   if (req.body.items !== undefined) {
     const ftlError = await validateFtlLots(req.body.items);
     if (ftlError) return res.status(422).json({ error: ftlError, code: 'FTL_LOT_REQUIRED' });
@@ -494,6 +819,49 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   }
   const data = await updateRecord('orders', req.params.id, updates, res);
   if (!data) return;
+  const mergedOrder = { ...existing, ...data, ...updates, fulfillment_type: fulfillmentType };
+  try {
+    await syncOrderStop(mergedOrder, req);
+  } catch (stopErr) {
+    return res.status(500).json({ error: stopErr.message || 'Could not sync delivery stop' });
+  }
+
+  const shouldSyncInvoice =
+    !!mergedOrder.invoice_id
+    || normalizeOrderStatus(mergedOrder.status) === 'in_process'
+    || normalizeOrderStatus(existing.status) === 'in_process';
+
+  if (shouldSyncInvoice) {
+    const billingOverrides = await billingOverridesForOrderCustomer(mergedOrder.customer_name);
+    const invoice = await createOrUpdateProcessingInvoice(
+      mergedOrder,
+      mergedOrder.items || [],
+      { notes: mergedOrder.notes || 'Awaiting final weights', ...billingOverrides },
+      req,
+      res
+    );
+    if (!invoice) return;
+
+    const refreshed = await updateRecord('orders', req.params.id, {
+      invoice_id: invoice.id,
+      status: 'in_process',
+    }, res);
+    if (!refreshed) return;
+    return res.json(enrichOrderResponse({ ...mergedOrder, ...refreshed, items: mergedOrder.items || [], invoice_id: invoice.id }));
+  }
+
+  if (normalizeOrderStatus(mergedOrder.status) === 'delivered') {
+    const deliverySync = await markOrderDelivered(mergedOrder, req, res);
+    if (!deliverySync) return;
+    return res.json({
+      ...data,
+      delivered_at: deliverySync.deliveredAt,
+      invoice_id: deliverySync.invoiceId || mergedOrder.invoice_id || null,
+      emailSent: deliverySync.emailSent,
+      emailError: deliverySync.emailError || null,
+    });
+  }
+
   res.json(data);
 });
 
@@ -501,13 +869,14 @@ router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async 
   const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
+  await syncOrderStop(existing, req, true);
   const data = await dbQuery(supabase.from('orders').delete().eq('id', req.params.id), res);
   if (data === null) return;
   res.json({ message: 'Order deleted' });
 });
 
 // Send order to processing: creates/updates the pending invoice draft and marks the order ready for weights.
-router.post('/:id/send', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/:id/send', validate(orderSendSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
@@ -538,7 +907,7 @@ router.post('/:id/send', authenticateToken, requireRole('admin', 'manager'), asy
 });
 
 // Fulfill order: enter actual weights → generate invoice
-router.post('/:id/fulfill', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/:id/fulfill', validate(orderFulfillSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { items, driverName, routeId } = req.body;
   const order = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!order) return;
@@ -546,22 +915,7 @@ router.post('/:id/fulfill', authenticateToken, requireRole('admin', 'manager'), 
   const fulfilledItems = Array.isArray(items) ? items : (order.items || []);
 
   // Enrich invoice with billing data from Customers table
-  const billingOverrides = {};
-  if (order.customer_name) {
-    const { data: customer } = await supabase
-      .from('Customers')
-      .select('billing_name,billing_contact,billing_email,billing_phone,billing_address,phone_number,contact_name,address')
-      .eq('company_name', order.customer_name)
-      .limit(1)
-      .single();
-    if (customer) {
-      if (customer.billing_name) billingOverrides.billing_name = customer.billing_name;
-      if (customer.billing_contact || customer.contact_name) billingOverrides.billing_contact = customer.billing_contact || customer.contact_name;
-      if (customer.billing_email) billingOverrides.billing_email = customer.billing_email;
-      if (customer.billing_phone || customer.phone_number) billingOverrides.billing_phone = customer.billing_phone || customer.phone_number;
-      if (customer.billing_address || customer.address) billingOverrides.billing_address = customer.billing_address || customer.address;
-    }
-  }
+  const billingOverrides = await billingOverridesForOrderCustomer(order.customer_name);
 
   const invoice = await createOrUpdateProcessingInvoice(
     order,
@@ -615,9 +969,13 @@ router.post('/:id/fulfill', authenticateToken, requireRole('admin', 'manager'), 
     tracking_expires_at: trackingExpiresAt,
   });
   if (orderUpdate.error) return res.status(500).json({ error: orderUpdate.error.message });
+
+  const emailResult = await sendFulfillmentInvoiceIfPossible(invoice);
   res.json({
     invoice,
     message: 'Invoice created',
+    emailSent: !!emailResult.sent,
+    emailError: emailResult.sent ? null : (emailResult.error || emailResult.reason || null),
     tracking_token: trackingToken,
     tracking_expires_at: trackingExpiresAt,
     tracking_url: buildTrackingUrl(req, trackingToken),
@@ -675,3 +1033,6 @@ router.post('/:id/tracking-link', authenticateToken, requireRole('admin', 'manag
 });
 
 module.exports = router;
+module.exports.validateFtlLots = validateFtlLots;
+module.exports.enrichItemsWithLotData = enrichItemsWithLotData;
+module.exports.findInventoryMatchForFulfillment = findInventoryMatchForFulfillment;

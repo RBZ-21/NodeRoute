@@ -4,8 +4,9 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { asMoney, calcOrderTotal, normalizedStatus, orderCustomerId, statusVariant } from './orders.types';
+import { asMoney, calcOrderTotal, hasPendingWeight, isWeightManagedItem, normalizedStatus, orderCustomerId, statusVariant } from './orders.types';
 import type { Order, OrderStatus } from './orders.types';
+import type { Role } from '../lib/api';
 
 type Props = {
   orders: Order[];
@@ -15,22 +16,24 @@ type Props = {
   status: OrderStatus | 'all';
   setStatus: (v: OrderStatus | 'all') => void;
   weightCaptureOrderId: string | null;
-  role: string;
+  role: Role;
   onLoad: () => void;
   onEdit: (order: Order) => void;
   onSend: (order: Order) => void;
+  onMarkDelivered: (order: Order) => void;
+  onResendInvoice: (order: Order) => void;
   onFulfill: (order: Order) => void;
   onToggleWeightCapture: (order: Order) => void;
   onDelete: (id: string) => void;
 };
 
 function hasCatchWeightPending(order: Order): boolean {
-  return (order.items || []).some((it) => it.is_catch_weight && !(Number(it.actual_weight) > 0));
+  return (order.items || []).some((it) => hasPendingWeight(it));
 }
 
 export function OrdersWorkbench({
   orders, customerIdParam, search, setSearch, status, setStatus,
-  weightCaptureOrderId, role, onLoad, onEdit, onSend, onFulfill,
+  weightCaptureOrderId, role, onLoad, onEdit, onSend, onMarkDelivered, onResendInvoice, onFulfill,
   onToggleWeightCapture, onDelete,
 }: Props) {
   const filtered = useMemo(() => {
@@ -52,7 +55,7 @@ export function OrdersWorkbench({
       <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
         <div className="space-y-1">
           <CardTitle>Orders Workbench</CardTitle>
-          <CardDescription>Includes edit, send-to-processing, quick fulfill, and delete actions.</CardDescription>
+          <CardDescription>Move orders from intake to processing, capture weights, and keep the next action obvious for the team.</CardDescription>
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">
@@ -69,6 +72,7 @@ export function OrdersWorkbench({
               <option value="all">All</option>
               <option value="pending">Pending</option>
               <option value="in_process">In Process</option>
+              <option value="delivered">Delivered</option>
               <option value="invoiced">Invoiced</option>
               <option value="cancelled">Cancelled</option>
             </select>
@@ -95,15 +99,20 @@ export function OrdersWorkbench({
                 filtered.map((order) => {
                   const parsedStatus = normalizedStatus(order.status);
                   const pendingWeights = hasCatchWeightPending(order);
+                  const linkedInvoiceId = order.invoice_id || order.invoiceId;
                   return (
                     <TableRow key={order.id}>
                       <TableCell className="font-medium">
-                        <div className="space-y-0.5">
-                          <span>{order.order_number || order.id.slice(0, 8)}</span>
+                        <button
+                          type="button"
+                          className="space-y-0.5 text-left"
+                          onClick={() => pendingWeights ? onToggleWeightCapture(order) : onEdit(order)}
+                        >
+                          <span className="hover:underline">{order.order_number || order.id.slice(0, 8)}</span>
                           {pendingWeights && (
                             <div className="text-xs font-medium text-amber-600">⚠️ Weight Pending</div>
                           )}
-                        </div>
+                        </button>
                       </TableCell>
                       <TableCell>{order.customer_name || '-'}</TableCell>
                       <TableCell>
@@ -116,23 +125,29 @@ export function OrdersWorkbench({
                       <TableCell>{order.created_at ? new Date(order.created_at).toLocaleDateString() : '-'}</TableCell>
                       <TableCell>
                         <div className="flex flex-wrap gap-1">
-                          <Button variant="ghost" size="sm" onClick={() => onEdit(order)}>Edit</Button>
+                          <Button variant="ghost" size="sm" onClick={() => onEdit(order)}>Edit Order</Button>
                           {parsedStatus === 'pending' ? (
-                            <Button variant="secondary" size="sm" onClick={() => onSend(order)}>Send</Button>
+                            <Button variant="secondary" size="sm" onClick={() => onSend(order)}>Send to Processing</Button>
+                          ) : null}
+                          {parsedStatus === 'pending' ? (
+                            <Button variant="outline" size="sm" onClick={() => onMarkDelivered(order)}>Mark as Delivered</Button>
+                          ) : null}
+                          {linkedInvoiceId ? (
+                            <Button variant="outline" size="sm" onClick={() => onResendInvoice(order)}>Resend Invoice Email</Button>
                           ) : null}
                           {parsedStatus === 'in_process' ? (
-                            <Button variant="secondary" size="sm" onClick={() => onFulfill(order)}>Fulfill</Button>
+                            <Button variant="secondary" size="sm" onClick={() => onFulfill(order)}>Quick Fulfill</Button>
                           ) : null}
-                          {(order.items || []).some((it) => it.is_catch_weight) && (role === 'admin' || role === 'manager') ? (
+                          {(order.items || []).some((it) => isWeightManagedItem(it)) && (role === 'admin' || role === 'manager' || role === 'superadmin') ? (
                             <Button
                               variant={weightCaptureOrderId === order.id ? 'secondary' : 'outline'}
                               size="sm"
                               onClick={() => onToggleWeightCapture(order)}
                             >
-                              Weights
+                              Enter Weights
                             </Button>
                           ) : null}
-                          <Button variant="ghost" size="sm" onClick={() => onDelete(order.id)}>Delete</Button>
+                          <Button variant="ghost" size="sm" onClick={() => onDelete(order.id)}>Delete Order</Button>
                         </div>
                       </TableCell>
                     </TableRow>

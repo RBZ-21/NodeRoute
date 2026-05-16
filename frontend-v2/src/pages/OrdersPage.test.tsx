@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrdersPage } from './OrdersPage';
@@ -15,11 +16,19 @@ vi.mock('../lib/api', () => ({
   getUserRole: getUserRoleMock,
 }));
 
-function renderOrdersPage() {
+function renderOrdersPage(initialEntry = '/orders') {
+  const queryClient = new QueryClient({
+    defaultOptions: {
+      queries: { retry: false },
+      mutations: { retry: false },
+    },
+  });
   return render(
-    <MemoryRouter>
-      <OrdersPage />
-    </MemoryRouter>
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter initialEntries={[initialEntry]}>
+        <OrdersPage />
+      </MemoryRouter>
+    </QueryClientProvider>
   );
 }
 
@@ -28,10 +37,21 @@ describe('OrdersPage', () => {
     getUserRoleMock.mockReturnValue('admin');
     fetchWithAuthMock.mockReset();
     sendWithAuthMock.mockReset();
+    window.open = vi.fn(() => ({
+      document: {
+        write: vi.fn(),
+        close: vi.fn(),
+        open: vi.fn(),
+      },
+      focus: vi.fn(),
+      print: vi.fn(),
+      close: vi.fn(),
+      setTimeout: (fn: () => void) => { fn(); return 0; },
+    } as unknown as Window));
     fetchWithAuthMock.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/orders')) return [];
-      if (url === '/api/inventory') return [];
-      if (url === '/api/customers') return [];
+      if (url === '/api/inventory') return [{ id: 'prod-salmon', item_number: 'SAL-01', description: 'Atlantic Salmon', cost: 12, unit: 'each' }];
+      if (url === '/api/customers') return [{ id: 'cust-1', company_name: 'Oceanview Market', billing_email: 'buyer@oceanview.test', address: '123 Harbor St' }];
       return [];
     });
   });
@@ -68,26 +88,31 @@ describe('OrdersPage', () => {
     expect(await screen.findByText('No orders match the current filters.')).toBeInTheDocument();
   });
 
-  it('validates the add/edit order form and submits a happy-path create request', async () => {
+  it('autofills customer delivery details and submits a delivery order', async () => {
     sendWithAuthMock.mockResolvedValueOnce({ id: 'new-order-id' });
 
     renderOrdersPage();
-    await screen.findByRole('button', { name: 'Create Order' });
+    await screen.findByRole('button', { name: 'Create Draft Order' });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create Order' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Draft Order' }));
     expect(await screen.findByText('Customer name is required.')).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview Market' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Create Order' }));
+    fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview' } });
+    fireEvent.mouseDown(await screen.findByText('Oceanview Market'));
+    expect(screen.getByDisplayValue('buyer@oceanview.test')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('123 Harbor St')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Draft Order' }));
     expect(await screen.findByText('Add at least one order item.')).toBeInTheDocument();
 
     const productInput = screen.getByPlaceholderText('Atlantic Salmon');
     fireEvent.change(productInput, { target: { value: 'Atlantic Salmon' } });
+    fireEvent.mouseDown(await screen.findByText('Atlantic Salmon'));
     const lineRow = productInput.closest('tr');
     if (!lineRow) throw new Error('Expected order line row');
     fireEvent.change(within(lineRow).getAllByRole('spinbutton')[0], { target: { value: '3' } });
 
-    fireEvent.click(screen.getByRole('button', { name: 'Create Order' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Create Draft Order' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith(
@@ -95,11 +120,102 @@ describe('OrdersPage', () => {
         'POST',
         expect.objectContaining({
           customerName: 'Oceanview Market',
+          customerEmail: 'buyer@oceanview.test',
+          customerAddress: '123 Harbor St',
+          fulfillmentType: 'delivery',
           items: [expect.objectContaining({ name: 'Atlantic Salmon' })],
         })
       );
     });
     expect(await screen.findByText('Order created.')).toBeInTheDocument();
+  });
+
+  it('hydrates address and email when the typed customer name exactly matches a saved customer', async () => {
+    renderOrdersPage();
+    await screen.findByRole('button', { name: 'Create Draft Order' });
+
+    fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview Market' } });
+
+    await waitFor(() => {
+      expect(screen.getByDisplayValue('buyer@oceanview.test')).toBeInTheDocument();
+      expect(screen.getByDisplayValue('123 Harbor St')).toBeInTheDocument();
+    });
+  });
+
+  it('submits pickup orders without a delivery address', async () => {
+    sendWithAuthMock.mockResolvedValueOnce({ id: 'pickup-order-id' });
+
+    renderOrdersPage();
+    await screen.findByRole('button', { name: 'Create Draft Order' });
+
+    fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview' } });
+    fireEvent.mouseDown(await screen.findByText('Oceanview Market'));
+    fireEvent.change(screen.getByDisplayValue('Delivery'), { target: { value: 'pickup' } });
+
+    const productInput = screen.getByPlaceholderText('Atlantic Salmon');
+    fireEvent.change(productInput, { target: { value: 'Atlantic Salmon' } });
+    fireEvent.mouseDown(await screen.findByText('Atlantic Salmon'));
+    const lineRow = productInput.closest('tr');
+    if (!lineRow) throw new Error('Expected order line row');
+    fireEvent.change(within(lineRow).getAllByRole('spinbutton')[0], { target: { value: '2' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Draft Order' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith(
+        '/api/orders',
+        'POST',
+        expect.objectContaining({
+          customerName: 'Oceanview Market',
+          customerAddress: '',
+          fulfillmentType: 'pickup',
+        })
+      );
+    });
+  });
+
+  it('submits pound-based items with both ordered quantity and estimated weight', async () => {
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/orders')) return [];
+      if (url === '/api/inventory') return [{ item_number: 'LOB-1', description: 'Live Lobster', cost: 18, unit: 'lb' }];
+      if (url === '/api/customers') return [{ id: 'cust-1', company_name: 'Oceanview Market', billing_email: 'buyer@oceanview.test', address: '123 Harbor St' }];
+      return [];
+    });
+    sendWithAuthMock.mockResolvedValueOnce({ id: 'lobster-order-id' });
+
+    renderOrdersPage();
+    await screen.findByRole('button', { name: 'Create Draft Order' });
+
+    fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview Market' } });
+    fireEvent.change(screen.getByPlaceholderText('Atlantic Salmon'), { target: { value: 'Live Lobster' } });
+    fireEvent.mouseDown(await screen.findByText('Live Lobster'));
+
+    const row = screen.getByDisplayValue('Live Lobster').closest('tr');
+    if (!row) throw new Error('Expected lobster row');
+    const inputs = within(row).getAllByRole('spinbutton');
+    fireEvent.change(inputs[0], { target: { value: '6' } });
+    fireEvent.change(inputs[1], { target: { value: '24.5' } });
+    fireEvent.change(inputs[2], { target: { value: '18' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Draft Order' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith(
+        '/api/orders',
+        'POST',
+        expect.objectContaining({
+          items: [
+            expect.objectContaining({
+              name: 'Live Lobster',
+              unit: 'lb',
+              requested_qty: 6,
+              requested_weight: 24.5,
+              unit_price: 18,
+            }),
+          ],
+        })
+      );
+    });
   });
 
   it('surfaces failed API calls while loading orders', async () => {
@@ -112,6 +228,60 @@ describe('OrdersPage', () => {
     renderOrdersPage();
 
     expect(await screen.findByText('Orders API down')).toBeInTheDocument();
+  });
+
+  it('allows selecting an out-of-stock product even when item_number is missing', async () => {
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/orders')) return [];
+      if (url === '/api/inventory') {
+        return [
+          {
+            id: 'prod-halibut',
+            item_number: null,
+            description: 'Wild Halibut',
+            cost: 22,
+            unit: 'each',
+            on_hand_qty: 0,
+          },
+        ];
+      }
+      if (url === '/api/customers') {
+        return [{ id: 'cust-1', company_name: 'Oceanview Market', billing_email: 'buyer@oceanview.test', address: '123 Harbor St' }];
+      }
+      return [];
+    });
+    sendWithAuthMock.mockResolvedValueOnce({ id: 'halibut-order-id' });
+
+    renderOrdersPage();
+    await screen.findByRole('button', { name: 'Create Draft Order' });
+
+    fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview Market' } });
+
+    const productInput = screen.getByPlaceholderText('Atlantic Salmon');
+    fireEvent.change(productInput, { target: { value: 'Wild Halibut' } });
+    fireEvent.mouseDown(await screen.findByText('Wild Halibut'));
+
+    const row = screen.getByDisplayValue('Wild Halibut').closest('tr');
+    if (!row) throw new Error('Expected halibut row');
+    fireEvent.change(within(row).getAllByRole('spinbutton')[0], { target: { value: '1' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Create Draft Order' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith(
+        '/api/orders',
+        'POST',
+        expect.objectContaining({
+          items: [
+            expect.objectContaining({
+              name: 'Wild Halibut',
+              product_id: 'prod-halibut',
+              item_number: undefined,
+            }),
+          ],
+        }),
+      );
+    });
   });
 
   it('loads an order into edit mode and sends an update request', async () => {
@@ -142,12 +312,12 @@ describe('OrdersPage', () => {
     renderOrdersPage();
 
     expect(await screen.findByText('ORD-100')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Order' }));
 
     expect(await screen.findByText('Editing ORD-100')).toBeInTheDocument();
     expect(screen.getByDisplayValue('Blue Fin')).toBeInTheDocument();
     fireEvent.change(screen.getByDisplayValue('Call on arrival'), { target: { value: 'Leave at front desk' } });
-    fireEvent.click(screen.getByRole('button', { name: 'Update Order' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Update Draft Order' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith(
@@ -161,6 +331,72 @@ describe('OrdersPage', () => {
       );
     });
     expect(await screen.findByText('Order updated.')).toBeInTheDocument();
+  });
+
+  it('updates an in-process order to pound-based items and keeps it in the weight flow', async () => {
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/orders')) {
+        return [
+          {
+            id: 'order-2',
+            order_number: 'ORD-200',
+            customer_name: 'Blue Fin',
+            customer_email: 'buyer@bluefin.test',
+            customer_address: '1 Harbor Way',
+            notes: '',
+            tax_enabled: false,
+            tax_rate: 0.09,
+            status: 'in_process',
+            invoice_id: 'inv-200',
+            items: [{ name: 'Lobsters', item_number: 'LOB-1', quantity: 6, unit_price: 18, unit: 'each' }],
+          },
+        ];
+      }
+      if (url === '/api/inventory') return [{ item_number: 'LOB-1', description: 'Lobsters', cost: 18, unit: 'lb' }];
+      if (url === '/api/customers') return [];
+      return [];
+    });
+    sendWithAuthMock.mockResolvedValueOnce({
+      id: 'order-2',
+      order_number: 'ORD-200',
+      customer_name: 'Blue Fin',
+      status: 'in_process',
+      invoice_id: 'inv-200',
+      items: [{ name: 'Lobsters', item_number: 'LOB-1', requested_qty: 6, requested_weight: 24.5, unit_price: 18, unit: 'lb' }],
+    });
+
+    renderOrdersPage();
+
+    expect(await screen.findByText('ORD-200')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Order' }));
+
+    const row = screen.getByDisplayValue('Lobsters').closest('tr');
+    if (!row) throw new Error('Expected lobster row');
+    fireEvent.change(within(row).getByDisplayValue('each'), { target: { value: 'lb' } });
+    const inputs = within(row).getAllByRole('spinbutton');
+    fireEvent.change(inputs[0], { target: { value: '6' } });
+    fireEvent.change(inputs[1], { target: { value: '24.5' } });
+    fireEvent.change(inputs[2], { target: { value: '18' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Update Draft Order' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith(
+        '/api/orders/order-2',
+        'PATCH',
+        expect.objectContaining({
+          items: [
+            expect.objectContaining({
+              name: 'Lobsters',
+              unit: 'lb',
+              requested_qty: 6,
+              requested_weight: 24.5,
+              unit_price: 18,
+            }),
+          ],
+        })
+      );
+    });
   });
 
   it('shows catch-weight actions and saves actual weights for admin users', async () => {
@@ -208,10 +444,10 @@ describe('OrdersPage', () => {
     expect(await screen.findByText('ORD-CW')).toBeInTheDocument();
     expect(screen.getByText((content) => content.includes('Weight Pending'))).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Weights' }));
-    expect(await screen.findByText(/Capture Actual Weights/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Enter Weights' }));
+    expect(await screen.findByText(/Weight Entry/)).toBeInTheDocument();
 
-    fireEvent.change(screen.getByPlaceholderText('0.000'), { target: { value: '10.250' } });
+    fireEvent.change(screen.getByPlaceholderText('lbs'), { target: { value: '10.250' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
     await waitFor(() => {
@@ -222,5 +458,120 @@ describe('OrdersPage', () => {
       );
     });
     expect(await screen.findByText('Actual weight saved. Order total recalculated.')).toBeInTheDocument();
+  });
+
+  it('opens weight capture when clicking the order number for a pending-weight order', async () => {
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/orders')) {
+        return [
+          {
+            id: 'order-lb',
+            order_number: 'ORD-LB',
+            customer_name: 'Harbor Cafe',
+            status: 'pending',
+            items: [
+              {
+                name: 'Yellowfin Tuna',
+                unit: 'lb',
+                requested_weight: 12,
+                unit_price: 14.5,
+              },
+            ],
+          },
+        ];
+      }
+      if (url === '/api/inventory') return [];
+      if (url === '/api/customers') return [];
+      return [];
+    });
+
+    renderOrdersPage();
+
+    expect(await screen.findByText('ORD-LB')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /ORD-LB/ }));
+
+    expect(await screen.findByText(/Weight Entry/)).toBeInTheDocument();
+  });
+
+  it('opens the grouped weight board from dashboard-style queue links', async () => {
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/orders')) {
+        return [
+          {
+            id: 'order-a',
+            order_number: 'ORD-A',
+            customer_name: 'Blue Fin',
+            status: 'pending',
+            items: [
+              { name: 'Yellowfin Tuna', unit: 'lb', requested_weight: 12, unit_price: 14.5 },
+              { name: 'Swordfish', unit: 'lb', requested_weight: 9, unit_price: 16 },
+            ],
+          },
+          {
+            id: 'order-b',
+            order_number: 'ORD-B',
+            customer_name: 'Harbor Cafe',
+            status: 'in_process',
+            items: [
+              { name: 'Salmon', is_catch_weight: true, estimated_weight: 10, actual_weight: 10.25, price_per_lb: 13.75 },
+            ],
+          },
+        ];
+      }
+      if (url === '/api/inventory' || url === '/api/customers') return [];
+      return [];
+    });
+
+    renderOrdersPage('/orders?action=weights');
+
+    expect(await screen.findByText('Orders Needing Weights')).toBeInTheDocument();
+    expect(await screen.findByText('Yellowfin Tuna')).toBeInTheDocument();
+    expect(screen.getByText('Swordfish')).toBeInTheDocument();
+    expect(screen.getByText((content) => content.includes('ORD-A') && content.includes('Blue Fin'))).toBeInTheDocument();
+    expect(screen.queryByText('Salmon')).not.toBeInTheDocument();
+  });
+
+  it('sends a pending order to processing and opens a print window', async () => {
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/orders')) {
+        return [
+          {
+            id: 'order-send',
+            order_number: 'ORD-SEND',
+            customer_name: 'Cash Customer',
+            customer_address: '1 Dock St',
+            status: 'pending',
+            tax_enabled: false,
+            tax_rate: 0.09,
+            items: [{ name: 'Atlantic Salmon', quantity: 1, unit_price: 12, unit: 'each' }],
+          },
+        ];
+      }
+      if (url === '/api/inventory' || url === '/api/customers') return [];
+      return [];
+    });
+    sendWithAuthMock.mockResolvedValueOnce({
+      id: 'order-send',
+      order_number: 'ORD-SEND',
+      customer_name: 'Cash Customer',
+      customer_address: '1 Dock St',
+      status: 'in_process',
+      items: [{ name: 'Atlantic Salmon', quantity: 1, unit_price: 12, unit: 'each' }],
+    });
+
+    renderOrdersPage();
+
+    expect(await screen.findByText('ORD-SEND')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Send to Processing' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith(
+        '/api/orders/order-send/send',
+        'POST',
+        { taxEnabled: false, taxRate: 0.09 }
+      );
+    });
+    expect(window.open).toHaveBeenCalled();
+    expect(await screen.findByText('Order ORD-SEND sent to processing.')).toBeInTheDocument();
   });
 });

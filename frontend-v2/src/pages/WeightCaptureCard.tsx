@@ -1,104 +1,84 @@
+import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
-import { Input } from '../components/ui/input';
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { asMoney, asNumber } from './orders.types';
+import { asNumber, orderItemQty } from './orders.types';
 import type { Order } from './orders.types';
+import type { Role } from '../lib/api';
 
-type Props = {
+export interface WeightCaptureCardProps {
   order: Order;
+  role: Role;
   weightInputs: Record<string, string>;
   savingWeight: Record<string, boolean>;
-  role: string;
-  onWeightInputChange: (key: string, value: string) => void;
-  onSaveWeight: (orderId: string, itemIndex: number) => void;
-};
+  onWeightInputChange: (key: string, val: string) => void;
+  onSaveWeight: (orderId: string, itemIndex: number) => Promise<void>;
+}
 
 export function WeightCaptureCard({
-  order, weightInputs, savingWeight, role, onWeightInputChange, onSaveWeight,
-}: Props) {
-  const canCapture = role === 'admin' || role === 'manager';
+  order,
+  weightInputs,
+  savingWeight,
+  onWeightInputChange,
+  onSaveWeight,
+}: WeightCaptureCardProps) {
+  const weightItems = (order.items || []).filter(
+    (item) =>
+      item.is_catch_weight ||
+      String(item.unit || '').toLowerCase() === 'lb' ||
+      item.requested_weight !== undefined,
+  );
 
   return (
     <Card>
-      <CardHeader>
-        <CardTitle>Capture Actual Weights — {order.order_number || order.id.slice(0, 8)}</CardTitle>
-        <CardDescription>
-          Enter the actual measured weight for each catch weight item. Line totals recalculate on save.
-        </CardDescription>
+      <CardHeader className="pb-2">
+        <CardTitle className="text-base">
+          Weight Entry — {order.order_number || order.id.slice(0, 8)}
+        </CardTitle>
       </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Product</TableHead>
-              <TableHead>Est. Weight</TableHead>
-              <TableHead>Actual Weight</TableHead>
-              <TableHead>Price/lb</TableHead>
-              <TableHead>Total</TableHead>
-              <TableHead>Variance</TableHead>
-              {canCapture ? <TableHead>Capture</TableHead> : null}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {(order.items || []).map((item, idx) => {
-              if (!item.is_catch_weight) return null;
-              const key = `${order.id}:${idx}`;
-              const est = asNumber(item.estimated_weight);
-              const act = asNumber(item.actual_weight);
-              const ppl = asNumber(item.price_per_lb);
-              const confirmed = act > 0;
-              const variance = confirmed ? parseFloat((act - est).toFixed(3)) : null;
-              const within10Pct = variance !== null && est > 0 && Math.abs(variance / est) <= 0.1;
-              return (
-                <TableRow key={idx}>
-                  <TableCell className="font-medium">{item.name || item.description || `Item ${idx + 1}`}</TableCell>
-                  <TableCell>{est.toFixed(3)} lbs</TableCell>
-                  <TableCell>
-                    {confirmed
-                      ? <span className="font-semibold">{act.toFixed(3)} lbs</span>
-                      : <span className="text-muted-foreground text-xs">Not captured</span>}
-                  </TableCell>
-                  <TableCell>${ppl.toFixed(4)}/lb</TableCell>
-                  <TableCell>
-                    {confirmed
-                      ? asMoney(act * ppl)
-                      : <span className="text-muted-foreground text-xs">{asMoney(est * ppl)} (est.)</span>}
-                  </TableCell>
-                  <TableCell>
-                    {variance !== null ? (
-                      <span className={variance === 0 ? '' : within10Pct ? 'text-green-600 font-medium' : 'text-red-600 font-medium'}>
-                        {variance > 0 ? '+' : ''}{variance.toFixed(3)} lbs
-                      </span>
-                    ) : <span className="text-muted-foreground text-xs">—</span>}
-                  </TableCell>
-                  {canCapture ? (
-                    <TableCell>
-                      <div className="flex items-center gap-2">
-                        <Input
-                          type="number"
-                          min="0.001"
-                          step="0.001"
-                          placeholder="0.000"
-                          value={weightInputs[key] ?? (confirmed ? String(act) : '')}
-                          onChange={(e) => onWeightInputChange(key, e.target.value)}
-                          className="w-28"
-                        />
-                        <Button
-                          size="sm"
-                          disabled={!!savingWeight[key]}
-                          onClick={() => onSaveWeight(order.id, idx)}
-                        >
-                          {savingWeight[key] ? 'Saving…' : 'Save'}
-                        </Button>
-                      </div>
-                    </TableCell>
-                  ) : null}
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
+      <CardContent className="space-y-3">
+        {weightItems.length ? (
+          weightItems.map((item, idx) => {
+            const key = `${order.id}:${idx}`;
+            const actual = asNumber(item.actual_weight);
+            const requested = asNumber(item.requested_weight ?? orderItemQty(item));
+            return (
+              <div key={key} className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-slate-100/70 p-3 dark:bg-slate-950/35">
+                <div className="flex-1 min-w-0">
+                  <div className="text-sm font-semibold text-foreground truncate">
+                    {item.name || item.description || item.item_number || `Item ${idx + 1}`}
+                  </div>
+                  <div className="mt-0.5 text-xs text-muted-foreground">
+                    Requested: {requested > 0 ? `${requested} lb` : '—'}
+                    {actual > 0 ? ` · Last: ${actual} lb` : ''}
+                  </div>
+                </div>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min="0"
+                    step="0.01"
+                    placeholder="lbs"
+                    className="w-24 rounded border border-input bg-background px-2 py-1 text-sm text-foreground shadow-sm"
+                    value={weightInputs[key] ?? ''}
+                    onChange={(e) => onWeightInputChange(key, e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') void onSaveWeight(order.id, idx);
+                    }}
+                  />
+                  <span className="text-sm text-muted-foreground">lbs</span>
+                  <Button
+                    size="sm"
+                    disabled={savingWeight[key]}
+                    onClick={() => void onSaveWeight(order.id, idx)}
+                  >
+                    {savingWeight[key] ? 'Saving...' : 'Save'}
+                  </Button>
+                </div>
+              </div>
+            );
+          })
+        ) : (
+          <div className="text-sm text-muted-foreground">No weight-managed items on this order.</div>
+        )}
       </CardContent>
     </Card>
   );
