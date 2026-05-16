@@ -5,14 +5,21 @@ const assert = require('node:assert/strict');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 
-for (const fileName of ['index.html', 'driver.html', 'customer-portal.html', 'track.html', 'landing.html']) {
-  test(`${fileName} inline scripts parse`, () => {
-    const htmlPath = path.join(repoRoot, 'frontend', fileName);
-    const html = fs.readFileSync(htmlPath, 'utf8');
-    const scripts = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)];
+// The old monolith HTML files (index.html, driver.html, etc.) were replaced by the
+// React frontend-v2. Verify that the key React entry points exist and are non-empty.
+const frontendV2Src = path.join(repoRoot, 'frontend-v2', 'src');
 
-    for (const [index, match] of scripts.entries()) {
-      assert.doesNotThrow(() => new Function(match[1]), `${fileName} script ${index} should parse`);
-    }
+for (const relPath of [
+  'main.tsx',
+  'App.tsx',
+  'lib/nav.ts',
+  'pages/OrdersPage.tsx',
+  'pages/InvoicesPage.tsx',
+]) {
+  test(`frontend-v2 ${relPath} exists and is non-empty`, () => {
+    const fullPath = path.join(frontendV2Src, relPath);
+    assert.ok(fs.existsSync(fullPath), `${relPath} must exist`);
+    const content = fs.readFileSync(fullPath, 'utf8');
+    assert.ok(content.length > 0, `${relPath} must be non-empty`);
   });
 }

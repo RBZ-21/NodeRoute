@@ -1,5 +1,6 @@
 const express = require('express');
 const crypto = require('crypto');
+const bcrypt = require('bcryptjs');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createConfiguredMailers } = require('../services/email');
@@ -9,6 +10,13 @@ const {
   rowMatchesContext,
   userResponseWithContext,
 } = require('../services/operating-context');
+const { validateBody } = require('../lib/zod-validate');
+const {
+  userCreateBodySchema,
+  userInviteBodySchema,
+  userPatchBodySchema,
+  userRolePatchBodySchema,
+} = require('../lib/users-schemas');
 
 const router = express.Router();
 
@@ -92,6 +100,10 @@ async function sendInviteEmail({ name, email, role, inviteUrl }) {
   return result;
 }
 
+function isAdminLike(user) {
+  return user?.role === 'admin' || user?.role === 'superadmin';
+}
+
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const data = await dbQuery(supabase.from('users').select('*').order('created_at', { ascending: true }), res);
   if (!data) return;
@@ -99,17 +111,43 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
   res.json(scopedUsers.map(u => ({ ...userResponseWithContext(u), status: u.status, createdAt: u.created_at })));
 });
 
-router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { name, email, role = 'driver', companyId, companyName, locationId, locationName } = req.body;
-  if (!name || !email) return res.status(400).json({ error: 'Name and email required' });
-  if (!['admin', 'manager', 'driver'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
-  if (role === 'admin' && req.user.role !== 'admin') return res.status(403).json({ error: 'Only admins can invite admins' });
+// Admin: create a user directly with a password (no invite flow)
+router.post('/', authenticateToken, requireRole('admin'), validateBody(userCreateBodySchema), async (req, res) => {
+  const { name, email, password, role } = req.validated.body;
+
+  const { data: existing } = await supabase.from('users').select('id').ilike('email', email).limit(1);
+  if (existing && existing.length > 0) return res.status(409).json({ error: 'A user with that email already exists' });
+
+  const password_hash = await bcrypt.hash(password, 10);
+  const insertResult = await insertRecordWithOptionalScope(
+    supabase,
+    'users',
+    {
+      id: 'user-' + Date.now(),
+      name,
+      email,
+      password_hash,
+      role,
+      status: 'active',
+      invite_token: null,
+      invite_expires: null,
+      created_at: new Date().toISOString(),
+    },
+    req.context
+  );
+  if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
+  res.status(201).json({ message: `User ${email} created successfully`, user: userResponseWithContext(insertResult.data) });
+});
+
+router.post('/invite', authenticateToken, requireRole('admin', 'manager'), validateBody(userInviteBodySchema), async (req, res) => {
+  const { name, email, role, companyId, companyName, locationId, locationName } = req.validated.body;
+  if (role === 'admin' && !isAdminLike(req.user)) return res.status(403).json({ error: 'Only admins can invite admins' });
 
   const context = req.context || {};
-  const targetCompanyId = String(companyId || context.activeCompanyId || context.companyId || '').trim() || null;
-  const targetCompanyName = String(companyName || context.companyName || '').trim() || null;
-  const targetLocationId = String(locationId || context.activeLocationId || context.locationId || '').trim() || null;
-  const targetLocationName = String(locationName || context.locationName || '').trim() || null;
+  const targetCompanyId = companyId || String(context.activeCompanyId || context.companyId || '').trim() || null;
+  const targetCompanyName = companyName || String(context.companyName || '').trim() || null;
+  const targetLocationId = locationId || String(context.activeLocationId || context.locationId || '').trim() || null;
+  const targetLocationName = locationName || String(context.locationName || '').trim() || null;
   const canInviteAcrossCompanies = !!context.isGlobalOperator;
   const allowedCompanyIds = Array.isArray(context.accessibleCompanyIds) ? context.accessibleCompanyIds : [];
   const allowedLocationIds = Array.isArray(context.accessibleLocationIds) ? context.accessibleLocationIds : [];
@@ -155,7 +193,7 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
   );
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
 
-  const inviteUrl = `${BASE_URL}/setup-password.html?token=${inviteToken}`;
+  const inviteUrl = `${BASE_URL}/setup-password?token=${inviteToken}`;
   console.log(`\nINVITE for ${name} (${email}) as ${role}:\n${inviteUrl}\n`);
   const queuedMailers = createConfiguredMailers();
   const emailQueued = queuedMailers.length > 0;
@@ -190,13 +228,15 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), async
   });
 });
 
-// Any user can update their own name; admins can update anyone
-router.patch('/:id', authenticateToken, async (req, res) => {
-  if (req.user.id !== req.params.id && req.user.role !== 'admin')
+// Any user can update their own profile; admins can update anyone
+router.patch('/:id', authenticateToken, validateBody(userPatchBodySchema), async (req, res) => {
+  if (req.user.id !== req.params.id && !isAdminLike(req.user))
     return res.status(403).json({ error: 'Forbidden' });
-  const { name } = req.body;
-  if (!name || !name.trim()) return res.status(400).json({ error: 'Name required' });
-  const { data, error } = await supabase.from('users').update({ name: name.trim() }).eq('id', req.params.id).select('id,name').single();
+  const { name, phone, vehicle_id } = req.validated.body;
+  const updates = { name };
+  if (phone !== undefined) updates.phone = phone;
+  if (vehicle_id !== undefined) updates.vehicle_id = vehicle_id;
+  const { data, error } = await supabase.from('users').update(updates).eq('id', req.params.id).select('id,name,phone,vehicle_id').single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
@@ -207,15 +247,16 @@ router.delete('/:id', authenticateToken, requireRole('admin'), async (req, res) 
   const u = users && users[0];
   if (!u) return res.status(404).json({ error: 'User not found' });
   if (!rowMatchesContext(u, req.context)) return res.status(403).json({ error: 'Forbidden' });
-  if (u.role === 'admin') return res.status(403).json({ error: 'Cannot delete admin' });
+  if ((u.role === 'admin' || u.role === 'superadmin') && req.user.role !== 'superadmin') {
+    return res.status(403).json({ error: `Cannot delete ${u.role}` });
+  }
   const delResult = await dbQuery(supabase.from('users').delete().eq('id', req.params.id), res);
   if (delResult === null) return;
   res.json({ message: 'User deleted' });
 });
 
-router.patch('/:id/role', authenticateToken, requireRole('admin'), async (req, res) => {
-  const { role } = req.body;
-  if (!['admin', 'manager', 'driver'].includes(role)) return res.status(400).json({ error: 'Invalid role' });
+router.patch('/:id/role', authenticateToken, requireRole('admin'), validateBody(userRolePatchBodySchema), async (req, res) => {
+  const { role } = req.validated.body;
   const currentUser = await dbQuery(supabase.from('users').select('*').eq('id', req.params.id).single(), res);
   if (!currentUser) return res.status(404).json({ error: 'User not found' });
   if (!rowMatchesContext(currentUser, req.context)) return res.status(403).json({ error: 'Forbidden' });

@@ -1,323 +1,477 @@
-import { useCallback, useEffect, useState } from 'react';
+import {
+  Camera,
+  CheckCircle2,
+  Gauge,
+  Loader2,
+  LogOut,
+  Navigation,
+  NotebookText,
+  Route as RouteIcon,
+  Satellite,
+} from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
-import { StatusBadge } from '../components/ui/status-badge';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
-
-interface Stop {
-  id: string | number;
-  stop_number: number;
-  address: string;
-  customer_name: string;
-  order_number: string;
-  status: 'pending' | 'arrived' | 'completed' | 'failed';
-  notes?: string;
-  failure_note?: string;
-}
-
-interface DriverRoute {
-  id: string | number;
-  name: string;
-  status: string;
-  stops: Stop[];
-}
-
-interface DriverRouteResponse {
-  driver_name: string;
-  route: DriverRoute | null;
-}
-
-const STOP_COLOR_MAP: Record<string, 'yellow' | 'blue' | 'green' | 'red'> = {
-  pending: 'yellow',
-  arrived: 'blue',
-  completed: 'green',
-  failed: 'red',
-};
-
-const ROUTE_COLOR_MAP: Record<string, 'green' | 'yellow' | 'red' | 'gray'> = {
-  active: 'green',
-  completed: 'green',
-  pending: 'yellow',
-  cancelled: 'red',
-};
-
-function greeting(): string {
-  const h = new Date().getHours();
-  if (h < 12) return 'Morning';
-  if (h < 17) return 'Afternoon';
-  return 'Evening';
-}
-
-interface StopCardProps {
-  stop: Stop;
-  isSubmitting: boolean;
-  isFailingMode: boolean;
-  failureNote: string;
-  onFailureNoteChange: (v: string) => void;
-  onMarkArrived: () => void;
-  onMarkComplete: () => void;
-  onMarkFailedClick: () => void;
-  onConfirmFailed: () => void;
-  onCancelFailed: () => void;
-}
-
-function StopCard({
-  stop,
-  isSubmitting,
-  isFailingMode,
-  failureNote,
-  onFailureNoteChange,
-  onMarkArrived,
-  onMarkComplete,
-  onMarkFailedClick,
-  onConfirmFailed,
-  onCancelFailed,
-}: StopCardProps) {
-  const isDone = stop.status === 'completed' || stop.status === 'failed';
-
-  return (
-    <Card className="border-gray-800 bg-gray-900">
-      <CardContent className="p-4">
-        <div className="mb-3 flex items-start justify-between gap-2">
-          <div className="flex items-start gap-3">
-            <span className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-gray-700 text-xs font-bold text-gray-300">
-              {stop.stop_number}
-            </span>
-            <div>
-              <p className="text-sm font-semibold text-white">{stop.address}</p>
-              <p className="text-xs text-gray-400">{stop.customer_name}</p>
-            </div>
-          </div>
-          <StatusBadge status={stop.status} colorMap={STOP_COLOR_MAP} />
-        </div>
-
-        <div className="mb-3 space-y-1 pl-10">
-          <p className="text-xs text-gray-500">
-            Order:{' '}
-            <span className="text-gray-300">{stop.order_number}</span>
-          </p>
-          {stop.notes && (
-            <p className="text-xs text-gray-500">
-              Notes: <span className="text-gray-300">{stop.notes}</span>
-            </p>
-          )}
-          {stop.failure_note && (
-            <p className="text-xs text-red-400">Failure: {stop.failure_note}</p>
-          )}
-        </div>
-
-        {!isDone && !isFailingMode && (
-          <div className="flex gap-2 pl-10">
-            {stop.status === 'pending' && (
-              <Button
-                size="sm"
-                variant="outline"
-                disabled={isSubmitting}
-                onClick={onMarkArrived}
-                className="h-11 flex-1 border-blue-700 bg-blue-950 text-blue-300 hover:bg-blue-900"
-              >
-                Arrived
-              </Button>
-            )}
-            {(stop.status === 'pending' || stop.status === 'arrived') && (
-              <Button
-                size="sm"
-                disabled={isSubmitting}
-                onClick={onMarkComplete}
-                className="h-11 flex-1 bg-green-700 text-white hover:bg-green-600"
-              >
-                Complete
-              </Button>
-            )}
-            <Button
-              size="sm"
-              variant="outline"
-              disabled={isSubmitting}
-              onClick={onMarkFailedClick}
-              className="h-11 flex-1 border-red-800 bg-red-950 text-red-400 hover:bg-red-900"
-            >
-              Failed
-            </Button>
-          </div>
-        )}
-
-        {isFailingMode && (
-          <div className="mt-2 space-y-2 pl-10">
-            <textarea
-              className="w-full rounded-md border border-gray-700 bg-gray-800 px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:ring-1 focus:ring-red-600"
-              placeholder="Failure note (optional)"
-              rows={2}
-              value={failureNote}
-              onChange={(e) => onFailureNoteChange(e.target.value)}
-            />
-            <div className="flex gap-2">
-              <Button
-                size="sm"
-                disabled={isSubmitting}
-                onClick={onConfirmFailed}
-                className="h-11 flex-1 bg-red-700 text-white hover:bg-red-600"
-              >
-                Confirm Failed
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={onCancelFailed}
-                className="h-11 flex-1 border-gray-600 text-gray-400 hover:bg-gray-800"
-              >
-                Cancel
-              </Button>
-            </div>
-          </div>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { sendWithAuth } from '../lib/api';
+import { useDriverWorkspace } from '../hooks/useDriverWorkspace';
+import { useLocationSharing } from '../hooks/useLocationSharing';
+import { DriverRouteTab } from './DriverRouteTab';
+import { SignatureModal } from './SignatureModal';
+import { asDriverNumber, dwellForStop, formatDateTime, formatMoney, greeting, routeProgress, stopStatus } from './driver.types';
+import type { DriverRoute, DriverTab, DwellRecord } from './driver.types';
 
 export function DriverPage() {
-  const [driverName, setDriverName] = useState('');
-  const [route, setRoute] = useState<DriverRoute | null>(null);
-  const [stops, setStops] = useState<Stop[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
-  const [failingStopId, setFailingStopId] = useState<string | number | null>(null);
-  const [failureNote, setFailureNote] = useState('');
-  const [submitting, setSubmitting] = useState<string | number | null>(null);
+  const ws = useDriverWorkspace();
+  const loc = useLocationSharing();
+
+  const [activeTab, setActiveTab]             = useState<DriverTab>('route');
+  const [busyStopId, setBusyStopId]           = useState('');
+  const [signatureStopId, setSignatureStopId] = useState<string | number>('');
+  const [proofUploadStopId, setProofUploadStopId] = useState('');
+  const [proofUploadSaving, setProofUploadSaving] = useState(false);
+  const proofInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    fetchWithAuth<DriverRouteResponse>('/api/driver/route')
-      .then((data) => {
-        setDriverName(data.driver_name || 'Driver');
-        setRoute(data.route ?? null);
-        setStops(data.route?.stops ?? []);
-      })
-      .catch((err: unknown) => {
-        setError(err instanceof Error ? err.message : 'Failed to load route');
-      })
-      .finally(() => setLoading(false));
+    void ws.load();
+    return () => loc.stopLocationSharing();
   }, []);
 
-  const updateStopStatus = useCallback(
-    async (stopId: string | number, status: 'arrived' | 'completed' | 'failed', failNote?: string) => {
-      setSubmitting(stopId);
-      try {
-        await sendWithAuth(`/api/stops/${stopId}`, 'PATCH', {
-          status,
-          ...(failNote ? { failure_note: failNote } : {}),
-        });
-        setStops((prev) =>
-          prev.map((s) =>
-            s.id === stopId ? { ...s, status, ...(failNote ? { failure_note: failNote } : {}) } : s
-          )
-        );
-        if (status === 'failed') {
-          setFailingStopId(null);
-          setFailureNote('');
-        }
-      } catch (err: unknown) {
-        alert(err instanceof Error ? err.message : 'Action failed');
-      } finally {
-        setSubmitting(null);
-      }
-    },
-    []
+  const activeRoute: DriverRoute | null = useMemo(
+    () => ws.routes.find((r) => r.id === ws.selectedRouteId) || ws.routes[0] || null,
+    [ws.routes, ws.selectedRouteId],
   );
 
-  const handleLogout = () => {
+  const activeStops = activeRoute?.stops || [];
+  const progress = routeProgress(activeStops, ws.dwellRecords, activeRoute?.id || '');
+  const currentStop = activeStops.find((stop) => stopStatus(stop, activeRoute?.id || '', ws.dwellRecords) === 'arrived')
+    || activeStops.find((stop) => stopStatus(stop, activeRoute?.id || '', ws.dwellRecords) === 'pending')
+    || null;
+
+  const analytics = useMemo(() => {
+    const delivered = ws.deliveries.filter((item) => item.status === 'delivered');
+    return {
+      completedStops: progress.completed,
+      onTimeRate: delivered.length
+        ? Math.round((delivered.filter((item) => item.onTime !== false).length / delivered.length) * 100)
+        : 100,
+      milesToday: ws.deliveries.reduce((sum, item) => sum + asDriverNumber(item.distanceMiles, 0), 0),
+      avgStopMinutes: delivered.length
+        ? Math.round(delivered.reduce((sum, item) => sum + asDriverNumber(item.stopDurationMinutes, 0), 0) / delivered.length)
+        : 0,
+    };
+  }, [ws.deliveries, progress.completed]);
+
+  function logout() {
+    loc.stopLocationSharing();
     localStorage.removeItem('nr_token');
     localStorage.removeItem('nr_user');
-    window.location.href = '/login';
-  };
+    sessionStorage.removeItem('drv_token');
+    sessionStorage.removeItem('drv_user');
+    window.location.href = '/login?next=%2Fdriver';
+  }
 
-  const completedCount = stops.filter((s) => s.status === 'completed').length;
+  async function markArrive(stopId: string) {
+    if (!activeRoute) return;
+    setBusyStopId(stopId);
+    try {
+      const record = await sendWithAuth<DwellRecord>(`/api/stops/${stopId}/arrive`, 'POST', { routeId: activeRoute.id } as never);
+      ws.applyDwell(record);
+    } catch (err) {
+      ws.setError(String((err as Error).message || 'Could not mark arrival.'));
+    } finally {
+      setBusyStopId('');
+    }
+  }
 
-  if (loading) {
+  async function markDepart(stopId: string, options: { deliveryMode?: 'standard' | 'drop_off' } = {}) {
+    if (!activeRoute) return;
+    const stop = activeStops.find((s) => s.id === stopId) || null;
+    const deliveryMode = options.deliveryMode === 'drop_off' ? 'drop_off' : 'standard';
+    if (deliveryMode !== 'drop_off' && ws.companySettings.forceDriverSignature && stop?.invoice_id && !stop.invoice_has_signature) {
+      setSignatureStopId(stopId);
+      return;
+    }
+    if (ws.companySettings.forceDriverProofOfDelivery && stop?.invoice_id && !stop.invoice_has_proof_of_delivery) {
+      setProofUploadStopId(stopId);
+      window.setTimeout(() => proofInputRef.current?.click(), 0);
+      return;
+    }
+    if (deliveryMode !== 'drop_off' && ws.companySettings.forceDriverSignature && !stop?.invoice_id) {
+      ws.setError('Signature is required, but this stop has no invoice attached yet.');
+      return;
+    }
+    if (ws.companySettings.forceDriverProofOfDelivery && !stop?.invoice_id) {
+      ws.setError('Proof of delivery is required, but this stop has no invoice attached yet.');
+      return;
+    }
+    setBusyStopId(stopId);
+    try {
+      const record = await sendWithAuth<DwellRecord>(
+        `/api/stops/${stopId}/depart`,
+        'POST',
+        {
+          routeId: activeRoute.id,
+          ...(deliveryMode === 'drop_off' ? { completion_type: 'drop_off' } : {}),
+        } as never
+      );
+      ws.applyDwell(record);
+    } catch (err) {
+      ws.setError(String((err as Error).message || 'Could not complete this stop.'));
+    } finally {
+      setBusyStopId('');
+    }
+  }
+
+  async function downloadInvoice(invoiceId: string) {
+    const token = localStorage.getItem('nr_token') || '';
+    try {
+      const response = await fetch(`/api/invoices/${invoiceId}/pdf`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {},
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => ({}));
+        throw new Error(String(payload?.error || 'Could not open invoice PDF.'));
+      }
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      window.open(url, '_blank', 'noopener,noreferrer');
+      window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
+    } catch (err) {
+      ws.setError(String((err as Error).message || 'Could not open invoice PDF.'));
+    }
+  }
+
+  function promptForProofOfDelivery(stopId: string) {
+    setProofUploadStopId(stopId);
+    proofInputRef.current?.click();
+  }
+
+  async function handleProofOfDeliverySelected(event: React.ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    const stop = activeStops.find((s) => s.id === proofUploadStopId) || null;
+    if (!file || !stop?.invoice_id) return;
+    if (!/^image\/(png|jpeg|jpg)$/i.test(file.type)) {
+      ws.setError('Proof of delivery must be a PNG or JPG image.');
+      return;
+    }
+    if (file.size > 3_000_000) {
+      ws.setError('Proof of delivery image must be under 3 MB.');
+      return;
+    }
+
+    setProofUploadSaving(true);
+    try {
+      const dataUrl = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(typeof reader.result === 'string' ? reader.result : '');
+        reader.onerror = () => reject(new Error('Could not read the selected image.'));
+        reader.readAsDataURL(file);
+      });
+
+      const payload = await sendWithAuth<{ proof_of_delivery_uploaded_at?: string }>(
+        `/api/invoices/${stop.invoice_id}/proof-of-delivery`,
+        'POST',
+        { proofImageData: dataUrl } as never,
+      );
+
+      ws.updateStopInvoice(stop.id, {
+        invoice_has_proof_of_delivery: true,
+        invoice_proof_of_delivery_uploaded_at: payload.proof_of_delivery_uploaded_at || new Date().toISOString(),
+      });
+      setProofUploadStopId('');
+      ws.setError('');
+    } catch (err) {
+      ws.setError(String((err as Error).message || 'Could not upload proof of delivery.'));
+    } finally {
+      setProofUploadSaving(false);
+    }
+  }
+
+  if (ws.loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-gray-950">
-        <p className="text-lg text-gray-400">Loading your route...</p>
+      <div className="flex min-h-screen items-center justify-center bg-enterprise-gradient">
+        <div className="flex items-center gap-3 text-sm text-muted-foreground">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Loading driver workspace...
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      <header className="sticky top-0 z-10 border-b border-gray-800 bg-gray-900 px-4 py-3">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-xs uppercase tracking-wider text-gray-500">NodeRoute</p>
-            <h1 className="text-lg font-semibold">
-              Good {greeting()}, {driverName}
-            </h1>
+    <div className="min-h-screen bg-enterprise-gradient">
+      <div className="mx-auto max-w-[1180px] p-4 md:p-6">
+        <header className="rounded-xl border border-border bg-card shadow-panel">
+          <div className="flex flex-col gap-4 border-b border-border p-5 md:flex-row md:items-center md:justify-between">
+            <div className="space-y-1">
+              <div className="flex items-center gap-2 text-sm font-semibold uppercase tracking-wider text-primary">
+                <RouteIcon className="h-4 w-4" />
+                Driver Workspace V2
+              </div>
+              <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+                Good {greeting()}, {ws.driverName}
+              </h1>
+              <p className="text-sm text-muted-foreground">
+                Route execution, notes, invoices, and location updates in one dedicated driver screen.
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-2">
+              <LocationBadge tone={loc.locationStatus.tone} text={loc.locationStatus.text} />
+              {loc.watchIdRef.current == null ? (
+                <Button variant="outline" onClick={loc.startLocationSharing} disabled={loc.locationBusy}>
+                  <Satellite className="mr-2 h-4 w-4" />
+                  {loc.locationBusy ? 'Starting...' : 'Start Location Sync'}
+                </Button>
+              ) : (
+                <Button variant="outline" onClick={loc.stopLocationSharing}>
+                  <Satellite className="mr-2 h-4 w-4" />
+                  Stop Sync
+                </Button>
+              )}
+              <Button variant="outline" onClick={logout}>
+                <LogOut className="mr-2 h-4 w-4" />
+                Logout
+              </Button>
+            </div>
           </div>
-          <Button
-            variant="outline"
-            size="sm"
-            onClick={handleLogout}
-            className="border-gray-700 bg-gray-800 text-gray-300 hover:bg-gray-700"
-          >
-            Logout
-          </Button>
-        </div>
-      </header>
 
-      <main className="space-y-4 px-4 py-4 pb-8">
-        {error && (
-          <Card className="border-red-900 bg-red-950">
-            <CardContent className="p-4 text-sm text-red-300">{error}</CardContent>
-          </Card>
-        )}
+          <div className="flex flex-wrap items-center gap-2 p-4">
+            {(['route', 'analytics', 'notes', 'invoices'] as DriverTab[]).map((tab) => (
+              <Button key={tab} variant={activeTab === tab ? 'default' : 'outline'} size="sm" onClick={() => setActiveTab(tab)} className="capitalize">
+                {tab}
+              </Button>
+            ))}
+            {ws.routes.length > 1 ? (
+              <select
+                className="ml-auto h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+                value={activeRoute?.id || ''}
+                onChange={(e) => ws.setSelectedRouteId(e.target.value)}
+              >
+                {ws.routes.map((route) => (
+                  <option key={route.id} value={route.id}>
+                    {route.name || `Route ${route.id.slice(0, 8)}`}
+                  </option>
+                ))}
+              </select>
+            ) : null}
+          </div>
+        </header>
 
-        {route ? (
-          <>
-            <Card className="border-gray-800 bg-gray-900">
-              <CardHeader className="p-4 pb-2">
-                <div className="flex items-center justify-between">
-                  <CardTitle className="text-base text-white">{route.name}</CardTitle>
-                  <StatusBadge status={route.status} colorMap={ROUTE_COLOR_MAP} />
-                </div>
-              </CardHeader>
-              <CardContent className="p-4 pt-2">
-                <div className="rounded-lg bg-gray-800 py-3 text-center">
-                  <span className="text-3xl font-bold text-green-400">{completedCount}</span>
-                  <span className="text-gray-400"> / {stops.length} stops completed</span>
-                </div>
+        {ws.error ? (
+          <div className="mt-4 rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">
+            {ws.error}
+          </div>
+        ) : null}
+
+        <main className="mt-4 space-y-4">
+          <input
+            ref={proofInputRef}
+            type="file"
+            accept="image/png,image/jpeg,image/jpg"
+            capture="environment"
+            className="hidden"
+            onChange={(event) => void handleProofOfDeliverySelected(event)}
+          />
+          {!activeRoute ? (
+            <Card>
+              <CardContent className="p-10 text-center">
+                <div className="text-lg font-semibold text-foreground">No route assigned for today</div>
+                <div className="mt-2 text-sm text-muted-foreground">Check with your dispatcher for route assignment details.</div>
               </CardContent>
             </Card>
+          ) : null}
 
-            <div className="space-y-3">
-              {stops.map((stop) => (
-                <StopCard
-                  key={stop.id}
-                  stop={stop}
-                  isSubmitting={submitting === stop.id}
-                  isFailingMode={failingStopId === stop.id}
-                  failureNote={failingStopId === stop.id ? failureNote : ''}
-                  onFailureNoteChange={setFailureNote}
-                  onMarkArrived={() => updateStopStatus(stop.id, 'arrived')}
-                  onMarkComplete={() => updateStopStatus(stop.id, 'completed')}
-                  onMarkFailedClick={() => {
-                    setFailingStopId(stop.id);
-                    setFailureNote('');
-                  }}
-                  onConfirmFailed={() => updateStopStatus(stop.id, 'failed', failureNote || undefined)}
-                  onCancelFailed={() => {
-                    setFailingStopId(null);
-                    setFailureNote('');
-                  }}
-                />
-              ))}
+          {activeRoute && activeTab === 'route' ? (
+            <DriverRouteTab
+              activeRoute={activeRoute}
+              dwellRecords={ws.dwellRecords}
+              busyStopId={busyStopId}
+              companySettings={ws.companySettings}
+              onArrive={(id) => void markArrive(id)}
+              onDepart={(id) => void markDepart(id)}
+              onOpenSignature={setSignatureStopId}
+              onUploadProofOfDelivery={promptForProofOfDelivery}
+              onDownloadInvoice={(id) => void downloadInvoice(id)}
+              onRouteReordered={() => void ws.load()}
+            />
+          ) : null}
+
+          {activeRoute && activeTab === 'analytics' ? (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+              <MetricCard icon={CheckCircle2} label="Completed Stops" value={`${analytics.completedStops}`} />
+              <MetricCard icon={Gauge}        label="On-Time Rate"    value={`${analytics.onTimeRate}%`} />
+              <MetricCard icon={Navigation}   label="Miles Today"     value={`${analytics.milesToday.toFixed(1)} mi`} />
+              <MetricCard icon={NotebookText} label="Avg Stop"        value={`${analytics.avgStopMinutes || 0} min`} />
             </div>
-          </>
-        ) : (
-          <Card className="border-gray-800 bg-gray-900">
-            <CardContent className="p-8 text-center">
-              <h2 className="mb-1 text-lg font-semibold text-white">No route assigned for today</h2>
-              <p className="text-sm text-gray-400">Check with your dispatcher.</p>
-            </CardContent>
-          </Card>
-        )}
-      </main>
+          ) : null}
+
+          {activeRoute && activeTab === 'notes' ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>{currentStop ? 'Current / Next Stop' : 'Route Notes'}</CardTitle>
+                <CardDescription>
+                  Door code, stop notes, and next-action guidance for the route in front of you.
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                {currentStop ? (
+                  <>
+                    <div className="rounded-lg border border-border bg-muted/20 p-4">
+                      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                        {stopStatus(currentStop, activeRoute.id, ws.dwellRecords) === 'arrived' ? 'Current Stop' : 'Next Stop'}
+                      </div>
+                      <div className="mt-2 text-xl font-semibold text-foreground">{currentStop.name || 'Delivery Stop'}</div>
+                      <div className="mt-1 text-sm text-muted-foreground">{currentStop.address || 'Address unavailable'}</div>
+                    </div>
+                    <div className="grid gap-4 md:grid-cols-2">
+                      <Card className="border-border/80 bg-muted/20">
+                        <CardHeader>
+                          <CardTitle className="text-base">Door / Access Code</CardTitle>
+                        </CardHeader>
+                        <CardContent>
+                          <div className="text-3xl font-semibold tracking-[0.3em] text-amber-600">
+                            {currentStop.door_code || '—'}
+                          </div>
+                        </CardContent>
+                      </Card>
+                      <Card className="border-border/80 bg-muted/20">
+                        <CardHeader>
+                          <CardTitle className="text-base">Stop Notes</CardTitle>
+                        </CardHeader>
+                        <CardContent className="text-sm text-muted-foreground">
+                          {currentStop.notes || 'No notes for this stop.'}
+                        </CardContent>
+                      </Card>
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      {stopStatus(currentStop, activeRoute.id, ws.dwellRecords) === 'pending' ? (
+                        <Button onClick={() => void markArrive(currentStop.id)}>Mark Arrived</Button>
+                      ) : (
+                        <>
+                          <Button onClick={() => void markDepart(currentStop.id)}>Mark Departed</Button>
+                          <Button variant="outline" onClick={() => void markDepart(currentStop.id, { deliveryMode: 'drop_off' })}>
+                            Drop Off
+                          </Button>
+                        </>
+                      )}
+                      {currentStop.invoice_id ? (
+                        <Button variant="outline" onClick={() => setSignatureStopId(currentStop.id)}>
+                          Capture Signature
+                        </Button>
+                      ) : null}
+                      {currentStop.invoice_id ? (
+                        <Button variant="outline" onClick={() => promptForProofOfDelivery(currentStop.id)} disabled={proofUploadSaving && proofUploadStopId === currentStop.id}>
+                          <Camera className="mr-2 h-4 w-4" />
+                          {proofUploadSaving && proofUploadStopId === currentStop.id
+                            ? 'Uploading Photo...'
+                            : currentStop.invoice_has_proof_of_delivery
+                              ? 'Replace Delivery Photo'
+                              : 'Upload Delivery Photo'}
+                        </Button>
+                      ) : null}
+                    </div>
+                    {ws.companySettings.forceDriverProofOfDelivery ? (
+                      <div className={`rounded-md px-3 py-2 text-xs ${currentStop.invoice_has_proof_of_delivery ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+                        {currentStop.invoice_has_proof_of_delivery
+                          ? 'Proof-of-delivery photo uploaded for this stop.'
+                          : 'Proof-of-delivery photo is required before departure.'}
+                      </div>
+                    ) : null}
+                  </>
+                ) : (
+                  <div className="text-sm text-muted-foreground">
+                    There is no active stop right now. Once a route is assigned, notes will appear here.
+                  </div>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
+
+          {activeTab === 'invoices' ? (
+            <Card>
+              <CardHeader>
+                <CardTitle>Assigned Invoices</CardTitle>
+                <CardDescription>Invoice documents available to this driver based on assigned route scope.</CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-3">
+                {ws.driverInvoices.length ? (
+                  ws.driverInvoices.map((invoice) => (
+                    <div key={invoice.id} className="rounded-lg border border-border bg-muted/20 p-4">
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div>
+                          <div className="text-sm font-semibold text-primary">
+                            {invoice.invoice_number || invoice.id.slice(0, 8)}
+                          </div>
+                          <div className="mt-1 text-sm text-foreground">{invoice.customer_name || 'Customer invoice'}</div>
+                          <div className="mt-1 text-xs text-muted-foreground">
+                            {formatDateTime(invoice.created_at)} · {formatMoney(invoice.total)}
+                          </div>
+                        </div>
+                        <div className="flex flex-wrap gap-2">
+                          <Badge variant={invoice.signed_at ? 'success' : 'secondary'}>{invoice.status || 'pending'}</Badge>
+                          <Button variant="outline" size="sm" onClick={() => void downloadInvoice(invoice.id)}>
+                            Open PDF
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  ))
+                ) : (
+                  <div className="text-sm text-muted-foreground">No invoices are currently assigned to this driver.</div>
+                )}
+              </CardContent>
+            </Card>
+          ) : null}
+        </main>
+      </div>
+
+      {/* SignatureModal is self-contained — it manages its own canvas ref and save logic internally. */}
+      {signatureStopId !== '' ? (
+        <SignatureModal
+          stopId={signatureStopId}
+          onClose={() => setSignatureStopId('')}
+          onSaved={() => {
+            const stop = activeStops.find((s) => s.id === signatureStopId);
+            if (stop) {
+              ws.updateStopInvoice(stop.id, {
+                invoice_has_signature: true,
+                invoice_signed_at: new Date().toISOString(),
+                invoice_status: 'signed',
+              });
+            }
+            setSignatureStopId('');
+          }}
+        />
+      ) : null}
     </div>
   );
+}
+
+function MetricCard({ icon: Icon, label, value }: { icon: typeof CheckCircle2; label: string; value: string }) {
+  return (
+    <Card>
+      <CardContent className="flex items-center justify-between gap-3 p-5">
+        <div>
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+          <div className="mt-2 text-2xl font-semibold text-foreground">{value}</div>
+        </div>
+        <div className="rounded-full bg-secondary p-3 text-muted-foreground">
+          <Icon className="h-5 w-5" />
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
+type LocationStatusTone = 'neutral' | 'success' | 'warning' | 'error';
+
+function LocationBadge({ tone, text }: { tone: LocationStatusTone; text: string }) {
+  const className =
+    tone === 'success' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' :
+    tone === 'warning' ? 'border-amber-200 bg-amber-50 text-amber-700' :
+    tone === 'error'   ? 'border-rose-200 bg-rose-50 text-rose-700' :
+                         'border-slate-200 bg-slate-50 text-slate-700';
+  return <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${className}`}>{text}</span>;
 }
