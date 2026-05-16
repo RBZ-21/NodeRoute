@@ -1,4 +1,5 @@
 const OpenAI = require('openai');
+const { createAiConfigError, isAiConfigError } = require('./ai-errors');
 
 const DEFAULT_MODEL = process.env.OPENAI_MODEL || 'gpt-4o-mini';
 const DEFAULT_VISION_MODEL = process.env.OPENAI_VISION_MODEL || 'gpt-4o';
@@ -1264,9 +1265,9 @@ async function parsePurchaseOrderImage(base64Image, mimeType = 'image/jpeg') {
     if (!parsed || typeof parsed !== 'object') throw new Error('PO scan returned invalid structured JSON');
     return normalizePOScan(parsed);
   } catch (err) {
-    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    if (isAiConfigError(err)) throw createAiConfigError();
     console.warn('PO scan AI failed:', err.message);
-    throw new Error(`AI vision scan failed: ${err.message}`);
+    throw new Error('AI vision scan failed. Please try again with a clearer image or enter the details manually.');
   }
 }
 

@@ -4,6 +4,7 @@ const { z } = require('zod');
 const { supabase }                  = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { parsePurchaseOrderImage }   = require('../services/ai');
+const { getAiScanErrorResponse } = require('../services/ai-errors');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 const { generatePurchaseOrderNumber } = require('../services/purchase-order-numbers');
 const { buildPurchaseOrderPDF } = require('../services/purchase-order-pdf');
@@ -110,8 +111,11 @@ router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
         scan_id: scanRecord?.id || null,
       });
     } catch (err) {
-      if (err.message.includes('OPENAI_API_KEY')) return res.status(503).json({ error: err.message });
-      res.status(500).json({ error: 'Image scan failed: ' + err.message });
+      const { status, body } = getAiScanErrorResponse(
+        err,
+        'Image scan failed. Please try again with a clearer image or enter the details manually.'
+      );
+      res.status(status).json(body);
     }
   }
 );
