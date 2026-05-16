@@ -144,6 +144,8 @@ export type ScannedLineItem = {
 
 export type PoScanResult = {
   scan_id?: string | null;
+  _fallback?: boolean;
+  _fallback_reason?: string;
   vendor: string | null;
   po_number: string | null;
   date: string | null;

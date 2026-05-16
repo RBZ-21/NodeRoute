@@ -651,6 +651,9 @@ export function PurchasingPage() {
     try {
       const result = await scanPoFile(file);
       applyScanResult(result);
+      if (!result.items?.length) {
+        setScanError('The image uploaded, but no invoice line items were detected. Try a clearer, well-lit photo that includes the full item table, or enter the lines manually below.');
+      }
     } catch (err) {
       setScanError(String((err as Error).message || 'PO scan failed'));
     } finally {
@@ -670,6 +673,9 @@ export function PurchasingPage() {
     try {
       const result = await scanPoFile(file);
       const applied = applyReceiveScanResult(result);
+      if (!result.items?.length) {
+        setReceiveScanError('The image uploaded, but no receipt line items were detected. Try a clearer, well-lit photo that includes the full item table, or enter received quantities manually.');
+      }
       const unmatchedSuffix = applied.unmatchedItems.length
         ? ` ${applied.unmatchedItems.length} line(s) still need manual review.`
         : '';
