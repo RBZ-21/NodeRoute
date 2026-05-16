@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { RefreshCw, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
@@ -104,20 +104,30 @@ function SectionTable({ title, description, rows, cols }: {
 export function DSRPage() {
   const today = localDateKey(new Date());
   const [dateKey, setDateKey] = useState(today);
-  const { rollups, sales, orderStatusCounts, isLoading, isError, refetch } = useDSR(dateKey);
+  const { rollups, sales, dailyOps, orderStatusCounts, isLoading, isError, refetch } = useDSR(dateKey);
 
   const overview = rollups?.overview;
   const drivers  = rollups?.driver  ?? [];
   const routes   = rollups?.route   ?? [];
-  const customers = rollups?.customer ?? [];
+  const customers = dailyOps?.top_customers ?? rollups?.customer ?? [];
+  const categoryRows = dailyOps?.on_hand_by_category ?? [];
+  const vendorFillRows = dailyOps?.vendor_fill ?? [];
+  const shortShipRows = dailyOps?.short_ship_lines ?? [];
+  const dailyOpsOverview = dailyOps?.overview;
+  const fillTrend = useMemo<'up' | 'down' | 'flat' | undefined>(() => {
+    if (dailyOpsOverview == null) return undefined;
+    if (dailyOpsOverview.fill_rate_pct >= 97) return 'up';
+    if (dailyOpsOverview.fill_rate_pct >= 92) return 'flat';
+    return 'down';
+  }, [dailyOpsOverview]);
 
   return (
     <div className="space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-xl font-bold tracking-tight">Daily Sales Report</h1>
-          <p className="text-sm text-muted-foreground">Snapshot of sales, orders, routes, and drivers for the selected date.</p>
+          <h1 className="text-xl font-bold tracking-tight">Daily Operations Report</h1>
+          <p className="text-sm text-muted-foreground">Sales, fill performance, inventory position, and customer concentration for the selected date.</p>
         </div>
         <div className="flex items-center gap-2">
           <input
@@ -155,6 +165,13 @@ export function DSRPage() {
         <MetricCard label="Est. COGS"        value={money(overview?.estimated_cost ?? 0)} />
       </div>
 
+      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+        <MetricCard label="Fill Rate" value={pct(dailyOpsOverview?.fill_rate_pct ?? 0)} sub={`${(dailyOpsOverview?.accepted_qty ?? 0).toFixed(2)} received on ${(dailyOpsOverview?.requested_qty ?? 0).toFixed(2)} requested`} trend={fillTrend} />
+        <MetricCard label="Short-Shipped Qty" value={(dailyOpsOverview?.short_qty ?? 0).toFixed(2)} sub={`${dailyOpsOverview?.short_receipt_line_count ?? 0} receipt line${(dailyOpsOverview?.short_receipt_line_count ?? 0) === 1 ? '' : 's'} flagged`} trend={(dailyOpsOverview?.short_qty ?? 0) > 0 ? 'down' : 'up'} />
+        <MetricCard label="Inventory Categories" value={(dailyOpsOverview?.category_count ?? 0).toLocaleString()} sub={`${dailyOpsOverview?.inventory_sku_count ?? 0} active SKUs on hand`} trend="flat" />
+        <MetricCard label="Low-Stock SKUs" value={(dailyOpsOverview?.low_stock_sku_count ?? 0).toLocaleString()} sub="Items at or below 5 units on hand" trend={(dailyOpsOverview?.low_stock_sku_count ?? 0) > 0 ? 'down' : 'up'} />
+      </div>
+
       {/* Order status breakdown */}
       <Card>
         <CardHeader>
@@ -171,6 +188,117 @@ export function DSRPage() {
           )) : (
             <p className="text-sm text-muted-foreground">No orders found for this date.</p>
           )}
+        </CardContent>
+      </Card>
+
+      <div className="grid gap-4 xl:grid-cols-2">
+        <Card>
+          <CardHeader>
+            <CardTitle>Vendor Fill Snapshot</CardTitle>
+            <CardDescription>Today’s receiving performance by vendor, including short receipts and accepted quantity.</CardDescription>
+          </CardHeader>
+          <CardContent className="rounded-lg border border-border bg-card p-2">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Vendor</TableHead>
+                  <TableHead>Fill Rate</TableHead>
+                  <TableHead>Requested</TableHead>
+                  <TableHead>Accepted</TableHead>
+                  <TableHead>Short</TableHead>
+                  <TableHead>Receipts</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {vendorFillRows.length ? vendorFillRows.slice(0, 8).map((row) => (
+                  <TableRow key={row.vendor}>
+                    <TableCell className="font-medium">{row.vendor}</TableCell>
+                    <TableCell>{pct(row.fill_rate_pct)}</TableCell>
+                    <TableCell>{row.requested_qty.toFixed(2)}</TableCell>
+                    <TableCell>{row.accepted_qty.toFixed(2)}</TableCell>
+                    <TableCell className={row.short_qty > 0 ? 'text-red-500' : 'text-emerald-600'}>{row.short_qty.toFixed(2)}</TableCell>
+                    <TableCell>{row.receipt_count}</TableCell>
+                  </TableRow>
+                )) : (
+                  <TableRow>
+                    <TableCell colSpan={6} className="text-muted-foreground">No receiving activity was posted for this date.</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader>
+            <CardTitle>On-Hand by Category</CardTitle>
+            <CardDescription>Current inventory position grouped by category so managers can spot stock concentration and low-stock pockets.</CardDescription>
+          </CardHeader>
+          <CardContent className="rounded-lg border border-border bg-card p-2">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Category</TableHead>
+                  <TableHead>SKUs</TableHead>
+                  <TableHead>On Hand</TableHead>
+                  <TableHead>Stock Value</TableHead>
+                  <TableHead>Low Stock</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {categoryRows.length ? categoryRows.slice(0, 8).map((row) => (
+                  <TableRow key={row.category}>
+                    <TableCell className="font-medium">{row.category}</TableCell>
+                    <TableCell>{row.sku_count}</TableCell>
+                    <TableCell>{row.total_on_hand_qty.toFixed(2)}</TableCell>
+                    <TableCell>{money(row.estimated_stock_value)}</TableCell>
+                    <TableCell className={row.low_stock_sku_count > 0 ? 'text-amber-600' : 'text-emerald-600'}>{row.low_stock_sku_count}</TableCell>
+                  </TableRow>
+                )) : (
+                  <TableRow>
+                    <TableCell colSpan={5} className="text-muted-foreground">No inventory rows are available for category rollup.</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Short-Ship Exceptions</CardTitle>
+          <CardDescription>Receipt lines that landed short against the requested quantity for {dateKey}.</CardDescription>
+        </CardHeader>
+        <CardContent className="rounded-lg border border-border bg-card p-2">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>PO</TableHead>
+                <TableHead>Vendor</TableHead>
+                <TableHead>Item</TableHead>
+                <TableHead>Requested</TableHead>
+                <TableHead>Accepted</TableHead>
+                <TableHead>Short</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {shortShipRows.length ? shortShipRows.map((row, index) => (
+                <TableRow key={`${row.po_number}-${row.product_name}-${index}`}>
+                  <TableCell className="font-medium">{row.po_number}</TableCell>
+                  <TableCell>{row.vendor}</TableCell>
+                  <TableCell>{row.product_name}</TableCell>
+                  <TableCell>{row.requested_qty.toFixed(2)}</TableCell>
+                  <TableCell>{row.accepted_qty.toFixed(2)}</TableCell>
+                  <TableCell className="text-red-500">{row.short_qty.toFixed(2)}</TableCell>
+                </TableRow>
+              )) : (
+                <TableRow>
+                  <TableCell colSpan={6} className="text-muted-foreground">No short-ship exceptions were logged for this date.</TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
         </CardContent>
       </Card>
 

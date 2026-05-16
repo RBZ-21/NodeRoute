@@ -4,6 +4,7 @@ import {
   ApiError,
   deferStop,
   fetchBootstrapData,
+  fetchCompanySettings,
   fetchInvoicePdf,
   login as loginRequest,
   logout as logoutRequest,
@@ -11,6 +12,7 @@ import {
   markStopDeparted,
   patchDeliveryStatus,
   patchStop,
+  saveStopSignature,
   submitTemperatureLog,
   uploadProofOfDelivery,
 } from '@/lib/api';
@@ -43,14 +45,21 @@ import {
   saveUser,
 } from '@/lib/storage';
 import { extractStopItems, findLinkedDelivery, getCurrentRoute, getRouteInvoices, isArrivedStatus, isDeliveredStatus } from '@/lib/utils';
-import type { BootstrapPayload, DriverInvoice, DriverRoute, DriverStop, DriverUser, OfflineRoutePackStatus, StopDraft } from '@/types';
+import type { BootstrapPayload, CompanySettings, DriverInvoice, DriverRoute, DriverStop, DriverUser, OfflineRoutePackStatus, StopDraft } from '@/types';
 import { useToast } from '@/hooks/useToast';
+
+const defaultCompanySettings: CompanySettings = {
+  forceDriverSignature: false,
+  forceDriverProofOfDelivery: false,
+  businessName: '',
+};
 
 type DriverAppContextValue = {
   token: string | null;
   user: DriverUser | null;
   routes: DriverRoute[];
   invoices: DriverInvoice[];
+  companySettings: CompanySettings;
   selectedRouteId: string | null;
   currentRoute: DriverRoute | null;
   routeInvoices: DriverInvoice[];
@@ -78,8 +87,14 @@ type DriverAppContextValue = {
   stopItems: (stop: DriverStop) => string[];
   markArrived: (stop: DriverStop) => Promise<void>;
   deferStopToEnd: (stop: DriverStop) => Promise<void>;
-  markDelivered: (stop: DriverStop, proofImage: string | null, notes: string) => Promise<void>;
-  markFailed: (stop: DriverStop, notes: string) => Promise<void>;
+  captureSignature: (stop: DriverStop, signatureData: string, signerName?: string) => Promise<void>;
+  markDelivered: (
+    stop: DriverStop,
+    proofImage: string | null,
+    notes: string,
+    options?: { deliveryMode?: 'standard' | 'drop_off' }
+  ) => Promise<void>;
+  markFailed: (stop: DriverStop, reason: string, notes: string) => Promise<void>;
   openInvoicePdf: (invoiceId: string) => Promise<void>;
   submitLog: (payload: Record<string, unknown>) => Promise<void>;
 };
@@ -113,6 +128,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
   const [stopDrafts, setStopDrafts] = useState<StopDraft[]>(() => listStopDrafts());
   const [preparingOfflineRoute, setPreparingOfflineRoute] = useState(false);
   const [offlineRoutePackStatus, setOfflineRoutePackStatus] = useState<OfflineRoutePackStatus | null>(() => loadOfflineRoutePackStatus());
+  const [companySettings, setCompanySettings] = useState<CompanySettings>(defaultCompanySettings);
 
   const routes = payload?.routes || [];
   const invoices = payload?.invoices || [];
@@ -253,12 +269,19 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     setRefreshing(!silent);
 
     try {
-      const nextPayload = await fetchBootstrapData();
+      const [nextPayload, nextCompanySettings] = await Promise.all([
+        fetchBootstrapData(),
+        fetchCompanySettings(),
+      ]);
       const stampedPayload = {
         ...nextPayload,
         cachedAt: nextPayload.cachedAt || new Date().toISOString(),
       };
       setPayload(stampedPayload);
+      setCompanySettings({
+        ...defaultCompanySettings,
+        ...nextCompanySettings,
+      });
       saveCache(stampedPayload);
       setUsingCachedData(false);
       if (queuedTemperatureLogCount > 0) {
@@ -317,6 +340,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
       setToken(null);
       setUser(null);
       setPayload(null);
+      setCompanySettings(defaultCompanySettings);
       setSelectedRouteIdState(null);
       setQueuedTemperatureLogCount(0);
       setQueuedStopNoteCount(0);
@@ -358,34 +382,65 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     await refreshData(true);
   }
 
-  async function markDelivered(stop: DriverStop, proofImage: string | null, notes: string) {
-    if (stop.invoice_id && !stop.invoice_has_proof_of_delivery && !proofImage) {
+  async function captureSignature(stop: DriverStop, signatureData: string, signerName?: string) {
+    await saveStopSignature(stop.id, signatureData, signerName);
+    applyStopPatchLocally(stop.id, {
+      invoice_has_signature: true,
+      invoice_status: stop.invoice_status || 'signed',
+    });
+    pushToast(`Saved signature for ${stop.name || 'stop'}.`, 'success');
+  }
+
+  async function markDelivered(
+    stop: DriverStop,
+    proofImage: string | null,
+    notes: string,
+    options: { deliveryMode?: 'standard' | 'drop_off' } = {},
+  ) {
+    const activeStop = stopById(stop.id) || stop;
+    const deliveryMode = options.deliveryMode === 'drop_off' ? 'drop_off' : 'standard';
+    const cleanedNotes = notes.trim();
+    const dropOffTag = deliveryMode === 'drop_off' ? 'Delivery method: Drop off (no signature captured).' : '';
+    const combinedNotes = [dropOffTag, cleanedNotes].filter(Boolean).join('\n');
+
+    if (deliveryMode !== 'drop_off' && companySettings.forceDriverSignature && !activeStop.invoice_has_signature) {
+      throw new Error('Capture a customer signature before marking this stop delivered.');
+    }
+
+    if (companySettings.forceDriverProofOfDelivery && !activeStop.invoice_id) {
+      throw new Error('This stop requires an invoice before a proof-of-delivery photo can be saved.');
+    }
+
+    if (companySettings.forceDriverProofOfDelivery && activeStop.invoice_id && !activeStop.invoice_has_proof_of_delivery && !proofImage) {
       throw new Error('Add a proof-of-delivery photo before marking this stop delivered.');
     }
 
-    if (proofImage && stop.invoice_id) {
-      await uploadProofOfDelivery(stop.invoice_id, proofImage);
+    if (proofImage && activeStop.invoice_id) {
+      await uploadProofOfDelivery(activeStop.invoice_id, proofImage);
     }
 
-    if (notes.trim()) {
-      await patchStop(stop.id, { driver_notes: notes.trim() });
+    if (combinedNotes) {
+      await patchStop(activeStop.id, { driver_notes: combinedNotes });
     }
 
-    if (!isArrivedStatus(stop.status) && !isDeliveredStatus(stop.status)) {
+    if (!isArrivedStatus(activeStop.status) && !isDeliveredStatus(activeStop.status)) {
       try {
-        await markStopArrived(stop.id);
+        await markStopArrived(activeStop.id);
       } catch {
         // If an open dwell record already exists we can still continue to completion.
       }
     }
 
     try {
-      await markStopDeparted(stop.id);
+      await markStopDeparted(activeStop.id, deliveryMode === 'drop_off' ? { completion_type: 'drop_off' } : undefined);
     } catch {
-      await patchStop(stop.id, { status: 'completed' });
+      await patchStop(activeStop.id, {
+        status: 'completed',
+        ...(combinedNotes ? { driver_notes: combinedNotes } : {}),
+      });
     }
 
-    const linkedDelivery = findLinkedDelivery(stop, deliveries);
+    const linkedDelivery = findLinkedDelivery(activeStop, deliveries);
     if (linkedDelivery?.orderDbId) {
       try {
         await patchDeliveryStatus(linkedDelivery.orderDbId, 'delivered');
@@ -394,14 +449,26 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
       }
     }
 
-    pushToast(`Marked ${stop.name || 'stop'} as delivered.`, 'success');
+    pushToast(
+      deliveryMode === 'drop_off'
+        ? `Marked ${activeStop.name || 'stop'} as a drop-off delivery.`
+        : `Marked ${activeStop.name || 'stop'} as delivered.`,
+      'success'
+    );
     await refreshData(true);
   }
 
-  async function markFailed(stop: DriverStop, notes: string) {
+  async function markFailed(stop: DriverStop, reason: string, notes: string) {
+    const trimmedReason = reason.trim();
+    const trimmedNotes = notes.trim();
+    const driverNotes = [
+      `Exception: ${trimmedReason}`,
+      trimmedNotes,
+    ].filter(Boolean).join('\n');
+
     await patchStop(stop.id, {
       status: 'failed',
-      driver_notes: notes.trim() || `Marked failed at ${new Date().toLocaleTimeString()}`,
+      driver_notes: driverNotes || `Marked failed at ${new Date().toLocaleTimeString()}`,
     });
     pushToast(`Marked ${stop.name || 'stop'} as failed.`, 'success');
     await refreshData(true);
@@ -550,6 +617,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
         user,
         routes,
         invoices,
+        companySettings,
         selectedRouteId,
         currentRoute,
         routeInvoices,
@@ -577,6 +645,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
         stopItems,
         markArrived,
         deferStopToEnd,
+        captureSignature,
         markDelivered,
         markFailed,
         openInvoicePdf,

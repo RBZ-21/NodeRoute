@@ -1,5 +1,6 @@
 import type {
   BootstrapPayload,
+  CompanySettings,
   DeliveryRecord,
   DriverInvoice,
   DriverRoute,
@@ -101,6 +102,10 @@ export async function fetchBootstrapData() {
   } satisfies BootstrapPayload;
 }
 
+export async function fetchCompanySettings() {
+  return request<CompanySettings>('/api/settings/company');
+}
+
 export async function pingDriverLocation(payload: {
   lat: number;
   lng: number;
@@ -119,9 +124,10 @@ export async function markStopArrived(stopId: string) {
   });
 }
 
-export async function markStopDeparted(stopId: string) {
+export async function markStopDeparted(stopId: string, payload?: Record<string, unknown>) {
   return request(`/api/stops/${stopId}/depart`, {
     method: 'POST',
+    body: payload ? JSON.stringify(payload) : undefined,
   });
 }
 
@@ -149,6 +155,16 @@ export async function uploadProofOfDelivery(invoiceId: string, image: string) {
   return request(`/api/invoices/${invoiceId}/proof-of-delivery`, {
     method: 'POST',
     body: JSON.stringify({ proof_image_data: image }),
+  });
+}
+
+export async function saveStopSignature(stopId: string, signatureData: string, signerName?: string) {
+  return request(`/api/stops/${stopId}/signature`, {
+    method: 'POST',
+    body: JSON.stringify({
+      signature_data: signatureData,
+      signer_name: signerName?.trim() || undefined,
+    }),
   });
 }
 

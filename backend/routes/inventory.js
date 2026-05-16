@@ -33,7 +33,7 @@ const inventoryCreateBodySchema = z.object({
   category: z.string().optional(),
   unit: z.string().optional(),
   cost: z.union([z.number(), z.string()]).optional(),
-  on_hand_qty: z.coerce.number().finite().min(0, 'on_hand_qty must be a finite number \u2265 0'),
+  on_hand_qty: z.coerce.number().finite().min(0, 'on_hand_qty must be a finite number ≥ 0'),
   on_hand_weight: z.union([z.number(), z.string()]).optional(),
   lot_item: z.string().optional(),
   notes: z.any().optional(),
@@ -137,6 +137,31 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
   const data = insertResult.data;
   if (!data) return;
   res.json(data);
+});
+
+// ── LOW STOCK ────────────────────────────────────────────────────────────────
+// Returns every product whose on_hand_qty is at or below its reorder_point.
+// Products with no reorder_point set are excluded.
+router.get('/low-stock', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const { data, error } = await supabase
+    .from('products')
+    .select('item_number, name, category, unit, on_hand_qty, cost, reorder_point, barcode, is_active, company_id, location_id')
+    .not('reorder_point', 'is', null)
+    .gt('reorder_point', 0);
+  if (error) return res.status(500).json({ error: error.message });
+  const scoped = filterRowsByContext(data || [], req.context);
+  const low = scoped
+    .filter((p) => {
+      const qty = toNumber(p.on_hand_qty, 0);
+      const threshold = toNumber(p.reorder_point, 0);
+      return qty <= threshold;
+    })
+    .map((p) => ({
+      ...p,
+      description: p.name,
+      deficit: Math.max(0, toNumber(p.reorder_point, 0) - toNumber(p.on_hand_qty, 0)),
+    }));
+  res.json(low);
 });
 
 // ── ANALYTICS & PREDICTIONS ──────────────────────────────────────────────────
@@ -778,6 +803,10 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), validat
     if (needsLot(fields.description)) fields.lot_item = 'Y';
     fields.name = fields.description;
     delete fields.description;
+  }
+  // Keep default_unit in sync when unit is patched
+  if (fields.unit !== undefined) {
+    fields.default_unit = fields.unit;
   }
   const data = await dbQuery(supabase.from('products').update(fields).eq('item_number', req.params.id).select().single(), res);
   if (!data) return;

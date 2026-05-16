@@ -58,3 +58,11 @@ export function useDeleteInvoice() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['invoices'] }),
   });
 }
+
+export function useResendInvoiceEmail() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string | number) => sendWithAuth(`/api/invoices/${id}/resend`, 'POST'),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['invoices'] }),
+  });
+}
