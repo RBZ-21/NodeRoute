@@ -99,17 +99,20 @@ const NODEROUTE_KNOWLEDGE = `## NodeRoute Platform Overview
 
 **AI Help > Walkthroughs:** Get step-by-step guides for any feature by entering the feature name and an optional question.`;
 
-const PO_SCAN_PROMPT = `You are a purchase order scanner for a food wholesale distribution warehouse.
-Extract every visible line item from this purchase order or vendor invoice image.
+const PO_SCAN_PROMPT = `You are an OCR-style receiving document scanner for a food wholesale distribution warehouse.
+Extract every visible line item from the uploaded vendor invoice, dock receipt, packing slip, or purchase order image.
 
 Rules:
 1. Return structured JSON only.
-2. Preserve the written product description exactly when possible.
-3. Infer category from the product name if it is not explicit.
-4. If a value is not legible, return null for that field.
-5. Quantities and prices must be numbers, not strings.
-6. For each line item, classify whether it looks weighted merchandise, count-based merchandise, or unknown.
-7. Extract a lot number when one is visibly tied to the item. If no lot number is visible, return null and confidence "none".`;
+2. Treat table rows, itemized charges, product rows, and received/shipped quantity rows as line items.
+3. Preserve the written product description exactly when possible. Do not invent products that are not visible.
+4. Infer category from the product name if it is not explicit.
+5. If a value is not legible, return null for that field instead of dropping the line.
+6. Quantities, unit prices, and totals must be numbers, not strings. Strip currency symbols.
+7. If quantity or unit price is missing but a product row is visible, still return the line with null for the missing values.
+8. For each line item, classify whether it looks weighted merchandise, count-based merchandise, or unknown.
+9. Extract a lot number when one is visibly tied to the item. If no lot number is visible, return null and confidence "none".
+10. Only return an empty items array when there are truly no visible product or charge rows.`;
 
 const FORECAST_SCHEMA = {
   name: 'inventory_demand_forecast',
@@ -1229,6 +1232,7 @@ function normalizePOScan(result) {
 }
 
 async function parsePurchaseOrderImage(base64Image, mimeType = 'image/jpeg') {
+  const normalizedMimeType = mimeType === 'application/pdf' ? 'application/pdf' : mimeType;
   try {
     const client = getClient();
     const response = await client.chat.completions.create({
@@ -1246,7 +1250,7 @@ async function parsePurchaseOrderImage(base64Image, mimeType = 'image/jpeg') {
         role: 'user',
         content: [
           { type: 'text', text: PO_SCAN_PROMPT },
-          { type: 'image_url', image_url: { url: `data:${mimeType};base64,${base64Image}`, detail: 'high' } },
+          { type: 'image_url', image_url: { url: `data:${normalizedMimeType};base64,${base64Image}`, detail: 'high' } },
         ],
       }],
     });
@@ -1261,12 +1265,8 @@ async function parsePurchaseOrderImage(base64Image, mimeType = 'image/jpeg') {
     return normalizePOScan(parsed);
   } catch (err) {
     if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
-    console.warn('PO scan AI fallback:', err.message);
-    return {
-      ...normalizePOScan(null),
-      _fallback: true,
-      _fallback_reason: 'AI vision service unavailable. Please enter PO details manually.',
-    };
+    console.warn('PO scan AI failed:', err.message);
+    throw new Error(`AI vision scan failed: ${err.message}`);
   }
 }
 

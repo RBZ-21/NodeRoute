@@ -279,7 +279,7 @@ test('scan-po accepts legacy image upload field used by the dashboard scanner', 
   assert.equal(harness.workflowCalls[0].fileName, 'dashboard-invoice.png');
 });
 
-test('scan-po remaps PDF uploads to image/png for AI parsing while keeping the original file metadata', async (t) => {
+test('scan-po sends PDF uploads to AI as application/pdf while keeping the original file metadata', async (t) => {
   const parsedResult = {
     vendor: 'Harbor Foods',
     po_number: 'INV-445',
@@ -299,7 +299,7 @@ test('scan-po remaps PDF uploads to image/png for AI parsing while keeping the o
 
   assert.equal(response.status, 200);
   assert.equal(harness.aiCalls.length, 1);
-  assert.equal(harness.aiCalls[0].mimeType, 'image/png');
+  assert.equal(harness.aiCalls[0].mimeType, 'application/pdf');
   assert.equal(harness.workflowCalls[0].mimeType, 'application/pdf');
   assert.equal(harness.workflowCalls[0].fileName, 'sample-po.pdf');
 });
@@ -319,5 +319,23 @@ test('scan-po returns 503 when AI scanning is unavailable', async (t) => {
 
   assert.equal(response.status, 503);
   assert.deepEqual(response.body, { error: 'AI service is not configured.' });
+  assert.equal(harness.workflowCalls.length, 0);
+});
+
+test('scan-po returns a clear failure when the AI vision request fails', async (t) => {
+  const harness = await startAiScanHarness(t, {
+    thrownError: new Error('model could not read image'),
+  });
+
+  const response = await postScanPo(harness.baseUrl, {
+    cookie: harness.sessionCookie,
+    csrfToken: harness.csrfToken,
+    filePath: fixturePngPath,
+    fileName: 'sample-po.png',
+    mimeType: 'image/png',
+  });
+
+  assert.equal(response.status, 500);
+  assert.deepEqual(response.body, { error: 'PO scan failed: model could not read image' });
   assert.equal(harness.workflowCalls.length, 0);
 });

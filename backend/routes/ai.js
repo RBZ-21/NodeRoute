@@ -455,7 +455,7 @@ router.post(
 
     try {
       const base64 = uploadedFile.buffer.toString('base64');
-      const mimeType = uploadedFile.mimetype === 'application/pdf' ? 'image/png' : uploadedFile.mimetype;
+      const mimeType = uploadedFile.mimetype;
       const result = await parsePurchaseOrderImage(base64, mimeType);
       const scanRecord = await recordPoInvoiceScan({
         context: req.context || {},
