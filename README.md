@@ -20,7 +20,8 @@ No coding knowledge is needed to use NodeRoute. This document is for anyone sett
 - **Demand forecasting** — AI-powered projections to help you order the right amount each week.
 
 ### For your drivers
-- **Driver app** — A dedicated mobile-ready app (installable as a PWA on any phone) where drivers see their route, mark stops as arrived or departed, capture signatures, and access delivery invoices.
+- **Driver app** — A dedicated mobile-ready web app (installable as a PWA on any phone) where drivers see their route, mark stops as arrived or departed, capture proof-of-delivery photos, and access delivery invoices.
+- **Native iOS driver app** — A SwiftUI starter lives alongside the web app for teams that want an App Store/TestFlight version while keeping the browser-based driver experience available.
 
 ### For your customers
 - **Customer portal** — Customers log in with just their email (no password to remember). They can view their orders, invoices, and inventory on hand, and pay outstanding balances online via Stripe.
@@ -42,7 +43,8 @@ No coding knowledge is needed to use NodeRoute. This document is for anyone sett
 backend/          API server, business logic, and automated tests
 frontend-v2/      Main admin dashboard (React) — routes like /dashboard, /orders, /routes, /purchasing
 landing-v2/       Public landing/marketing page — served at /
-driver-app/       Driver mobile app (React PWA)
+driver-app/       Driver mobile app (React PWA) — served at /driver-app
+ios-driver-app/   Native SwiftUI driver app starter — generated with XcodeGen
 supabase/         Database migrations and SQL helpers
 docs/             Internal documentation and changelogs
 outputs/          Generated QA/UAT artifacts
