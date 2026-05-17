@@ -18,6 +18,42 @@ const { loadCompanySettings, computeCutoffTimestamp } = require('./company-setti
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+function applyScope(query, scope = {}) {
+  if (scope.companyId) query = query.eq('company_id', scope.companyId);
+  if (scope.locationId) query = query.eq('location_id', scope.locationId);
+  return query;
+}
+
+function rowKey(companyId, locationId = null) {
+  return `${companyId || ''}:${locationId || ''}`;
+}
+
+async function listBlastScopes(companyName = '') {
+  const { data, error } = await supabase
+    .from('companies')
+    .select('id,name,settings')
+    .order('name', { ascending: true });
+
+  if (error || !Array.isArray(data) || !data.length) {
+    return [{ companyId: null, companyName, locationId: null }];
+  }
+
+  const seen = new Set();
+  return data
+    .filter((company) => company?.id)
+    .map((company) => ({
+      companyId: company.id,
+      companyName: company.name || company.settings?.business_name || companyName,
+      locationId: null,
+    }))
+    .filter((scope) => {
+      const key = rowKey(scope.companyId, scope.locationId);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+}
+
 /** Normalize a raw phone string to E.164 (US assumed if no country code). */
 function normalizePhone(raw) {
   if (!raw) return null;
@@ -29,21 +65,23 @@ function normalizePhone(raw) {
 }
 
 /** Fetch items received since the cutoff timestamp. */
-async function fetchReceivedSinceCutoff(cutoff) {
-  const { data, error } = await supabase
+async function fetchReceivedSinceCutoff(cutoff, scope = {}) {
+  const historyQuery = supabase
     .from('inventory_stock_history')
-    .select('item_number, change_qty, created_at')
+    .select('item_number, change_qty, created_at, company_id, location_id')
     .eq('change_type', 'restock')
     .gte('created_at', cutoff)
     .order('created_at', { ascending: false });
+  const { data, error } = await applyScope(historyQuery, scope);
 
   if (error || !data || !data.length) return [];
 
   const itemNumbers = [...new Set(data.map((r) => r.item_number))];
-  const { data: inventory } = await supabase
+  const inventoryQuery = supabase
     .from('seafood_inventory')
-    .select('item_number, description, unit')
+    .select('item_number, description, unit, company_id, location_id')
     .in('item_number', itemNumbers);
+  const { data: inventory } = await applyScope(inventoryQuery, scope);
 
   const descMap = {};
   (inventory || []).forEach((i) => { descMap[i.item_number] = i; });
@@ -78,11 +116,12 @@ function buildBlastMessage(items, companyName) {
 }
 
 /** Fetch all opted-in active customers with a usable phone number. */
-async function fetchEligibleCustomers() {
-  const { data, error } = await supabase
+async function fetchEligibleCustomers(scope = {}) {
+  const customerQuery = supabase
     .from('Customers')
-    .select('id, company_name, phone_number, phone, sms_opt_out, status')
+    .select('id, company_name, phone_number, phone, sms_opt_out, status, company_id, location_id')
     .eq('status', 'active');
+  const { data, error } = await applyScope(customerQuery, scope);
 
   if (error || !data) return [];
 
@@ -98,8 +137,13 @@ async function fetchEligibleCustomers() {
 
 // ── Main export ───────────────────────────────────────────────────────────────
 
-async function runDailyFishBlast(companyName = '', companyId = null, dryRun = false) {
-  logger.info({ dryRun }, 'Daily fish blast: starting');
+async function runDailyFishBlast(companyName = '', companyId = null, locationId = null, dryRun = false) {
+  if (typeof locationId === 'boolean') {
+    dryRun = locationId;
+    locationId = null;
+  }
+
+  logger.info({ companyId, locationId, dryRun }, 'Daily fish blast: starting');
 
   // Idempotency guard — one blast per calendar day per company.
   const today = new Date().toISOString().split('T')[0]; // 'YYYY-MM-DD'
@@ -118,10 +162,11 @@ async function runDailyFishBlast(companyName = '', companyId = null, dryRun = fa
   // Load cutoff settings from the database
   const settings = await loadCompanySettings(companyId, companyName);
   const cutoff   = computeCutoffTimestamp(settings);
+  const scope = { companyId, locationId };
 
   logger.info({ cutoff, orderCutoffHour: settings.orderCutoffHour, orderCutoffDay: settings.orderCutoffDay }, 'Daily fish blast: cutoff');
 
-  const items = await fetchReceivedSinceCutoff(cutoff);
+  const items = await fetchReceivedSinceCutoff(cutoff, scope);
   if (!items.length) {
     logger.info('Daily fish blast: no new inventory received since cutoff — skipping');
     return { sent: 0, skipped: 0, reason: 'no_inventory' };
@@ -133,7 +178,7 @@ async function runDailyFishBlast(companyName = '', companyId = null, dryRun = fa
     return { sent: 0, skipped: 0, reason: 'empty_message' };
   }
 
-  const customers = await fetchEligibleCustomers();
+  const customers = await fetchEligibleCustomers(scope);
   logger.info({ customerCount: customers.length, itemCount: items.length }, 'Daily fish blast: sending');
 
   let sent = 0;
@@ -169,4 +214,26 @@ async function runDailyFishBlast(companyName = '', companyId = null, dryRun = fa
   return { sent, failed, items: items.length };
 }
 
-module.exports = { runDailyFishBlast };
+async function runDailyFishBlastForAllCompanies(companyName = '') {
+  const scopes = await listBlastScopes(companyName);
+  const results = [];
+
+  for (const scope of scopes) {
+    const result = await runDailyFishBlast(scope.companyName || companyName, scope.companyId, scope.locationId);
+    results.push({ ...scope, ...result });
+  }
+
+  return {
+    companies: results.length,
+    sent: results.reduce((sum, result) => sum + (result.sent || 0), 0),
+    failed: results.reduce((sum, result) => sum + (result.failed || 0), 0),
+    results,
+  };
+}
+
+module.exports = {
+  runDailyFishBlast,
+  runDailyFishBlastForAllCompanies,
+  fetchReceivedSinceCutoff,
+  fetchEligibleCustomers,
+};

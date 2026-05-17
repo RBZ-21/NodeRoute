@@ -390,6 +390,7 @@ module.exports = function buildOpsPurchasingOrderRouter() {
           notes: `PO ${po.po_number} receipt (${po.vendor})${lotNumber ? ' · Lot ' + lotNumber : ''}`,
           createdBy: req.user?.name || req.user?.email || 'system',
           unitCost,
+          context: req.context,
         });
       } catch (ledgerError) {
         return res.status(500).json({ error: ledgerError.message });

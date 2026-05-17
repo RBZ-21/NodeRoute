@@ -172,6 +172,7 @@ module.exports = function buildOpsAdminRouter() {
           createdBy: req.user?.name || req.user?.email || 'system',
           setAbsoluteQty: line.counted_qty,
           preventNegative: false,
+          context: req.context,
         });
       }
     }

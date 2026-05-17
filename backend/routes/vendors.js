@@ -1,9 +1,12 @@
 // /api/vendors route
 // Vendor roster used by VendorsPage.tsx
 const express = require('express');
+const { z } = require('zod');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { validateBody } = require('../lib/zod-validate');
 const {
+  buildScopeFields,
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
@@ -39,6 +42,23 @@ function normalizeCatalogItemNumbers(value) {
   );
 }
 
+const vendorBillBodySchema = z.object({
+  purchase_order_id: z.string().uuid().optional().nullable(),
+  purchaseOrderId: z.string().uuid().optional().nullable(),
+  bill_number: z.string().trim().max(100).optional().nullable(),
+  billNumber: z.string().trim().max(100).optional().nullable(),
+  bill_date: z.string().optional().nullable(),
+  billDate: z.string().optional().nullable(),
+  due_date: z.string().optional().nullable(),
+  dueDate: z.string().optional().nullable(),
+  subtotal: z.coerce.number().nonnegative().optional(),
+  tax: z.coerce.number().nonnegative().optional(),
+  total: z.coerce.number().nonnegative().optional(),
+  status: z.enum(['pending', 'approved', 'disputed', 'paid', 'void']).optional(),
+  items: z.array(z.any()).optional(),
+  notes: z.string().max(2000).optional().nullable(),
+}).passthrough();
+
 function vendorPayload(source) {
   const payload = {};
   VENDOR_FIELDS.forEach(field => {
@@ -50,6 +70,26 @@ function vendorPayload(source) {
     payload[field] = source[field] ?? null;
   });
   return payload;
+}
+
+function firstValue(source, ...keys) {
+  for (const key of keys) {
+    if (source[key] !== undefined && source[key] !== null && source[key] !== '') return source[key];
+  }
+  return null;
+}
+
+function money(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parseFloat(parsed.toFixed(2)) : 0;
+}
+
+function lineTotal(item) {
+  if (!item || typeof item !== 'object') return 0;
+  if (item.total !== undefined && item.total !== null && item.total !== '') return Number(item.total) || 0;
+  const qty = Number(item.quantity ?? item.qty ?? 0) || 0;
+  const unitCost = Number(item.unit_cost ?? item.unitCost ?? item.unit_price ?? item.unitPrice ?? item.price ?? 0) || 0;
+  return qty * unitCost;
 }
 
 // GET /api/vendors
@@ -94,6 +134,54 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   if (!insertResult.data) return;
   res.json(insertResult.data);
+});
+
+// POST /api/vendors/:id/bills — record a vendor bill against a vendor/optional PO.
+router.post('/:id/bills', authenticateToken, requireRole('admin', 'manager'), validateBody(vendorBillBodySchema), async (req, res) => {
+  const vendor = await dbQuery(
+    supabase.from('vendors').select('*').eq('id', req.params.id).single(),
+    res
+  );
+  if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+  if (!rowMatchesContext(vendor, req.context)) return res.status(403).json({ error: 'Forbidden' });
+
+  const body = req.validated.body;
+  const items = Array.isArray(body.items) ? body.items : [];
+  const subtotal = body.subtotal !== undefined
+    ? money(body.subtotal)
+    : money(items.reduce((sum, item) => sum + lineTotal(item), 0));
+  const tax = money(body.tax || 0);
+  const total = body.total !== undefined ? money(body.total) : money(subtotal + tax);
+  const purchaseOrderId = firstValue(body, 'purchase_order_id', 'purchaseOrderId');
+
+  if (purchaseOrderId) {
+    const po = await dbQuery(
+      supabase.from('purchase_orders').select('*').eq('id', purchaseOrderId).single(),
+      res
+    );
+    if (!po) return res.status(404).json({ error: 'Purchase order not found' });
+    if (!rowMatchesContext(po, req.context)) return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  const insertResult = await insertRecordWithOptionalScope(supabase, 'vendor_bills', {
+    vendor_id: vendor.id,
+    vendor_name: vendor.name || null,
+    purchase_order_id: purchaseOrderId || null,
+    bill_number: firstValue(body, 'bill_number', 'billNumber'),
+    bill_date: firstValue(body, 'bill_date', 'billDate'),
+    due_date: firstValue(body, 'due_date', 'dueDate'),
+    subtotal,
+    tax,
+    total,
+    status: body.status || 'pending',
+    items,
+    notes: body.notes || null,
+    created_by: req.user?.name || req.user?.email || 'system',
+    ...buildScopeFields(req.context),
+  }, req.context);
+
+  if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
+  res.status(201).json(insertResult.data);
 });
 
 // PATCH /api/vendors/:id

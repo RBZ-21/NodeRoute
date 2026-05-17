@@ -18,7 +18,7 @@ try {
 }
 
 const logger = require('../services/logger');
-const { runDailyFishBlast } = require('../services/daily-fish-blast');
+const { runDailyFishBlastForAllCompanies } = require('../services/daily-fish-blast');
 const config = require('./config');
 
 // 6:30 AM Eastern = 10:30 UTC (EST) / 11:30 UTC (EDT)
@@ -40,7 +40,7 @@ function startScheduler() {
   cron.schedule(BLAST_CRON, async () => {
     try {
       const companyName = process.env.COMPANY_NAME || '';
-      await runDailyFishBlast(companyName);
+      await runDailyFishBlastForAllCompanies(companyName);
     } catch (err) {
       logger.error({ err }, 'Daily fish blast: unhandled error');
     }

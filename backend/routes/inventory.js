@@ -404,6 +404,7 @@ router.post('/lots', authenticateToken, requireRole('admin', 'manager'), validat
         createdBy: req.user.name || req.user.email,
         lotId: data.id,
         unitCost: parseFloat(cost_per_unit) || 0,
+        context: req.context,
       });
     } catch (ledgerErr) {
       return res.status(500).json({ error: ledgerErr.message });
@@ -467,6 +468,7 @@ router.post('/lots/:lotId/deplete', authenticateToken, requireRole('admin', 'man
       notes: notes || `Lot ${lot.lot_number}`,
       createdBy: req.user.name || req.user.email,
       lotId: lot.id,
+      context: req.context,
     });
   } catch (ledgerErr) {
     return res.status(500).json({ error: ledgerErr.message });
@@ -515,6 +517,7 @@ router.post('/count', authenticateToken, requireRole('admin', 'manager'), valida
         createdBy: req.user.name || req.user.email,
         setAbsoluteQty: parseFloat(entry.counted_qty.toFixed(4)),
         preventNegative: false,
+        context: req.context,
       });
       updatedItems.push(ledger.item_after);
     } catch (ledgerErr) {
@@ -547,6 +550,7 @@ router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager'), 
       changeType: 'restock',
       notes: notes || null,
       createdBy: req.user.name || req.user.email,
+      context: req.context,
     });
     res.json(ledger.item_after);
   } catch (ledgerErr) {
@@ -566,6 +570,7 @@ router.post('/:id/adjust', authenticateToken, requireRole('admin', 'manager'), v
       changeType: type,
       notes: notes || null,
       createdBy: req.user.name || req.user.email,
+      context: req.context,
     });
     res.json(ledger.item_after);
   } catch (ledgerErr) {
@@ -588,6 +593,7 @@ router.post('/:id/pick', authenticateToken, requireRole('admin', 'manager'), val
       changeType: 'pick',
       notes: trimmedNotes || (orderRef ? `Order pick ${orderRef}` : 'Order pick'),
       createdBy: req.user.name || req.user.email,
+      context: req.context,
     });
     res.json(ledger.item_after);
   } catch (ledgerErr) {
@@ -610,6 +616,7 @@ router.post('/:id/spoilage', authenticateToken, requireRole('admin', 'manager'),
       changeType: 'spoilage',
       notes: [trimmedReason ? `Reason: ${trimmedReason}` : null, trimmedNotes || null].filter(Boolean).join(' | ') || 'Spoilage',
       createdBy: req.user.name || req.user.email,
+      context: req.context,
     });
     res.json(ledger.item_after);
   } catch (ledgerErr) {
@@ -631,6 +638,7 @@ router.post('/transfer', authenticateToken, requireRole('admin', 'manager'), val
       qty,
       notes: trimmedNotes,
       createdBy: req.user.name || req.user.email,
+      context: req.context,
     });
     res.json(result);
   } catch (ledgerErr) {
@@ -660,7 +668,7 @@ router.get('/ledger', authenticateToken, async (req, res) => {
   const { data, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
 
-  const rows = Array.isArray(data) ? data : [];
+  const rows = filterRowsByContext(Array.isArray(data) ? data : [], req.context);
   const summary = rows.reduce((acc, row) => {
     const delta = toNumber(row.change_qty, 0);
     acc.total_delta = parseFloat((acc.total_delta + delta).toFixed(4));
@@ -682,7 +690,7 @@ router.get('/:id/history', authenticateToken, async (req, res) => {
     .order('created_at', { ascending: false })
     .limit(limit);
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data);
+  res.json(filterRowsByContext(data || [], req.context));
 });
 
 // POST /api/inventory/:id/yield — log a cutting session, update running average

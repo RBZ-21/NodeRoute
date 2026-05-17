@@ -1,4 +1,5 @@
 const { supabase } = require('./supabase');
+const { buildScopeFields } = require('./operating-context');
 
 function toNumber(value, fallback = 0) {
   const n = parseFloat(value);
@@ -20,13 +21,22 @@ function formatLedgerError(message, code = 'LEDGER_ERROR', meta = {}) {
   return err;
 }
 
-async function fetchInventoryByItemNumber(itemNumber) {
+function scopeQuery(query, context) {
+  if (!context) return query;
+  const scope = buildScopeFields(context);
+  if (scope.company_id) query = query.eq('company_id', scope.company_id);
+  if (scope.location_id) query = query.eq('location_id', scope.location_id);
+  return query;
+}
+
+async function fetchInventoryByItemNumber(itemNumber, context = null) {
   const normalized = String(itemNumber || '').trim();
   if (!normalized) throw formatLedgerError('item_number is required', 'LEDGER_INVALID_ITEM');
-  const { data, error } = await supabase
+  const query = supabase
     .from('seafood_inventory')
     .select('*')
-    .eq('item_number', normalized)
+    .eq('item_number', normalized);
+  const { data, error } = await scopeQuery(query, context)
     .single();
   if (error || !data) {
     throw formatLedgerError(`Inventory item not found for ${normalized}`, 'LEDGER_ITEM_NOT_FOUND', { item_number: normalized });
@@ -44,8 +54,9 @@ async function applyInventoryLedgerEntry({
   unitCost = null,
   preventNegative = true,
   setAbsoluteQty = null,
+  context = null,
 }) {
-  const item = await fetchInventoryByItemNumber(itemNumber);
+  const item = await fetchInventoryByItemNumber(itemNumber, context);
   const prevQty = roundQty(item.on_hand_qty);
   const nextQty = setAbsoluteQty != null
     ? roundQty(setAbsoluteQty)
@@ -76,10 +87,11 @@ async function applyInventoryLedgerEntry({
   };
   if (nextCost !== prevCost) updatePayload.cost = nextCost;
 
-  const { data: updated, error: updateErr } = await supabase
+  const updateQuery = supabase
     .from('seafood_inventory')
     .update(updatePayload)
-    .eq('item_number', item.item_number)
+    .eq('item_number', item.item_number);
+  const { data: updated, error: updateErr } = await scopeQuery(updateQuery, context)
     .select()
     .single();
   if (updateErr) {
@@ -93,6 +105,10 @@ async function applyInventoryLedgerEntry({
     change_type: String(changeType || 'adjustment').trim() || 'adjustment',
     notes: notes || null,
     created_by: createdBy || 'system',
+    ...buildScopeFields(context || {}, {
+      company_id: item.company_id || undefined,
+      location_id: item.location_id || undefined,
+    }),
   };
   if (lotId) historyPayload.lot_id = lotId;
 
@@ -120,14 +136,15 @@ async function transferInventoryLedgerEntry({
   qty,
   notes = null,
   createdBy = 'system',
+  context = null,
 }) {
   const transferQty = roundQty(qty);
   if (transferQty <= 0) {
     throw formatLedgerError('qty must be > 0', 'LEDGER_INVALID_TRANSFER_QTY');
   }
 
-  const source = await fetchInventoryByItemNumber(fromItemNumber);
-  const destination = await fetchInventoryByItemNumber(toItemNumber);
+  const source = await fetchInventoryByItemNumber(fromItemNumber, context);
+  const destination = await fetchInventoryByItemNumber(toItemNumber, context);
   if (source.item_number === destination.item_number) {
     throw formatLedgerError('from_item_number and to_item_number must be different', 'LEDGER_INVALID_TRANSFER_TARGET');
   }
@@ -148,6 +165,7 @@ async function transferInventoryLedgerEntry({
     notes: `${notes || 'Inventory transfer'} · ${transferRef} · to ${destination.item_number}`,
     createdBy,
     preventNegative: true,
+    context,
   });
 
   try {
@@ -159,6 +177,7 @@ async function transferInventoryLedgerEntry({
       createdBy,
       unitCost: sourceResult.cost_after || sourceResult.cost_before || 0,
       preventNegative: false,
+      context,
     });
     return { transfer_ref: transferRef, source: sourceResult, destination: destinationResult };
   } catch (error) {
@@ -170,6 +189,7 @@ async function transferInventoryLedgerEntry({
         notes: `Auto-reversal for failed transfer ${transferRef}`,
         createdBy: 'system',
         preventNegative: false,
+        context,
       });
     } catch (_ignored) {
       // Best-effort reversal in non-transactional demo/supabase mode.

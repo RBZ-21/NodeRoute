@@ -2,6 +2,7 @@ const express = require('express');
 const router = express.Router();
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 const {
   buildScopeFields,
   filterRowsByContext,
@@ -11,12 +12,24 @@ const {
 
 const WAREHOUSE_ROLES = ['admin', 'manager', 'warehouse'];
 
+function scopeQuery(query, context) {
+  const scope = buildScopeFields(context || {});
+  if (scope.company_id) query = query.eq('company_id', scope.company_id);
+  if (scope.location_id) query = query.eq('location_id', scope.location_id);
+  return query;
+}
+
+function toNumber(value, fallback = 0) {
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+}
+
 // GET /api/warehouse — summary stats
 router.get('/', authenticateToken, requireRole(...WAREHOUSE_ROLES), async (req, res) => {
   try {
     const { data: inventory, error: invErr } = await supabase
       .from('seafood_inventory')
-      .select('id, description, quantity, unit, category, status, company_id, location_id');
+      .select('id, item_number, description, on_hand_qty, unit, category, status, company_id, location_id');
     if (invErr) return res.status(500).json({ error: invErr.message });
 
     const { data: pos, error: poErr } = await supabase
@@ -33,25 +46,21 @@ router.get('/', authenticateToken, requireRole(...WAREHOUSE_ROLES), async (req, 
       .lte('scheduled_date', today + 'T23:59:59');
     if (stopErr) return res.status(500).json({ error: stopErr.message });
 
+    const scanQuery = supabase
+      .from('warehouse_scans')
+      .select('id, company_id, location_id')
+      .gte('created_at', today);
+    const { data: scans } = await scopeQuery(scanQuery, req.context);
+
+    const returnsQuery = supabase
+      .from('warehouse_returns')
+      .select('id, company_id, location_id')
+      .eq('status', 'open');
+    const { data: returns } = await scopeQuery(returnsQuery, req.context);
+
     const scopedInventory = filterRowsByContext(inventory || [], req.context);
     const scopedPos = filterRowsByContext(pos || [], req.context);
     const scopedStops = filterRowsByContext(stops || [], req.context);
-
-    const scopeFields = buildScopeFields(req.context);
-
-    let scanQuery = supabase
-      .from('warehouse_scans')
-      .select('id', { count: 'exact', head: true })
-      .gte('created_at', today);
-    if (scopeFields.company_id) scanQuery = scanQuery.eq('company_id', scopeFields.company_id);
-    const { count: scanCount } = await scanQuery;
-
-    let returnQuery = supabase
-      .from('warehouse_returns')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'open');
-    if (scopeFields.company_id) returnQuery = returnQuery.eq('company_id', scopeFields.company_id);
-    const { count: openReturns } = await returnQuery;
 
     res.json({
       inventory: scopedInventory,
@@ -59,8 +68,8 @@ router.get('/', authenticateToken, requireRole(...WAREHOUSE_ROLES), async (req, 
       pendingInbound: scopedPos.length,
       todayStops: scopedStops.length,
       todayStopsCompleted: scopedStops.filter((s) => s.status === 'completed').length,
-      todayScans: scanCount || 0,
-      openReturns: openReturns || 0,
+      todayScans: (scans || []).length,
+      openReturns: (returns || []).length,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -88,8 +97,11 @@ router.get('/inventory', authenticateToken, requireRole(...WAREHOUSE_ROLES), asy
 router.patch('/inventory/:id', authenticateToken, requireRole(...WAREHOUSE_ROLES), async (req, res) => {
   try {
     const { data: existing, error: fetchErr } = await supabase
-      .from('seafood_inventory').select('*').eq('id', req.params.id).single();
-    if (fetchErr) return res.status(404).json({ error: 'Inventory item not found' });
+      .from('seafood_inventory')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+    if (fetchErr || !existing) return res.status(404).json({ error: 'Inventory item not found' });
     if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
     const ALLOWED = ['status', 'cost', 'description'];
@@ -97,14 +109,33 @@ router.patch('/inventory/:id', authenticateToken, requireRole(...WAREHOUSE_ROLES
     for (const key of ALLOWED) {
       if (req.body[key] !== undefined) update[key] = req.body[key];
     }
-    if (!Object.keys(update).length) return res.status(400).json({ error: 'No valid fields provided' });
-    const { data, error } = await supabase
-      .from('seafood_inventory')
-      .update(update)
-      .eq('id', req.params.id)
-      .select()
-      .single();
-    if (error) return res.status(500).json({ error: error.message });
+    let data = existing;
+    if (req.body.quantity !== undefined || req.body.on_hand_qty !== undefined) {
+      const nextQty = toNumber(req.body.quantity ?? req.body.on_hand_qty, NaN);
+      if (!Number.isFinite(nextQty) || nextQty < 0) {
+        return res.status(400).json({ error: 'quantity must be a non-negative number' });
+      }
+      const ledger = await applyInventoryLedgerEntry({
+        itemNumber: existing.item_number,
+        changeType: 'warehouse_count',
+        notes: req.body.notes || 'Warehouse inventory adjustment',
+        createdBy: req.user?.name || req.user?.email || 'warehouse',
+        setAbsoluteQty: nextQty,
+        preventNegative: false,
+        context: req.context,
+      });
+      data = ledger.item_after;
+    }
+    if (Object.keys(update).length) {
+      const { data: updated, error } = await supabase
+        .from('seafood_inventory')
+        .update(update)
+        .eq('id', req.params.id)
+        .select()
+        .single();
+      if (error) return res.status(500).json({ error: error.message });
+      data = updated;
+    }
     res.json(data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -132,11 +163,12 @@ router.post('/locations', authenticateToken, requireRole('admin', 'manager'), as
   try {
     const { name, type, notes } = req.body;
     if (!name || !type) return res.status(400).json({ error: 'name and type are required' });
-    const result = await insertRecordWithOptionalScope(supabase, 'warehouse_locations', {
-      name,
-      type,
-      notes: notes || null,
-    }, req.context);
+    const result = await insertRecordWithOptionalScope(
+      supabase,
+      'warehouse_locations',
+      { name, type, notes: notes || null },
+      req.context
+    );
     if (result.error) return res.status(500).json({ error: result.error.message });
     res.status(201).json(result.data);
   } catch (err) {
@@ -147,17 +179,19 @@ router.post('/locations', authenticateToken, requireRole('admin', 'manager'), as
 // PATCH /api/warehouse/locations/:id
 router.patch('/locations/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const { data: existing, error: fetchErr } = await supabase
-      .from('warehouse_locations').select('*').eq('id', req.params.id).single();
-    if (fetchErr) return res.status(404).json({ error: 'Location not found' });
-    if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
-
     const ALLOWED = ['name', 'type', 'notes', 'status'];
     const update = {};
     for (const key of ALLOWED) {
       if (req.body[key] !== undefined) update[key] = req.body[key];
     }
     if (!Object.keys(update).length) return res.status(400).json({ error: 'No valid fields provided' });
+    const { data: existing, error: fetchErr } = await supabase
+      .from('warehouse_locations')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+    if (fetchErr || !existing) return res.status(404).json({ error: 'Location not found' });
+    if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
     const { data, error } = await supabase
       .from('warehouse_locations')
       .update(update)
@@ -175,10 +209,12 @@ router.patch('/locations/:id', authenticateToken, requireRole('admin', 'manager'
 router.delete('/locations/:id', authenticateToken, requireRole('admin'), async (req, res) => {
   try {
     const { data: existing, error: fetchErr } = await supabase
-      .from('warehouse_locations').select('*').eq('id', req.params.id).single();
-    if (fetchErr) return res.status(404).json({ error: 'Location not found' });
+      .from('warehouse_locations')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+    if (fetchErr || !existing) return res.status(404).json({ error: 'Location not found' });
     if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
-
     const { error } = await supabase
       .from('warehouse_locations')
       .delete()
@@ -204,7 +240,7 @@ router.get('/scans', authenticateToken, requireRole(...WAREHOUSE_ROLES), async (
       .limit(limit);
     if (action) query = query.eq('action', action);
     if (item_number) query = query.eq('item_number', item_number);
-    if (location_id) query = query.eq('location_id', location_id);
+    if (location_id) query = query.eq('warehouse_location_id', location_id);
     if (date) {
       query = query.gte('created_at', date).lte('created_at', date + 'T23:59:59');
     }
@@ -230,7 +266,7 @@ router.post('/scans', authenticateToken, requireRole(...WAREHOUSE_ROLES), async 
       action,
       quantity: quantity != null ? quantity : null,
       unit: unit || null,
-      location_id: location_id || null,
+      warehouse_location_id: location_id || null,
       lot_number: lot_number || null,
       notes: notes || null,
       performed_by: req.user?.id || null,
@@ -293,17 +329,19 @@ router.post('/returns', authenticateToken, requireRole(...WAREHOUSE_ROLES), asyn
 // PATCH /api/warehouse/returns/:id
 router.patch('/returns/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const { data: existing, error: fetchErr } = await supabase
-      .from('warehouse_returns').select('*').eq('id', req.params.id).single();
-    if (fetchErr) return res.status(404).json({ error: 'Return not found' });
-    if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
-
     const ALLOWED = ['status', 'resolution', 'notes', 'restocked'];
     const update = {};
     for (const key of ALLOWED) {
       if (req.body[key] !== undefined) update[key] = req.body[key];
     }
     if (!Object.keys(update).length) return res.status(400).json({ error: 'No valid fields provided' });
+    const { data: existing, error: fetchErr } = await supabase
+      .from('warehouse_returns')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+    if (fetchErr || !existing) return res.status(404).json({ error: 'Return not found' });
+    if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
     const { data, error } = await supabase
       .from('warehouse_returns')
       .update(update)

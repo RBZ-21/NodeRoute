@@ -26,6 +26,10 @@ function validateBody(schema, options) {
   return validatePart('body', schema, options);
 }
 
+function validate(schema, options) {
+  return validateBody(schema, options);
+}
+
 function validateQuery(schema, options) {
   return validatePart('query', schema, options);
 }
@@ -35,6 +39,7 @@ function validateParams(schema, options) {
 }
 
 module.exports = {
+  validate,
   validateBody,
   validateQuery,
   validateParams,
