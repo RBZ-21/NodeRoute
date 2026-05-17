@@ -3,7 +3,7 @@ const crypto = require('crypto');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { required, maxLen, isArray, maxItems, compose } = require('../lib/validate');
-const { validate } = require('../lib/zodValidate');
+const { validateBody } = require('../lib/zod-validate');
 const {
   orderCreateSchema, orderUpdateSchema, orderActualWeightSchema,
   orderSendSchema, orderFulfillSchema,
@@ -657,7 +657,7 @@ router.get('/driver-invoices', authenticateToken, async (req, res) => {
 // Mount basic print endpoint under /print
 router.use('/print', printRouter);
 
-router.post('/', validate(orderCreateSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { customerName, customerEmail, customerAddress, items, charges, notes } = req.body;
   const fulfillmentType = normalizeFulfillmentType(req.body.fulfillmentType ?? req.body.fulfillment_type);
 
@@ -738,7 +738,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 
 // Capture actual weight for a single catch-weight line item.
 // Recalculates line total and returns the updated order.
-router.patch('/:id/items/:itemIndex/actual-weight', validate(orderActualWeightSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.patch('/:id/items/:itemIndex/actual-weight', validateBody(orderActualWeightSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const order = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!order) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
@@ -791,7 +791,7 @@ router.patch('/:id/items/:itemIndex/actual-weight', validate(orderActualWeightSc
   res.json(enrichOrderResponse({ ...orderWithInvoice, items: updatedItems, invoice_id: invoice.id }));
 });
 
-router.patch('/:id', validate(orderUpdateSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.patch('/:id', validateBody(orderUpdateSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
 
   const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
@@ -876,7 +876,7 @@ router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async 
 });
 
 // Send order to processing: creates/updates the pending invoice draft and marks the order ready for weights.
-router.post('/:id/send', validate(orderSendSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/:id/send', validateBody(orderSendSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
@@ -907,7 +907,7 @@ router.post('/:id/send', validate(orderSendSchema), authenticateToken, requireRo
 });
 
 // Fulfill order: enter actual weights → generate invoice
-router.post('/:id/fulfill', validate(orderFulfillSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/:id/fulfill', validateBody(orderFulfillSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { items, driverName, routeId } = req.body;
   const order = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
   if (!order) return;
@@ -941,6 +941,7 @@ router.post('/:id/fulfill', validate(orderFulfillSchema), authenticateToken, req
         changeType: 'pick',
         notes: `Order ${order.order_number || order.id} fulfill pick`,
         createdBy: req.user?.name || req.user?.email || 'system',
+        context: req.context,
       });
     } catch (ledgerErr) {
       pickFailures.push({

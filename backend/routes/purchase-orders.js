@@ -170,6 +170,7 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
           notes: `${poRef}${item.lot_number ? ' · Lot ' + item.lot_number : ''}`,
           createdBy: req.user.name || req.user.email,
           unitCost: unitPrice,
+          context: req.context,
         });
       } catch (ledgerErr) {
         errors.push(`${desc}: ${ledgerErr.message}`);
@@ -207,6 +208,7 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
           notes: `New item · ${poRef}${item.lot_number ? ' · Lot ' + item.lot_number : ''}`,
           createdBy: req.user.name || req.user.email,
           unitCost: unitPrice,
+          context: req.context,
         });
       } catch (ledgerErr) {
         errors.push(`${desc}: ${ledgerErr.message}`);
