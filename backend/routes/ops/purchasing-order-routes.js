@@ -4,6 +4,7 @@ const {
   buildScopeFields,
   executeWithOptionalScope,
   filterRowsByContext,
+  rowMatchesContext,
 } = require('../../services/operating-context');
 const {
   applyInventoryLedgerEntry,
@@ -12,13 +13,11 @@ const {
   normalizePoLine,
   normalizeReceiptRules,
   poLineRequiresLot,
-  readOpsData,
   summarizeVendorPurchaseOrders,
   resolveInventoryMatch,
   summarizeVendorPo,
   supabase,
   toNumber,
-  writeOpsData,
 } = require('./purchasing-shared');
 const {
   attachLotsToPurchaseOrder,
@@ -26,6 +25,17 @@ const {
   loadVendorPurchaseOrdersFromDb,
   persistVendorPurchaseOrderSnapshot,
 } = require('../../services/purchase-order-workflows');
+
+/**
+ * Load a single vendor PO from Supabase. Matches either the workflow id
+ * (the `po-…` token stored as workflow_id on purchase_orders) or the
+ * underlying purchase_orders.id UUID.
+ */
+async function loadVendorPoById(id, context) {
+  const orders = await loadVendorPurchaseOrdersFromDb(context || {});
+  if (!Array.isArray(orders)) return null;
+  return orders.find((po) => String(po.id) === String(id) || String(po.db_id) === String(id)) || null;
+}
 
 function isMissingLotSourcePoColumnError(error) {
   return !!error?.message && String(error.message).includes('lot_codes.source_po_number does not exist');
@@ -92,32 +102,23 @@ module.exports = function buildOpsPurchasingOrderRouter() {
   router.get('/vendor-purchase-orders', authenticateToken, async (req, res) => {
     try {
       const dbOrders = await loadVendorPurchaseOrdersFromDb(req.context || {});
-      if (Array.isArray(dbOrders) && dbOrders.length) {
-        return res.json(dbOrders.slice(0, 200));
-      }
+      return res.json(Array.isArray(dbOrders) ? dbOrders.slice(0, 200) : []);
     } catch (error) {
       return res.status(500).json({ error: error.message });
     }
-
-    const ops = readOpsData();
-    const orders = summarizeVendorPurchaseOrders(ops.vendorPurchaseOrders || [])
-      .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime());
-    res.json(orders.slice(0, 200));
   });
 
   router.post('/vendor-purchase-orders/from-draft/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-    const ops = readOpsData();
-    ops.poDrafts = ops.poDrafts || [];
-    ops.vendorPurchaseOrders = ops.vendorPurchaseOrders || [];
-    const draftIndex = ops.poDrafts.findIndex((draft) => draft.id === req.params.id);
-    if (draftIndex === -1) return res.status(404).json({ error: 'Draft not found' });
+    const { data: draft, error: draftErr } = await supabase
+      .from('op_po_drafts').select('*').eq('id', req.params.id).single();
+    if (draftErr || !draft) return res.status(404).json({ error: 'Draft not found' });
+    if (!rowMatchesContext(draft, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
-    const draft = ops.poDrafts[draftIndex];
     const sourceLines = Array.isArray(draft.lines) ? draft.lines : [];
     if (!sourceLines.length) return res.status(400).json({ error: 'Draft has no lines' });
 
     const vendor = String(req.body.vendor || draft.vendor || '').trim() || 'Unassigned Vendor';
-    const receiptRules = normalizeReceiptRules(req.body.receiptRules || draft.receipt_rules);
+    const receiptRules = normalizeReceiptRules(req.body.receiptRules || draft.source?.receipt_rules);
     const po = summarizeVendorPo({
       id: genId('po'),
       po_number: String(req.body.poNumber || '').trim() || genPoNumber(),
@@ -134,22 +135,25 @@ module.exports = function buildOpsPurchasingOrderRouter() {
       updated_at: new Date().toISOString(),
     });
 
-    ops.vendorPurchaseOrders.unshift(po);
-    ops.poDrafts[draftIndex] = {
-      ...draft,
-      status: 'ordered',
-      linked_vendor_po_id: po.id,
-      updated_at: new Date().toISOString(),
-      updated_by: req.user?.name || req.user?.email || 'system',
-    };
-    writeOpsData(ops);
-    const responsePo = summarizeVendorPurchaseOrders(ops.vendorPurchaseOrders)[0];
+    let persisted;
     try {
-      await persistVendorPurchaseOrderSnapshot(responsePo, req.context || {});
+      persisted = await persistVendorPurchaseOrderSnapshot(po, req.context || {});
     } catch (error) {
       return res.status(500).json({ error: error.message });
     }
-    res.json(responsePo);
+
+    // Mark the draft as ordered and link to the new vendor PO.
+    await supabase
+      .from('op_po_drafts')
+      .update({
+        status: 'ordered',
+        linked_vendor_po_id: persisted?.row?.id || null,
+        updated_at: new Date().toISOString(),
+        updated_by: req.user?.name || req.user?.email || 'system',
+      })
+      .eq('id', draft.id);
+
+    res.json(po);
   });
 
   router.post('/vendor-purchase-orders', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
@@ -180,17 +184,12 @@ module.exports = function buildOpsPurchasingOrderRouter() {
       updated_at: new Date().toISOString(),
     });
 
-    const ops = readOpsData();
-    ops.vendorPurchaseOrders = ops.vendorPurchaseOrders || [];
-    ops.vendorPurchaseOrders.unshift(po);
-    writeOpsData(ops);
-    const responsePo = summarizeVendorPurchaseOrders(ops.vendorPurchaseOrders)[0];
     try {
-      await persistVendorPurchaseOrderSnapshot(responsePo, req.context || {});
+      await persistVendorPurchaseOrderSnapshot(po, req.context || {});
     } catch (error) {
       return res.status(500).json({ error: error.message });
     }
-    res.json(responsePo);
+    res.json(po);
   });
 
   router.patch('/vendor-purchase-orders/:id/status', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
@@ -198,44 +197,36 @@ module.exports = function buildOpsPurchasingOrderRouter() {
     const nextStatus = String(req.body.status || '').trim().toLowerCase();
     if (!allowed.has(nextStatus)) return res.status(400).json({ error: 'Invalid status' });
 
-    const ops = readOpsData();
-    ops.vendorPurchaseOrders = ops.vendorPurchaseOrders || [];
-    const index = ops.vendorPurchaseOrders.findIndex((po) => po.id === req.params.id);
-    if (index === -1) return res.status(404).json({ error: 'Vendor PO not found' });
-    const current = summarizeVendorPo(ops.vendorPurchaseOrders[index]);
+    const current = await loadVendorPoById(req.params.id, req.context);
+    if (!current) return res.status(404).json({ error: 'Vendor PO not found' });
 
     if ((current.status === 'received' || current.status === 'cancelled') && nextStatus === 'open') {
       return res.status(400).json({ error: `Cannot reopen PO from ${current.status}` });
     }
 
-    const updated = {
+    const updated = summarizeVendorPo({
       ...current,
       status: nextStatus,
       updated_at: new Date().toISOString(),
       updated_by: req.user?.name || req.user?.email || 'system',
-    };
-    ops.vendorPurchaseOrders[index] = updated;
-    writeOpsData(ops);
-    const refreshed = summarizeVendorPurchaseOrders(ops.vendorPurchaseOrders);
-    const responsePo = refreshed.find((po) => po.id === updated.id) || updated;
+    });
+
     try {
-      await persistVendorPurchaseOrderSnapshot(responsePo, req.context || {});
+      await persistVendorPurchaseOrderSnapshot(updated, req.context || {});
     } catch (error) {
       return res.status(500).json({ error: error.message });
     }
-    res.json(responsePo);
+    res.json(updated);
   });
 
   router.post('/vendor-purchase-orders/:id/receive', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
     const receiveLines = Array.isArray(req.body.lines) ? req.body.lines : [];
     if (!receiveLines.length) return res.status(400).json({ error: 'lines are required' });
 
-    const ops = readOpsData();
-    ops.vendorPurchaseOrders = ops.vendorPurchaseOrders || [];
-    const poIndex = ops.vendorPurchaseOrders.findIndex((po) => po.id === req.params.id);
-    if (poIndex === -1) return res.status(404).json({ error: 'Vendor PO not found' });
+    const loadedPo = await loadVendorPoById(req.params.id, req.context);
+    if (!loadedPo) return res.status(404).json({ error: 'Vendor PO not found' });
 
-    const po = summarizeVendorPo(ops.vendorPurchaseOrders[poIndex]);
+    const po = summarizeVendorPo(loadedPo);
     if (po.status === 'received' || po.status === 'cancelled') {
       return res.status(400).json({ error: `Cannot receive against PO with status ${po.status}` });
     }
@@ -490,12 +481,11 @@ module.exports = function buildOpsPurchasingOrderRouter() {
     po.updated_by = req.user?.name || req.user?.email || 'system';
 
     const summarized = summarizeVendorPo(po);
-    ops.vendorPurchaseOrders[poIndex] = summarized;
-    writeOpsData(ops);
-    const refreshed = summarizeVendorPurchaseOrders(ops.vendorPurchaseOrders);
+    const refreshed = summarizeVendorPurchaseOrders([summarized]);
     const responsePo = refreshed.find((vendorPo) => vendorPo.id === summarized.id) || summarized;
+    let persisted;
     try {
-      const persisted = await persistVendorPurchaseOrderSnapshot(responsePo, req.context || {});
+      persisted = await persistVendorPurchaseOrderSnapshot(responsePo, req.context || {});
       const latestReceipt = responsePo.receipts?.[0];
       const lotNumbers = (latestReceipt?.lines || [])
         .map((line) => String(line.lot_number || '').trim())

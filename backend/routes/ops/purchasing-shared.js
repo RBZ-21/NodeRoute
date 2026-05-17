@@ -511,6 +511,23 @@ function resolveInventoryMatch(item, inventory) {
   }) || null;
 }
 
+/**
+ * Load vendor purchase orders for the current tenant context, sourcing from
+ * Supabase. Falls back to an empty array if the workflow schema isn't present.
+ * This replaces the historical ops.json read for planning queries.
+ */
+async function loadVendorPurchaseOrdersForContext(context) {
+  try {
+    const { loadVendorPurchaseOrdersFromDb } = require('../../services/purchase-order-workflows');
+    const orders = await loadVendorPurchaseOrdersFromDb(context || {});
+    return Array.isArray(orders) ? orders : [];
+  } catch (error) {
+    // Schema missing or other failure — historical lead-time inference simply
+    // returns no measurements, callers default to manual lead time.
+    return [];
+  }
+}
+
 module.exports = {
   applyInventoryLedgerEntry,
   buildVendorLeadTimeStats,
@@ -522,6 +539,7 @@ module.exports = {
   genId,
   genPoNumber,
   loadInventoryAndUsage,
+  loadVendorPurchaseOrdersForContext,
   normalizeIntakeQuantity,
   normalizePoLine,
   normalizeReceiptRules,

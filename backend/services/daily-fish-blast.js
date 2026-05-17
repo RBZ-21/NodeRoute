@@ -33,7 +33,7 @@ async function fetchReceivedSinceCutoff(cutoff) {
   const { data, error } = await supabase
     .from('inventory_stock_history')
     .select('item_number, change_qty, created_at')
-    .eq('change_type', 'received')
+    .eq('change_type', 'restock')
     .gte('created_at', cutoff)
     .order('created_at', { ascending: false });
 

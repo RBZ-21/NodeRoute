@@ -271,6 +271,9 @@ app.use((err, req, res, next) => {
   });
 });
 
+const { startScheduler } = require('./lib/scheduler');
+
 app.listen(PORT, '0.0.0.0', () => {
   logger.info({ port: PORT, pid: process.pid, env: config.NODE_ENV }, 'Server listening');
+  startScheduler();
 });
