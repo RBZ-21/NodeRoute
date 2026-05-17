@@ -17,7 +17,7 @@ export type TabId =
   | 'drivers' | 'routes' | 'stops' | 'customers' | 'users'
   | 'invoices' | 'analytics' | 'inventory' | 'inventory-dashboard' | 'forecast' | 'financials'
   | 'purchasing' | 'vendors' | 'warehouse' | 'planning' | 'integrations'
-  | 'aihelp' | 'settings' | 'traceability' | 'companies' | 'waitlist'
+  | 'aihelp' | 'settings' | 'traceability' | 'companies' | 'waitlist' | 'sales-rep'
   | 'compliance' | 'dsr' | 'superadmin-overview';
 
 export type GroupId =
@@ -167,6 +167,14 @@ export const navGroups: NavGroup[] = [
         icon: UserCog,
         allowedRoles: SA_ADMIN,
         component: lazyNamed(() => import('../pages/UsersPage'), 'UsersPage'),
+      },
+      {
+        id: 'sales-rep',
+        label: 'Sales Rep',
+        path: '/sales-rep',
+        icon: UserCheck,
+        allowedRoles: SA_ADMIN_MGR,
+        component: lazyNamed(() => import('../pages/SalesRepPage'), 'SalesRepPage'),
       },
     ],
   },

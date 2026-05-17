@@ -47,7 +47,6 @@ driver-app/       Driver mobile app (React PWA) — served at /driver-app
 ios-driver-app/   Native SwiftUI driver app starter — generated with XcodeGen
 supabase/         Database migrations and SQL helpers
 docs/             Internal documentation and changelogs
-outputs/          Generated QA/UAT artifacts
 ```
 
 ---
