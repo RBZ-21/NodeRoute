@@ -4,9 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PurchasingPage } from './PurchasingPage';
 import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
-const { fetchWithAuthMock, sendWithAuthMock } = vi.hoisted(() => ({
+const { fetchWithAuthMock, sendWithAuthMock, uploadWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
   sendWithAuthMock: vi.fn(),
+  uploadWithAuthMock: vi.fn(),
 }));
 
 const openMock = vi.fn();
@@ -15,6 +16,7 @@ const fetchMock = vi.fn();
 vi.mock('../lib/api', () => ({
   fetchWithAuth: fetchWithAuthMock,
   sendWithAuth: sendWithAuthMock,
+  uploadWithAuth: uploadWithAuthMock,
 }));
 
 const baseOrders = [
@@ -338,6 +340,7 @@ describe('PurchasingPage', () => {
   beforeEach(() => {
     fetchWithAuthMock.mockReset();
     sendWithAuthMock.mockReset();
+    uploadWithAuthMock.mockReset();
     openMock.mockReset();
     fetchMock.mockReset();
     openMock.mockReturnValue({
@@ -403,6 +406,7 @@ describe('PurchasingPage', () => {
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/purchase-orders/confirm', 'POST', {
+        request_id: expect.any(String),
         scan_id: null,
         vendor: 'Blue Ocean Seafood',
         po_number: 'PO-300',
@@ -458,7 +462,8 @@ describe('PurchasingPage', () => {
   it('lets users open an open vendor PO and post a receipt against it', async () => {
     sendWithAuthMock.mockImplementation(async (url: string, method: string, body: unknown) => {
       if (url === '/api/ops/vendor-purchase-orders/ops-po-1/receive' && method === 'POST') {
-        expect(body).toEqual({
+        expect(body).toEqual(expect.objectContaining({
+          receipt_request_id: expect.any(String),
           scan_id: null,
           lines: [
             {
@@ -477,11 +482,12 @@ describe('PurchasingPage', () => {
             },
           ],
           notes: 'Pallet 3 shorted 2 boxes',
+          carrier_name: null,
           receiptRules: {
             over_receipt_policy: 'cap',
             backorder_policy: 'open',
           },
-        });
+        }));
 
         return {
           ...baseVendorPurchaseOrders[0],
@@ -570,27 +576,24 @@ describe('PurchasingPage', () => {
 
   it('maps receipt scanner output into receive quantities, costs, and lot numbers', async () => {
     mockPurchasingApi({ vendorPurchaseOrders: molluskVendorPurchaseOrders });
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        vendor: 'Blue Ocean Seafood',
-        po_number: 'INV-OPS-17',
-        date: '2026-05-09',
-        total_cost: 37.5,
-        items: [
-          {
-            description: 'Fresh Clams',
-            category: 'Mollusks',
-            quantity: 5,
-            unit: 'lb',
-            unit_price: 7.5,
-            total: 37.5,
-            item_type: 'weighted',
-            lot_number: 'CLAM-LOT-17',
-            lot_number_confidence: 'high',
-          },
-        ],
-      }),
+    uploadWithAuthMock.mockResolvedValueOnce({
+      vendor: 'Blue Ocean Seafood',
+      po_number: 'INV-OPS-17',
+      date: '2026-05-09',
+      total_cost: 37.5,
+      items: [
+        {
+          description: 'Fresh Clams',
+          category: 'Mollusks',
+          quantity: 5,
+          unit: 'lb',
+          unit_price: 7.5,
+          total: 37.5,
+          item_type: 'weighted',
+          lot_number: 'CLAM-LOT-17',
+          lot_number_confidence: 'high',
+        },
+      ],
     });
 
     renderPurchasingPage();
@@ -678,27 +681,24 @@ describe('PurchasingPage', () => {
   });
 
   it('applies scan review metadata for item type and lot suggestions', async () => {
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        vendor: 'Blue Ocean Seafood',
-        po_number: 'PO-SCAN-9',
-        date: '2026-05-08',
-        total_cost: 62.5,
-        items: [
-          {
-            description: 'Fresh Salmon',
-            category: 'Seafood',
-            quantity: 5,
-            unit: 'lb',
-            unit_price: 12.5,
-            total: 62.5,
-            item_type: 'weighted',
-            lot_number: 'SAL-LOT-9',
-            lot_number_confidence: 'high',
-          },
-        ],
-      }),
+    uploadWithAuthMock.mockResolvedValueOnce({
+      vendor: 'Blue Ocean Seafood',
+      po_number: 'PO-SCAN-9',
+      date: '2026-05-08',
+      total_cost: 62.5,
+      items: [
+        {
+          description: 'Fresh Salmon',
+          category: 'Seafood',
+          quantity: 5,
+          unit: 'lb',
+          unit_price: 12.5,
+          total: 62.5,
+          item_type: 'weighted',
+          lot_number: 'SAL-LOT-9',
+          lot_number_confidence: 'high',
+        },
+      ],
     });
 
     renderPurchasingPage();
@@ -720,27 +720,24 @@ describe('PurchasingPage', () => {
 
   it('requires per-line approval before confirming scanned count items', async () => {
     sendWithAuthMock.mockResolvedValueOnce({ purchase_order: { id: 'po-301', po_number: 'PO-SCAN-COUNT' } });
-    fetchMock.mockResolvedValueOnce({
-      ok: true,
-      json: async () => ({
-        vendor: 'Harbor Supply',
-        po_number: 'PO-SCAN-COUNT',
-        date: '2026-05-09',
-        total_cost: 8,
-        items: [
-          {
-            description: 'Shipping Box',
-            category: 'Packaging',
-            quantity: 4,
-            unit: 'each',
-            unit_price: 2,
-            total: 8,
-            item_type: 'count',
-            lot_number: null,
-            lot_number_confidence: 'none',
-          },
-        ],
-      }),
+    uploadWithAuthMock.mockResolvedValueOnce({
+      vendor: 'Harbor Supply',
+      po_number: 'PO-SCAN-COUNT',
+      date: '2026-05-09',
+      total_cost: 8,
+      items: [
+        {
+          description: 'Shipping Box',
+          category: 'Packaging',
+          quantity: 4,
+          unit: 'each',
+          unit_price: 2,
+          total: 8,
+          item_type: 'count',
+          lot_number: null,
+          lot_number_confidence: 'none',
+        },
+      ],
     });
 
     renderPurchasingPage();

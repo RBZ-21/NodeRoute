@@ -202,6 +202,7 @@ async function loadVendorPurchaseOrdersFromDb(context) {
     const bucket = receiptsByPurchaseOrderId.get(receipt.purchase_order_id) || [];
     bucket.push({
       id: receipt.id,
+      receipt_request_id: receipt.receipt_request_id || null,
       received_at: receipt.received_at || null,
       received_by: receipt.received_by || null,
       notes: receipt.notes || null,
@@ -252,6 +253,7 @@ async function replaceReceiptAuditRows(purchaseOrderId, po, context) {
   for (const receipt of (Array.isArray(po.receipts) ? po.receipts : [])) {
     const receiptInsert = await insertRecordWithOptionalScope(supabase, 'po_receipts', {
       purchase_order_id: purchaseOrderId,
+      receipt_request_id: normalizeText(receipt.receipt_request_id) || null,
       scan_id: normalizeText(receipt.scan_id) || null,
       notes: receipt.notes || null,
       received_by: receipt.received_by || null,

@@ -16,6 +16,34 @@ function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
 }
 
+function portalContextKey(companyId, locationId) {
+  return `${String(companyId || '').trim()}::${String(locationId || '').trim()}`;
+}
+
+function selectPortalCustomerContext(candidates) {
+  const normalized = Array.isArray(candidates) ? candidates.filter(Boolean) : [];
+  if (!normalized.length) return null;
+
+  const uniqueContexts = new Map();
+  for (const candidate of normalized) {
+    uniqueContexts.set(
+      portalContextKey(candidate.companyId, candidate.locationId),
+      {
+        companyId: candidate.companyId || null,
+        locationId: candidate.locationId || null,
+      }
+    );
+  }
+
+  if (uniqueContexts.size > 1) {
+    const error = new Error('Multiple customer accounts share this email. Contact support for help accessing the correct portal account.');
+    error.code = 'PORTAL_EMAIL_AMBIGUOUS';
+    throw error;
+  }
+
+  return normalized[0];
+}
+
 const PORTAL_PREVIEW_EMAILS = String(process.env.PORTAL_PREVIEW_EMAILS || '')
   .split(',')
   .map((value) => normalizeEmail(value))
@@ -86,44 +114,62 @@ async function resolvePortalCustomer(email) {
     .select('*')
     .ilike('customer_email', normalized)
     .order('created_at', { ascending: false })
-    .limit(1);
+    .limit(25);
   if (invoiceError) throw invoiceError;
-  if (invoices && invoices.length > 0) {
-    return {
-      email: normalized,
-      name: invoices[0].customer_name || normalized,
-      companyId: invoices[0].company_id || null,
-      locationId: invoices[0].location_id || null,
-    };
-  }
 
   const { data: orders, error: orderError } = await supabase
     .from('orders')
     .select('*')
     .ilike('customer_email', normalized)
     .order('created_at', { ascending: false })
-    .limit(1);
+    .limit(25);
   if (orderError) throw orderError;
-  if (orders && orders.length > 0) {
-    return {
-      email: normalized,
-      name: orders[0].customer_name || normalized,
-      companyId: orders[0].company_id || null,
-      locationId: orders[0].location_id || null,
-    };
-  }
 
-  const { data: customers } = await supabase
+  const { data: customers, error: customerError } = await supabase
     .from('Customers')
     .select('company_name, billing_email, company_id, location_id')
     .ilike('billing_email', normalized)
-    .limit(1);
-  if (customers && customers.length > 0) {
+    .limit(25);
+  if (customerError) throw customerError;
+
+  const portalCandidates = [
+    ...(invoices || []).map((invoice) => ({
+      email: normalized,
+      name: invoice.customer_name || normalized,
+      companyId: invoice.company_id || null,
+      locationId: invoice.location_id || null,
+      createdAt: invoice.created_at || null,
+      source: 'invoice',
+    })),
+    ...(orders || []).map((order) => ({
+      email: normalized,
+      name: order.customer_name || normalized,
+      companyId: order.company_id || null,
+      locationId: order.location_id || null,
+      createdAt: order.created_at || null,
+      source: 'order',
+    })),
+    ...(customers || []).map((customer) => ({
+      email: normalized,
+      name: customer.company_name || normalized,
+      companyId: customer.company_id || null,
+      locationId: customer.location_id || null,
+      createdAt: null,
+      source: 'customer',
+    })),
+  ].sort((a, b) => {
+    const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+    const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+    return timeB - timeA;
+  });
+
+  const selectedCandidate = selectPortalCustomerContext(portalCandidates);
+  if (selectedCandidate) {
     return {
       email: normalized,
-      name: customers[0].company_name || normalized,
-      companyId: customers[0].company_id || null,
-      locationId: customers[0].location_id || null,
+      name: selectedCandidate.name || normalized,
+      companyId: selectedCandidate.companyId || null,
+      locationId: selectedCandidate.locationId || null,
     };
   }
 
@@ -225,4 +271,5 @@ module.exports = {
   sendPortalCodeEmail,
   signPortalJWT,
   touchRateLimitBucket,
+  selectPortalCustomerContext,
 };

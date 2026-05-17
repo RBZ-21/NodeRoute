@@ -152,6 +152,7 @@ export type PoScanResult = {
 };
 
 export type ConfirmPoPayload = {
+  request_id?: string | null;
   scan_id?: string | null;
   vendor: string | null;
   po_number: string | null;
@@ -178,6 +179,7 @@ export type ConfirmPoResponse = {
 };
 
 export type ReceiveVendorPoPayload = {
+  receipt_request_id?: string | null;
   scan_id?: string | null;
   lines: {
     line_no: number;

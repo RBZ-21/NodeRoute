@@ -15,6 +15,8 @@
  */
 const { supabase } = require('../services/supabase');
 const { verifyWebhookSignature } = require('../services/stripe');
+const { filterRowsByContext } = require('../services/operating-context');
+const { isOpenUnpaidInvoiceStatus } = require('../services/invoice-delivery');
 const logger = require('../services/logger');
 
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
@@ -33,24 +35,49 @@ async function claimEvent(eventId) {
 /** Resolve cents → dollars rounded to 2dp. */
 const cents = (n) => Math.round(n) / 100;
 
+function buildPortalWebhookContext({ company_id, location_id }) {
+  return {
+    companyId: company_id || null,
+    activeCompanyId: company_id || null,
+    accessibleCompanyIds: company_id ? [company_id] : [],
+    activeLocationId: location_id || null,
+    accessibleLocationIds: location_id ? [location_id] : [],
+    isGlobalOperator: false,
+  };
+}
+
+function invoiceIsWebhookPayable(invoice) {
+  const normalized = String(invoice?.status || '').trim().toLowerCase();
+  return normalized === 'open' || isOpenUnpaidInvoiceStatus(normalized);
+}
+
 async function handleCheckoutSessionCompleted(session) {
-  const { company_id, invoice_id, checkout_type } = session.metadata || {};
+  const { company_id, invoice_id, checkout_type, source, customer_email, location_id } = session.metadata || {};
   const amountPaid = cents(session.amount_total || 0);
 
-  if (checkout_type === 'portal_checkout') {
-    // Portal checkout: pay the oldest open invoices up to the amount paid
-    const { data: invoices, error } = await supabase
+  if (checkout_type === 'portal_checkout' || source === 'portal_checkout') {
+    if (!company_id || !customer_email) {
+      logger.warn({ session_id: session.id }, 'portal_checkout: missing company_id or customer_email in metadata');
+      return;
+    }
+
+    // Portal checkout: pay only this customer's scoped open invoices.
+    const { data: invoiceRows, error } = await supabase
       .from('invoices')
-      .select('id, total, company_id, status')
+      .select('id, total, company_id, location_id, customer_email, status')
       .eq('company_id', company_id)
-      .in('status', ['open', 'pending'])
+      .ilike('customer_email', customer_email)
       .order('created_at', { ascending: true });
 
     if (error) throw error;
+    const invoices = filterRowsByContext(
+      (invoiceRows || []).filter((invoice) => invoiceIsWebhookPayable(invoice)),
+      buildPortalWebhookContext({ company_id, location_id })
+    );
 
     // Tenant scope check
-    if (invoices.some(inv => inv.company_id !== company_id)) {
-      logger.error({ company_id }, 'Tenant scope violation in portal_checkout');
+    if (invoices.some(inv => inv.company_id !== company_id || String(inv.customer_email || '').toLowerCase() !== String(customer_email || '').toLowerCase())) {
+      logger.error({ company_id, customer_email }, 'Tenant scope violation in portal_checkout');
       return;
     }
 
@@ -102,10 +129,10 @@ async function handleCheckoutSessionCompleted(session) {
   }
 
   // Status check
-  if (!['open', 'pending'].includes(inv.status)) {
-    logger.info({ invoice_id, status: inv.status }, 'checkout.session.completed: invoice not in payable status — skipping');
-    return;
-  }
+    if (!invoiceIsWebhookPayable(inv)) {
+      logger.info({ invoice_id, status: inv.status }, 'checkout.session.completed: invoice not in payable status — skipping');
+      return;
+    }
 
   const { error: upErr } = await supabase
     .from('invoices')

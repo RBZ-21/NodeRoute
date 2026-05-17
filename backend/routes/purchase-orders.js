@@ -30,6 +30,73 @@ function isMissingLotSourcePoColumnError(error) {
   return !!error?.message && String(error.message).includes('lot_codes.source_po_number does not exist');
 }
 
+function isMissingSourceRequestIdColumnError(error) {
+  return !!error?.message && String(error.message).includes('purchase_orders.source_request_id does not exist');
+}
+
+function normalizeInventoryReceiptRequestId(requestId, scanId) {
+  const explicit = String(requestId || '').trim();
+  if (explicit) return explicit;
+  const normalizedScanId = String(scanId || '').trim();
+  return normalizedScanId ? `scan:${normalizedScanId}` : null;
+}
+
+async function reverseLedgerApplications(applications, userName) {
+  for (const entry of [...applications].reverse()) {
+    try {
+      await applyInventoryLedgerEntry({
+        itemNumber: entry.itemNumber,
+        deltaQty: -Math.abs(entry.qty),
+        changeType: 'receipt_reversal',
+        notes: entry.notes,
+        createdBy: userName || 'system',
+        preventNegative: false,
+      });
+    } catch (_error) {
+      // Best-effort reversal only. The primary failure will still surface to the caller.
+    }
+  }
+}
+
+async function findExistingInventoryReceiptByRequest({ requestId, scanId, context }) {
+  if (!requestId && !scanId) return null;
+
+  const selectClause = `${PURCHASE_ORDER_SELECT}, notes, workflow_kind, source_scan_id, source_request_id`;
+  if (requestId) {
+    let requestLookup = await executeWithOptionalScope(
+      (candidate) => supabase
+        .from('purchase_orders')
+        .select(candidate.select)
+        .eq('workflow_kind', 'inventory_receipt')
+        .eq('source_request_id', requestId)
+        .order('created_at', { ascending: false })
+        .limit(5),
+      { select: selectClause }
+    );
+    if (requestLookup.error && !isMissingSourceRequestIdColumnError(requestLookup.error)) {
+      throw new Error(requestLookup.error.message);
+    }
+    if (!requestLookup.error) {
+      const existingByRequest = filterRowsByContext(requestLookup.data || [], context)[0] || null;
+      if (existingByRequest) return existingByRequest;
+    }
+  }
+
+  if (!scanId) return null;
+  const scanLookup = await executeWithOptionalScope(
+    (candidate) => supabase
+      .from('purchase_orders')
+      .select(candidate.select)
+      .eq('workflow_kind', 'inventory_receipt')
+      .eq('source_scan_id', scanId)
+      .order('created_at', { ascending: false })
+      .limit(5),
+    { select: `${PURCHASE_ORDER_SELECT}, notes, workflow_kind, source_scan_id` }
+  );
+  if (scanLookup.error) throw new Error(scanLookup.error.message);
+  return filterRowsByContext(scanLookup.data || [], context)[0] || null;
+}
+
 const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -41,7 +108,9 @@ const upload = multer({
 });
 
 const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
+const PURCHASE_ORDER_SELECT = 'id, po_number, vendor, total_cost, items, confirmed_by, created_at, company_id, location_id';
 const purchaseOrderConfirmSchema = z.object({
+  request_id: z.any().optional(),
   vendor: z.string().trim().min(1, 'vendor is required'),
   po_number: z.any().optional(),
   date: z.any().optional(),
@@ -118,9 +187,31 @@ router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
 
 // ── POST /api/purchase-orders/confirm ──────────────────────────────────────
 router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), validateBody(purchaseOrderConfirmSchema), async (req, res) => {
-  const { vendor, po_number, date, items, total_cost, notes, scan_id } = req.validated.body;
+  const { request_id, vendor, po_number, date, items, total_cost, notes, scan_id } = req.validated.body;
   const resolvedPoNumber = String(po_number || '').trim() || generatePurchaseOrderNumber();
   const vendorRecord = await findVendorByName(vendor, req.context || {});
+  const normalizedRequestId = normalizeInventoryReceiptRequestId(request_id, scan_id);
+
+  try {
+    const existingReceipt = await findExistingInventoryReceiptByRequest({
+      requestId: normalizedRequestId,
+      scanId: String(scan_id || '').trim() || null,
+      context: req.context || {},
+    });
+    if (existingReceipt) {
+      return res.json({
+        success: true,
+        replay: true,
+        items_created: 0,
+        items_updated: 0,
+        lots_created: 0,
+        errors: [],
+        purchase_order: existingReceipt,
+      });
+    }
+  } catch (lookupError) {
+    return res.status(500).json({ error: lookupError.message });
+  }
 
   let { data: inventory, error: invErr } = await supabase
     .from('seafood_inventory')
@@ -142,6 +233,7 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
   let lotsCreated   = 0;
   const errors      = [];
   const savedItems  = [];
+  const ledgerApplications = [];
 
   for (const item of items) {
     const desc = (item.description || '').trim();
@@ -166,6 +258,11 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
           notes: `${poRef}${item.lot_number ? ' · Lot ' + item.lot_number : ''}`,
           createdBy: req.user.name || req.user.email,
           unitCost: unitPrice,
+        });
+        ledgerApplications.push({
+          itemNumber: existing.item_number,
+          qty,
+          notes: `Auto-reversal for inventory receipt retry protection · ${poRef}${item.lot_number ? ' · Lot ' + item.lot_number : ''}`,
         });
       } catch (ledgerErr) {
         errors.push(`${desc}: ${ledgerErr.message}`);
@@ -204,6 +301,11 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
           createdBy: req.user.name || req.user.email,
           unitCost: unitPrice,
         });
+        ledgerApplications.push({
+          itemNumber,
+          qty,
+          notes: `Auto-reversal for inventory receipt retry protection · ${poRef}${item.lot_number ? ' · Lot ' + item.lot_number : ''}`,
+        });
       } catch (ledgerErr) {
         errors.push(`${desc}: ${ledgerErr.message}`);
         continue;
@@ -226,9 +328,11 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
       if (existingLotErr) {
         // Fallback: query without scope if column missing
         const { data: fallbackLots, error: fallbackErr } = await supabase
-          .from('lot_codes').select('id').eq('lot_number', lotNumber).limit(1);
+          .from('lot_codes').select('id, company_id, location_id').eq('lot_number', lotNumber).limit(5);
         if (fallbackErr) throw new Error(fallbackErr.message);
-        const existingLot = fallbackLots?.[0] || null;
+        const scopedFallbackLots = filterRowsByContext(fallbackLots || [], req.context);
+        const existingLot = scopedFallbackLots[0]
+          || ((!scopeFields.company_id && !scopeFields.location_id) ? (fallbackLots?.[0] || null) : null);
         if (existingLot) {
           lotId = existingLot.id;
         }
@@ -295,6 +399,7 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
     status:       'received',
     workflow_kind:'inventory_receipt',
     workflow_id:  null,
+    source_request_id: String(normalizedRequestId || '').trim() || null,
     created_by:   req.user.name || req.user.email,
     updated_by:   req.user.name || req.user.email,
     updated_at:   new Date().toISOString(),
@@ -303,7 +408,10 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
     confirmed_by: req.user.name || req.user.email,
     ...buildScopeFields(req.context),
   }, req.context);
-  if (poInsert.error) return res.status(500).json({ error: poInsert.error.message });
+  if (poInsert.error) {
+    await reverseLedgerApplications(ledgerApplications, req.user.name || req.user.email);
+    return res.status(500).json({ error: poInsert.error.message });
+  }
   const po = poInsert.data;
 
   try {
@@ -343,7 +451,7 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
       .select(candidate.select)
       .order('created_at', { ascending: false })
       .limit(100),
-    { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, created_at, company_id, location_id, workflow_kind' }
+    { select: `${PURCHASE_ORDER_SELECT}, notes, workflow_kind` }
   );
   if (result.error && String(result.error.message || '').includes('purchase_orders.company_id')) {
     result = await executeWithOptionalScope(
@@ -368,7 +476,7 @@ router.get('/:id/pdf', authenticateToken, requireRole('admin', 'manager'), async
       .select(candidate.select)
       .eq('id', req.params.id)
       .single(),
-    { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, created_at, company_id, location_id' }
+    { select: `${PURCHASE_ORDER_SELECT}, notes` }
   );
   if (result.error && String(result.error.message || '').includes('purchase_orders.company_id')) {
     result = await executeWithOptionalScope(

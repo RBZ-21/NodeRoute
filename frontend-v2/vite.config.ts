@@ -8,7 +8,8 @@ export default defineConfig(({ mode }) => {
   const frontendEnv = loadEnv(mode, __dirname, '');
   const rootEnv = loadEnv(mode, resolve(__dirname, '..'), '');
   const env = { ...rootEnv, ...frontendEnv };
-  const hasSentryReleaseConfig = !!(env.SENTRY_AUTH_TOKEN && env.SENTRY_ORG && env.SENTRY_PROJECT);
+  const sentryUploadEnabled = String(env.SENTRY_UPLOAD_SOURCEMAPS || '').toLowerCase() === 'true';
+  const hasSentryReleaseConfig = sentryUploadEnabled && !!(env.SENTRY_AUTH_TOKEN && env.SENTRY_ORG && env.SENTRY_PROJECT);
 
   return {
     plugins: [
@@ -19,6 +20,7 @@ export default defineConfig(({ mode }) => {
               authToken: env.SENTRY_AUTH_TOKEN,
               org: env.SENTRY_ORG,
               project: env.SENTRY_PROJECT,
+              telemetry: false,
             }),
           ]
         : []),

@@ -79,7 +79,10 @@ module.exports = function buildPortalAuthRouter() {
       });
     } catch (error) {
       console.error('portal/auth:', error.message);
-      return res.status(500).json({ error: error.message || 'Could not start customer portal sign-in' });
+      if (error.code === 'PORTAL_EMAIL_AMBIGUOUS') {
+        return res.status(409).json({ error: error.message });
+      }
+      return res.status(500).json({ error: 'Could not start customer portal sign-in' });
     }
   });
 

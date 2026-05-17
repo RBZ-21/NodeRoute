@@ -33,3 +33,8 @@ test('vendor PO receipt route enforces mollusk lots and records them in lot_code
   assert.match(receiveRouteSource, /from\('lot_codes'\)\.insert\(\[candidate\]\)\.select\('id'\)\.single\(\)/);
   assert.match(receiveRouteSource, /source_po_number:\s+po\.po_number \|\| null/);
 });
+
+test('vendor PO receipt lot fallback does not bind unscoped matches when tenant scope is present', () => {
+  assert.match(receiveRouteSource, /const scopedFallbackLots = filterRowsByContext\(fallbackLookup\.data \|\| \[\], req\.context\)/);
+  assert.match(receiveRouteSource, /\|\| \(\(!scopeFields\.company_id && !scopeFields\.location_id\) \? \(fallbackLookup\.data\?\.\[0\] \|\| null\) : null\)/);
+});

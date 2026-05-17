@@ -24,6 +24,11 @@ const {
 module.exports = function buildPortalPaymentCollectionRouter({ authenticatePortalToken }) {
   const router = express.Router();
 
+  function portalPaymentIdempotencyKey(prefix, invoiceId, method, amount) {
+    const methodRef = method?.payment_method_ref || method?.id || 'unknown';
+    return `${prefix}:${invoiceId}:${methodRef}:${toMoney(amount).toFixed(2)}`;
+  }
+
   router.post('/payments/autopay/charge-now', authenticatePortalToken, async (req, res) => {
     try {
       if (!isStripeProviderEnabled()) {
@@ -76,7 +81,7 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
               company_id: req.portalContext.companyId || '',
               location_id: req.portalContext.activeLocationId || '',
             },
-            idempotencyKey: `portal-autopay-${invoice.id}-${Date.now()}`,
+            idempotencyKey: portalPaymentIdempotencyKey('portal-autopay', invoice.id, method, amount),
           });
 
           const status = String(intent.status || 'queued');
@@ -91,7 +96,8 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
           });
 
           if (status === 'succeeded') {
-            await supabase.from('invoices').update({ status: 'paid', sent_at: new Date().toISOString() }).eq('id', invoice.id);
+            const paidAt = new Date().toISOString();
+            await supabase.from('invoices').update({ status: 'paid', paid_at: paidAt, paid_date: paidAt }).eq('id', invoice.id);
           }
 
           runningTotal += amount;
@@ -167,6 +173,7 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
           cancelUrl: `${baseUrl}/portal?payment=cancelled`,
           metadata: {
             source: 'portal_checkout',
+            checkout_type: 'portal_checkout',
             customer_email: req.customerEmail,
             company_id: req.portalContext.companyId || '',
             location_id: req.portalContext.activeLocationId || '',
@@ -257,7 +264,7 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
           company_id: req.portalContext.companyId || '',
           location_id: req.portalContext.activeLocationId || '',
         },
-        idempotencyKey: `portal-invoice-pay-${invoiceRow.id}-${Date.now()}`,
+        idempotencyKey: portalPaymentIdempotencyKey('portal-invoice-pay', invoiceRow.id, method, amount),
       });
 
       const paymentStatus = String(intent.status || 'queued');
@@ -272,7 +279,8 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
       });
 
       if (paymentStatus === 'succeeded') {
-        await supabase.from('invoices').update({ status: 'paid', sent_at: new Date().toISOString() }).eq('id', invoiceRow.id);
+        const paidAt = new Date().toISOString();
+        await supabase.from('invoices').update({ status: 'paid', paid_at: paidAt, paid_date: paidAt }).eq('id', invoiceRow.id);
       }
 
       return res.json({

@@ -7,6 +7,7 @@ const express = require('express');
 const router  = express.Router();
 const { supabase }          = require('../services/supabase');
 const { authenticateToken } = require('../middleware/auth');
+const { filterRowsByContext } = require('../services/operating-context');
 
 router.get('/', authenticateToken, async (req, res) => {
   try {
@@ -16,7 +17,7 @@ router.get('/', authenticateToken, async (req, res) => {
     }
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
-    res.json(data || []);
+    res.json(filterRowsByContext(data || [], req.context));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

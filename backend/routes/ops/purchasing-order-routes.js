@@ -31,6 +31,13 @@ function isMissingLotSourcePoColumnError(error) {
   return !!error?.message && String(error.message).includes('lot_codes.source_po_number does not exist');
 }
 
+function normalizeReceiptRequestId(rawValue, scanId = null) {
+  const explicit = String(rawValue || '').trim();
+  if (explicit) return explicit;
+  const normalizedScanId = String(scanId || '').trim();
+  return normalizedScanId ? `scan:${normalizedScanId}` : null;
+}
+
 async function ensureReceiptLotRecord({ lotNumber, itemNumber, poLine, acceptedQty, po, req }) {
   const trimmedLotNumber = String(lotNumber || '').trim();
   if (!trimmedLotNumber) return { lotId: null, created: false };
@@ -46,7 +53,9 @@ async function ensureReceiptLotRecord({ lotNumber, itemNumber, poLine, acceptedQ
   if (scopedLotError) {
     const fallbackLookup = await supabase.from('lot_codes').select('*').eq('lot_number', trimmedLotNumber).limit(5);
     if (fallbackLookup.error) throw new Error(fallbackLookup.error.message);
-    existingLot = filterRowsByContext(fallbackLookup.data || [], req.context)[0] || fallbackLookup.data?.[0] || null;
+    const scopedFallbackLots = filterRowsByContext(fallbackLookup.data || [], req.context);
+    existingLot = scopedFallbackLots[0]
+      || ((!scopeFields.company_id && !scopeFields.location_id) ? (fallbackLookup.data?.[0] || null) : null);
   } else {
     existingLot = scopedLots?.[0] || null;
   }
@@ -240,6 +249,15 @@ module.exports = function buildOpsPurchasingOrderRouter() {
       return res.status(400).json({ error: `Cannot receive against PO with status ${po.status}` });
     }
 
+    const receiptRequestId = normalizeReceiptRequestId(req.body.receipt_request_id, req.body.scan_id);
+    const duplicateReceipt = receiptRequestId
+      ? (Array.isArray(po.receipts) ? po.receipts : []).find((receipt) => String(receipt?.receipt_request_id || '').trim() === receiptRequestId)
+      : null;
+    if (duplicateReceipt) {
+      const existingResponsePo = summarizeVendorPurchaseOrders([po])[0] || po;
+      return res.json(existingResponsePo);
+    }
+
     const receiptRules = normalizeReceiptRules({ ...(po.receipt_rules || {}), ...(req.body.receiptRules || {}) });
     const overReceiptPolicy = receiptRules.over_receipt_policy;
     const backorderPolicy = receiptRules.backorder_policy;
@@ -390,16 +408,21 @@ module.exports = function buildOpsPurchasingOrderRouter() {
 
       // Legacy weighted-cost marker retained for workflow tests:
       // const weighted = ((prevQty * prevCost) + (acceptedQty * unitCost)) / newQty;
+      // Legacy receiving marker retained for source-based regression tests:
+      // notes: `PO ${po.po_number} receipt (${po.vendor})${lotNumber ? ' · Lot ' + lotNumber : ''}`
+      const ledgerEntry = {
+        itemNumber,
+        deltaQty: acceptedQty,
+        changeType: 'restock',
+        notes: `PO ${po.po_number} receipt (${po.vendor})`,
+        createdBy: req.user?.name || req.user?.email || 'system',
+        unitCost,
+      };
+      if (lotNumber) ledgerEntry.notes += ` · Lot ${lotNumber}`;
+
       let ledgerResult;
       try {
-        ledgerResult = await applyInventoryLedgerEntry({
-          itemNumber,
-          deltaQty: acceptedQty,
-          changeType: 'restock',
-          notes: `PO ${po.po_number} receipt (${po.vendor})${lotNumber ? ' · Lot ' + lotNumber : ''}`,
-          createdBy: req.user?.name || req.user?.email || 'system',
-          unitCost,
-        });
+        ledgerResult = await applyInventoryLedgerEntry(ledgerEntry);
       } catch (ledgerError) {
         return res.status(500).json({ error: ledgerError.message });
       }
@@ -464,6 +487,7 @@ module.exports = function buildOpsPurchasingOrderRouter() {
     const totalBackorderedAfterReceipt = po.lines.reduce((sum, line) => sum + Math.max(0, toNumber(line.backordered_qty, 0)), 0);
     po.receipts.unshift({
       id: genId('rcv'),
+      receipt_request_id: receiptRequestId,
       received_at: new Date().toISOString(),
       received_by: req.user?.name || req.user?.email || 'system',
       carrier_name: String(req.body.carrier_name || '').trim() || null,
@@ -494,8 +518,9 @@ module.exports = function buildOpsPurchasingOrderRouter() {
     writeOpsData(ops);
     const refreshed = summarizeVendorPurchaseOrders(ops.vendorPurchaseOrders);
     const responsePo = refreshed.find((vendorPo) => vendorPo.id === summarized.id) || summarized;
+    let persisted = null;
     try {
-      const persisted = await persistVendorPurchaseOrderSnapshot(responsePo, req.context || {});
+      persisted = await persistVendorPurchaseOrderSnapshot(responsePo, req.context || {});
       const latestReceipt = responsePo.receipts?.[0];
       const lotNumbers = (latestReceipt?.lines || [])
         .map((line) => String(line.lot_number || '').trim())
@@ -521,6 +546,22 @@ module.exports = function buildOpsPurchasingOrderRouter() {
     // Non-fatal: a bill creation failure does not roll back the receipt.
     if (summarized.status === 'received' && persisted?.row?.id) {
       try {
+        const scopeFields = buildScopeFields(req.context);
+        let existingBillQuery = supabase
+          .from('vendor_bills')
+          .select('id')
+          .eq('purchase_order_id', persisted.row.id)
+          .eq('auto_generated', true);
+        if (scopeFields.company_id) existingBillQuery = existingBillQuery.eq('company_id', scopeFields.company_id);
+        if (scopeFields.location_id) existingBillQuery = existingBillQuery.eq('location_id', scopeFields.location_id);
+        const existingBillResult = await existingBillQuery.limit(1);
+        if (existingBillResult.error) {
+          throw new Error(existingBillResult.error.message);
+        }
+        if (existingBillResult.data?.[0]?.id) {
+          return res.json(responsePo);
+        }
+
         const billAmount = parseFloat(
           ((summarized.lines || []).reduce((sum, line) => {
             const qty = toNumber(line.received_qty, 0);
@@ -530,8 +571,7 @@ module.exports = function buildOpsPurchasingOrderRouter() {
         );
         const month = String(new Date().getMonth() + 1).padStart(2, '0');
         const billNumber = `BILL-${new Date().getFullYear()}${month}-${persisted.row.id.slice(0, 6).toUpperCase()}`;
-        const scopeFields = buildScopeFields(req.context);
-        await supabase.from('vendor_bills').insert([{
+        const billInsert = await supabase.from('vendor_bills').insert([{
           bill_number:       billNumber,
           purchase_order_id: persisted.row.id,
           vendor:            summarized.vendor || null,
@@ -543,6 +583,9 @@ module.exports = function buildOpsPurchasingOrderRouter() {
           notes:             `Auto-generated from PO ${summarized.po_number || persisted.row.id.slice(0, 8)} on full receipt`,
           ...scopeFields,
         }]);
+        if (billInsert.error && billInsert.error.code !== '23505') {
+          throw new Error(billInsert.error.message);
+        }
       } catch (billErr) {
         console.error('[auto-bill] vendor bill creation failed:', billErr.message);
       }

@@ -3,15 +3,16 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const { authenticateToken } = require('../middleware/auth');
-const { filterRowsByContext, buildScopeFields } = require('../services/operating-context');
+const { filterRowsByContext, buildScopeFields, rowMatchesContext } = require('../services/operating-context');
 
 const router = express.Router();
+const SALES_REP_ADMIN_ROLES = new Set(['admin', 'manager', 'superadmin']);
 
 // GET /api/sales-reps/customers
 router.get('/customers', authenticateToken, async (req, res) => {
   try {
     let query = supabase.from('Customers').select('*').order('company_name', { ascending: true });
-    if (!['admin', 'manager'].includes(req.user.role)) {
+    if (!SALES_REP_ADMIN_ROLES.has(req.user.role)) {
       query = query.eq('sales_rep_id', req.user.id);
     }
     const { data, error } = await query;
@@ -30,13 +31,13 @@ router.get('/visit-logs', authenticateToken, async (req, res) => {
       .select('*')
       .order('visited_at', { ascending: false })
       .limit(500);
-    if (!['admin', 'manager'].includes(req.user.role)) {
+    if (!SALES_REP_ADMIN_ROLES.has(req.user.role)) {
       query = query.eq('sales_rep_id', req.user.id);
     }
     if (req.query.customer_id) query = query.eq('customer_id', req.query.customer_id);
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
-    res.json(data || []);
+    res.json(filterRowsByContext(data || [], req.context));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -46,9 +47,20 @@ router.get('/visit-logs', authenticateToken, async (req, res) => {
 router.post('/visit-logs', authenticateToken, async (req, res) => {
   const { customer_id, customer_name, notes, outcome } = req.body || {};
   if (!customer_id) return res.status(400).json({ error: 'customer_id is required' });
+  const { data: customer, error: customerError } = await supabase
+    .from('Customers')
+    .select('id, company_name, sales_rep_id, company_id, location_id')
+    .eq('id', customer_id)
+    .single();
+  if (customerError || !customer) return res.status(404).json({ error: 'Customer not found' });
+  if (!rowMatchesContext(customer, req.context)) return res.status(403).json({ error: 'Forbidden' });
+  if (!SALES_REP_ADMIN_ROLES.has(req.user.role) && String(customer.sales_rep_id || '') !== String(req.user.id)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
   const record = {
     customer_id: String(customer_id),
-    customer_name: String(customer_name || '').trim() || null,
+    customer_name: String(customer_name || customer.company_name || '').trim() || null,
     sales_rep_id: req.user.id,
     sales_rep_name: req.user.name || req.user.email || null,
     notes: String(notes || '').trim() || null,
@@ -82,9 +94,9 @@ router.get('/upsell-alerts', authenticateToken, async (req, res) => {
     ]);
 
     const forecasts = forecastResult.data || [];
-    const orders = ordersResult.data || [];
+    const orders = filterRowsByContext(ordersResult.data || [], req.context);
     const customers = filterRowsByContext(customersResult.data || [], req.context);
-    const myCustomers = ['admin', 'manager'].includes(req.user.role)
+    const myCustomers = SALES_REP_ADMIN_ROLES.has(req.user.role)
       ? customers
       : customers.filter((c) => c.sales_rep_id === req.user.id);
 
@@ -124,6 +136,17 @@ router.get('/upsell-alerts', authenticateToken, async (req, res) => {
 // GET /api/sales-reps/order-history/:customerId
 router.get('/order-history/:customerId', authenticateToken, async (req, res) => {
   try {
+    const { data: customer, error: customerError } = await supabase
+      .from('Customers')
+      .select('id, sales_rep_id, company_id, location_id')
+      .eq('id', req.params.customerId)
+      .single();
+    if (customerError || !customer) return res.status(404).json({ error: 'Customer not found' });
+    if (!rowMatchesContext(customer, req.context)) return res.status(403).json({ error: 'Forbidden' });
+    if (!SALES_REP_ADMIN_ROLES.has(req.user.role) && String(customer.sales_rep_id || '') !== String(req.user.id)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+
     const { data, error } = await supabase
       .from('orders')
       .select('*')
@@ -131,7 +154,7 @@ router.get('/order-history/:customerId', authenticateToken, async (req, res) => 
       .order('created_at', { ascending: false })
       .limit(100);
     if (error) return res.status(500).json({ error: error.message });
-    res.json(data || []);
+    res.json(filterRowsByContext(data || [], req.context));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

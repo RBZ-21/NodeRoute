@@ -152,7 +152,7 @@ module.exports = function buildAutopayRouter({ authenticatePortalToken }) {
               company_id: req.portalContext.companyId || '',
               location_id: req.portalContext.activeLocationId || '',
             },
-            idempotencyKey: `portal-autopay-${invoice.id}-${Date.now()}`,
+            idempotencyKey: `portal-autopay:${invoice.id}:${method.payment_method_ref || method.id || 'unknown'}:${amount.toFixed(2)}`,
           });
 
           const status = String(intent.status || 'queued');
@@ -167,7 +167,8 @@ module.exports = function buildAutopayRouter({ authenticatePortalToken }) {
           });
 
           if (status === 'succeeded') {
-            await supabase.from('invoices').update({ status: 'paid', sent_at: new Date().toISOString() }).eq('id', invoice.id);
+            const paidAt = new Date().toISOString();
+            await supabase.from('invoices').update({ status: 'paid', paid_at: paidAt, paid_date: paidAt }).eq('id', invoice.id);
           }
 
           runningTotal += amount;
