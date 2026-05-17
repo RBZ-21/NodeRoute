@@ -43,6 +43,23 @@ export type VendorScore = {
 };
 export type VendorPerformanceResult = { scores: VendorScore[]; summary: string };
 
+export type WalkthroughResult = {
+  title: string;
+  summary: string;
+  steps: string[];
+  tips: string[];
+  warnings: string[];
+};
+
+export type InvoiceFollowUpResult = {
+  invoice_id?: string;
+  days_overdue?: number;
+  subject: string;
+  body: string;
+  tone: 'friendly' | 'firm' | 'urgent';
+  key_points: string[];
+};
+
 export function useReorderAlerts(enabled = false) {
   return useQuery<ReorderAlertsResult>({
     queryKey: ['ai', 'reorder-alerts'],
@@ -77,6 +94,20 @@ export function useVendorPerformance(enabled = false) {
     enabled,
     staleTime: 5 * 60_000,
     retry: 1,
+  });
+}
+
+export function useAIWalkthrough() {
+  return useMutation({
+    mutationFn: ({ feature, question }: { feature: string; question?: string }) =>
+      sendWithAuth<WalkthroughResult>('/api/ai/walkthrough', 'POST', { feature, question }),
+  });
+}
+
+export function useInvoiceFollowUp() {
+  return useMutation({
+    mutationFn: (invoiceId: string) =>
+      sendWithAuth<InvoiceFollowUpResult>('/api/ai/invoice-followup', 'POST', { invoice_id: invoiceId }),
   });
 }
 
