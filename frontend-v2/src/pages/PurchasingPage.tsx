@@ -97,6 +97,13 @@ function asNumber(value: unknown): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function createClientRequestId() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `req-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
+}
+
 function formatLeadTimeDays(value: number | null | undefined) {
   return Number.isFinite(Number(value)) ? `${asNumber(value).toFixed(2)} d` : 'Not measured';
 }
@@ -335,6 +342,8 @@ export function PurchasingPage() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const receiveFileInputRef = useRef<HTMLInputElement>(null);
   const receiveCameraInputRef = useRef<HTMLInputElement>(null);
+  const confirmRequestIdRef = useRef<string | null>(null);
+  const receiveRequestIdRef = useRef<string | null>(null);
 
   const [vendorPerfEnabled, setVendorPerfEnabled] = useState(false);
   const vendorPerfQuery = useVendorPerformance(vendorPerfEnabled);
@@ -584,6 +593,7 @@ export function PurchasingPage() {
 
   function loadReceiveDraft(po: VendorPurchaseOrder) {
     setActiveReceivePo(po);
+    receiveRequestIdRef.current = null;
     setReceiveNotes('');
     setCarrierName('');
     setReceiveScanLoading(false);
@@ -597,6 +607,7 @@ export function PurchasingPage() {
   }
 
   function applyScanResult(result: PoScanResult) {
+    confirmRequestIdRef.current = null;
     if (result.vendor) setVendor(result.vendor);
     if (result.po_number) setPoNumber(result.po_number);
     const draftLines: PurchaseItemDraft[] = (result.items || []).map((item) => ({
@@ -731,9 +742,18 @@ export function PurchasingPage() {
 
     setFormError('');
     const total_cost = items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
+    if (!confirmRequestIdRef.current) confirmRequestIdRef.current = createClientRequestId();
 
     confirmPo.mutate(
-      { scan_id: scanResult?.scan_id || null, vendor: vendor || null, po_number: poNumber || null, notes: notes || null, total_cost, items },
+      {
+        request_id: confirmRequestIdRef.current,
+        scan_id: scanResult?.scan_id || null,
+        vendor: vendor || null,
+        po_number: poNumber || null,
+        notes: notes || null,
+        total_cost,
+        items,
+      },
       {
         onSuccess: (response) => {
           const failed = Array.isArray(response.errors) && response.errors.length;
@@ -742,6 +762,7 @@ export function PurchasingPage() {
           setNotice(failed
             ? `PO saved with ${response.errors?.length || 0} line errors.${poLabel}${lotsMsg}`
             : `Purchase order confirmed and inventory updated.${poLabel}${lotsMsg}`);
+          confirmRequestIdRef.current = null;
           setVendor(''); setPoNumber(''); setNotes(''); setLines([emptyLine()]); setScanResult(null);
         },
         onError: (err) => setFormError(String((err as Error).message || 'Failed to confirm purchase order')),
@@ -788,10 +809,12 @@ export function PurchasingPage() {
     }
 
     setFormError('');
+    if (!receiveRequestIdRef.current) receiveRequestIdRef.current = createClientRequestId();
     receiveVendorPo.mutate(
       {
         id: activeReceivePo.id,
         payload: {
+          receipt_request_id: receiveRequestIdRef.current,
           scan_id: receiveScanResult?.scan_id || null,
           lines: payloadLines,
           carrier_name: carrierName.trim() || null,
@@ -808,6 +831,7 @@ export function PurchasingPage() {
           setNotice(
             `Receipt posted for ${updatedPo.po_number || updatedPo.id.slice(0, 8)}. Accepted ${acceptedQty.toFixed(2)} unit(s), rejected ${rejectedQty.toFixed(2)}, backordered ${backorderedQty.toFixed(2)}.`
           );
+          receiveRequestIdRef.current = null;
           loadReceiveDraft(updatedPo);
         },
         onError: (err) => setFormError(String((err as Error).message || 'Could not post receipt')),

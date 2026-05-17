@@ -110,7 +110,7 @@ async function loadDashboardContext(context) {
   const stopMap = Object.fromEntries(stops.map((stop) => [stop.id, stop]));
   const driverLocations = filterRowsByContext(driverLocationsResult.data || [], context);
   const locationMap = Object.fromEntries(driverLocations.map((loc) => [normalize(loc.driver_name), loc]));
-  const dwellRecords = dwellResult.data || [];
+  const dwellRecords = filterRowsByContext(dwellResult.data || [], context);
   const contacts = filterRowsByContext(contactsResult.data || [], context);
   const contactDoorMap = {};
   contacts.forEach((contact) => {

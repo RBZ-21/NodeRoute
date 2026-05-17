@@ -2,6 +2,11 @@ const express = require('express');
 const router = express.Router();
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const {
+  filterRowsByContext,
+  insertRecordWithOptionalScope,
+  rowMatchesContext,
+} = require('../services/operating-context');
 
 const WAREHOUSE_ROLES = ['admin', 'manager', 'warehouse'];
 
@@ -27,24 +32,32 @@ router.get('/', authenticateToken, requireRole(...WAREHOUSE_ROLES), async (req, 
       .lte('scheduled_date', today + 'T23:59:59');
     if (stopErr) return res.status(500).json({ error: stopErr.message });
 
-    const { count: scanCount } = await supabase
+    const { data: scanRows, error: scanError } = await supabase
       .from('warehouse_scans')
-      .select('id', { count: 'exact', head: true })
+      .select('*')
       .gte('created_at', today);
+    if (scanError) return res.status(500).json({ error: scanError.message });
 
-    const { count: openReturns } = await supabase
+    const { data: returnRows, error: returnError } = await supabase
       .from('warehouse_returns')
-      .select('id', { count: 'exact', head: true })
+      .select('*')
       .eq('status', 'open');
+    if (returnError) return res.status(500).json({ error: returnError.message });
+
+    const scopedInventory = filterRowsByContext(inventory || [], req.context);
+    const scopedPos = filterRowsByContext(pos || [], req.context);
+    const scopedStops = filterRowsByContext(stops || [], req.context);
+    const scopedScans = filterRowsByContext(scanRows || [], req.context);
+    const scopedReturns = filterRowsByContext(returnRows || [], req.context);
 
     res.json({
-      inventory: inventory || [],
-      totalSkus: (inventory || []).length,
-      pendingInbound: (pos || []).length,
-      todayStops: (stops || []).length,
-      todayStopsCompleted: (stops || []).filter((s) => s.status === 'completed').length,
-      todayScans: scanCount || 0,
-      openReturns: openReturns || 0,
+      inventory: scopedInventory,
+      totalSkus: scopedInventory.length,
+      pendingInbound: scopedPos.length,
+      todayStops: scopedStops.length,
+      todayStopsCompleted: scopedStops.filter((s) => s.status === 'completed').length,
+      todayScans: scopedScans.length,
+      openReturns: scopedReturns.length,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -59,7 +72,7 @@ router.get('/inventory', authenticateToken, requireRole(...WAREHOUSE_ROLES), asy
       .select('*')
       .order('description');
     if (error) return res.status(500).json({ error: error.message });
-    res.json(data || []);
+    res.json(filterRowsByContext(data || [], req.context));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -68,6 +81,14 @@ router.get('/inventory', authenticateToken, requireRole(...WAREHOUSE_ROLES), asy
 // PATCH /api/warehouse/inventory/:id
 router.patch('/inventory/:id', authenticateToken, requireRole(...WAREHOUSE_ROLES), async (req, res) => {
   try {
+    const { data: existing, error: existingError } = await supabase
+      .from('seafood_inventory')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+    if (existingError || !existing) return res.status(404).json({ error: 'Inventory item not found' });
+    if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
+
     const ALLOWED = ['quantity', 'status', 'cost', 'description'];
     const update = {};
     for (const key of ALLOWED) {
@@ -97,7 +118,7 @@ router.get('/locations', authenticateToken, requireRole(...WAREHOUSE_ROLES), asy
       .select('*')
       .order('name');
     if (error) return res.status(500).json({ error: error.message });
-    res.json(data || []);
+    res.json(filterRowsByContext(data || [], req.context));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -108,13 +129,14 @@ router.post('/locations', authenticateToken, requireRole('admin', 'manager'), as
   try {
     const { name, type, notes } = req.body;
     if (!name || !type) return res.status(400).json({ error: 'name and type are required' });
-    const { data, error } = await supabase
-      .from('warehouse_locations')
-      .insert([{ name, type, notes: notes || null }])
-      .select()
-      .single();
-    if (error) return res.status(500).json({ error: error.message });
-    res.status(201).json(data);
+    const result = await insertRecordWithOptionalScope(
+      supabase,
+      'warehouse_locations',
+      { name, type, notes: notes || null },
+      req.context
+    );
+    if (result.error) return res.status(500).json({ error: result.error.message });
+    res.status(201).json(result.data);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -123,6 +145,14 @@ router.post('/locations', authenticateToken, requireRole('admin', 'manager'), as
 // PATCH /api/warehouse/locations/:id
 router.patch('/locations/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
+    const { data: existing, error: existingError } = await supabase
+      .from('warehouse_locations')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+    if (existingError || !existing) return res.status(404).json({ error: 'Warehouse location not found' });
+    if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
+
     const ALLOWED = ['name', 'type', 'notes', 'status'];
     const update = {};
     for (const key of ALLOWED) {
@@ -145,6 +175,14 @@ router.patch('/locations/:id', authenticateToken, requireRole('admin', 'manager'
 // DELETE /api/warehouse/locations/:id
 router.delete('/locations/:id', authenticateToken, requireRole('admin'), async (req, res) => {
   try {
+    const { data: existing, error: existingError } = await supabase
+      .from('warehouse_locations')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+    if (existingError || !existing) return res.status(404).json({ error: 'Warehouse location not found' });
+    if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
+
     const { error } = await supabase
       .from('warehouse_locations')
       .delete()
@@ -176,7 +214,7 @@ router.get('/scans', authenticateToken, requireRole(...WAREHOUSE_ROLES), async (
     }
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
-    res.json(data || []);
+    res.json(filterRowsByContext(data || [], req.context));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -191,9 +229,10 @@ router.post('/scans', authenticateToken, requireRole(...WAREHOUSE_ROLES), async 
     if (!VALID_ACTIONS.includes(action)) {
       return res.status(400).json({ error: `action must be one of: ${VALID_ACTIONS.join(', ')}` });
     }
-    const { data, error } = await supabase
-      .from('warehouse_scans')
-      .insert([{
+    const result = await insertRecordWithOptionalScope(
+      supabase,
+      'warehouse_scans',
+      {
         item_number,
         action,
         quantity: quantity != null ? quantity : null,
@@ -203,11 +242,11 @@ router.post('/scans', authenticateToken, requireRole(...WAREHOUSE_ROLES), async 
         notes: notes || null,
         performed_by: req.user?.id || null,
         created_at: new Date().toISOString(),
-      }])
-      .select()
-      .single();
-    if (error) return res.status(500).json({ error: error.message });
-    res.status(201).json(data);
+      },
+      req.context
+    );
+    if (result.error) return res.status(500).json({ error: result.error.message });
+    res.status(201).json(result.data);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -226,7 +265,7 @@ router.get('/returns', authenticateToken, requireRole(...WAREHOUSE_ROLES), async
     if (status) query = query.eq('status', status);
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
-    res.json(data || []);
+    res.json(filterRowsByContext(data || [], req.context));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -239,9 +278,10 @@ router.post('/returns', authenticateToken, requireRole(...WAREHOUSE_ROLES), asyn
     if (!item_number || !quantity || !reason) {
       return res.status(400).json({ error: 'item_number, quantity, and reason are required' });
     }
-    const { data, error } = await supabase
-      .from('warehouse_returns')
-      .insert([{
+    const result = await insertRecordWithOptionalScope(
+      supabase,
+      'warehouse_returns',
+      {
         customer_id: customer_id || null,
         customer_name: customer_name || null,
         item_number,
@@ -254,11 +294,11 @@ router.post('/returns', authenticateToken, requireRole(...WAREHOUSE_ROLES), asyn
         status: 'open',
         reported_by: req.user?.id || null,
         created_at: new Date().toISOString(),
-      }])
-      .select()
-      .single();
-    if (error) return res.status(500).json({ error: error.message });
-    res.status(201).json(data);
+      },
+      req.context
+    );
+    if (result.error) return res.status(500).json({ error: result.error.message });
+    res.status(201).json(result.data);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -267,6 +307,14 @@ router.post('/returns', authenticateToken, requireRole(...WAREHOUSE_ROLES), asyn
 // PATCH /api/warehouse/returns/:id
 router.patch('/returns/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
+    const { data: existing, error: existingError } = await supabase
+      .from('warehouse_returns')
+      .select('*')
+      .eq('id', req.params.id)
+      .single();
+    if (existingError || !existing) return res.status(404).json({ error: 'Warehouse return not found' });
+    if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
+
     const ALLOWED = ['status', 'resolution', 'notes', 'restocked'];
     const update = {};
     for (const key of ALLOWED) {

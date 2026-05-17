@@ -442,6 +442,17 @@ async function updateRecord(table, id, payload, res) {
 }
 
 async function findOrderStop(order) {
+  if (order?.id) {
+    const byOrderId = await supabase
+      .from('stops')
+      .select('*')
+      .eq('order_id', order.id)
+      .limit(1);
+    if (!byOrderId.error && Array.isArray(byOrderId.data) && byOrderId.data.length) {
+      return byOrderId.data[0];
+    }
+  }
+
   const orderNumber = String(order?.order_number || '').trim();
   if (!orderNumber) return null;
   const { data, error } = await supabase
@@ -473,6 +484,8 @@ async function syncOrderStop(order, req, removeOnly = false) {
     lat: parseFloat(order?.customer_lat) || 0,
     lng: parseFloat(order?.customer_lng) || 0,
     notes: stopNotes,
+    order_id: order?.id || null,
+    invoice_id: order?.invoice_id || null,
     route_id: order?.route_id || null,
   };
 
@@ -487,6 +500,25 @@ async function syncOrderStop(order, req, removeOnly = false) {
   const insertResult = await insertRecordWithOptionalScope(supabase, 'stops', payload, req.context);
   if (insertResult.error) throw insertResult.error;
   return insertResult.data?.id || null;
+}
+
+async function syncOrderStopLinks(order, req, overrides = {}) {
+  if (!order?.id) return null;
+  const stop = await findOrderStop(order);
+  if (!stop?.id) return null;
+
+  const payload = {
+    order_id: order.id,
+    invoice_id: overrides.invoiceId !== undefined ? overrides.invoiceId : (order.invoice_id || null),
+    route_id: overrides.routeId !== undefined ? overrides.routeId : (order.route_id || null),
+  };
+
+  const result = await executeWithOptionalScope(
+    (candidate) => supabase.from('stops').update(candidate).eq('id', stop.id).select().single(),
+    payload
+  );
+  if (result.error) throw result.error;
+  return result.data || stop;
 }
 
 async function findInvoiceForOrder(order) {
@@ -527,6 +559,12 @@ async function markOrderDelivered(order, req, res) {
   const invoice = await findInvoiceForOrder(order);
   if (invoice?.id) {
     invoiceId = invoice.id;
+    try {
+      await syncOrderStopLinks(order, req, { invoiceId: invoice.id });
+    } catch (stopLinkError) {
+      if (res) res.status(500).json({ error: stopLinkError.message });
+      return null;
+    }
     const invoiceResult = await executeWithOptionalScope(
       (candidate) => supabase.from('invoices').update(candidate).eq('id', invoice.id).select().single(),
       { status: statusAfterDeliveryCompletion(invoice.status) }
@@ -899,6 +937,11 @@ router.post('/:id/send', validate(orderSendSchema), authenticateToken, requireRo
     tracking_expires_at: trackingExpiresAt,
   }, res);
   if (!data) return;
+  try {
+    await syncOrderStopLinks({ ...existing, ...data, invoice_id: invoice.id }, req, { invoiceId: invoice.id });
+  } catch (stopLinkErr) {
+    return res.status(500).json({ error: stopLinkErr.message || 'Could not sync delivery stop invoice link' });
+  }
   res.json({
     ...data,
     invoice,
@@ -969,6 +1012,11 @@ router.post('/:id/fulfill', validate(orderFulfillSchema), authenticateToken, req
     tracking_expires_at: trackingExpiresAt,
   });
   if (orderUpdate.error) return res.status(500).json({ error: orderUpdate.error.message });
+  try {
+    await syncOrderStopLinks({ ...order, invoice_id: invoice.id, route_id: routeId || null }, req, { invoiceId: invoice.id, routeId: routeId || null });
+  } catch (stopLinkErr) {
+    return res.status(500).json({ error: stopLinkErr.message || 'Could not sync delivery stop invoice link' });
+  }
 
   const emailResult = await sendFulfillmentInvoiceIfPossible(invoice);
   res.json({

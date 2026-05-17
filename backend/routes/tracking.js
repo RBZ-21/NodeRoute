@@ -182,7 +182,7 @@ router.get('/:token', async (req, res) => {
       .from('dwell_records')
       .select('stop_id, arrived_at, departed_at')
       .eq('route_id', order.route_id);
-    const relevantDwell = dwellRows || [];
+    const relevantDwell = filterRowsByContext(dwellRows || [], trackingContext);
     completedStopIds = new Set(relevantDwell.filter((r) => r.departed_at).map((r) => r.stop_id));
     const activeDwell = relevantDwell.find((r) => !r.departed_at) || null;
     activeDwellMinutes = activeDwell ? (Date.now() - new Date(activeDwell.arrived_at).getTime()) / 60000 : 0;

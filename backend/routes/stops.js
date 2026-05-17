@@ -4,7 +4,7 @@ const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { sendInvoiceEmail } = require('../services/invoice-email');
 const {
-  buildScopeFields,
+  filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
 } = require('../services/operating-context');
@@ -16,7 +16,7 @@ const {
 const { syncRouteMutation } = require('../services/route-stop-sync');
 
 const STOP_FIELDS = [
-  'route_id', 'customer_id', 'address', 'status', 'name',
+  'route_id', 'customer_id', 'order_id', 'invoice_id', 'address', 'status', 'name',
   'scheduled_date', 'scheduled_time', 'notes', 'driver_id',
   'driver_notes', 'door_code',
   'signature_data', 'signature_captured_at', 'signature_captured_by',
@@ -47,6 +47,28 @@ async function loadLinkedInvoiceForStop(stop, context) {
     const { data: invoice } = await supabase
       .from('invoices').select('*').eq('id', stop.invoice_id).single();
     if (invoice && rowMatchesContext(invoice, context)) return invoice;
+  }
+
+  if (stop.order_id) {
+    const { data: order } = await supabase
+      .from('orders').select('id, invoice_id, order_number, company_id, location_id').eq('id', stop.order_id).single();
+    if (order && rowMatchesContext(order, context)) {
+      if (order.invoice_id) {
+        const { data: invoice } = await supabase
+          .from('invoices').select('*').eq('id', order.invoice_id).single();
+        if (invoice && rowMatchesContext(invoice, context)) return invoice;
+      }
+
+      const byOrderId = await supabase
+        .from('invoices')
+        .select('*')
+        .eq('order_id', order.id)
+        .limit(1);
+      if (!byOrderId.error && Array.isArray(byOrderId.data) && byOrderId.data.length) {
+        const invoice = byOrderId.data.find((candidate) => rowMatchesContext(candidate, context));
+        if (invoice) return invoice;
+      }
+    }
   }
 
   const orderNumber = extractOrderNumberFromStopNotes(stop.notes);
@@ -116,6 +138,10 @@ async function authorizeDwellEvent(req, res, stopId) {
     res.status(404).json({ error: 'Stop not found' });
     return { ok: false };
   }
+  if (!rowMatchesContext(stop, req.context)) {
+    res.status(403).json({ error: 'Forbidden' });
+    return { ok: false };
+  }
 
   if (!stop.route_id) {
     res.status(400).json({ error: 'Stop is not assigned to a route' });
@@ -126,6 +152,10 @@ async function authorizeDwellEvent(req, res, stopId) {
     .from('routes').select('*').eq('id', stop.route_id).single();
   if (routeErr || !route) {
     res.status(404).json({ error: 'Route not found' });
+    return { ok: false };
+  }
+  if (!rowMatchesContext(route, req.context)) {
+    res.status(403).json({ error: 'Forbidden' });
     return { ok: false };
   }
 
@@ -156,7 +186,7 @@ router.get('/', authenticateToken, async (req, res) => {
     query = query.order('created_at', { ascending: true });
     const { data, error } = await query;
     if (error) return res.status(500).json({ error: error.message });
-    res.json(data || []);
+    res.json(filterRowsByContext(data || [], req.context));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -168,6 +198,9 @@ router.get('/:id', authenticateToken, async (req, res) => {
     const { data, error } = await supabase
       .from('stops').select('*').eq('id', req.params.id).single();
     if (error) return res.status(404).json({ error: 'Stop not found' });
+    if (!rowMatchesContext(data, req.context)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
     if (req.user.role === 'driver' && String(data.driver_id) !== String(req.user.id)) {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -291,21 +324,16 @@ router.post('/:id/arrive', authenticateToken, async (req, res) => {
     await supabase.from('stops').update({ status: 'arrived', arrived_at: new Date().toISOString() }).eq('id', req.params.id);
 
     const arrivedAt = new Date().toISOString();
-    const { data: record, error: insertErr } = await supabase
-      .from('dwell_records')
-      .insert([{
-        stop_id:    req.params.id,
-        route_id:   route.id,
-        driver_id:  req.user.id,
-        arrived_at: arrivedAt,
-        departed_at: null,
-        dwell_ms:   null,
-        ...buildScopeFields(req.context),
-      }])
-      .select()
-      .single();
-    if (insertErr) return res.status(500).json({ error: insertErr.message });
-    res.json(record);
+    const insertResult = await insertRecordWithOptionalScope(supabase, 'dwell_records', {
+      stop_id: req.params.id,
+      route_id: route.id,
+      driver_id: req.user.id,
+      arrived_at: arrivedAt,
+      departed_at: null,
+      dwell_ms: null,
+    }, req.context);
+    if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
+    res.json(insertResult.data);
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
@@ -396,6 +424,7 @@ router.post('/:id/move-to-end', authenticateToken, requireRole('admin', 'manager
     const { data: stop, error: stopErr } = await supabase
       .from('stops').select('route_id, driver_id, status').eq('id', req.params.id).single();
     if (stopErr || !stop) return res.status(404).json({ error: 'Stop not found' });
+    if (!rowMatchesContext(stop, req.context)) return res.status(403).json({ error: 'Forbidden' });
     if (req.user.role === 'driver' && String(stop.driver_id) !== String(req.user.id)) {
       return res.status(403).json({ error: 'Access denied' });
     }
@@ -405,6 +434,7 @@ router.post('/:id/move-to-end', authenticateToken, requireRole('admin', 'manager
     const { data: route, error: routeErr } = await supabase
       .from('routes').select('stop_ids, active_stop_ids').eq('id', stop.route_id).single();
     if (routeErr || !route) return res.status(404).json({ error: 'Route not found' });
+    if (!rowMatchesContext(route, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
     const current = Array.isArray(route.active_stop_ids) ? route.active_stop_ids : [];
     const reordered = [...current.filter((id) => id !== req.params.id), req.params.id];
@@ -439,11 +469,13 @@ router.post('/:id/defer', authenticateToken, async (req, res) => {
     const { data: stop, error: stopErr } = await supabase
       .from('stops').select('*').eq('id', req.params.id).single();
     if (stopErr || !stop) return res.status(404).json({ error: 'Stop not found' });
+    if (!rowMatchesContext(stop, req.context)) return res.status(403).json({ error: 'Forbidden' });
     if (!stop.route_id) return res.status(400).json({ error: 'Stop is not assigned to a route' });
 
     const { data: route, error: routeErr } = await supabase
       .from('routes').select('*').eq('id', stop.route_id).single();
     if (routeErr || !route) return res.status(404).json({ error: 'Route not found' });
+    if (!rowMatchesContext(route, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
     if (req.user.role === 'driver') {
       if (!isRouteAssignedToUser(route, req.user)) {
@@ -510,13 +542,14 @@ router.post('/:id/defer', authenticateToken, async (req, res) => {
 // POST /api/stops/:id/signature — save a delivery signature
 router.post('/:id/signature', authenticateToken, async (req, res) => {
   try {
-    if (req.user.role === 'driver') {
-      const { data: existing, error: fetchErr } = await supabase
-        .from('stops').select('driver_id').eq('id', req.params.id).single();
-      if (fetchErr) return res.status(404).json({ error: 'Stop not found' });
-      if (String(existing.driver_id) !== String(req.user.id)) {
-        return res.status(403).json({ error: 'Access denied' });
-      }
+    const { data: existing, error: fetchErr } = await supabase
+      .from('stops').select('*').eq('id', req.params.id).single();
+    if (fetchErr || !existing) return res.status(404).json({ error: 'Stop not found' });
+    if (!rowMatchesContext(existing, req.context)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (req.user.role === 'driver' && String(existing.driver_id) !== String(req.user.id)) {
+      return res.status(403).json({ error: 'Access denied' });
     }
     const { signature_data, signer_name } = req.body;
     if (!signature_data) return res.status(400).json({ error: 'signature_data is required' });
@@ -540,13 +573,14 @@ router.post('/:id/signature', authenticateToken, async (req, res) => {
 // POST /api/stops/:id/weight — save captured weight at delivery
 router.post('/:id/weight', authenticateToken, async (req, res) => {
   try {
-    if (req.user.role === 'driver') {
-      const { data: existing, error: fetchErr } = await supabase
-        .from('stops').select('driver_id').eq('id', req.params.id).single();
-      if (fetchErr) return res.status(404).json({ error: 'Stop not found' });
-      if (String(existing.driver_id) !== String(req.user.id)) {
-        return res.status(403).json({ error: 'Access denied' });
-      }
+    const { data: existing, error: fetchErr } = await supabase
+      .from('stops').select('*').eq('id', req.params.id).single();
+    if (fetchErr || !existing) return res.status(404).json({ error: 'Stop not found' });
+    if (!rowMatchesContext(existing, req.context)) {
+      return res.status(403).json({ error: 'Forbidden' });
+    }
+    if (req.user.role === 'driver' && String(existing.driver_id) !== String(req.user.id)) {
+      return res.status(403).json({ error: 'Access denied' });
     }
     const { weight_lbs } = req.body;
     if (weight_lbs === undefined || weight_lbs === null) {
@@ -594,127 +628,22 @@ router.post('/:id/notes', authenticateToken, requireRole('admin', 'manager', 'dr
     return res.status(400).json({ ok: false, error: 'notes must be a string' });
   }
   try {
+    const { data: existing, error: existingError } = await supabase
+      .from('stops')
+      .select('*')
+      .eq('id', stopId)
+      .single();
+    if (existingError || !existing) return res.status(404).json({ ok: false, error: 'Stop not found' });
+    if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ ok: false, error: 'Forbidden' });
+    if (req.user.role === 'driver' && String(existing.driver_id) !== String(req.user.id)) {
+      return res.status(403).json({ ok: false, error: 'Access denied' });
+    }
+
     const { data: updated, error } = await supabase.from('stops').update({ notes }).eq('id', stopId).select('*').single();
     if (error) return res.status(500).json({ ok: false, error: error.message });
     res.json({ ok: true, stop: updated });
   } catch (err) {
     res.status(500).json({ ok: false, error: err?.message || 'Could not update notes' });
-  }
-});
-
-// Helpers: determine if a driver is authorized to modify this stop (best-effort)
-async function canDriverAccessStop(stopId, user) {
-  if (!stopId) return false;
-  const role = String((user?.role || '').toLowerCase());
-  if (role !== 'driver') return true; // non-drivers are allowed through by role check
-  try {
-    const { data: stopRec } = await supabase.from('stops').select('queue_id').eq('id', stopId).single();
-    const queueId = stopRec?.queue_id ?? null;
-    if (!queueId) return true;
-    const { data: route } = await supabase.from('routes').select('driver_id').eq('id', queueId).single();
-    if (route?.driver_id && String(route.driver_id) !== String(user?.id)) {
-      return false;
-    }
-    return true;
-  } catch {
-    // If we can't determine ownership, allow the operation by default
-    return true;
-  }
-}
-
-// POST: arrive at a stop (Driver action)
-router.post('/:id/arrive', authenticateToken, requireRole('admin', 'manager', 'driver'), async (req, res) => {
-  const stopId = req.params.id;
-  const user = req.user || {};
-  if (!(await canDriverAccessStop(stopId, user))) {
-    return res.status(403).json({ ok: false, error: 'Not authorized for this stop' });
-  }
-  try {
-    const now = new Date().toISOString();
-    const { data: stop, error } = await supabase.from('stops').update({ arrived_at: now }).eq('id', stopId).select('*').single();
-    if (error) return res.status(500).json({ ok: false, error: error.message });
-    res.json({ ok: true, stop });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e?.message || 'Could not mark arrived' });
-  }
-});
-
-// POST: depart from a stop (Driver action)
-router.post('/:id/depart', authenticateToken, requireRole('admin', 'manager', 'driver'), async (req, res) => {
-  const stopId = req.params.id;
-  const user = req.user || {};
-  if (!(await canDriverAccessStop(stopId, user))) {
-    return res.status(403).json({ ok: false, error: 'Not authorized for this stop' });
-  }
-  try {
-    const now = new Date().toISOString();
-    const { data: stop, error } = await supabase.from('stops').update({ departed_at: now }).eq('id', stopId).select('*').single();
-    if (error) return res.status(500).json({ ok: false, error: error.message });
-    res.json({ ok: true, stop });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e?.message || 'Could not mark departed' });
-  }
-});
-
-// POST: record a driver signature for a stop (best-effort; uses signature column if present)
-router.post('/:id/signature', authenticateToken, requireRole('admin', 'manager', 'driver'), async (req, res) => {
-  const stopId = req.params.id;
-  const { signature } = req.body;
-  const user = req.user || {};
-  if (!(await canDriverAccessStop(stopId, user))) {
-    return res.status(403).json({ ok: false, error: 'Not authorized for this stop' });
-  }
-  try {
-    // Try primary column first
-    let result = await supabase.from('stops').update({ signature }).eq('id', stopId).select('*').single();
-    if (result.error && result.error.message.includes('column "signature" does not exist')) {
-      // Fallback: try alternative column name
-      result = await supabase.from('stops').update({ driver_signature: signature }).eq('id', stopId).select('*').single();
-    }
-    if (result.error) return res.status(500).json({ ok: false, error: result.error.message });
-    res.json({ ok: true, stop: result.data });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e?.message || 'Could not save signature' });
-  }
-});
-
-// POST: record weight for a stop (best-effort with fallbacks)
-router.post('/:id/weight', authenticateToken, requireRole('admin', 'manager', 'driver'), async (req, res) => {
-  const stopId = req.params.id;
-  const { weight } = req.body;
-  const user = req.user || {};
-  if (!(await canDriverAccessStop(stopId, user))) {
-    return res.status(403).json({ ok: false, error: 'Not authorized for this stop' });
-  }
-  try {
-    // Try a few common column names
-    const candidates = [{ weight } , { estimated_weight: weight }, { requested_weight: weight }];
-    let updated = null;
-    for (const cand of candidates) {
-      const resQ = await supabase.from('stops').update(cand).eq('id', stopId).select('*').single();
-      if (!resQ.error) { updated = resQ.data; break; }
-    }
-    if (!updated) return res.status(500).json({ ok: false, error: 'Could not set weight' });
-    res.json({ ok: true, stop: updated });
-  } catch (e) {
-    res.status(500).json({ ok: false, error: e?.message || 'Could not set weight' });
-  }
-});
-
-// POST: defer a stop to end (alias for move-to-end)
-router.post('/:id/defer', authenticateToken, requireRole('admin', 'manager', 'driver'), async (req, res) => {
-  const stopId = req.params.id;
-  const queueIdOverride = req.body.queueId ?? req.query.queueId ?? null;
-  // Reuse existing authorization guard for drivers
-  const user = req.user || {};
-  if (!await canDriverAccessStop(stopId, user)) {
-    return res.status(403).json({ ok: false, error: 'Not authorized for this stop' });
-  }
-  try {
-    const updatedStops = await reorderStopToEnd(stopId, queueIdOverride);
-    res.json({ ok: true, stops: updatedStops });
-  } catch (err) {
-    res.status(500).json({ ok: false, error: err?.message || 'Could not defer stop' });
   }
 });
 

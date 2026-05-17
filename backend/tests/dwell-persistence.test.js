@@ -9,7 +9,10 @@ const os = require('node:os');
 test('stops.js arrive endpoint writes to Supabase dwell_records not in-memory array', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'stops.js'), 'utf8');
   assert.ok(src.includes("from('dwell_records')"), 'arrive must query dwell_records table');
-  assert.ok(src.includes('.insert([{'), 'arrive must insert a dwell_record row');
+  assert.ok(
+    src.includes("insertRecordWithOptionalScope(supabase, 'dwell_records'"),
+    'arrive must insert dwell records through the scope-aware helper'
+  );
 });
 
 test('stops.js depart endpoint updates existing dwell_record row in Supabase', () => {
@@ -120,6 +123,7 @@ test('dwell record insert → depart update → query lifecycle works end-to-end
 test('dwell_records query in deliveries uses snake_case field names for duration calculation', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'deliveries.js'), 'utf8');
   // stopDurationMinutes uses dwell_ms and arrived_at from DB records
+  assert.ok(src.includes('filterRowsByContext(dwellResult.data || [], context)'), 'deliveries must scope dwell records by context');
   assert.ok(src.includes('dwell_ms / 60000'), 'stop duration must read dwell_ms from DB record');
   assert.ok(src.includes("activeDwell?.arrived_at"), 'active dwell timing must use arrived_at from DB');
   assert.ok(src.includes("completedDwell?.departed_at"), 'end time must use departed_at from DB');

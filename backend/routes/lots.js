@@ -4,6 +4,11 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const { loadCompanySettings } = require('../services/company-settings');
 const { createMailer } = require('../services/email');
 const {
+  filterRowsByContext,
+  insertRecordWithOptionalScope,
+  rowMatchesContext,
+} = require('../services/operating-context');
+const {
   buildLotNoticeEmail,
   groupLotNoticeRecipients,
 } = require('../services/lot-traceability-notice');
@@ -12,13 +17,13 @@ const { lotCreateBodySchema, lotFtlPatchBodySchema } = require('../lib/lots-sche
 
 const router = express.Router();
 
-async function loadLotTraceData(lotNumber) {
+async function loadLotTraceData(lotNumber, context) {
   const { data: lotRows, error: lotErr } = await supabase
     .from('lot_codes')
     .select('id, lot_number, product_id, vendor_id, quantity_received, unit_of_measure, received_date, received_by, expiration_date, notes, created_at')
     .eq('lot_number', lotNumber)
     .limit(1);
-  const lot = lotRows?.[0] || null;
+  const lot = filterRowsByContext(lotRows || [], context)[0] || null;
 
   if (lotErr) {
     return { status: 500, error: lotErr.message };
@@ -48,7 +53,10 @@ async function loadLotTraceData(lotNumber) {
   if (productResult.error) return { status: 500, error: productResult.error.message };
   const product = productResult.data?.[0] || null;
 
-  const orders = (ordersResult.data || []).map((order) => {
+  const scopedOrders = filterRowsByContext(ordersResult.data || [], context);
+  const scopedStops = filterRowsByContext(stopsResult.data || [], context);
+
+  const orders = scopedOrders.map((order) => {
     const lotItems = (order.items || []).filter(
       (it) => it.lot_number === lotNumber || String(it.lot_id) === String(lot.id)
     );
@@ -67,7 +75,7 @@ async function loadLotTraceData(lotNumber) {
     };
   });
 
-  const stops = (stopsResult.data || []).map((stop) => {
+  const stops = scopedStops.map((stop) => {
     const lotEntry = (stop.shipped_lots || []).find((sl) => sl.lot_number === lotNumber);
     return {
       stop_id: stop.id,
@@ -123,7 +131,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
   const { data, error } = await query.limit(500);
   if (error) return res.status(500).json({ error: error.message });
-  res.json(data || []);
+  res.json(filterRowsByContext(data || [], req.context));
 });
 
 // ── POST /api/lots ─────────────────────────────────────────────────────────────
@@ -131,7 +139,7 @@ router.get('/', authenticateToken, async (req, res) => {
 router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBody(lotCreateBodySchema), async (req, res) => {
   const { lot_number, product_id, vendor_id, quantity_received, unit_of_measure, received_date, expiration_date, notes } = req.validated.body;
 
-  const { data, error } = await supabase.from('lot_codes').insert([{
+  const result = await insertRecordWithOptionalScope(supabase, 'lot_codes', {
     lot_number,
     product_id:        product_id        || null,
     vendor_id:         vendor_id         || null,
@@ -141,13 +149,13 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
     received_by:       req.user?.name    || req.user?.email || null,
     expiration_date:   expiration_date   || null,
     notes:             notes             || null,
-  }]).select().single();
+  }, req.context);
 
-  if (error) {
-    if (error.code === '23505') return res.status(409).json({ error: `Lot number "${lot_number.trim()}" already exists` });
-    return res.status(500).json({ error: error.message });
+  if (result.error) {
+    if (result.error.code === '23505') return res.status(409).json({ error: `Lot number "${lot_number.trim()}" already exists` });
+    return res.status(500).json({ error: result.error.message });
   }
-  res.status(201).json(data);
+  res.status(201).json(result.data);
 });
 
 // ── GET /api/lots/:lotNumber/trace ────────────────────────────────────────────
@@ -156,7 +164,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
 // Admin only. Must be fast — single DB query set.
 router.get('/:lotNumber/trace', authenticateToken, requireRole('admin'), async (req, res) => {
   const lotNumber = req.params.lotNumber;
-  const traceData = await loadLotTraceData(lotNumber);
+  const traceData = await loadLotTraceData(lotNumber, req.context);
   if (traceData.error) return res.status(traceData.status).json({ error: traceData.error });
   res.json(traceData.data);
 });
@@ -187,9 +195,10 @@ router.get('/traceability/report', authenticateToken, requireRole('admin'), asyn
 
   const { data: lots, error, count } = await query;
   if (error) return res.status(500).json({ error: error.message });
+  const scopedLots = filterRowsByContext(lots || [], req.context);
 
   // For each lot, tally how much was shipped (sum across order items that reference it)
-  const lotNumbers = (lots || []).map((l) => l.lot_number);
+  const lotNumbers = scopedLots.map((l) => l.lot_number);
 
   let orderRows = [];
   if (lotNumbers.length) {
@@ -199,7 +208,7 @@ router.get('/traceability/report', authenticateToken, requireRole('admin'), asyn
       .select('id, order_number, items, status');
 
     // Filter in JS (Supabase doesn't support OR jsonb containment across array of values)
-    orderRows = (matchedOrders || []).filter((o) =>
+    orderRows = filterRowsByContext(matchedOrders || [], req.context).filter((o) =>
       (o.items || []).some((it) => lotNumbers.includes(it.lot_number))
     );
   }
@@ -214,7 +223,7 @@ router.get('/traceability/report', authenticateToken, requireRole('admin'), asyn
     }
   }
 
-  const rows = (lots || []).map((l) => {
+  const rows = scopedLots.map((l) => {
     const qty_shipped   = parseFloat((qtyShippedMap[l.lot_number] || 0).toFixed(3));
     const qty_remaining = parseFloat(Math.max(0, l.quantity_received - qty_shipped).toFixed(3));
     return {
@@ -235,7 +244,7 @@ router.get('/traceability/report', authenticateToken, requireRole('admin'), asyn
   res.json({
     page: pageNum,
     page_size: pageSize,
-    total: count ?? rows.length,
+    total: Math.min(count ?? rows.length, rows.length),
     rows,
   });
 });
@@ -247,7 +256,7 @@ router.post('/:lotNumber/notice', authenticateToken, requireRole('admin'), async
   const mailer = createMailer();
   if (!mailer) return res.status(503).json({ error: 'Email not configured on server' });
 
-  const traceData = await loadLotTraceData(lotNumber);
+  const traceData = await loadLotTraceData(lotNumber, req.context);
   if (traceData.error) return res.status(traceData.status).json({ error: traceData.error });
 
   const recipients = groupLotNoticeRecipients(traceData.data.orders);
