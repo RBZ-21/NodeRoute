@@ -1,19 +1,48 @@
 const express = require('express');
+const { supabase } = require('../../services/supabase');
 const { authenticateToken, requireRole } = require('../../middleware/auth');
+const {
+  filterRowsByContext,
+  insertRecordWithOptionalScope,
+  rowMatchesContext,
+} = require('../../services/operating-context');
 const {
   buildProjectionRows,
   buildPurchasingSuggestions,
-  genId,
   loadInventoryAndUsage,
+  loadVendorPurchaseOrdersForContext,
   normalizeIntakeQuantity,
   normalizeUnit,
-  readOpsData,
   resolveHistoricalLeadTimeDays,
   resolveInventoryMatch,
   summarizeVendorPurchaseOrders,
   toNumber,
-  writeOpsData,
 } = require('./purchasing-shared');
+
+function mapDraftRow(row) {
+  if (!row) return null;
+  return {
+    id: row.id,
+    draft_number: row.draft_number,
+    status: row.status,
+    vendor: row.vendor,
+    notes: row.notes || null,
+    source: row.source || {},
+    lines: Array.isArray(row.lines) ? row.lines : [],
+    line_count: row.line_count || (Array.isArray(row.lines) ? row.lines.length : 0),
+    total_suggested_qty: row.total_suggested_qty,
+    total_estimated_cost: row.total_estimated_cost,
+    linked_vendor_po_id: row.linked_vendor_po_id || null,
+    created_by: row.created_by || 'system',
+    updated_by: row.updated_by || null,
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function buildDraftNumber() {
+  return `DRAFT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`;
+}
 
 module.exports = function buildOpsPurchasingPlanningRouter() {
   const router = express.Router();
@@ -43,8 +72,7 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
     const vendor = String(req.query.vendor || '').trim();
     const lookbackDays = Math.max(7, Math.min(90, parseInt(req.query.lookbackDays || '30', 10)));
     try {
-      const opsData = readOpsData();
-      const summarizedOrders = summarizeVendorPurchaseOrders(opsData.vendorPurchaseOrders || []);
+      const summarizedOrders = await loadVendorPurchaseOrdersForContext(req.context);
       const resolvedLead = manualLeadTimeRaw !== undefined && String(manualLeadTimeRaw).trim() !== ''
         ? {
             leadTimeDays: Math.max(0, Math.min(60, parseInt(manualLeadTimeRaw, 10) || 0)),
@@ -75,9 +103,14 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
     }
   });
 
-  router.get('/purchase-order-drafts', authenticateToken, (req, res) => {
-    const ops = readOpsData();
-    res.json((ops.poDrafts || []).slice(0, 100));
+  router.get('/purchase-order-drafts', authenticateToken, async (req, res) => {
+    const { data, error } = await supabase
+      .from('op_po_drafts')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(100);
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(filterRowsByContext(data || [], req.context).map(mapDraftRow));
   });
 
   router.post('/purchase-order-drafts/from-suggestions', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
@@ -93,8 +126,7 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
       : new Set(['high', 'normal']);
 
     try {
-      const ops = readOpsData();
-      const summarizedOrders = summarizeVendorPurchaseOrders(ops.vendorPurchaseOrders || []);
+      const summarizedOrders = await loadVendorPurchaseOrdersForContext(req.context);
       const resolvedLead = manualLeadTimeRaw !== undefined && String(manualLeadTimeRaw).trim() !== ''
         ? {
             leadTimeDays: Math.max(0, Math.min(60, parseInt(manualLeadTimeRaw, 10) || 0)),
@@ -121,7 +153,6 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
         return res.status(400).json({ error: 'No reorder suggestions matched the draft filters' });
       }
 
-      const nowIso = new Date().toISOString();
       const lines = selected.map((suggestion, index) => {
         const unitCost = toNumber(suggestion.estimated_unit_cost, 0);
         const qty = toNumber(suggestion.suggested_order_qty, 0);
@@ -143,12 +174,14 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
         };
       });
 
-      const draft = {
-        id: genId('pod'),
-        draft_number: `DRAFT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+      const totalSuggestedQty = parseFloat(lines.reduce((sum, line) => sum + toNumber(line.quantity, 0), 0).toFixed(3));
+      const totalEstimatedCost = parseFloat(lines.reduce((sum, line) => sum + toNumber(line.estimated_line_total, 0), 0).toFixed(2));
+
+      const insertResult = await insertRecordWithOptionalScope(supabase, 'op_po_drafts', {
+        draft_number: buildDraftNumber(),
         status: 'draft',
         vendor,
-        notes,
+        notes: notes || null,
         source: {
           coverageDays,
           leadTimeDays: resolvedLead.leadTimeDays,
@@ -160,18 +193,12 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
         },
         lines,
         line_count: lines.length,
-        total_suggested_qty: parseFloat(lines.reduce((sum, line) => sum + toNumber(line.quantity, 0), 0).toFixed(3)),
-        total_estimated_cost: parseFloat(lines.reduce((sum, line) => sum + toNumber(line.estimated_line_total, 0), 0).toFixed(2)),
+        total_suggested_qty: totalSuggestedQty,
+        total_estimated_cost: totalEstimatedCost,
         created_by: req.user?.name || req.user?.email || 'system',
-        created_at: nowIso,
-        updated_at: nowIso,
-      };
-
-      const persistedOps = readOpsData();
-      persistedOps.poDrafts = persistedOps.poDrafts || [];
-      persistedOps.poDrafts.unshift(draft);
-      writeOpsData(persistedOps);
-      res.json(draft);
+      }, req.context);
+      if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
+      res.json(mapDraftRow(insertResult.data));
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
@@ -189,8 +216,7 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
     const notes = String(req.body.notes || '').trim();
 
     try {
-      const opsData = readOpsData();
-      const summarizedOrders = summarizeVendorPurchaseOrders(opsData.vendorPurchaseOrders || []);
+      const summarizedOrders = await loadVendorPurchaseOrdersForContext(req.context);
       const resolvedLead = manualLeadTimeRaw !== undefined && String(manualLeadTimeRaw).trim() !== ''
         ? {
             leadTimeDays: Math.max(0, Math.min(60, parseInt(manualLeadTimeRaw, 10) || 0)),
@@ -275,7 +301,6 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
         return res.status(400).json({ error: 'No stock gaps found for this intake payload' });
       }
 
-      const nowIso = new Date().toISOString();
       const lines = selected.map((selection, index) => {
         const qty = toNumber(selection.suggested_order_qty, 0);
         const unitCost = toNumber(selection.estimated_unit_cost, 0);
@@ -300,12 +325,14 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
         };
       });
 
-      const draft = {
-        id: genId('pod'),
-        draft_number: `DRAFT-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${Math.random().toString(36).slice(2, 6).toUpperCase()}`,
+      const totalSuggestedQty = parseFloat(lines.reduce((sum, line) => sum + toNumber(line.quantity, 0), 0).toFixed(3));
+      const totalEstimatedCost = parseFloat(lines.reduce((sum, line) => sum + toNumber(line.estimated_line_total, 0), 0).toFixed(2));
+
+      const insertResult = await insertRecordWithOptionalScope(supabase, 'op_po_drafts', {
+        draft_number: buildDraftNumber(),
         status: 'draft',
         vendor,
-        notes,
+        notes: notes || null,
         source: {
           mode: 'order_intake',
           leadTimeDays: resolvedLead.leadTimeDays,
@@ -319,43 +346,39 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
         },
         lines,
         line_count: lines.length,
-        total_suggested_qty: parseFloat(lines.reduce((sum, line) => sum + toNumber(line.quantity, 0), 0).toFixed(3)),
-        total_estimated_cost: parseFloat(lines.reduce((sum, line) => sum + toNumber(line.estimated_line_total, 0), 0).toFixed(2)),
+        total_suggested_qty: totalSuggestedQty,
+        total_estimated_cost: totalEstimatedCost,
         created_by: req.user?.name || req.user?.email || 'system',
-        created_at: nowIso,
-        updated_at: nowIso,
-      };
-
-      const persistedOps = readOpsData();
-      persistedOps.poDrafts = persistedOps.poDrafts || [];
-      persistedOps.poDrafts.unshift(draft);
-      writeOpsData(persistedOps);
-      res.json(draft);
+      }, req.context);
+      if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
+      res.json(mapDraftRow(insertResult.data));
     } catch (error) {
       res.status(500).json({ error: error.message });
     }
   });
 
-  router.patch('/purchase-order-drafts/:id/status', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
+  router.patch('/purchase-order-drafts/:id/status', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
     const allowed = new Set(['draft', 'ready', 'ordered', 'archived']);
     const nextStatus = String(req.body.status || '').toLowerCase();
     if (!allowed.has(nextStatus)) return res.status(400).json({ error: 'Invalid status' });
 
-    const ops = readOpsData();
-    ops.poDrafts = ops.poDrafts || [];
-    const index = ops.poDrafts.findIndex((draft) => draft.id === req.params.id);
-    if (index === -1) return res.status(404).json({ error: 'Draft not found' });
+    const { data: existing, error: fetchErr } = await supabase
+      .from('op_po_drafts').select('*').eq('id', req.params.id).single();
+    if (fetchErr) return res.status(404).json({ error: 'Draft not found' });
+    if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
-    const current = ops.poDrafts[index];
-    const updated = {
-      ...current,
-      status: nextStatus,
-      updated_at: new Date().toISOString(),
-      updated_by: req.user?.name || req.user?.email || 'system',
-    };
-    ops.poDrafts[index] = updated;
-    writeOpsData(ops);
-    res.json(updated);
+    const { data, error } = await supabase
+      .from('op_po_drafts')
+      .update({
+        status: nextStatus,
+        updated_at: new Date().toISOString(),
+        updated_by: req.user?.name || req.user?.email || 'system',
+      })
+      .eq('id', req.params.id)
+      .select()
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    res.json(mapDraftRow(data));
   });
 
   return router;

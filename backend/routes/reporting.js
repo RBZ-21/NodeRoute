@@ -2,7 +2,8 @@ const express = require('express');
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { filterRowsByContext } = require('../services/operating-context');
-const { readOpsData, summarizeVendorPo } = require('./ops-utils');
+const { summarizeVendorPo } = require('./ops-utils');
+const { loadVendorPurchaseOrdersFromDb } = require('../services/purchase-order-workflows');
 
 const router = express.Router();
 
@@ -239,6 +240,40 @@ function dateRangeForPreset(preset, now = new Date()) {
   if (preset === 'monthly') return { start: startOfMonth(now), end };
   if (preset === 'yearly') return { start: startOfYear(now), end };
   return { start: null, end: null };
+}
+
+const REPORTING_MAX_WINDOW_DAYS = 365;
+const REPORTING_DEFAULT_WINDOW_DAYS = 90;
+
+/**
+ * Resolve and validate a reporting date range.
+ * - If neither bound is provided, defaults to the last 90 days.
+ * - If only one bound is provided, the other is anchored to "today" or
+ *   "the default window before the given end".
+ * - Rejects ranges where start > end or that exceed REPORTING_MAX_WINDOW_DAYS.
+ *
+ * @returns {{ startDate: Date, endDate: Date }} on success
+ *          or { error: string } on validation failure
+ */
+function resolveReportingDateRange(rawStart, rawEnd, maxDays = REPORTING_MAX_WINDOW_DAYS) {
+  const parsedStart = toDateOrNull(rawStart);
+  const parsedEnd = toDateOrNull(rawEnd);
+  const now = new Date();
+
+  let endDate = parsedEnd ? endOfDay(parsedEnd) : endOfDay(now);
+  let startDate = parsedStart
+    ? startOfDay(parsedStart)
+    : startOfDay(new Date(endDate.getTime() - (REPORTING_DEFAULT_WINDOW_DAYS - 1) * 86_400_000));
+
+  if (startDate.getTime() > endDate.getTime()) {
+    return { error: 'start date must be on or before end date' };
+  }
+  const windowDays = Math.floor((endDate.getTime() - startDate.getTime()) / 86_400_000) + 1;
+  if (windowDays > maxDays) {
+    return { error: `date window exceeds the maximum of ${maxDays} days (got ${windowDays})` };
+  }
+
+  return { startDate, endDate };
 }
 
 /**
@@ -534,16 +569,23 @@ function computeDailyOps({ date, inventory, vendorPurchaseOrders, rollups, lowSt
 }
 
 router.get('/rollups', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const startDate = toDateOrNull(req.query.start);
-  const endDate = toDateOrNull(req.query.end);
+  const range = resolveReportingDateRange(req.query.start, req.query.end);
+  if (range.error) return res.status(400).json({ error: range.error });
+  const { startDate, endDate } = range;
   const limit = Math.max(1, Math.min(parseInt(req.query.limit || '100', 10), 500));
 
   try {
     const [ordersResult, invoicesResult, routesResult, inventoryResult] = await Promise.all([
-      supabase.from('orders').select('*'),
-      supabase.from('invoices').select('*'),
-      supabase.from('routes').select('*'),
-      supabase.from('seafood_inventory').select('item_number,description,cost'),
+      supabase.from('orders').select('*')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .limit(5000),
+      supabase.from('invoices').select('*')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .limit(5000),
+      supabase.from('routes').select('*').limit(2000),
+      supabase.from('seafood_inventory').select('item_number,description,cost').limit(5000),
     ]);
 
     const ordersMissing = isMissingTableError(ordersResult.error);
@@ -580,14 +622,31 @@ router.get('/rollups', authenticateToken, requireRole('admin', 'manager'), async
 router.get('/sales-summary', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const preset = String(req.query.preset || 'range').trim().toLowerCase();
   const presetRange = dateRangeForPreset(preset);
-  const startDate = preset === 'range' ? toDateOrNull(req.query.start) : presetRange.start;
-  const endDate = preset === 'range' ? toDateOrNull(req.query.end) : presetRange.end;
+  let startDate;
+  let endDate;
+  if (preset === 'range') {
+    const range = resolveReportingDateRange(req.query.start, req.query.end);
+    if (range.error) return res.status(400).json({ error: range.error });
+    ({ startDate, endDate } = range);
+  } else {
+    startDate = presetRange.start;
+    endDate = presetRange.end;
+    if (!startDate || !endDate) {
+      return res.status(400).json({ error: `Unknown preset "${preset}"` });
+    }
+  }
   const itemQuery = String(req.query.item || '').trim();
 
   try {
     const [ordersResult, invoicesResult] = await Promise.all([
-      supabase.from('orders').select('*'),
-      supabase.from('invoices').select('*'),
+      supabase.from('orders').select('*')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .limit(5000),
+      supabase.from('invoices').select('*')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .limit(5000),
     ]);
 
     const ordersMissing = isMissingTableError(ordersResult.error);
@@ -623,7 +682,12 @@ router.get('/recent-sold-items', authenticateToken, requireRole('admin', 'manage
   const startDate = startOfDay(new Date(endDate.getTime() - (days - 1) * 86400000));
 
   try {
-    const invoicesResult = await supabase.from('invoices').select('*');
+    const invoicesResult = await supabase
+      .from('invoices')
+      .select('*')
+      .gte('created_at', startDate.toISOString())
+      .lte('created_at', endDate.toISOString())
+      .limit(5000);
     if (invoicesResult.error) return res.status(500).json({ error: invoicesResult.error.message });
 
     const items = computeRecentSoldItems({
@@ -654,10 +718,16 @@ router.get('/daily-ops', authenticateToken, requireRole('admin', 'manager'), asy
 
   try {
     const [ordersResult, invoicesResult, routesResult, inventoryResult] = await Promise.all([
-      supabase.from('orders').select('*'),
-      supabase.from('invoices').select('*'),
-      supabase.from('routes').select('*'),
-      supabase.from('seafood_inventory').select('item_number,description,category,cost,on_hand_qty'),
+      supabase.from('orders').select('*')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .limit(5000),
+      supabase.from('invoices').select('*')
+        .gte('created_at', startDate.toISOString())
+        .lte('created_at', endDate.toISOString())
+        .limit(5000),
+      supabase.from('routes').select('*').limit(2000),
+      supabase.from('seafood_inventory').select('item_number,description,category,cost,on_hand_qty').limit(5000),
     ]);
 
     const ordersMissing = isMissingTableError(ordersResult.error);
@@ -677,11 +747,17 @@ router.get('/daily-ops', authenticateToken, requireRole('admin', 'manager'), asy
       endDate,
       limit: 10,
     });
-    const opsData = readOpsData();
+    let vendorPurchaseOrders = [];
+    try {
+      const dbOrders = await loadVendorPurchaseOrdersFromDb(req.context || {});
+      if (Array.isArray(dbOrders)) vendorPurchaseOrders = dbOrders;
+    } catch (vendorErr) {
+      console.warn('[reporting] failed to load vendor POs for daily-ops:', vendorErr.message);
+    }
     const payload = computeDailyOps({
       date: targetDate,
       inventory: scopedInventory,
-      vendorPurchaseOrders: opsData.vendorPurchaseOrders || [],
+      vendorPurchaseOrders,
       rollups,
     });
 
