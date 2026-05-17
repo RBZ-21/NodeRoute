@@ -21,6 +21,7 @@ import { PageSkeleton } from './components/layout/PageSkeleton';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
 
 const LoginPage          = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })));
+const SignupPage         = lazy(() => import('./pages/SignupPage').then(m => ({ default: m.SignupPage })));
 const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPage').then(m => ({ default: m.CustomerPortalPage })));
 const TrackPage          = lazy(() => import('./pages/TrackPage').then(m => ({ default: m.TrackPage })));
 const SetupPasswordPage  = lazy(() => import('./pages/SetupPasswordPage').then(m => ({ default: m.SetupPasswordPage })));
@@ -53,6 +54,8 @@ export function App() {
 
   if (pathname === '/login')
     return <Suspense fallback={<PageSkeleton />}><LoginPage /></Suspense>;
+  if (pathname === '/signup')
+    return <Suspense fallback={<PageSkeleton />}><SignupPage /></Suspense>;
   if (pathname === '/portal' || pathname === '/customer-portal')
     return <Suspense fallback={<PageSkeleton />}><CustomerPortalPage /></Suspense>;
   if (isTrackRoute)

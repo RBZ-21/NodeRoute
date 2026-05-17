@@ -170,6 +170,13 @@ export function LoginPage() {
                 </Button>
                 {showSentryTestButton ? <SentryTestButton /> : null}
               </form>
+
+              <div className="text-center text-sm text-muted-foreground">
+                Need a new workspace?{' '}
+                <a href="/signup" className="font-medium text-primary hover:underline">
+                  Create an account
+                </a>
+              </div>
             </CardContent>
           </Card>
         </div>

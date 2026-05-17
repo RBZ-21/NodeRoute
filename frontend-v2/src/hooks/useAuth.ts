@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
 import { fetchCurrentUser, redirectToLogin, requireAuthToken } from '../lib/api';
 
-const PUBLIC_PATHS = ['/login', '/portal', '/customer-portal', '/setup-password'];
+const PUBLIC_PATHS = ['/login', '/signup', '/portal', '/customer-portal', '/setup-password'];
 
 function isPublicPath(pathname: string) {
   return (
