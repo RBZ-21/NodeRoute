@@ -1,10 +1,11 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { type Invoice, type InvoiceLotEntry, useDeleteInvoice, useInvoices, useResendInvoiceEmail, useUpdateInvoice } from '../hooks/useInvoices';
+import { type InvoiceFollowUpResult, useInvoiceFollowUp, useLatePaymentRisk } from '../hooks/useAI';
 
 type InvoiceStatus = 'pending' | 'sent' | 'delivered' | 'paid' | 'overdue' | 'void' | 'other';
 
@@ -15,6 +16,12 @@ const statusColors = {
   paid: 'green',
   overdue: 'red',
   void: 'gray',
+} as const;
+
+const riskColors = {
+  high: 'red',
+  medium: 'yellow',
+  low: 'green',
 } as const;
 
 function normalizeStatus(value: string | undefined): InvoiceStatus {
@@ -64,12 +71,31 @@ function totalLotWeight(lots: InvoiceLotEntry[] | undefined): number {
 function invoicePrintBlocked(invoice: Invoice): boolean {
   return invoice.estimated_weight_pending === true;
 }
+function dueDateForInvoice(invoice: Invoice): string | undefined {
+  return invoice.dueDate || invoice.due_date;
+}
+function daysPastDue(invoice: Invoice): number {
+  const dueDate = dueDateForInvoice(invoice);
+  if (!dueDate) return 0;
+  const dueMs = new Date(dueDate).getTime();
+  if (!Number.isFinite(dueMs)) return 0;
+  return Math.max(0, Math.round((Date.now() - dueMs) / 86400000));
+}
+function shouldSuggestFollowUp(invoice: Invoice): boolean {
+  return normalizeStatus(invoice.status) === 'overdue' || daysPastDue(invoice) > 0;
+}
+function toneLabel(tone: InvoiceFollowUpResult['tone'] | undefined): string {
+  if (!tone) return 'Draft pending';
+  return tone.charAt(0).toUpperCase() + tone.slice(1);
+}
 
 export function InvoicesPage() {
   const { data: invoices = [], isLoading, isError, error, refetch } = useInvoices();
   const updateInvoice = useUpdateInvoice();
   const deleteInvoice = useDeleteInvoice();
   const resendInvoiceEmail = useResendInvoiceEmail();
+  const latePaymentRisk = useLatePaymentRisk(true);
+  const invoiceFollowUp = useInvoiceFollowUp();
 
   const [actionError, setActionError] = useState('');
   const [notice, setNotice] = useState('');
@@ -79,6 +105,13 @@ export function InvoicesPage() {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Partial<Invoice>>({});
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [followUpDraft, setFollowUpDraft] = useState<InvoiceFollowUpResult | null>(null);
+  const [followUpInvoiceId, setFollowUpInvoiceId] = useState<string | null>(null);
+  const [followUpError, setFollowUpError] = useState('');
+
+  const riskByCustomer = useMemo(() => {
+    return new Map((latePaymentRisk.data?.risks || []).map((risk) => [risk.customer_name.toLowerCase(), risk]));
+  }, [latePaymentRisk.data]);
 
   const filtered = useMemo(() => {
     return invoices.filter((inv) => {
@@ -104,10 +137,44 @@ export function InvoicesPage() {
     outstanding: invoices.filter((i) => ['pending', 'sent', 'delivered'].includes(normalizeStatus(i.status))).length,
   }), [invoices]);
 
+  const topRisks = useMemo(() => (latePaymentRisk.data?.risks || []).slice(0, 3), [latePaymentRisk.data]);
+  const selectedRisk = selected ? riskByCustomer.get(customerName(selected).toLowerCase()) : undefined;
+
+  useEffect(() => {
+    if (!selected) {
+      setFollowUpDraft(null);
+      setFollowUpInvoiceId(null);
+      setFollowUpError('');
+      return;
+    }
+    const selectedId = String(selected.id || '');
+    if (!selectedId || !shouldSuggestFollowUp(selected)) return;
+    if (invoiceFollowUp.isPending) return;
+    if (followUpInvoiceId === selectedId && followUpDraft) return;
+
+    setFollowUpError('');
+    invoiceFollowUp.mutate(selectedId, {
+      onSuccess: (result) => {
+        setFollowUpDraft(result);
+        setFollowUpInvoiceId(selectedId);
+      },
+      onError: (mutationError) => {
+        setFollowUpDraft(null);
+        setFollowUpInvoiceId(selectedId);
+        setFollowUpError(String((mutationError as Error)?.message || 'Could not build invoice follow-up'));
+      },
+    });
+  }, [followUpDraft, followUpInvoiceId, invoiceFollowUp, selected]);
+
   function openInvoice(inv: Invoice) {
     setSelected(inv);
     setDraft({ ...inv });
     setEditing(false);
+    setConfirmDelete(false);
+    setFollowUpError('');
+    if (followUpInvoiceId !== String(inv.id || '')) {
+      setFollowUpDraft(null);
+    }
   }
 
   function printInvoiceSummary(invoice: Invoice) {
@@ -223,6 +290,37 @@ export function InvoicesPage() {
     });
   }
 
+  function generateFollowUpForInvoice(inv: Invoice) {
+    const id = String(inv.id || '');
+    if (!id) return;
+    setFollowUpError('');
+    setFollowUpDraft(null);
+    setFollowUpInvoiceId(id);
+    openInvoice(inv);
+    invoiceFollowUp.mutate(id, {
+      onSuccess: (result) => {
+        setFollowUpDraft(result);
+        setFollowUpInvoiceId(id);
+      },
+      onError: (mutationError) => {
+        setFollowUpDraft(null);
+        setFollowUpInvoiceId(id);
+        setFollowUpError(String((mutationError as Error)?.message || 'Could not build invoice follow-up'));
+      },
+    });
+  }
+
+  async function copyFollowUp() {
+    if (!followUpDraft) return;
+    const content = `Subject: ${followUpDraft.subject}\n\n${followUpDraft.body}`;
+    try {
+      await navigator.clipboard.writeText(content);
+      setNotice(selected ? `AI follow-up copied for invoice ${invoiceId(selected)}.` : 'AI follow-up copied.');
+    } catch {
+      setActionError('Could not copy follow-up to clipboard');
+    }
+  }
+
   return (
     <div className="space-y-5">
       {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading invoices...</div> : null}
@@ -237,11 +335,63 @@ export function InvoicesPage() {
         <SummaryCard label="Outstanding" value={summary.outstanding.toLocaleString()} />
       </div>
 
+      <Card className="border-amber-200 bg-gradient-to-br from-amber-50 via-background to-red-50">
+        <CardHeader className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="space-y-1">
+            <CardTitle>AI Collections Monitor</CardTitle>
+            <CardDescription>
+              {latePaymentRisk.data?.summary || 'Late-payment risk is analyzed automatically so AR can prioritize outreach.'}
+            </CardDescription>
+          </div>
+          <Button variant="outline" onClick={() => latePaymentRisk.refetch()} disabled={latePaymentRisk.isFetching}>
+            {latePaymentRisk.isFetching ? 'Refreshing...' : 'Refresh AI Risk'}
+          </Button>
+        </CardHeader>
+        <CardContent className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="rounded-xl border border-border bg-background/90 p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Priority Accounts</div>
+            <div className="mt-3 space-y-3">
+              {topRisks.length ? topRisks.map((risk) => (
+                <div key={risk.customer_name} className="rounded-lg border border-border bg-muted/20 px-4 py-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div>
+                      <div className="font-medium">{risk.customer_name}</div>
+                      <div className="text-sm text-muted-foreground">{risk.flag_reason}</div>
+                    </div>
+                    <StatusBadge status={risk.risk_level.toLowerCase()} colorMap={riskColors} fallbackLabel={risk.risk_level} />
+                  </div>
+                  <div className="mt-2 text-sm text-muted-foreground">Recommended action: {risk.recommended_action}</div>
+                </div>
+              )) : (
+                <div className="text-sm text-muted-foreground">
+                  {latePaymentRisk.isLoading ? 'Analyzing open AR...' : 'No at-risk accounts were returned.'}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="rounded-xl border border-border bg-background/90 p-4">
+            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">AI Workflow Coverage</div>
+            <div className="mt-3 space-y-3 text-sm text-foreground">
+              <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-emerald-950">
+                Risk scoring is now live on the invoices screen and refreshes against current AR.
+              </div>
+              <div className="rounded-lg border border-blue-200 bg-blue-50 px-4 py-3 text-blue-950">
+                Overdue invoices can generate customer-ready follow-up drafts directly from the detail drawer.
+              </div>
+              <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-amber-950">
+                Selecting an overdue invoice will proactively prepare a follow-up so AR can act faster.
+              </div>
+            </div>
+          </div>
+        </CardContent>
+      </Card>
+
       <Card>
         <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="space-y-1">
             <CardTitle>Invoices</CardTitle>
-            <CardDescription>Billing records from `/api/invoices`.</CardDescription>
+            <CardDescription>Billing records from `/api/invoices` with embedded collections AI.</CardDescription>
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
@@ -264,13 +414,13 @@ export function InvoicesPage() {
           </div>
         </CardHeader>
         <CardContent className="p-0 sm:p-2">
-          {/* Horizontally scrollable wrapper for mobile */}
           <div className="overflow-x-auto rounded-lg border border-border">
-            <Table className="min-w-[700px]">
+            <Table className="min-w-[860px]">
               <TableHeader>
                 <TableRow>
                   <TableHead>Invoice #</TableHead>
                   <TableHead>Customer</TableHead>
+                  <TableHead className="hidden sm:table-cell">AI Risk</TableHead>
                   <TableHead className="hidden sm:table-cell">Order #</TableHead>
                   <TableHead className="hidden sm:table-cell">Lot #(s)</TableHead>
                   <TableHead>Amount</TableHead>
@@ -284,10 +434,21 @@ export function InvoicesPage() {
               <TableBody>
                 {filtered.length ? filtered.map((inv) => {
                   const status = normalizeStatus(inv.status);
+                  const risk = riskByCustomer.get(customerName(inv).toLowerCase());
                   return (
                     <TableRow key={invoiceId(inv)}>
                       <TableCell className="font-medium whitespace-nowrap">{invoiceId(inv)}</TableCell>
                       <TableCell className="max-w-[140px] truncate">{customerName(inv)}</TableCell>
+                      <TableCell className="hidden sm:table-cell">
+                        {risk ? (
+                          <div className="flex items-center gap-2">
+                            <StatusBadge status={risk.risk_level.toLowerCase()} colorMap={riskColors} fallbackLabel={risk.risk_level} />
+                            <span className="text-xs text-muted-foreground">{risk.risk_score}</span>
+                          </div>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">No flag</span>
+                        )}
+                      </TableCell>
                       <TableCell className="hidden sm:table-cell">{inv.orderId || inv.order_id || '-'}</TableCell>
                       <TableCell className="hidden sm:table-cell font-mono text-xs">{lotSummary(inv.lot_numbers)}</TableCell>
                       <TableCell className="whitespace-nowrap">{formatAmount(inv.amount)}</TableCell>
@@ -306,13 +467,24 @@ export function InvoicesPage() {
                           >
                             {resendInvoiceEmail.isPending ? 'Sending...' : 'Resend Email'}
                           </Button>
+                          {shouldSuggestFollowUp(inv) ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              className="whitespace-nowrap"
+                              disabled={invoiceFollowUp.isPending && followUpInvoiceId === String(inv.id || '')}
+                              onClick={() => generateFollowUpForInvoice(inv)}
+                            >
+                              {invoiceFollowUp.isPending && followUpInvoiceId === String(inv.id || '') ? 'Drafting...' : 'AI Follow-Up'}
+                            </Button>
+                          ) : null}
                           <Button size="sm" className="whitespace-nowrap" onClick={() => openInvoice(inv)}>View / Edit</Button>
                         </div>
                       </TableCell>
                     </TableRow>
                   );
                 }) : (
-                  <TableRow><TableCell colSpan={10} className="text-muted-foreground">No invoices found.</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={11} className="text-muted-foreground">No invoices found.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -323,7 +495,7 @@ export function InvoicesPage() {
       {selected && (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/30" onClick={() => setSelected(null)} />
-          <div className="relative z-10 flex h-full w-full max-w-md flex-col overflow-y-auto bg-background shadow-xl">
+          <div className="relative z-10 flex h-full w-full max-w-2xl flex-col overflow-y-auto bg-background shadow-xl">
             <div className="flex items-center justify-between border-b px-6 py-4">
               <div>
                 <h2 className="text-lg font-semibold">{invoiceId(selected)}</h2>
@@ -356,6 +528,16 @@ export function InvoicesPage() {
                     {resendInvoiceEmail.isPending ? 'Sending...' : 'Resend Email'}
                   </Button>
                 )}
+                {!editing && !confirmDelete && shouldSuggestFollowUp(selected) && (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    disabled={invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '')}
+                    onClick={() => generateFollowUpForInvoice(selected)}
+                  >
+                    {invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '') ? 'Drafting...' : 'Refresh AI Draft'}
+                  </Button>
+                )}
                 {!editing && !confirmDelete && (
                   <>
                     <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
@@ -375,11 +557,11 @@ export function InvoicesPage() {
                     <Button size="sm" disabled={deleteInvoice.isPending} onClick={handleDelete}>{deleteInvoice.isPending ? 'Deleting...' : 'Yes'}</Button>
                   </>
                 )}
-                <Button size="sm" variant="ghost" onClick={() => { setSelected(null); setConfirmDelete(false); }}>✕</Button>
+                <Button size="sm" variant="ghost" onClick={() => { setSelected(null); setConfirmDelete(false); }}>X</Button>
               </div>
             </div>
             <div className="flex-1 space-y-4 p-6">
-              <div className="grid gap-3 sm:grid-cols-2">
+              <div className="grid gap-3 lg:grid-cols-3">
                 <div className="rounded-lg border border-border bg-muted/20 px-4 py-3">
                   <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Invoice Summary</div>
                   <div className="mt-2 space-y-1 text-sm">
@@ -398,12 +580,86 @@ export function InvoicesPage() {
                     <div>Printable record: <strong>{invoicePrintBlocked(selected) ? 'Waiting on final weights' : 'Ready'}</strong></div>
                   </div>
                 </div>
+                <div className="rounded-lg border border-border bg-muted/20 px-4 py-3">
+                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">AI Collections Risk</div>
+                  <div className="mt-2 space-y-2 text-sm">
+                    {selectedRisk ? (
+                      <>
+                        <StatusBadge status={selectedRisk.risk_level.toLowerCase()} colorMap={riskColors} fallbackLabel={selectedRisk.risk_level} />
+                        <div>Risk score: <strong>{selectedRisk.risk_score}</strong></div>
+                        <div>{selectedRisk.flag_reason}</div>
+                        <div className="text-muted-foreground">{selectedRisk.recommended_action}</div>
+                      </>
+                    ) : (
+                      <div className="text-muted-foreground">No AI risk flag for this customer right now.</div>
+                    )}
+                  </div>
+                </div>
               </div>
+
               {invoicePrintBlocked(selected) ? (
                 <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                   Print is locked for this invoice because weight-based items are still marked as estimated. Finish final weight entry before creating a customer-facing PDF.
                 </div>
               ) : null}
+
+              {shouldSuggestFollowUp(selected) ? (
+                <Card className="border-blue-200 bg-blue-50/60">
+                  <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                    <div>
+                      <CardTitle className="text-base">AI Follow-Up Draft</CardTitle>
+                      <CardDescription>
+                        {followUpDraft
+                          ? `${toneLabel(followUpDraft.tone)} tone drafted for ${followUpDraft.days_overdue ?? daysPastDue(selected)} day(s) overdue.`
+                          : 'This invoice is overdue, so AI is preparing a customer-ready collection email.'}
+                      </CardDescription>
+                    </div>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        disabled={invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '')}
+                        onClick={() => generateFollowUpForInvoice(selected)}
+                      >
+                        {invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '') ? 'Drafting...' : 'Regenerate'}
+                      </Button>
+                      <Button size="sm" onClick={() => void copyFollowUp()} disabled={!followUpDraft}>
+                        Copy Draft
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    {followUpError ? (
+                      <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{followUpError}</div>
+                    ) : null}
+                    {followUpDraft ? (
+                      <>
+                        <div className="rounded-lg border border-border bg-background px-4 py-3">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Subject</div>
+                          <div className="mt-2 text-sm font-medium">{followUpDraft.subject}</div>
+                        </div>
+                        <div className="rounded-lg border border-border bg-background px-4 py-3">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Message</div>
+                          <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-foreground">{followUpDraft.body}</pre>
+                        </div>
+                        <div className="rounded-lg border border-border bg-background px-4 py-3">
+                          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">AR Notes</div>
+                          <div className="mt-2 space-y-2">
+                            {followUpDraft.key_points.map((point, index) => (
+                              <div key={`${point}-${index}`} className="text-sm text-foreground">{point}</div>
+                            ))}
+                          </div>
+                        </div>
+                      </>
+                    ) : (
+                      <div className="rounded-lg border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                        {invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '') ? 'Generating follow-up draft...' : 'Open an overdue invoice to generate a follow-up.'}
+                      </div>
+                    )}
+                  </CardContent>
+                </Card>
+              ) : null}
+
               <InvoiceField label="Invoice #" value={draft.invoiceNumber || draft.invoice_number} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, invoiceNumber: v }))} />
               <InvoiceField label="Customer" value={draft.customerName || draft.customer_name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, customerName: v }))} />
               <div className="flex items-start gap-3">
@@ -414,7 +670,7 @@ export function InvoicesPage() {
               <div className="flex items-start gap-3">
                 <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Status</span>
                 {editing ? (
-                  <select value={draft.status || ''} onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value }))} className="flex-1 h-10 rounded-md border border-input bg-background px-3 text-sm">
+                  <select value={draft.status || ''} onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value }))} className="h-10 flex-1 rounded-md border border-input bg-background px-3 text-sm">
                     <option value="pending">Pending</option>
                     <option value="sent">Sent</option>
                     <option value="delivered">Delivered</option>
@@ -429,11 +685,10 @@ export function InvoicesPage() {
               <InvoiceField label="Due Date" value={draft.dueDate || draft.due_date} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, dueDate: v }))} />
               <InvoiceField label="Notes" value={draft.notes} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} multiline />
 
-              {/* Lot Numbers Section */}
               {(selected.lot_numbers && selected.lot_numbers.length > 0) && (
                 <div className="space-y-2">
-                  <span className="text-sm font-semibold text-muted-foreground uppercase tracking-wide">Lot Numbers</span>
-                  <div className="rounded-md border border-border overflow-hidden">
+                  <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Lot Numbers</span>
+                  <div className="overflow-hidden rounded-md border border-border">
                     <table className="w-full text-xs">
                       <thead className="bg-muted/50">
                         <tr>
