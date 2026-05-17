@@ -52,10 +52,10 @@ test('ops routes expose the expected API surface', () => {
   }
 });
 
-test('ops routes are globally gated to admin-only server access', () => {
+test('ops routes are globally gated to admin and manager roles', () => {
   assert.ok(
-    opsRouteSource.includes("router.use(authenticateToken, requireRole('admin'));"),
-    'ops router should enforce global authenticateToken + admin role gate'
+    opsRouteSource.includes("router.use(authenticateToken, requireRole('admin', 'manager'));"),
+    'ops router should enforce global authenticateToken + admin/manager role gate'
   );
 });
 
