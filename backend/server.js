@@ -226,6 +226,7 @@ app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager
 // ── Pages ─────────────────────────────────────────────────────────────────────
 app.get('/', (req, res) => res.sendFile(landingV2Entry));
 app.get('/login', (req, res) => res.sendFile(frontendV2Entry));
+app.get('/signup', (req, res) => res.sendFile(frontendV2Entry));
 app.get('/dashboard', (req, res) => res.redirect('/dashboard-v2'));
 app.get('/dashboard-v2', (req, res) => res.sendFile(frontendV2Entry));
 app.get(/^\/dashboard-v2\/.*/, (req, res) => res.sendFile(frontendV2Entry));
