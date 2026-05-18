@@ -72,8 +72,9 @@ export const NAV: NavGroup[] = [
       { label: 'Companies',    path: '/companies',    icon: '🏢', roles: ['superadmin'] },
       { label: 'Settings',     path: '/settings',     icon: '⚙️' },
       { label: 'Integrations', path: '/integrations', icon: '🔌', roles: ['admin'] },
-      { label: 'Compliance',   path: '/compliance',   icon: '✅', roles: ['admin', 'manager'] },
+      { label: 'Compliance',   path: '/compliance',   icon: '✅',      roles: ['admin', 'manager'] },
       { label: 'Planning',     path: '/planning',     icon: '📅' },
+      { label: 'Audit Log',    path: '/audit-log',    icon: '🔎', roles: ['admin', 'superadmin'] },
     ],
   },
 ];
