@@ -146,8 +146,8 @@ test('App.tsx no longer links to the legacy dashboard escape hatch', () => {
 
 // ── auth.js setup-password validation ────────────────────────────────────────
 
-test('auth.js setup-password enforces minimum 8-character password', () => {
-  assert.ok(authValidationSource.includes('Password must be at least 8 characters'), 'must reject short passwords');
+test('auth.js setup-password enforces minimum 12-character password', () => {
+  assert.ok(authValidationSource.includes('Password must be at least 12 characters'), 'must reject short passwords');
 });
 
 test('auth.js setup-password checks invite token expiry', () => {
