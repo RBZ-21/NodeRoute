@@ -773,4 +773,240 @@ router.get('/daily-ops', authenticateToken, requireRole('admin', 'manager'), asy
   }
 });
 
+// ──────────────────────────────────────────────────────────────────────────
+// CREDIT & AR REPORTING
+// ──────────────────────────────────────────────────────────────────────────
+const creditEngine = require('../services/creditEngine');
+
+function csvEscape(value) {
+  if (value === null || value === undefined) return '';
+  const str = String(value);
+  return /[",\n\r]/.test(str) ? `"${str.replace(/"/g, '""')}"` : str;
+}
+
+function toCsv(headers, rows) {
+  const lines = [headers.join(',')];
+  for (const row of rows) {
+    lines.push(headers.map((h) => csvEscape(row[h])).join(','));
+  }
+  return lines.join('\n');
+}
+
+// 9A. GET /api/reporting/ar-aging
+router.get('/ar-aging', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const format = String(req.query.format || 'json').toLowerCase();
+    const { data: invoices, error } = await supabase
+      .from('invoices')
+      .select('id, invoice_number, customer_id, customer_name, customer_email, total, due_date, created_at, status')
+      .in('status', creditEngine.OPEN_INVOICE_STATUSES);
+    if (error) return res.status(500).json({ error: error.message });
+
+    const scoped = filterRowsByContext(invoices || [], req.context);
+    const now = Date.now();
+    const buckets = { Current: 0, '1-30': 0, '31-60': 0, '61-90': 0, '90+': 0 };
+    const rows = [];
+
+    for (const inv of scoped) {
+      const due = inv.due_date || inv.created_at;
+      const days = due ? Math.floor((now - new Date(due).getTime()) / 86_400_000) : 0;
+      const bucket = days <= 0 ? 'Current' : days <= 30 ? '1-30' : days <= 60 ? '31-60' : days <= 90 ? '61-90' : '90+';
+      const amount = toNumber(inv.total, 0);
+      buckets[bucket] += amount;
+      rows.push({
+        invoice_number: inv.invoice_number,
+        customer_id: inv.customer_id,
+        customer_name: inv.customer_name,
+        customer_email: inv.customer_email,
+        due_date: inv.due_date,
+        days_past_due: Math.max(0, days),
+        bucket,
+        amount: round2(amount),
+        status: inv.status,
+      });
+    }
+
+    if (format === 'csv') {
+      const csv = toCsv(
+        ['invoice_number', 'customer_name', 'customer_email', 'due_date', 'days_past_due', 'bucket', 'amount', 'status'],
+        rows,
+      );
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="ar-aging-${new Date().toISOString().slice(0, 10)}.csv"`);
+      return res.send(csv);
+    }
+
+    res.json({
+      generated_at: new Date().toISOString(),
+      buckets: Object.fromEntries(Object.entries(buckets).map(([k, v]) => [k, round2(v)])),
+      rows: rows.sort((a, b) => b.days_past_due - a.days_past_due),
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 9B. GET /api/reporting/credit-hold-history
+router.get('/credit-hold-history', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const from = toDateOrNull(req.query.from);
+    const to = toDateOrNull(req.query.to);
+    const customerId = req.query.customer_id ? parseInt(req.query.customer_id, 10) : null;
+    const reason = req.query.reason ? String(req.query.reason).trim() : null;
+
+    let query = supabase.from('credit_hold_log').select('*').order('created_at', { ascending: false }).limit(2000);
+    if (customerId) query = query.eq('customer_id', customerId);
+    if (from) query = query.gte('created_at', from.toISOString());
+    if (to) query = query.lte('created_at', to.toISOString());
+
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+
+    let rows = filterRowsByContext(data || [], req.context);
+    if (reason) rows = rows.filter((r) => r.event_type === reason || r.previous_status === reason || r.new_status === reason);
+
+    // Average time on hold: pair hold_placed with hold_released (or auto_released) per customer.
+    const byCustomer = new Map();
+    for (const r of rows) {
+      if (!byCustomer.has(r.customer_id)) byCustomer.set(r.customer_id, []);
+      byCustomer.get(r.customer_id).push(r);
+    }
+    const durations = [];
+    for (const events of byCustomer.values()) {
+      const sorted = events.slice().sort((a, b) => new Date(a.created_at) - new Date(b.created_at));
+      let openHoldAt = null;
+      for (const ev of sorted) {
+        if (ev.event_type === 'hold_placed') openHoldAt = new Date(ev.created_at);
+        else if (['hold_released', 'auto_released'].includes(ev.event_type) && openHoldAt) {
+          durations.push((new Date(ev.created_at) - openHoldAt) / 86_400_000);
+          openHoldAt = null;
+        }
+      }
+    }
+    const avgDays = durations.length ? round2(durations.reduce((a, b) => a + b, 0) / durations.length) : 0;
+
+    res.json({
+      generated_at: new Date().toISOString(),
+      filters: { from, to, customer_id: customerId, reason },
+      total_events: rows.length,
+      avg_days_on_hold: avgDays,
+      events: rows,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 9C. GET /api/reporting/credit-override-audit
+// Financial controls report — every override ever granted. Append-only by
+// virtue of the underlying table; never deleted.
+router.get('/credit-override-audit', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const from = toDateOrNull(req.query.from);
+    const to = toDateOrNull(req.query.to);
+    let query = supabase.from('credit_hold_overrides').select('*').order('created_at', { ascending: false }).limit(5000);
+    if (from) query = query.gte('created_at', from.toISOString());
+    if (to) query = query.lte('created_at', to.toISOString());
+    const { data, error } = await query;
+    if (error) return res.status(500).json({ error: error.message });
+
+    const scoped = filterRowsByContext(data || [], req.context);
+    const customerIds = [...new Set(scoped.map((o) => o.customer_id))];
+    const userIds = [...new Set(scoped.map((o) => o.overridden_by))];
+    const [custRes, userRes] = await Promise.all([
+      customerIds.length ? supabase.from('Customers').select('id,company_name').in('id', customerIds) : { data: [] },
+      userIds.length ? supabase.from('users').select('id,email,name').in('id', userIds) : { data: [] },
+    ]);
+    const customers = {};
+    (custRes.data || []).forEach((c) => { customers[c.id] = c; });
+    const users = {};
+    (userRes.data || []).forEach((u) => { users[u.id] = u; });
+
+    const rows = scoped.map((o) => ({
+      override_id: o.id,
+      created_at: o.created_at,
+      customer_id: o.customer_id,
+      company_name: customers[o.customer_id]?.company_name || null,
+      order_id: o.order_id,
+      overridden_by_email: users[o.overridden_by]?.email || null,
+      overridden_by_name: users[o.overridden_by]?.name || null,
+      override_reason: o.override_reason,
+      customer_balance_at_override: o.customer_balance_at_override,
+      credit_limit_at_override: o.credit_limit_at_override,
+      expires_at: o.expires_at,
+      consumed_at: o.consumed_at,
+      is_one_time: o.is_one_time,
+    }));
+
+    if (String(req.query.format || '').toLowerCase() === 'csv') {
+      const csv = toCsv(
+        ['override_id', 'created_at', 'company_name', 'order_id', 'overridden_by_email', 'override_reason',
+          'customer_balance_at_override', 'credit_limit_at_override', 'expires_at', 'consumed_at'],
+        rows,
+      );
+      res.setHeader('Content-Type', 'text/csv');
+      res.setHeader('Content-Disposition', `attachment; filename="credit-overrides-${new Date().toISOString().slice(0, 10)}.csv"`);
+      return res.send(csv);
+    }
+
+    res.json({
+      generated_at: new Date().toISOString(),
+      filters: { from, to },
+      total: rows.length,
+      overrides: rows,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// 9D. GET /api/reporting/bad-debt-risk
+router.get('/bad-debt-risk', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { data: invoices, error } = await supabase
+      .from('invoices')
+      .select('id, customer_id, customer_name, total, due_date, created_at, status')
+      .in('status', creditEngine.OPEN_INVOICE_STATUSES);
+    if (error) return res.status(500).json({ error: error.message });
+
+    const scoped = filterRowsByContext(invoices || [], req.context);
+    const now = Date.now();
+    const byCustomer = new Map();
+
+    for (const inv of scoped) {
+      const due = inv.due_date || inv.created_at;
+      const days = due ? Math.floor((now - new Date(due).getTime()) / 86_400_000) : 0;
+      if (days <= 90) continue;
+      const key = inv.customer_id || inv.customer_name || inv.id;
+      if (!byCustomer.has(key)) byCustomer.set(key, { customer_id: inv.customer_id, customer_name: inv.customer_name, total_at_risk: 0, oldest_days: 0, invoice_count: 0 });
+      const entry = byCustomer.get(key);
+      entry.total_at_risk += toNumber(inv.total, 0);
+      entry.invoice_count += 1;
+      if (days > entry.oldest_days) entry.oldest_days = days;
+    }
+
+    const rows = [...byCustomer.values()].map((entry) => {
+      // Risk multiplier ramps from ~1.0 at 90 days to ~1.0 (we cap) — purely
+      // a sorting heuristic; the field is labeled "estimated".
+      const writeOffMultiplier = entry.oldest_days >= 180 ? 0.75 : entry.oldest_days >= 120 ? 0.5 : 0.25;
+      return {
+        ...entry,
+        total_at_risk: round2(entry.total_at_risk),
+        estimated_uncollectable: round2(entry.total_at_risk * writeOffMultiplier),
+        risk_level: entry.oldest_days >= 180 ? 'high' : entry.oldest_days >= 120 ? 'medium' : 'low',
+      };
+    }).sort((a, b) => b.estimated_uncollectable - a.estimated_uncollectable);
+
+    res.json({
+      generated_at: new Date().toISOString(),
+      total_customers_at_risk: rows.length,
+      total_at_risk: round2(rows.reduce((s, r) => s + r.total_at_risk, 0)),
+      total_estimated_uncollectable: round2(rows.reduce((s, r) => s + r.estimated_uncollectable, 0)),
+      rows,
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 module.exports = { router, computeRollups, computeSalesSummary, computeRecentSoldItems, computeDailyOps };

@@ -44,6 +44,7 @@ const waitlistRouter      = require('./routes/waitlist');
 const dwellRouter         = require('./routes/dwell');
 const salesRepsRouter     = require('./routes/sales-reps');
 const arHubRouter         = require('./routes/ar-hub');
+const creditHoldRouter    = require('./routes/credit-hold');
 const vendorBillsRouter   = require('./routes/vendor-bills');
 const complianceRouter    = require('./routes/compliance');
 const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
@@ -211,6 +212,7 @@ app.use('/api/waitlist', waitlistRouter);
 app.use('/api/dwell', dwellRouter);
 app.use('/api/sales-reps', salesRepsRouter);
 app.use('/api/ar', arHubRouter);
+app.use('/api/credit', creditHoldRouter);
 app.use('/api/vendor-bills', vendorBillsRouter);
 app.use('/api/compliance', complianceRouter);
 
@@ -248,6 +250,8 @@ const frontendV2Routes = [
   '/superadmin/waitlist',
   '/sales-rep',
   '/ar-hub',
+  '/ar',
+  '/credit',
 ];
 app.get(frontendV2Routes, (req, res) => res.sendFile(frontendV2Entry));
 
