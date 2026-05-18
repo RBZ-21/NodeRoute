@@ -57,6 +57,7 @@ const CTE_LABELS: Record<CteRow['event_type'], string> = {
   harvest:   'Harvest / First Land',
   cooling:   'Initial Cooling',
   packing:   'Packing & Labeling',
+  processing: 'Processing',
   shipping:  'Shipping / Transfer',
   receiving: 'Receiving',
 };

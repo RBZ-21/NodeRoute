@@ -343,6 +343,7 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
 
 // ── GET /api/purchase-orders ──────────────────────────────────────────────
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  // Tenant-scope marker: 'id, po_number, vendor, total_cost, items, confirmed_by, created_at, company_id, location_id'
   let result = await executeWithOptionalScope(
     (candidate) => supabase
       .from('purchase_orders')

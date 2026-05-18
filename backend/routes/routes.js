@@ -99,6 +99,25 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
   res.json(filterRowsByContext(data, req.context));
 });
 
+router.get('/:id', authenticateToken, async (req, res) => {
+  const route = await dbQuery(supabase.from('routes').select('*').eq('id', req.params.id).single(), res);
+  if (!route) return res.status(404).json({ error: 'Route not found' });
+
+  if (req.user.role === 'driver') {
+    const assigned = String(route.driver_id || '') === String(req.user.id || '')
+      || String(route.driver_email || '').toLowerCase() === String(req.user.email || '').toLowerCase()
+      || String(route.driver || '').trim().toLowerCase() === String(req.user.name || '').trim().toLowerCase();
+    if (!assigned) return res.status(403).json({ error: 'Forbidden' });
+    return res.json(route);
+  }
+
+  if (req.user.role !== 'superadmin' && !['admin', 'manager'].includes(req.user.role)) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+  if (!rowMatchesContext(route, req.context)) return res.status(403).json({ error: 'Forbidden' });
+  res.json(route);
+});
+
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { name, stopIds, activeStopIds, driver, driverId, driverName, notes, originLat, originLng } = req.body;
   const templateStopIds = normalizeStopIds(stopIds);

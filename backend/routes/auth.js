@@ -23,6 +23,8 @@ const router = express.Router();
 
 const { JWT_SECRET } = require('../lib/config');
 const JWT_EXPIRY = '24h';
+const DRIVER_ACCESS_EXPIRY = '15m';
+const DRIVER_REFRESH_EXPIRY = '7d';
 const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 h in ms
 const TEMPLATES_PATH = path.join(__dirname, '../../supabase/seeds/inventory_templates.json');
 
@@ -54,6 +56,10 @@ function verifyPassword(pw, stored) {
 }
 
 function signJWT(user) {
+  return signUserJWT(user, JWT_EXPIRY, 'session');
+}
+
+function signUserJWT(user, expiresIn, tokenType) {
   const context = getUserOperatingContext(user);
   const userId = user?.id;
   return jwt.sign(
@@ -66,10 +72,32 @@ function signJWT(user) {
       companyId: context.companyId,
       locationId: context.locationId,
       platformRole: context.platformRole,
+      tokenType,
     },
     JWT_SECRET,
-    { expiresIn: JWT_EXPIRY }
+    { expiresIn }
   );
+}
+
+function signDriverTokens(user) {
+  return {
+    token: signUserJWT(user, DRIVER_ACCESS_EXPIRY, 'driver_access'),
+    refreshToken: signUserJWT(user, DRIVER_REFRESH_EXPIRY, 'driver_refresh'),
+  };
+}
+
+async function findUserByCredentials(email, password) {
+  const normalizedEmail = email.toLowerCase();
+  const users = await dbQuery(supabase.from('users').select('*'), null);
+  const user = (Array.isArray(users) ? users : []).find(
+    (candidate) => String(candidate?.email || '').trim().toLowerCase() === normalizedEmail
+  );
+
+  if (!user || user.status !== 'active') return { user: null, valid: false, migrate: false };
+
+  const passwordResult = verifyPassword(password, user.password_hash);
+  if (!passwordResult.valid) return { user: null, valid: false, migrate: false };
+  return { user, valid: true, migrate: passwordResult.migrate };
 }
 
 function slugifyCompanyName(name) {
@@ -194,16 +222,7 @@ router.post('/login', loginLimiter, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error });
   const { email, password } = parsed.data;
 
-  const normalizedEmail = email.toLowerCase();
-  const users = await dbQuery(supabase.from('users').select('*'), res);
-  if (!users) return;
-
-  const u = (Array.isArray(users) ? users : []).find(
-    (user) => String(user?.email || '').trim().toLowerCase() === normalizedEmail
-  );
-
-  if (!u || u.status !== 'active') return res.status(401).json({ error: 'Invalid credentials' });
-  const { valid, migrate } = verifyPassword(password, u.password_hash);
+  const { user: u, valid, migrate } = await findUserByCredentials(email, password);
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
   if (migrate) {
     await supabase.from('users').update({ password_hash: bcrypt.hashSync(password, 10) }).eq('id', u.id);
@@ -211,6 +230,47 @@ router.post('/login', loginLimiter, async (req, res) => {
   const token = signJWT(u);
   setAuthCookies(res, token);
   res.json({ user: userResponseWithContext(u) });
+});
+
+router.post('/driver/login', loginLimiter, async (req, res) => {
+  const parsed = parseLoginBody(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error });
+  const { email, password } = parsed.data;
+
+  const { user: u, valid, migrate } = await findUserByCredentials(email, password);
+  if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
+  if (u.role !== 'driver') return res.status(403).json({ error: 'Forbidden' });
+  if (migrate) {
+    await supabase.from('users').update({ password_hash: bcrypt.hashSync(password, 10) }).eq('id', u.id);
+  }
+
+  const { token, refreshToken } = signDriverTokens(u);
+  res.json({ token, refreshToken, user: userResponseWithContext(u) });
+});
+
+router.post('/driver/refresh', async (req, res) => {
+  const refreshToken = req.body?.refreshToken;
+  if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' });
+
+  let payload;
+  try {
+    payload = jwt.verify(refreshToken, JWT_SECRET);
+  } catch {
+    return res.status(401).json({ error: 'Invalid or expired refresh token' });
+  }
+  if (payload?.tokenType !== 'driver_refresh') {
+    return res.status(401).json({ error: 'Invalid refresh token' });
+  }
+
+  const users = await dbQuery(supabase.from('users').select('*').eq('id', payload.userId || payload.sub).limit(1), res);
+  if (!users) return;
+  const u = users[0];
+  if (!u || u.status !== 'active' || u.role !== 'driver') {
+    return res.status(401).json({ error: 'User not found' });
+  }
+
+  const tokens = signDriverTokens(u);
+  res.json({ ...tokens, user: userResponseWithContext(u) });
 });
 
 router.post('/signup', loginLimiter, async (req, res) => {
