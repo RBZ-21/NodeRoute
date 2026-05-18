@@ -2512,6 +2512,88 @@ function detectPricingAnomalies(orders) {
   };
 }
 
+const REORDER_CONFIDENCE_SCHEMA = {
+  name: 'reorder_confidence_score',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['score'],
+    properties: {
+      score: { type: 'number' },
+    },
+  },
+};
+
+const REORDER_REASON_SCHEMA = {
+  name: 'reorder_reason_enhancement',
+  schema: {
+    type: 'object',
+    additionalProperties: false,
+    required: ['reason'],
+    properties: {
+      reason: { type: 'string' },
+    },
+  },
+};
+
+function heuristicReorderConfidence(input = {}) {
+  const historyDays = numberOr(input.days_of_history_available, 0);
+  const usage = numberOr(input.avg_daily_usage, 0);
+  const upcoming = numberOr(input.upcoming_demand, 0);
+  let score = 0.45;
+  if (historyDays >= 365) score += 0.25;
+  else if (historyDays >= 30) score += 0.18;
+  else if (historyDays >= 14) score += 0.12;
+  else if (historyDays >= 7) score += 0.08;
+  if (usage > 0) score += 0.15;
+  if (String(input.usage_trend || 'stable') === 'stable') score += 0.05;
+  if (Math.abs(numberOr(input.seasonal_adjustment, 0)) > 25) score -= 0.05;
+  if (upcoming > usage * 7 && usage > 0) score -= 0.05;
+  return clamp(Number(score.toFixed(3)), 0, 1);
+}
+
+async function scoreReorderConfidence(input = {}) {
+  if (!process.env.OPENAI_API_KEY) return heuristicReorderConfidence(input);
+  const userMessage = `How confident are you in this reorder suggestion on a scale of 0 to 1? Return JSON with only { "score": number }.
+
+${JSON.stringify(input, null, 2)}`;
+  try {
+    const result = await callAI({
+      systemPrompt: 'You score inventory reorder suggestion confidence for food distributors. Use sparse history, trend volatility, seasonality, and upcoming demand. Return only valid JSON.',
+      userMessage,
+      schema: REORDER_CONFIDENCE_SCHEMA,
+      maxTokens: 60,
+    });
+    return clamp(numberOr(result.score, heuristicReorderConfidence(input)), 0, 1);
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    return heuristicReorderConfidence(input);
+  }
+}
+
+async function enhanceReorderReason(calculationData = {}, fallbackReason = '') {
+  if (!process.env.OPENAI_API_KEY) return fallbackReason;
+  const userMessage = `Rewrite this reorder explanation in clear, plain business English for a food distribution manager. Keep all important numbers and avoid hype.
+
+Fallback reason:
+${fallbackReason}
+
+Calculation data:
+${JSON.stringify(calculationData, null, 2)}`;
+  try {
+    const result = await callAI({
+      systemPrompt: 'You write concise operational reorder explanations. Sound like a smart inventory manager, not a robot.',
+      userMessage,
+      schema: REORDER_REASON_SCHEMA,
+      maxTokens: 260,
+    });
+    return stringOr(result.reason, fallbackReason);
+  } catch (err) {
+    if (String(err.message || '').includes('OPENAI_API_KEY')) throw err;
+    return fallbackReason;
+  }
+}
+
 // ── VENDOR LIST SCORING ────────────────────────────────────────────────────────
 const VENDOR_LIST_SCORE_SCHEMA = {
   name: 'vendor_list_scores',
@@ -2575,6 +2657,8 @@ module.exports = {
   analyzeInventory,
   generateReorderAlert,
   generateBulkReorderAlerts,
+  scoreReorderConfidence,
+  enhanceReorderReason,
   scoreLatePaymentRisk,
   detectPricingAnomalies,
   generateWalkthrough,
