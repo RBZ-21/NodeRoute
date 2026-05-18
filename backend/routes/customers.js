@@ -8,6 +8,7 @@ const {
   insertRecordWithOptionalScope,
   rowMatchesContext,
 } = require('../services/operating-context');
+const creditEngine = require('../services/creditEngine');
 
 const router = express.Router();
 const CUSTOMER_FIELDS = [
@@ -231,22 +232,26 @@ router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async 
 
 // ── CREDIT HOLD ────────────────────────────────────────────────────────────────
 
+// Legacy endpoints — kept for backward compatibility with existing UIs.
+// Both paths now flow through the credit engine so every hold lands in the
+// credit_hold_log audit trail. New code should call /api/credit/customer/:id/hold.
+const VALID_HOLD_REASONS_LEGACY = ['over_limit', 'past_due', 'manual', 'new_account', 'bounced_check', 'disputed_invoice'];
+
 router.post('/:id/hold', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const existing = await dbQuery(supabase.from('Customers').select('*').eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Customer not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
-  const reason = req.body?.reason ? String(req.body.reason).trim() : null;
-  const updateResult = await executeWithOptionalScope(
-    (candidate) => supabase.from('Customers').update(candidate).eq('id', req.params.id).select().single(),
-    {
-      credit_hold: true,
-      credit_hold_reason: reason,
-      credit_hold_placed_at: new Date().toISOString(),
-    }
-  );
-  if (updateResult.error) return res.status(500).json({ error: updateResult.error.message });
-  res.json(updateResult.data);
+  const rawReason = req.body?.reason ? String(req.body.reason).trim().toLowerCase() : 'manual';
+  const reason = VALID_HOLD_REASONS_LEGACY.includes(rawReason) ? rawReason : 'manual';
+  const notes = req.body?.notes ? String(req.body.notes).trim() : null;
+
+  try {
+    const updated = await creditEngine.applyHold(existing.id, reason, req.user.id, notes, 'manager_manual', req.context);
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 router.delete('/:id/hold', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
@@ -254,16 +259,13 @@ router.delete('/:id/hold', authenticateToken, requireRole('admin', 'manager'), a
   if (!existing) return res.status(404).json({ error: 'Customer not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
-  const updateResult = await executeWithOptionalScope(
-    (candidate) => supabase.from('Customers').update(candidate).eq('id', req.params.id).select().single(),
-    {
-      credit_hold: false,
-      credit_hold_reason: null,
-      credit_hold_placed_at: null,
-    }
-  );
-  if (updateResult.error) return res.status(500).json({ error: updateResult.error.message });
-  res.json(updateResult.data);
+  const notes = req.body?.notes ? String(req.body.notes).trim() : 'Released via legacy endpoint';
+  try {
+    const updated = await creditEngine.releaseHold(existing.id, req.user.id, notes, 'manager_manual', req.context);
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 module.exports = router;

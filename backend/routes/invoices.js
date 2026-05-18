@@ -14,6 +14,7 @@ const {
   insertRecordWithOptionalScope,
   rowMatchesContext,
 } = require('../services/operating-context');
+const creditEngine = require('../services/creditEngine');
 
 const router = express.Router();
 
@@ -162,6 +163,11 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
   if (!data) return;
+
+  // Credit reactor: balance changed; may need to place a hold or warning.
+  // Fire-and-forget — never block the invoice response on a credit decision.
+  creditEngine.reactToInvoiceCreated(data.customer_id, data.id, req.context).catch(() => {});
+
   res.json(enrichInvoiceResponse(data));
 });
 
@@ -241,6 +247,18 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
     sendInvoiceEmail(data, 'Your Completed Invoice').catch((err) =>
       console.error('[invoices] completion email failed:', err.message)
     );
+  }
+
+  // Credit reactor: a paid invoice updates the customer balance, recomputes
+  // payment averages, and may auto-release a credit hold. Fire-and-forget —
+  // we never want a credit side-effect to block marking an invoice paid.
+  if (beingMarkedPaid) {
+    creditEngine.recordPaymentReceived({
+      customer_id: data.customer_id,
+      customer_name: data.customer_name,
+      invoice: data,
+      amount: data.total,
+    }).catch(() => {});
   }
 
   res.json(enrichInvoiceResponse(data));
