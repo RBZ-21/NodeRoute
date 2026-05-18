@@ -2,6 +2,8 @@ const PDFDocument = require('pdfkit');
 const { loadCompanySettings } = require('./company-settings');
 const { normalizeInvoiceLots } = require('./invoice-lots');
 
+const CUSTOMER_INVOICE_NOTE = 'Please contact the office if you have any questions.';
+
 // ── PDF BUILDER ───────────────────────────────────────────────────────────────
 async function buildInvoicePDF(inv) {
   return new Promise((resolve, reject) => {
@@ -103,16 +105,21 @@ async function buildInvoicePDF(inv) {
         y += 10;
 
         // Totals
-        const totalsX = 380;
-        doc.fillColor(MUTED).font('Helvetica').fontSize(10).text('Subtotal:', totalsX, y, { width: 90, align: 'right' });
-        doc.fillColor('#222').text(`$${parseFloat(inv.subtotal||0).toFixed(2)}`, 476, y, { width: 74, align: 'right' });
+        const totalsLabelX = 372;
+        const totalsAmountX = 462;
+        const totalsLabelWidth = 90;
+        const totalsAmountWidth = 90;
+        doc.fillColor(MUTED).font('Helvetica').fontSize(10).text('Subtotal:', totalsLabelX, y, { width: totalsLabelWidth, align: 'right' });
+        doc.fillColor('#222').text(`$${parseFloat(inv.subtotal||0).toFixed(2)}`, totalsAmountX, y, { width: totalsAmountWidth, align: 'right' });
         y += 16;
-        doc.fillColor(MUTED).text('Tax:', totalsX, y, { width: 90, align: 'right' });
-        doc.fillColor('#222').text(`$${parseFloat(inv.tax||0).toFixed(2)}`, 476, y, { width: 74, align: 'right' });
+        doc.fillColor(MUTED).text('Tax:', totalsLabelX, y, { width: totalsLabelWidth, align: 'right' });
+        doc.fillColor('#222').text(`$${parseFloat(inv.tax||0).toFixed(2)}`, totalsAmountX, y, { width: totalsAmountWidth, align: 'right' });
         y += 16;
-        doc.rect(totalsX - 10, y - 4, 160, 24).fill(ACCENT);
-        doc.fillColor('#fff').font('Helvetica-Bold').fontSize(12).text('TOTAL:', totalsX, y + 2, { width: 90, align: 'right' });
-        doc.text(`$${parseFloat(inv.total||0).toFixed(2)}`, 476, y + 2, { width: 74, align: 'right' });
+        const totalBoxX = 360;
+        const totalBoxWidth = doc.page.width - 50 - totalBoxX;
+        doc.rect(totalBoxX, y - 4, totalBoxWidth, 24).fill(ACCENT);
+        doc.fillColor('#fff').font('Helvetica-Bold').fontSize(12).text('TOTAL:', totalsLabelX, y + 2, { width: totalsLabelWidth, align: 'right' });
+        doc.text(`$${parseFloat(inv.total||0).toFixed(2)}`, totalsAmountX, y + 2, { width: totalsAmountWidth, align: 'right' });
         y += 40;
 
         if (invoiceLots.length) {
@@ -173,10 +180,8 @@ async function buildInvoicePDF(inv) {
           doc.fillColor(MUTED).font('Helvetica').fontSize(9).text(`Uploaded on ${proofLabel}`, 50, y + 166);
         }
 
-        if (inv.notes) {
-          y += inv.proof_of_delivery_image_data ? 196 : 110;
-          doc.fillColor(MUTED).font('Helvetica').fontSize(9).text(`Notes: ${inv.notes}`, 50, y);
-        }
+        y += inv.proof_of_delivery_image_data ? 196 : (inv.signature_data ? 118 : 16);
+        doc.fillColor(MUTED).font('Helvetica').fontSize(9).text(`Notes: ${CUSTOMER_INVOICE_NOTE}`, 50, y);
 
         doc.end();
       })
@@ -184,4 +189,4 @@ async function buildInvoicePDF(inv) {
   });
 }
 
-module.exports = { buildInvoicePDF };
+module.exports = { buildInvoicePDF, CUSTOMER_INVOICE_NOTE };
