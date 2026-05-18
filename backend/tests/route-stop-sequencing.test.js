@@ -59,3 +59,84 @@ test('route safety migration and route handlers include sequence and audit marke
 test('route stop helper normalizes duplicate ids', () => {
   assert.deepEqual(normalizeIdArray([' stop-a ', 'stop-a', '', null, 'stop-b']), ['stop-a', 'stop-b']);
 });
+
+// ── synchronizeRouteStopAssignments → single RPC ──────────────────────────────
+
+const { synchronizeRouteStopAssignments } = (() => {
+  // Reach into the module internals via a thin re-export shim so we can test
+  // without altering the public API surface.
+  const mod = require('../services/route-stop-sync');
+  // synchronizeRouteStopAssignments is not exported — re-export only what we
+  // need by wrapping syncRouteMutation's internal call pattern. Instead, test
+  // the function directly by requiring it after adding it to the export list in
+  // a way that doesn't break callers. Since the spec says NOT to change the
+  // public exports, we exercise it through a minimal supabase mock passed to
+  // syncRouteMutation, which delegates to synchronizeRouteStopAssignments.
+  return mod;
+})();
+
+test('synchronizeRouteStopAssignments calls rpc with correct name and array params', async () => {
+  let capturedRpcName;
+  let capturedRpcParams;
+
+  const mockSupabase = {
+    from: (table) => ({
+      select: () => ({ eq: () => ({ single: async () => ({ data: { id: 'route-1', stop_ids: [], active_stop_ids: [] }, error: null }) }) }),
+      update: (payload) => ({ eq: () => ({ select: () => ({ single: async () => ({ data: payload, error: null }) }) }) }),
+    }),
+    rpc: async (name, params) => {
+      capturedRpcName = name;
+      capturedRpcParams = params;
+      return { error: null };
+    },
+  };
+
+  // syncRouteMutation calls synchronizeRouteStopAssignments internally
+  const { syncRouteMutation } = require('../services/route-stop-sync');
+  await syncRouteMutation(mockSupabase, {
+    routeId: 'route-1',
+    stopIds: ['stop-a', 'stop-b', 'stop-c'],
+    activeStopIds: ['stop-c', 'stop-a'],
+    action: 'update',
+    actor: {},
+    context: {},
+    metadata: {},
+  });
+
+  assert.equal(capturedRpcName, 'sync_route_stop_assignments', 'rpc must be called with correct function name');
+  assert.ok(Array.isArray(capturedRpcParams.p_stop_ids), 'p_stop_ids must be an array, not a comma-separated string');
+  assert.ok(Array.isArray(capturedRpcParams.p_active_stop_ids), 'p_active_stop_ids must be an array, not a comma-separated string');
+  assert.equal(capturedRpcParams.p_route_id, 'route-1');
+});
+
+test('synchronizeRouteStopAssignments propagates rpc error without proceeding', async () => {
+  const rpcError = new Error('DB constraint violation');
+  let rpcCallCount = 0;
+
+  const mockSupabase = {
+    from: (table) => ({
+      select: () => ({ eq: () => ({ single: async () => ({ data: { id: 'route-1', stop_ids: [], active_stop_ids: [] }, error: null }) }) }),
+      update: (payload) => ({ eq: () => ({ select: () => ({ single: async () => ({ data: payload, error: null }) }) }) }),
+    }),
+    rpc: async () => {
+      rpcCallCount += 1;
+      return { error: rpcError };
+    },
+  };
+
+  const { syncRouteMutation } = require('../services/route-stop-sync');
+  const result = await syncRouteMutation(mockSupabase, {
+    routeId: 'route-1',
+    stopIds: ['stop-a'],
+    activeStopIds: ['stop-a'],
+    action: 'update',
+    actor: {},
+    context: {},
+    metadata: {},
+  });
+
+  assert.equal(rpcCallCount, 1, 'rpc should be called exactly once');
+  assert.ok(result.error, 'result must contain the error');
+  assert.equal(result.error, rpcError, 'error must be the rpc error, not wrapped');
+  assert.ok(!result.data, 'data must be null/falsy on error');
+});
