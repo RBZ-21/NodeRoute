@@ -20,12 +20,99 @@ try {
 const logger = require('../services/logger');
 const { runDailyFishBlastForAllCompanies } = require('../services/daily-fish-blast');
 const creditEngine = require('../services/creditEngine');
+const reorderEngine = require('../services/reorderEngine');
+const { supabase } = require('../services/supabase');
+const { createMailer } = require('../services/email');
 const config = require('./config');
 
 // 6:30 AM Eastern = 10:30 UTC (EST) / 11:30 UTC (EDT)
 // Use TZ option to let node-cron handle the offset correctly.
 const BLAST_CRON = process.env.DAILY_BLAST_CRON || '30 6 * * 1-6';
 const BLAST_TZ   = 'America/New_York';
+const REORDER_CHECK_CRON = process.env.REORDER_CHECK_CRON || '0 */4 * * *';
+const REORDER_USAGE_CRON = process.env.REORDER_USAGE_CRON || '0 0 * * 0';
+const REORDER_DIGEST_CRON = process.env.REORDER_DIGEST_CRON || '0 6 * * *';
+
+async function sendReorderDigest() {
+  const mailer = createMailer();
+  if (!mailer) {
+    logger.warn('Reorder digest skipped: email is not configured');
+    return { sent: false, reason: 'email_not_configured' };
+  }
+
+  const { data: suggestions, error } = await supabase
+    .from('reorder_suggestions')
+    .select('*')
+    .eq('status', 'pending')
+    .in('urgency', ['critical', 'urgent', 'scheduled'])
+    .order('urgency', { ascending: true });
+  if (error) throw error;
+  const rows = suggestions || [];
+  if (!rows.length) return { sent: false, reason: 'no_urgent_suggestions' };
+
+  const productIds = [...new Set(rows.map((row) => row.product_id).filter(Boolean))];
+  const vendorIds = [...new Set(rows.map((row) => row.vendor_id).filter(Boolean))];
+  const productMap = new Map();
+  const vendorMap = new Map();
+  if (productIds.length) {
+    const { data: products } = await supabase
+      .from('products')
+      .select('id,name,description,item_number,on_hand_qty,unit')
+      .in('id', productIds);
+    (products || []).forEach((product) => productMap.set(product.id, product));
+  }
+  if (vendorIds.length) {
+    const { data: vendors } = await supabase
+      .from('vendors')
+      .select('id,name')
+      .in('id', vendorIds);
+    (vendors || []).forEach((vendor) => vendorMap.set(vendor.id, vendor));
+  }
+  const { data: admins } = await supabase
+    .from('users')
+    .select('email,role,status')
+    .in('role', ['admin', 'manager'])
+    .eq('status', 'active');
+  const recipients = (admins || []).map((user) => user.email).filter(Boolean);
+  if (!recipients.length && !process.env.EMAIL_FROM) return { sent: false, reason: 'no_recipients' };
+
+  const tableRows = rows.map((row) => {
+    const product = productMap.get(row.product_id) || {};
+    const vendor = vendorMap.get(row.vendor_id) || {};
+    const productName = product.name || product.description || row.product_id;
+    return `<tr>
+      <td style="padding:8px;border-bottom:1px solid #ddd">${productName}</td>
+      <td style="padding:8px;border-bottom:1px solid #ddd">${row.current_stock} ${row.suggested_unit || product.unit || ''}</td>
+      <td style="padding:8px;border-bottom:1px solid #ddd">${row.days_of_stock_remaining ?? 'N/A'}</td>
+      <td style="padding:8px;border-bottom:1px solid #ddd">${row.suggested_quantity} ${row.suggested_unit || ''}</td>
+      <td style="padding:8px;border-bottom:1px solid #ddd">${vendor.name || 'Unassigned'}</td>
+      <td style="padding:8px;border-bottom:1px solid #ddd;text-transform:uppercase">${row.urgency}</td>
+    </tr>`;
+  }).join('');
+  const criticalCount = rows.filter((row) => row.urgency === 'critical').length;
+  const subject = `NodeRoute: ${rows.length} products need reordering today`;
+  await mailer.sendMail({
+    from: process.env.EMAIL_FROM,
+    to: recipients.length ? recipients.join(',') : process.env.EMAIL_FROM,
+    subject,
+    html: `<div style="font-family:Arial,sans-serif;color:#111">
+      <h2 style="margin:0 0 8px">NodeRoute Reorder Digest</h2>
+      <p>${criticalCount} critical and ${rows.length - criticalCount} urgent/scheduled reorder suggestions need review.</p>
+      <table style="border-collapse:collapse;width:100%;font-size:14px">
+        <thead><tr>
+          <th style="text-align:left;padding:8px;border-bottom:2px solid #333">Product</th>
+          <th style="text-align:left;padding:8px;border-bottom:2px solid #333">Current stock</th>
+          <th style="text-align:left;padding:8px;border-bottom:2px solid #333">Days remaining</th>
+          <th style="text-align:left;padding:8px;border-bottom:2px solid #333">Suggested qty</th>
+          <th style="text-align:left;padding:8px;border-bottom:2px solid #333">Vendor</th>
+          <th style="text-align:left;padding:8px;border-bottom:2px solid #333">Urgency</th>
+        </tr></thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    </div>`,
+  });
+  return { sent: true, recipients: recipients.length || 1, suggestions: rows.length };
+}
 
 // 5:00 AM Eastern, every day — full credit recheck for all customers.
 const CREDIT_CHECK_CRON = process.env.CREDIT_CHECK_CRON || '0 5 * * *';
@@ -42,6 +129,16 @@ function startScheduler() {
   if (!cron.validate(BLAST_CRON)) {
     logger.error({ cron: BLAST_CRON }, 'DAILY_BLAST_CRON is not a valid cron expression — scheduler not started');
     return;
+  }
+  for (const [name, expression] of Object.entries({
+    REORDER_CHECK_CRON,
+    REORDER_USAGE_CRON,
+    REORDER_DIGEST_CRON,
+  })) {
+    if (!cron.validate(expression)) {
+      logger.error({ name, cron: expression }, 'Reorder cron expression is invalid — scheduler not started');
+      return;
+    }
   }
 
   cron.schedule(BLAST_CRON, async () => {
@@ -79,18 +176,48 @@ function startScheduler() {
     logger.error({ cron: AR_AGING_DIGEST_CRON }, 'AR_AGING_DIGEST_CRON invalid — digest job not scheduled');
   }
 
+  cron.schedule(REORDER_CHECK_CRON, async () => {
+    logger.info({ cron: REORDER_CHECK_CRON }, 'Reorder check job started');
+    try {
+      const result = await reorderEngine.runReorderCheck();
+      logger.info(result, 'Reorder check job completed');
+    } catch (err) {
+      logger.error({ err }, 'Reorder check job failed');
+    }
+  }, { timezone: BLAST_TZ });
+
+  cron.schedule(REORDER_USAGE_CRON, async () => {
+    logger.info({ cron: REORDER_USAGE_CRON }, 'Reorder weekly usage recalculation started');
+    try {
+      const result = await reorderEngine.recalcAllUsage();
+      logger.info(result, 'Reorder weekly usage recalculation completed');
+    } catch (err) {
+      logger.error({ err }, 'Reorder weekly usage recalculation failed');
+    }
+  }, { timezone: BLAST_TZ });
+
+  cron.schedule(REORDER_DIGEST_CRON, async () => {
+    logger.info({ cron: REORDER_DIGEST_CRON }, 'Reorder digest job started');
+    try {
+      const result = await sendReorderDigest();
+      logger.info(result, 'Reorder digest job completed');
+    } catch (err) {
+      logger.error({ err }, 'Reorder digest job failed');
+    }
+  }, { timezone: BLAST_TZ });
+
   logger.info({
-    blast: BLAST_CRON,
+    dailyFishBlast: BLAST_CRON,
     creditCheck: CREDIT_CHECK_CRON,
     arDigest: AR_AGING_DIGEST_CRON,
-    tz: CREDIT_TZ,
+    reorderCheck: REORDER_CHECK_CRON,
+    reorderUsage: REORDER_USAGE_CRON,
+    reorderDigest: REORDER_DIGEST_CRON,
+    tz: BLAST_TZ,
   }, 'Scheduler started');
 }
 
 async function sendWeeklyArAgingDigest() {
-  const { supabase } = require('../services/supabase');
-  const { createMailer } = require('../services/email');
-
   const { data: openInvoices } = await supabase
     .from('invoices')
     .select('id, customer_name, total, due_date, created_at, status')
@@ -141,4 +268,4 @@ async function sendWeeklyArAgingDigest() {
   }
 }
 
-module.exports = { startScheduler };
+module.exports = { startScheduler, sendReorderDigest };
