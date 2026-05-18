@@ -48,6 +48,23 @@ const {
   rowMatchesContext,
 } = require('../services/operating-context');
 const { statusAfterDeliveryCompletion } = require('../services/invoice-delivery');
+const creditEngine = require('../services/creditEngine');
+
+// Estimate the dollar value of a draft order for the credit check. Mirrors
+// totalsForItems but tolerates partially-priced items (returns 0 contributions
+// for missing prices rather than NaN). This is intentionally an estimate —
+// final invoice totals are computed from actual weights after fulfillment.
+function estimateOrderTotal({ items, charges, taxEnabled, taxRate }) {
+  const itemsSum = (Array.isArray(items) ? items : []).reduce((sum, it) => {
+    const qty = parseFloat(it?.actual_weight || it?.requested_weight || it?.requested_qty || it?.quantity || 0) || 0;
+    const price = parseFloat(it?.unit_price ?? it?.price_per_lb ?? 0) || 0;
+    return sum + qty * price;
+  }, 0);
+  const chargesSum = (Array.isArray(charges) ? charges : []).reduce((sum, c) => sum + (parseFloat(c?.amount) || 0), 0);
+  const subtotal = itemsSum + chargesSum;
+  const tax = taxEnabled ? subtotal * (parseFloat(taxRate) || 0) : 0;
+  return parseFloat((subtotal + tax).toFixed(2));
+}
 
 function normalizeText(value) {
   return String(value ?? '').trim();
@@ -661,23 +678,52 @@ router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole
   const { customerName, customerEmail, customerAddress, items, charges, notes } = req.body;
   const fulfillmentType = normalizeFulfillmentType(req.body.fulfillmentType ?? req.body.fulfillment_type);
 
-  // Block orders for customers on credit hold
-  if (customerName) {
-    const { data: heldCustomers, error: heldCustomerErr } = await supabase
-      .from('Customers')
-      .select('id, company_name, credit_hold, credit_hold_reason')
-      .ilike('company_name', customerName.trim())
-      .eq('credit_hold', true)
-      .limit(1);
-    if (heldCustomerErr) return res.status(500).json({ error: heldCustomerErr.message });
-    const heldCustomer = heldCustomers?.[0] || null;
-    if (heldCustomer) {
-      const reason = heldCustomer.credit_hold_reason ? ` Reason: ${heldCustomer.credit_hold_reason}` : '';
-      return res.status(422).json({
-        error: `Order blocked: ${heldCustomer.company_name} is on credit hold.${reason}`,
-        code: 'CUSTOMER_CREDIT_HOLD',
-      });
+  // ── Credit check (runs BEFORE any other order logic) ─────────────────────
+  // Blocks the order if the customer is on credit hold OR if the order would
+  // push them past their limit. Authorized managers can pre-issue an override
+  // via POST /api/credit/customer/:id/override which is consumed here.
+  const creditTaxEnabled = parseBoolean(req.body.taxEnabled ?? req.body.tax_enabled);
+  const creditTaxRate = normalizeTaxRate(req.body.taxRate ?? req.body.tax_rate);
+  const estimatedTotal = estimateOrderTotal({
+    items,
+    charges,
+    taxEnabled: creditTaxEnabled,
+    taxRate: creditTaxRate,
+  });
+  const creditDecision = await creditEngine.checkOrderAllowed({
+    customer_name: customerName,
+    order_total: estimatedTotal,
+  });
+  if (!creditDecision.allowed) {
+    if (creditDecision.customer_id) {
+      await creditEngine.logOrderBlocked(
+        creditDecision.customer_id,
+        estimatedTotal,
+        creditDecision,
+        req.context
+      );
     }
+    return res.status(402).json({
+      success: false,
+      error: 'credit_hold',
+      code: 'CUSTOMER_CREDIT_HOLD',
+      message: creditDecision.reason === 'would_exceed_limit'
+        ? `Order would exceed ${creditDecision.customer_name}'s credit limit`
+        : `${creditDecision.customer_name || 'This customer'} is on credit hold`,
+      details: {
+        customer_id: creditDecision.customer_id,
+        customer_name: creditDecision.customer_name,
+        reason: creditDecision.reason,
+        hold_reason: creditDecision.hold_reason,
+        current_balance: creditDecision.current_balance,
+        order_total: estimatedTotal,
+        projected_balance: creditDecision.projected_balance,
+        credit_limit: creditDecision.credit_limit,
+        over_by: creditDecision.over_by,
+        oldest_past_due_days: creditDecision.oldest_past_due_days,
+        contact: 'Contact your AR manager to resolve',
+      },
+    });
   }
 
   // FSMA 204: validate FTL product lot assignments before creating the order
@@ -723,9 +769,18 @@ router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole
   } catch (stopErr) {
     return res.status(500).json({ error: stopErr.message || 'Could not create delivery stop' });
   }
+  // Consume the override (if one was used) now that the order is on the books.
+  if (creditDecision.override_id) {
+    await creditEngine.consumeOverride(creditDecision.override_id);
+  }
+
   res.json({
     ...data,
     tracking_url: data.tracking_token ? buildTrackingUrl(req, data.tracking_token) : null,
+    credit_warning: creditDecision.warning === true,
+    credit_message: creditDecision.warning ? creditDecision.message : undefined,
+    available_credit: creditDecision.warning ? creditDecision.available_credit : undefined,
+    credit_override_used: creditDecision.override_id || undefined,
   });
 });
 
@@ -805,6 +860,45 @@ router.patch('/:id', validateBody(orderUpdateSchema), authenticateToken, require
     const ftlError = await validateFtlLots(req.body.items);
     if (ftlError) return res.status(422).json({ error: ftlError, code: 'FTL_LOT_REQUIRED' });
     updates.items = await enrichItemsWithLotData(req.body.items);
+
+    // Credit recheck on order edits — only blocks when the new estimate is
+    // higher than the previous one. A reduction in scope should never be
+    // blocked by credit even if the customer is now near the limit.
+    const newTotal = estimateOrderTotal({
+      items: updates.items,
+      charges: req.body.charges !== undefined ? req.body.charges : existing.charges,
+      taxEnabled: req.body.taxEnabled !== undefined || req.body.tax_enabled !== undefined
+        ? parseBoolean(req.body.taxEnabled ?? req.body.tax_enabled)
+        : !!existing.tax_enabled,
+      taxRate: req.body.taxRate !== undefined || req.body.tax_rate !== undefined
+        ? normalizeTaxRate(req.body.taxRate ?? req.body.tax_rate)
+        : normalizeTaxRate(existing.tax_rate),
+    });
+    const previousTotal = estimateOrderTotal({
+      items: existing.items,
+      charges: existing.charges,
+      taxEnabled: !!existing.tax_enabled,
+      taxRate: normalizeTaxRate(existing.tax_rate),
+    });
+    if (newTotal > previousTotal) {
+      const decision = await creditEngine.checkOrderAllowed({
+        customer_name: updates.customer_name || existing.customer_name,
+        order_id: existing.id,
+        order_total: newTotal,
+      });
+      if (!decision.allowed) {
+        if (decision.customer_id) {
+          await creditEngine.logOrderBlocked(decision.customer_id, newTotal, decision, req.context);
+        }
+        return res.status(402).json({
+          success: false,
+          error: 'credit_hold',
+          code: 'CUSTOMER_CREDIT_HOLD',
+          message: 'Increased order total exceeds available credit',
+          details: { ...decision, order_total: newTotal },
+        });
+      }
+    }
   }
   if (req.body.charges !== undefined) updates.charges = Array.isArray(req.body.charges) ? req.body.charges : [];
   if (req.body.status !== undefined) updates.status = req.body.status;

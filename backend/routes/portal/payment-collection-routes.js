@@ -20,6 +20,7 @@ const {
   supabase,
   toMoney,
 } = require('./payments-shared');
+const creditEngine = require('../../services/creditEngine');
 
 module.exports = function buildPortalPaymentCollectionRouter({ authenticatePortalToken }) {
   const router = express.Router();
@@ -273,6 +274,16 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
 
       if (paymentStatus === 'succeeded') {
         await supabase.from('invoices').update({ status: 'paid', sent_at: new Date().toISOString() }).eq('id', invoiceRow.id);
+
+        // Real-time auto-release: a portal payment may clear a credit hold.
+        // Fire-and-forget — failures are logged inside the engine and must
+        // not affect the customer-facing payment response.
+        creditEngine.recordPaymentReceived({
+          customer_id: invoiceRow.customer_id,
+          customer_name: invoiceRow.customer_name,
+          invoice: invoiceRow,
+          amount,
+        }).catch(() => {});
       }
 
       return res.json({
