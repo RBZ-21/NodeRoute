@@ -21,8 +21,13 @@ const {
 
 const router = express.Router();
 
+// Constant-time delay on all auth endpoints — prevents timing-based enumeration.
+function authDelay() {
+  return new Promise((r) => setTimeout(r, 200 + Math.floor(Math.random() * 200)));
+}
+
 const { JWT_SECRET } = require('../lib/config');
-const JWT_EXPIRY = '24h';
+const JWT_EXPIRY = '1h';
 const DRIVER_ACCESS_EXPIRY = '15m';
 const DRIVER_REFRESH_EXPIRY = '7d';
 const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 h in ms
@@ -45,13 +50,8 @@ function getTemplates() {
   return _templates;
 }
 
-// Auto-migrates legacy SHA256 hashes to bcrypt on login
 function verifyPassword(pw, stored) {
-  if (!stored) return { valid: false, migrate: false };
-  if (!stored.startsWith('$2') && stored.length === 64) {
-    const legacy = crypto.createHash('sha256').update(pw + 'noderoute-salt').digest('hex');
-    return { valid: legacy === stored, migrate: true };
-  }
+  if (!stored || !stored.startsWith('$2')) return { valid: false, migrate: false };
   return { valid: bcrypt.compareSync(pw, stored), migrate: false };
 }
 
@@ -87,13 +87,14 @@ function signDriverTokens(user) {
 }
 
 async function findUserByCredentials(email, password) {
-  const normalizedEmail = email.toLowerCase();
-  const users = await dbQuery(supabase.from('users').select('*'), null);
-  const user = (Array.isArray(users) ? users : []).find(
-    (candidate) => String(candidate?.email || '').trim().toLowerCase() === normalizedEmail
-  );
+  const normalizedEmail = email.toLowerCase().trim();
+  const { data: user, error } = await supabase
+    .from('users')
+    .select('*')
+    .eq('email', normalizedEmail)
+    .single();
 
-  if (!user || user.status !== 'active') return { user: null, valid: false, migrate: false };
+  if (error || !user || user.status !== 'active') return { user: null, valid: false, migrate: false };
 
   const passwordResult = verifyPassword(password, user.password_hash);
   if (!passwordResult.valid) return { user: null, valid: false, migrate: false };
@@ -218,31 +219,27 @@ function clearAuthCookies(res) {
 
 // POST /auth/login — 5 attempts / 15 min
 router.post('/login', loginLimiter, async (req, res) => {
+  await authDelay();
   const parsed = parseLoginBody(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error });
   const { email, password } = parsed.data;
 
-  const { user: u, valid, migrate } = await findUserByCredentials(email, password);
+  const { user: u, valid } = await findUserByCredentials(email, password);
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
-  if (migrate) {
-    await supabase.from('users').update({ password_hash: bcrypt.hashSync(password, 10) }).eq('id', u.id);
-  }
   const token = signJWT(u);
   setAuthCookies(res, token);
   res.json({ user: userResponseWithContext(u) });
 });
 
 router.post('/driver/login', loginLimiter, async (req, res) => {
+  await authDelay();
   const parsed = parseLoginBody(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error });
   const { email, password } = parsed.data;
 
-  const { user: u, valid, migrate } = await findUserByCredentials(email, password);
+  const { user: u, valid } = await findUserByCredentials(email, password);
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
   if (u.role !== 'driver') return res.status(403).json({ error: 'Forbidden' });
-  if (migrate) {
-    await supabase.from('users').update({ password_hash: bcrypt.hashSync(password, 10) }).eq('id', u.id);
-  }
 
   const { token, refreshToken } = signDriverTokens(u);
   res.json({ token, refreshToken, user: userResponseWithContext(u) });
@@ -274,6 +271,7 @@ router.post('/driver/refresh', async (req, res) => {
 });
 
 router.post('/signup', loginLimiter, async (req, res) => {
+  await authDelay();
   const parsed = parseSignupBody(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error });
 

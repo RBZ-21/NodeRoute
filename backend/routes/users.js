@@ -1,6 +1,7 @@
 const express = require('express');
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
+const logger = require('../services/logger');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { createConfiguredMailers } = require('../services/email');
@@ -39,6 +40,21 @@ function withTimeout(promise, timeoutMs, provider) {
   ]);
 }
 
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
+function maskEmail(email) {
+  const [local, domain] = String(email).split('@');
+  if (!domain) return '***';
+  return `${local.slice(0, 2)}***@${domain}`;
+}
+
 async function sendInviteEmail({ name, email, role, inviteUrl }) {
   const result = {
     emailSent: false,
@@ -53,11 +69,14 @@ async function sendInviteEmail({ name, email, role, inviteUrl }) {
     return result;
   }
 
+  const safeName = escapeHtml(name);
+  const safeRole = escapeHtml(role);
+
   for (const mailer of mailers) {
     result.emailAttempts.push(mailer.provider || 'unknown');
     try {
       result.emailProvider = mailer.provider || 'unknown';
-      console.log(`Sending invite email via ${result.emailProvider}`, { to: email, from: process.env.EMAIL_FROM });
+      logger.info({ provider: result.emailProvider }, 'Sending invite email');
       await withTimeout(mailer.sendMail({
         from: process.env.EMAIL_FROM,
         to: email,
@@ -68,17 +87,16 @@ async function sendInviteEmail({ name, email, role, inviteUrl }) {
               <h1 style="color:#3dba7f;margin:0;font-size:24px">NodeRoute Systems</h1>
             </div>
             <div style="background:#f8faff;padding:32px;border-radius:0 0 12px 12px">
-              <h2 style="color:#0d1b3e;margin-bottom:8px">Hi ${name},</h2>
+              <h2 style="color:#0d1b3e;margin-bottom:8px">Hi ${safeName},</h2>
               <p style="color:#334;font-size:15px;line-height:1.6">
-                You've been invited to join <strong>NodeRoute Delivery Systems</strong> as a <strong>${role}</strong>.
+                You've been invited to join <strong>NodeRoute Delivery Systems</strong> as a <strong>${safeRole}</strong>.
               </p>
               <div style="text-align:center;margin:32px 0">
-                <a href="${inviteUrl}" style="background:#3dba7f;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:16px;font-weight:600;display:inline-block">
+                <a href="${escapeHtml(inviteUrl)}" style="background:#3dba7f;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:16px;font-weight:600;display:inline-block">
                   Set Up Your Account
                 </a>
               </div>
               <p style="color:#667;font-size:13px">This link expires in 48 hours.</p>
-              <p style="color:#667;font-size:13px">Or copy this URL: ${inviteUrl}</p>
             </div>
           </div>
         `
@@ -88,12 +106,10 @@ async function sendInviteEmail({ name, email, role, inviteUrl }) {
       return result;
     } catch (providerErr) {
       result.emailError = providerErr.message;
-      console.error(`EMAIL ERROR - ${result.emailProvider} failed for invite email:`, providerErr.message, {
-        provider: result.emailProvider,
-        hasApiKey: !!process.env.RESEND_API_KEY,
-        from: process.env.EMAIL_FROM,
-        to: email,
-      });
+      logger.error(
+        { provider: result.emailProvider, hasApiKey: !!process.env.RESEND_API_KEY, err: providerErr.message },
+        'Invite email delivery failed'
+      );
     }
   }
 
@@ -123,7 +139,7 @@ router.post('/', authenticateToken, requireRole('admin'), validateBody(userCreat
     supabase,
     'users',
     {
-      id: 'user-' + Date.now(),
+      id: crypto.randomUUID(),
       name,
       email,
       password_hash,
@@ -194,7 +210,9 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), valid
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
 
   const inviteUrl = `${BASE_URL}/setup-password?token=${inviteToken}`;
-  console.log(`\nINVITE for ${name} (${email}) as ${role}:\n${inviteUrl}\n`);
+  // Log with masked email — never log the raw token or full invite URL.
+  logger.info({ userId: newUser.id, email: maskEmail(email), role }, 'Invite created');
+
   const queuedMailers = createConfiguredMailers();
   const emailQueued = queuedMailers.length > 0;
 
@@ -207,25 +225,31 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), valid
 
   if (emailQueued) {
     emailResult = await sendInviteEmail({ name, email, role, inviteUrl });
-    console.log('Invite email result:', {
-      email,
+    logger.info({
+      userId: newUser.id,
       provider: emailResult.emailProvider,
       attempts: emailResult.emailAttempts,
       sent: emailResult.emailSent,
-      error: emailResult.emailError,
-    });
+    }, 'Invite email result');
   }
 
-  res.json({
-    message: `Invite created for ${email}`,
+  // Only surface the invite URL when email delivery failed — the admin needs it
+  // to manually deliver the link. When email was sent successfully the token
+  // should not be exposed in the API response.
+  const responseBody = {
+    message: `Invite created for ${maskEmail(email)}`,
     userId: newUser.id,
-    inviteUrl,
     emailSent: emailResult.emailSent,
     emailQueued,
     emailError: emailResult.emailError,
     emailProvider: emailResult.emailProvider,
     emailAttempts: emailResult.emailAttempts,
-  });
+  };
+  if (!emailResult.emailSent) {
+    responseBody.inviteUrl = inviteUrl;
+  }
+
+  res.json(responseBody);
 });
 
 // Any user can update their own profile; admins can update anyone
