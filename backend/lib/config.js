@@ -116,7 +116,11 @@ function validate(logger) {
     fatal.push('JWT_SECRET is not set');
   if (!SUPABASE_URL) fatal.push('SUPABASE_URL is not set');
   if (!SUPABASE_SERVICE_ROLE_KEY) fatal.push('SUPABASE_SERVICE_ROLE_KEY is not set');
-  if (!SESSION_SECRET && !CSRF_SECRET) fatal.push('SESSION_SECRET or CSRF_SECRET is not set');
+  // SESSION_SECRET / CSRF_SECRET are reserved for future use. CSRF is currently
+  // enforced via per-login random cookie tokens (see middleware/auth.js), so
+  // neither value is read at runtime. Warn instead of failing fast.
+  if (!SESSION_SECRET && !CSRF_SECRET)
+    warns.push('SESSION_SECRET or CSRF_SECRET is not set — reserved for future CSRF/session signing.');
 
   if (!process.env.SUPERADMIN_EMAIL || SUPERADMIN_EMAIL === '__superadmin_unset__')
     warns.push('SUPERADMIN_EMAIL is not set — requireSuperadmin will reject ALL requests including legitimate ones. Set it to the superadmin account email.');

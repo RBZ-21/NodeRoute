@@ -4,14 +4,14 @@ const { z } = require('zod');
 
 const nonEmptyTrimmedString = z.string().trim().min(1);
 const nonEmptyString = z.string().min(1);
-const minPasswordLength = 8;
-const setupPasswordLengthMessage = 'Password must be at least 8 characters';
-const changePasswordLengthMessage = 'New password must be at least 8 characters';
+const minPasswordLength = 12;
+const setupPasswordLengthMessage = 'Password must be at least 12 characters';
+const changePasswordLengthMessage = 'New password must be at least 12 characters';
 
 function parseLoginBody(body) {
   const result = z.object({
-    email: nonEmptyTrimmedString,
-    password: nonEmptyString,
+    email: z.string().trim().min(1).max(254),
+    password: z.string().min(1).max(1024),
   }).safeParse(body);
 
   if (!result.success) {
@@ -23,20 +23,20 @@ function parseLoginBody(body) {
 
 function parseSignupBody(body) {
   const result = z.object({
-    email: z.string().trim().email('Valid email required'),
-    password: z.string().min(minPasswordLength, setupPasswordLengthMessage),
-    confirmPassword: nonEmptyString,
-    firstName: nonEmptyTrimmedString,
-    lastName: nonEmptyTrimmedString,
-    businessName: nonEmptyTrimmedString,
-    phone: z.string().trim().optional().default(''),
-    address: z.string().trim().optional().default(''),
-    city: nonEmptyTrimmedString,
+    email: z.string().trim().email('Valid email required').max(254),
+    password: z.string().min(minPasswordLength, setupPasswordLengthMessage).max(1024),
+    confirmPassword: z.string().min(1).max(1024),
+    firstName: z.string().trim().min(1).max(100),
+    lastName: z.string().trim().min(1).max(100),
+    businessName: z.string().trim().min(1).max(200),
+    phone: z.string().trim().max(30).optional().default(''),
+    address: z.string().trim().max(300).optional().default(''),
+    city: z.string().trim().min(1).max(100),
     state: z.string().trim().min(2).max(2),
     zip: z.string().trim().max(10).optional().default(''),
     distributorType: z.enum(['seafood', 'liquor', 'wine', 'beer', 'food']),
     inventoryChoice: z.enum(['template', 'import', 'blank']),
-    selectedTemplate: z.string().trim().optional().default(''),
+    selectedTemplate: z.string().trim().max(50).optional().default(''),
   }).safeParse(body);
 
   if (!result.success) {
@@ -59,8 +59,8 @@ function parseSignupBody(body) {
 
 function parseSetupPasswordBody(body) {
   const baseResult = z.object({
-    token: nonEmptyTrimmedString,
-    password: nonEmptyString,
+    token: z.string().trim().min(1).max(256),
+    password: z.string().min(1).max(1024),
   }).safeParse(body);
 
   if (!baseResult.success) {
@@ -83,8 +83,8 @@ function parseSetupPasswordBody(body) {
 
 function parseChangePasswordBody(body) {
   const baseResult = z.object({
-    currentPassword: nonEmptyString,
-    newPassword: nonEmptyString,
+    currentPassword: z.string().min(1).max(1024),
+    newPassword: z.string().min(1).max(1024),
   }).safeParse(body);
 
   if (!baseResult.success) {
