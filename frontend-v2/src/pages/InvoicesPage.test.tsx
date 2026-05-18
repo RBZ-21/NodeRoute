@@ -142,6 +142,24 @@ describe('InvoicesPage', () => {
     expect(await screen.findByText('Invoice INV-100 marked paid.')).toBeInTheDocument();
   });
 
+  it('resends only the invoice email for the clicked row', async () => {
+    sendWithAuthMock.mockResolvedValueOnce({ message: 'Invoice emailed successfully' });
+
+    renderInvoicesPage();
+
+    expect(await screen.findByText('INV-100')).toBeInTheDocument();
+
+    const resendButtons = screen.getAllByRole('button', { name: 'Resend Email' });
+    fireEvent.click(resendButtons[1]);
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledTimes(1);
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/invoices/inv-2/resend', 'POST');
+    });
+    expect(sendWithAuthMock).not.toHaveBeenCalledWith('/api/invoices/inv-1/resend', 'POST');
+    expect(await screen.findByText('Invoice INV-200 emailed.')).toBeInTheDocument();
+  });
+
   it('blocks printing while final weights are still pending', async () => {
     renderInvoicesPage();
 
