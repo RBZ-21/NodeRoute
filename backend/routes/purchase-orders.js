@@ -43,7 +43,10 @@ const upload = multer({
 
 const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
 const purchaseOrderConfirmSchema = z.object({
-  vendor: z.string().trim().min(1, 'vendor is required'),
+  vendor: z.preprocess(
+    (value) => (value === null || value === undefined ? '' : value),
+    z.string().trim().min(1, 'Vendor Name Required')
+  ),
   po_number: z.any().optional(),
   date: z.any().optional(),
   scan_id: z.any().optional(),
