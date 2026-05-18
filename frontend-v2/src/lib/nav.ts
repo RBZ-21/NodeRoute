@@ -1,265 +1,79 @@
-import { lazy } from 'react';
-import type { LucideIcon } from 'lucide-react';
-import {
-  LayoutDashboard, ShoppingCart, Settings,
-  Truck, Map, UserCheck, Route, MapPin,
-  Users, UserCog,
-  DollarSign, FileText, BarChart2, Package, TrendingUp,
-  ShoppingBag, ScanLine, Store, Warehouse, CalendarCog, Plug,
-  ClipboardList, Bot, Building2, ListChecks, ShieldCheck,
-  FileBarChart2, LayoutGrid,
-} from 'lucide-react';
-import type { Role } from './api';
+/**
+ * nav.ts — central navigation configuration.
+ *
+ * Each entry describes one item in the sidebar.
+ * The `roles` array controls visibility (empty = all roles).
+ */
 
-// ── Types ─────────────────────────────────────────────────────────────────────
-export type TabId =
-  | 'dashboard' | 'orders' | 'deliveries' | 'reports' | 'map'
-  | 'drivers' | 'routes' | 'stops' | 'customers' | 'users'
-  | 'invoices' | 'analytics' | 'inventory' | 'inventory-dashboard' | 'forecast' | 'financials'
-  | 'purchasing' | 'vendors' | 'warehouse' | 'planning' | 'integrations'
-  | 'aihelp' | 'settings' | 'traceability' | 'companies' | 'waitlist' | 'sales-rep'
-  | 'compliance' | 'dsr' | 'superadmin-overview';
-
-export type GroupId =
-  | 'top' | 'logistics' | 'people' | 'financials'
-  | 'operations' | 'reports' | 'ai' | 'superadmin' | 'bottom';
-
-// Re-export so nav consumers don't need a separate import
-export type { Role };
-
-export type NavItem = {
-  id: TabId;
+export interface NavItem {
   label: string;
   path: string;
-  icon: LucideIcon;
-  allowedRoles?: Role[];
-  component: React.ComponentType;
-};
-
-export type NavGroup = {
-  id: GroupId;
-  /** Empty string = render items flat with no group header */
-  label: string;
-  items: NavItem[];
-  allowedRoles?: Role[];
-};
-
-// ── Lazy helper ───────────────────────────────────────────────────────────────
-function lazyNamed<TModule, TKey extends keyof TModule>(
-  loader: () => Promise<TModule>,
-  key: TKey,
-) {
-  return lazy(async () => {
-    const mod = await loader();
-    return { default: mod[key] as React.ComponentType };
-  });
+  icon: string;
+  roles?: string[];
+  badge?: string;
 }
 
-const ALL:         Role[] = ['superadmin', 'admin', 'manager', 'driver'];
-const SA_ONLY:     Role[] = ['superadmin'];
-const SA_ADMIN:    Role[] = ['superadmin', 'admin'];
-const SA_ADMIN_MGR:Role[] = ['superadmin', 'admin', 'manager'];
+export interface NavGroup {
+  group: string;
+  items: NavItem[];
+}
 
-export const navGroups: NavGroup[] = [
-  // ── SuperAdmin only ───────────────────────────────────────────────────────
+export const NAV: NavGroup[] = [
   {
-    id: 'superadmin',
-    label: 'Platform',
-    allowedRoles: SA_ONLY,
+    group: 'Operations',
     items: [
-      {
-        id: 'superadmin-overview',
-        label: 'Platform Overview',
-        path: '/superadmin',
-        icon: LayoutGrid,
-        allowedRoles: SA_ONLY,
-        component: lazyNamed(() => import('../pages/SuperadminPage'), 'SuperadminPage'),
-      },
-      {
-        id: 'companies',
-        label: 'All Companies',
-        path: '/superadmin/companies',
-        icon: Building2,
-        allowedRoles: SA_ONLY,
-        component: lazyNamed(() => import('../pages/CompaniesPage'), 'CompaniesPage'),
-      },
-      {
-        id: 'waitlist',
-        label: 'Waitlist',
-        path: '/superadmin/waitlist',
-        icon: ListChecks,
-        allowedRoles: SA_ONLY,
-        component: lazyNamed(() => import('../pages/WaitlistPage'), 'WaitlistPage'),
-      },
+      { label: 'Dashboard',    path: '/dashboard',    icon: '📊' },
+      { label: 'Orders',       path: '/orders',       icon: '📦' },
+      { label: 'Routes',       path: '/routes',       icon: '🗺️' },
+      { label: 'Deliveries',   path: '/deliveries',   icon: '🚚' },
+      { label: 'Stops',        path: '/stops',        icon: '📍' },
+      { label: 'Map',          path: '/map',          icon: '🌍' },
     ],
   },
-
-  // ── Top-level (no group header) ───────────────────────────────────────────
   {
-    id: 'top',
-    label: '',
+    group: 'Inventory',
     items: [
-      {
-        id: 'dashboard',
-        label: 'Delivery Dashboard',
-        path: '/dashboard',
-        icon: LayoutDashboard,
-        allowedRoles: SA_ADMIN_MGR,
-        component: lazyNamed(() => import('../pages/DashboardPage'), 'DashboardPage'),
-      },
-      {
-        id: 'inventory-dashboard',
-        label: 'Inventory Dashboard',
-        path: '/inventory',
-        icon: Package,
-        allowedRoles: SA_ADMIN_MGR,
-        component: lazyNamed(() => import('../pages/InventoryPage'), 'InventoryPage'),
-      },
-      {
-        id: 'orders',
-        label: 'Orders',
-        path: '/orders',
-        icon: ShoppingCart,
-        allowedRoles: SA_ADMIN_MGR,
-        component: lazyNamed(() => import('../pages/OrdersPage'), 'OrdersPage'),
-      },
-      {
-        id: 'invoices',
-        label: 'Invoices',
-        path: '/invoices',
-        icon: FileText,
-        allowedRoles: SA_ADMIN_MGR,
-        component: lazyNamed(() => import('../pages/InvoicesPage'), 'InvoicesPage'),
-      },
+      { label: 'Inventory',    path: '/inventory',    icon: '🏭' },
+      { label: 'Purchasing',   path: '/purchasing',   icon: '🛒' },
+      { label: 'Warehouse',    path: '/warehouse',    icon: '🏗️' },
+      { label: 'Traceability', path: '/traceability', icon: '🔍' },
     ],
   },
-
-  // ── Logistics ─────────────────────────────────────────────────────────────
   {
-    id: 'logistics',
-    label: 'Logistics',
+    group: 'Customers',
     items: [
-      { id: 'deliveries', label: 'Deliveries', path: '/deliveries', icon: Truck,     allowedRoles: SA_ADMIN_MGR, component: lazyNamed(() => import('../pages/DeliveriesPage'), 'DeliveriesPage') },
-      { id: 'map',        label: 'Live Map',   path: '/map',        icon: Map,        allowedRoles: SA_ADMIN_MGR, component: lazyNamed(() => import('../pages/MapPage'),        'MapPage') },
-      { id: 'drivers',    label: 'Drivers',    path: '/drivers',    icon: UserCheck,  allowedRoles: SA_ADMIN_MGR, component: lazyNamed(() => import('../pages/DriversPage'),    'DriversPage') },
-      { id: 'routes',     label: 'Routes',     path: '/routes',     icon: Route,      allowedRoles: SA_ADMIN_MGR, component: lazyNamed(() => import('../pages/RoutesPage'),     'RoutesPage') },
-      { id: 'stops',      label: 'Stops',      path: '/stops',      icon: MapPin,     allowedRoles: SA_ADMIN_MGR, component: lazyNamed(() => import('../pages/StopsPage'),      'StopsPage') },
+      { label: 'Customers',    path: '/customers',    icon: '👥' },
+      { label: 'Vendors',      path: '/vendors',      icon: '🤝' },
+      { label: 'DSR',          path: '/dsr',          icon: '📋' },
+      { label: 'Sales Rep',    path: '/sales-rep',    icon: '💼' },
     ],
   },
-
-  // ── People ────────────────────────────────────────────────────────────────
   {
-    id: 'people',
-    label: 'People',
+    group: 'Financials',
     items: [
-      {
-        id: 'customers',
-        label: 'Customers',
-        path: '/customers',
-        icon: Users,
-        allowedRoles: SA_ADMIN_MGR,
-        component: lazyNamed(() => import('../pages/CustomersPage'), 'CustomersPage'),
-      },
-      {
-        id: 'users',
-        label: 'Users',
-        path: '/users',
-        icon: UserCog,
-        allowedRoles: SA_ADMIN,
-        component: lazyNamed(() => import('../pages/UsersPage'), 'UsersPage'),
-      },
-      {
-        id: 'sales-rep',
-        label: 'Sales Rep',
-        path: '/sales-rep',
-        icon: UserCheck,
-        allowedRoles: SA_ADMIN_MGR,
-        component: lazyNamed(() => import('../pages/SalesRepPage'), 'SalesRepPage'),
-      },
+      { label: 'Financials',   path: '/financials',   icon: '💰' },
+      { label: 'Invoices',     path: '/invoices',     icon: '🧾' },
+      { label: 'Credit Hold',  path: '/credit-hold',  icon: '🔒', roles: ['admin', 'manager'] },
     ],
   },
-
-  // ── Financials ────────────────────────────────────────────────────────────
   {
-    id: 'financials',
-    label: 'Financials',
+    group: 'Intelligence',
     items: [
-      { id: 'financials', label: 'Financial Overview', path: '/financials', icon: DollarSign, allowedRoles: SA_ADMIN,     component: lazyNamed(() => import('../pages/FinancialsPage'),   'FinancialsPage') },
-      { id: 'analytics',  label: 'Analytics',          path: '/analytics',  icon: BarChart2,  allowedRoles: SA_ADMIN,     component: lazyNamed(() => import('../pages/AnalyticsPage'),    'AnalyticsPage') },
-      { id: 'forecast',   label: 'Forecasting',        path: '/forecast',   icon: TrendingUp, allowedRoles: SA_ADMIN,     component: lazyNamed(() => import('../pages/ForecastingPage'),  'ForecastingPage') },
+      { label: 'Analytics',    path: '/analytics',    icon: '📈' },
+      { label: 'Forecasting',  path: '/forecasting',  icon: '🔮' },
+      { label: 'Reports',      path: '/reports',      icon: '📄' },
+      { label: 'AI Help',      path: '/ai-help',      icon: '🤖' },
     ],
   },
-
-  // ── Operations ────────────────────────────────────────────────────────────
   {
-    id: 'operations',
-    label: 'Operations',
-    allowedRoles: SA_ADMIN,
+    group: 'Admin',
     items: [
-      { id: 'purchasing',   label: 'Purchasing',           path: '/purchasing',              icon: ShoppingBag,  allowedRoles: SA_ADMIN, component: lazyNamed(() => import('../pages/PurchasingPage'),          'PurchasingPage') },
-      { id: 'traceability', label: 'FSMA Traceability',    path: '/admin/traceability',      icon: ScanLine,     allowedRoles: SA_ADMIN, component: lazyNamed(() => import('../pages/TraceabilityPage'),        'TraceabilityPage') },
-      { id: 'compliance',   label: 'FSMA 204 Compliance',  path: '/dashboard-v2/compliance', icon: ShieldCheck,  allowedRoles: SA_ADMIN, component: lazyNamed(() => import('../pages/ComplianceDashboardPage'), 'ComplianceDashboardPage') },
-      { id: 'vendors',      label: 'Vendors',              path: '/vendors',                 icon: Store,        allowedRoles: SA_ADMIN, component: lazyNamed(() => import('../pages/VendorsPage'),             'VendorsPage') },
-      { id: 'warehouse',    label: 'Warehouse',            path: '/warehouse',               icon: Warehouse,    allowedRoles: SA_ADMIN, component: lazyNamed(() => import('../pages/WarehousePage'),           'WarehousePage') },
-      { id: 'planning',     label: 'Planning & Rules',     path: '/planning',                icon: CalendarCog,  allowedRoles: SA_ADMIN, component: lazyNamed(() => import('../pages/PlanningPage'),            'PlanningPage') },
-      { id: 'integrations', label: 'Integrations',         path: '/integrations',            icon: Plug,         allowedRoles: SA_ADMIN, component: lazyNamed(() => import('../pages/IntegrationsPage'),        'IntegrationsPage') },
-    ],
-  },
-
-  // ── Reports ───────────────────────────────────────────────────────────────
-  {
-    id: 'reports',
-    label: 'Reports',
-    items: [
-      { id: 'dsr',     label: 'Daily Sales Report', path: '/dsr',     icon: FileBarChart2, allowedRoles: SA_ADMIN_MGR, component: lazyNamed(() => import('../pages/DSRPage'), 'DSRPage') },
-      { id: 'reports', label: 'Reports',            path: '/reports', icon: ClipboardList, allowedRoles: SA_ADMIN_MGR, component: lazyNamed(() => import('../pages/ReportsPage'), 'ReportsPage') },
-    ],
-  },
-
-  // ── AI ────────────────────────────────────────────────────────────────────
-  {
-    id: 'ai',
-    label: 'AI Help',
-    items: [
-      { id: 'aihelp', label: 'Walkthroughs', path: '/aihelp', icon: Bot, allowedRoles: SA_ADMIN_MGR, component: lazyNamed(() => import('../pages/AIHelpPage'), 'AIHelpPage') },
-    ],
-  },
-
-  // ── Settings (pinned bottom) ───────────────────────────────────────────────
-  {
-    id: 'bottom',
-    label: '',
-    items: [
-      {
-        id: 'settings',
-        label: 'Settings',
-        path: '/settings',
-        icon: Settings,
-        allowedRoles: SA_ADMIN,
-        component: lazyNamed(() => import('../pages/SettingsPage'), 'SettingsPage'),
-      },
+      { label: 'Users',        path: '/users',        icon: '👤', roles: ['admin', 'superadmin'] },
+      { label: 'Companies',    path: '/companies',    icon: '🏢', roles: ['superadmin'] },
+      { label: 'Settings',     path: '/settings',     icon: '⚙️' },
+      { label: 'Integrations', path: '/integrations', icon: '🔌', roles: ['admin'] },
+      { label: 'Compliance',   path: '/compliance',   icon: '✅', roles: ['admin', 'manager'] },
+      { label: 'Planning',     path: '/planning',     icon: '📅' },
     ],
   },
 ];
-
-export const allNavItems = navGroups.flatMap((g) => g.items);
-export const defaultPath  = '/dashboard';
-
-export function canAccess(item: NavItem, role: Role): boolean {
-  const allowed = item.allowedRoles ?? SA_ADMIN_MGR;
-  return allowed.includes(role);
-}
-
-export function canAccessGroup(group: NavGroup, role: Role): boolean {
-  if (!group.allowedRoles) return true;
-  return group.allowedRoles.includes(role);
-}
-
-export function findNavItem(pathname: string): NavItem | null {
-  const trimmed = pathname.replace(/\/+$/, '') || defaultPath;
-  return allNavItems.find((item) => item.path === trimmed) ?? null;
-}
-
-export function routePath(pathname: string) {
-  return pathname.replace(/^\//, '');
-}
