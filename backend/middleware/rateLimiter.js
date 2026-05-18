@@ -20,21 +20,21 @@ const globalLimiter = rateLimit({
   handler: jsonMessage('Too many requests. Please slow down and try again shortly.'),
 });
 
-// 20 requests per 15 minutes — shared fallback for /auth routes not covered below.
+// 10 requests per 15 minutes — shared fallback for /auth routes not covered below.
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: 10,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
   skip: () => isTest,
   handler: jsonMessage('Too many authentication attempts. Please wait 15 minutes before trying again.'),
 });
 
-// 20 attempts per 15 minutes per IP — raised from 5 to prevent false triggers.
+// 5 failed attempts per 15 minutes per IP — prevents credential-stuffing attacks.
 // skipSuccessfulRequests ensures legitimate logins don't count against the limit.
 const loginLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: 5,
   skipSuccessfulRequests: true,
   standardHeaders: 'draft-7',
   legacyHeaders: false,
