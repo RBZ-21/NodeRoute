@@ -29,7 +29,6 @@ const requiredConfigEnv = {
   JWT_SECRET: 'test-jwt-secret',
   SUPABASE_URL: 'https://example.supabase.co',
   SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key',
-  SESSION_SECRET: 'test-session-secret',
 };
 
 function loadFreshConfig() {
@@ -144,9 +143,22 @@ test('config does not exit for degraded production-only optional settings', () =
 
     assert.equal(exitCalled, false);
     assert.ok(logs.warn.some((message) => message.includes('SUPERADMIN_EMAIL is not set')));
+    assert.ok(logs.warn.some((message) => message.includes('SESSION_SECRET or CSRF_SECRET is not set')));
     assert.ok(logs.warn.some((message) => message.includes('PORTAL_JWT_SECRET is not set')));
     assert.ok(logs.warn.some((message) => message.includes('ADMIN_PASSWORD is missing or too weak')));
     assert.equal(logs.fatal.length, 0);
+  });
+});
+
+test('config derives session and csrf secrets from jwt secret when unset', () => {
+  withEnv({
+    ...requiredConfigEnv,
+    SESSION_SECRET: undefined,
+    CSRF_SECRET: undefined,
+  }, () => {
+    const config = loadFreshConfig();
+    assert.equal(config.SESSION_SECRET, 'test-jwt-secret');
+    assert.equal(config.CSRF_SECRET, 'test-jwt-secret');
   });
 });
 

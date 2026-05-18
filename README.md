@@ -121,7 +121,6 @@ Most unit/integration tests run in demo/offline mode by default. Playwright test
 | `SUPABASE_URL` | URL of your Supabase project |
 | `SUPABASE_SERVICE_ROLE_KEY` | Supabase service role key (keep this secret). `SUPABASE_SERVICE_KEY` is still accepted as a legacy alias. |
 | `JWT_SECRET` | Secret used to sign login tokens — must be set in production |
-| `SESSION_SECRET` or `CSRF_SECRET` | Secret used for session/CSRF protection |
 | `BASE_URL` | The public URL of your deployment (e.g. `https://yourdomain.com`). Missing values warn because invite links and redirects degrade. |
 
 ### Email — at least one provider required for customer portal login
@@ -139,6 +138,7 @@ Most unit/integration tests run in demo/offline mode by default. Playwright test
 | Variable | What it does |
 |---|---|
 | `SUPERADMIN_EMAIL` | Email address allowed through the superadmin gate. If unset, superadmin routes fail closed. |
+| `SESSION_SECRET` or `CSRF_SECRET` | Separate secret used for session/CSRF protection. If unset, the backend derives it from `JWT_SECRET` and logs a warning. |
 | `PORTAL_JWT_SECRET` | Secret used for customer portal JWTs. Set before enabling portal auth. |
 | `ADMIN_PASSWORD` | Bootstrap admin password. Use 12+ characters with uppercase, lowercase, a digit, and a special character. |
 
