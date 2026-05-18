@@ -169,8 +169,9 @@ Most unit/integration tests run in demo/offline mode by default. Playwright test
 |---|---|
 | `PORT` | HTTP port (default: `3001`) |
 | `CORS_ORIGINS` | Comma-separated list of allowed browser origins |
-| `GOOGLE_MAPS_KEY` | Server-side Google Maps API key for address lookup and backend-assisted map features |
-| `VITE_MAP_API_KEY` | Browser-side Google Maps key for the admin live map and public tracking map |
+| `GOOGLE_MAPS_KEY` | Server-side Google Maps API key for address lookup |
+| `VITE_GOOGLE_MAPS_KEY` | Browser-side Google Maps key for the admin live map and public tracking map. Restrict this key in Google Cloud Console to the production domains that serve the dashboard and public tracking page. |
+| `VITE_MAP_API_KEY` | Legacy browser-side maps key alias; prefer `VITE_GOOGLE_MAPS_KEY` |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Credentials for the auto-created admin account on first boot |
 | `PORTAL_CODE_TTL_MS` | How long a portal login code stays valid (default: 10 minutes) |
 | `PORTAL_AUTH_RATE_LIMIT` | Max login attempts per window (default: 5) |

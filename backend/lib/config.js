@@ -21,9 +21,12 @@ const envSchema = z.object({
   PORT:                       z.coerce.number().int().positive().catch(3001).optional().default(3001),
   JSON_BODY_LIMIT:            z.string().optional().default('1mb'),
   SUPABASE_URL:               z.string().optional().default(''),
+  SUPABASE_SERVICE_ROLE_KEY:  z.string().optional().default(''),
   SUPABASE_SERVICE_KEY:       z.string().optional().default(''),
   JWT_SECRET:                 z.string().optional().default(DEV_JWT_SECRET),
   PORTAL_JWT_SECRET:          z.string().optional().default(DEV_PORTAL_SECRET),
+  SESSION_SECRET:             z.string().optional().default(''),
+  CSRF_SECRET:                z.string().optional().default(''),
   BASE_URL:                   z.string().optional().default(''),
   RESEND_API_KEY:             z.string().optional().default(''),
   SMTP_HOST:                  z.string().optional().default(''),
@@ -64,9 +67,12 @@ const NODE_ENV        = rawEnv.NODE_ENV;
 const PORT            = rawEnv.PORT;
 const JSON_BODY_LIMIT = rawEnv.JSON_BODY_LIMIT;
 const SUPABASE_URL    = rawEnv.SUPABASE_URL;
-const SUPABASE_SERVICE_KEY = rawEnv.SUPABASE_SERVICE_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = rawEnv.SUPABASE_SERVICE_ROLE_KEY || rawEnv.SUPABASE_SERVICE_KEY;
+const SUPABASE_SERVICE_KEY = SUPABASE_SERVICE_ROLE_KEY;
 const JWT_SECRET      = rawEnv.JWT_SECRET;
 const PORTAL_JWT_SECRET = rawEnv.PORTAL_JWT_SECRET;
+const SESSION_SECRET  = rawEnv.SESSION_SECRET;
+const CSRF_SECRET     = rawEnv.CSRF_SECRET;
 const BASE_URL        = rawEnv.BASE_URL;
 const RESEND_API_KEY  = rawEnv.RESEND_API_KEY;
 const hasResend       = !!RESEND_API_KEY;
@@ -106,16 +112,18 @@ function validate(logger) {
   const errors = [];
   const warns  = [];
 
-  if (!SUPABASE_URL)         fatal.push('SUPABASE_URL is not set');
-  if (!SUPABASE_SERVICE_KEY) fatal.push('SUPABASE_SERVICE_KEY is not set');
+  if (!process.env.JWT_SECRET || JWT_SECRET === DEV_JWT_SECRET)
+    fatal.push('JWT_SECRET is not set');
+  if (!SUPABASE_URL) fatal.push('SUPABASE_URL is not set');
+  if (!SUPABASE_SERVICE_ROLE_KEY) fatal.push('SUPABASE_SERVICE_ROLE_KEY is not set');
+  if (!SESSION_SECRET && !CSRF_SECRET) fatal.push('SESSION_SECRET or CSRF_SECRET is not set');
+  if (!process.env.SUPERADMIN_EMAIL || SUPERADMIN_EMAIL === '__superadmin_unset__')
+    fatal.push('SUPERADMIN_EMAIL is not set');
 
   if (!process.env.SUPERADMIN_EMAIL || SUPERADMIN_EMAIL === '__superadmin_unset__')
     warns.push('SUPERADMIN_EMAIL is not set — requireSuperadmin will reject ALL requests including legitimate ones. Set it to the superadmin account email.');
 
   if (isProduction) {
-    if (!process.env.JWT_SECRET || JWT_SECRET === DEV_JWT_SECRET)
-      fatal.push('JWT_SECRET must be set in production — the development fallback is not safe');
-
     if (!process.env.PORTAL_JWT_SECRET || PORTAL_JWT_SECRET === DEV_PORTAL_SECRET)
       fatal.push('PORTAL_JWT_SECRET must be set in production — the development fallback is not safe');
 
@@ -174,8 +182,8 @@ function validate(logger) {
   for (const msg of errors) logger.error(msg);
   for (const msg of fatal)  logger.fatal(msg);
 
-  if (fatal.length && isProduction) {
-    logger.fatal('Fatal configuration errors in production — exiting.');
+  if (fatal.length) {
+    logger.fatal('Fatal configuration errors — exiting.');
     process.exit(1);
   }
 }
@@ -186,9 +194,12 @@ module.exports = {
   PORT,
   JSON_BODY_LIMIT,
   SUPABASE_URL,
+  SUPABASE_SERVICE_ROLE_KEY,
   SUPABASE_SERVICE_KEY,
   JWT_SECRET,
   PORTAL_JWT_SECRET,
+  SESSION_SECRET,
+  CSRF_SECRET,
   BASE_URL,
   hasResend,
   hasSmtp,

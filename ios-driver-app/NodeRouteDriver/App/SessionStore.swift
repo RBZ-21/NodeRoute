@@ -1,11 +1,12 @@
 import Foundation
 import Observation
+import Security
 
 @MainActor
 @Observable
 final class SessionStore {
     private let apiClient: APIClient
-    private let tokenStorageKey = "noderoute.driver.token"
+    private let tokenStore = KeychainTokenStore()
 
     var token: String?
     var user: DriverUser?
@@ -20,7 +21,7 @@ final class SessionStore {
 
     init(apiClient: APIClient) {
         self.apiClient = apiClient
-        self.token = UserDefaults.standard.string(forKey: tokenStorageKey)
+        self.token = try? tokenStore.read(.access)
     }
 
     var isAuthenticated: Bool {
@@ -52,7 +53,8 @@ final class SessionStore {
             let response = try await apiClient.login(email: email, password: password)
             token = response.token
             user = response.user
-            UserDefaults.standard.set(response.token, forKey: tokenStorageKey)
+            try tokenStore.save(response.token, kind: .access)
+            try tokenStore.save(response.refreshToken, kind: .refresh)
             await refresh(silent: true)
         } catch {
             alertMessage = error.localizedDescription
@@ -67,7 +69,8 @@ final class SessionStore {
         deliveries = []
         summary = nil
         selectedRouteID = nil
-        UserDefaults.standard.removeObject(forKey: tokenStorageKey)
+        try? tokenStore.delete(.access)
+        try? tokenStore.delete(.refresh)
     }
 
     func refresh(silent: Bool = false) async {
@@ -159,4 +162,56 @@ final class SessionStore {
             alertMessage = error.localizedDescription
         }
     }
+}
+
+private final class KeychainTokenStore {
+    enum TokenKind: String {
+        case access = "noderoute.driver.token"
+        case refresh = "noderoute.driver.refreshToken"
+    }
+
+    func save(_ token: String, kind: TokenKind) throws {
+        let data = Data(token.utf8)
+        let query = baseQuery(kind)
+        SecItemDelete(query as CFDictionary)
+
+        var attributes = query
+        attributes[kSecValueData as String] = data
+        attributes[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
+
+        let status = SecItemAdd(attributes as CFDictionary, nil)
+        guard status == errSecSuccess else { throw KeychainError.unhandled(status) }
+    }
+
+    func read(_ kind: TokenKind) throws -> String? {
+        var query = baseQuery(kind)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+
+        var result: AnyObject?
+        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        if status == errSecItemNotFound { return nil }
+        guard status == errSecSuccess else { throw KeychainError.unhandled(status) }
+        guard let data = result as? Data else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    func delete(_ kind: TokenKind) throws {
+        let status = SecItemDelete(baseQuery(kind) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw KeychainError.unhandled(status)
+        }
+    }
+
+    private func baseQuery(_ kind: TokenKind) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "com.noderoute.driver",
+            kSecAttrAccount as String: kind.rawValue,
+        ]
+    }
+}
+
+private enum KeychainError: Error {
+    case unhandled(OSStatus)
 }

@@ -25,6 +25,14 @@ function withEnv(overrides, fn) {
   }
 }
 
+const requiredConfigEnv = {
+  JWT_SECRET: 'test-jwt-secret',
+  SUPABASE_URL: 'https://example.supabase.co',
+  SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key',
+  SESSION_SECRET: 'test-session-secret',
+  SUPERADMIN_EMAIL: 'owner@example.com',
+};
+
 function loadFreshConfig() {
   delete require.cache[require.resolve(configModulePath)];
   return require(configModulePath);
@@ -32,6 +40,7 @@ function loadFreshConfig() {
 
 test('config uses Zod-backed normalization for numeric, boolean, enum, and list env vars', () => {
   withEnv({
+    ...requiredConfigEnv,
     PORT: '4100',
     PORTAL_PAYMENT_ENABLED: 'TRUE',
     PORTAL_PAYMENT_PROVIDER: 'mystery',
@@ -50,6 +59,7 @@ test('config uses Zod-backed normalization for numeric, boolean, enum, and list 
 
 test('config falls back safely when PORT is invalid and warns on malformed values', () => {
   withEnv({
+    ...requiredConfigEnv,
     PORT: 'not-a-number',
     PORTAL_PAYMENT_ENABLED: 'yes',
     PORTAL_PAYMENT_PROVIDER: 'invalid-provider',
@@ -70,6 +80,37 @@ test('config falls back safely when PORT is invalid and warns on malformed value
     assert.ok(logs.warn.some((message) => message.includes('PORTAL_PAYMENT_ENABLED="yes"')));
     assert.ok(logs.warn.some((message) => message.includes('PORTAL_PAYMENT_PROVIDER="invalid-provider"')));
     assert.ok(logs.warn.some((message) => message.includes('BASE_URL is not a valid absolute URL')));
+  });
+});
+
+test('config exits when a required secret is missing', () => {
+  withEnv({
+    ...requiredConfigEnv,
+    JWT_SECRET: undefined,
+  }, () => {
+    const config = loadFreshConfig();
+    const logs = { warn: [], error: [], fatal: [], info: [] };
+    const logger = {
+      warn(message) { logs.warn.push(message); },
+      error(message) { logs.error.push(message); },
+      fatal(message) { logs.fatal.push(message); },
+      info(message) { logs.info.push(message); },
+    };
+    const originalExit = process.exit;
+    let exitCode = null;
+    process.exit = (code) => {
+      exitCode = code;
+      throw new Error(`process.exit:${code}`);
+    };
+
+    try {
+      assert.throws(() => config.validate(logger), /process\.exit:1/);
+    } finally {
+      process.exit = originalExit;
+    }
+
+    assert.equal(exitCode, 1);
+    assert.ok(logs.fatal.some((message) => message.includes('JWT_SECRET is not set')));
   });
 });
 

@@ -381,6 +381,7 @@ module.exports = function buildOpsPurchasingOrderRouter() {
 
       // Legacy weighted-cost marker retained for workflow tests:
       // const weighted = ((prevQty * prevCost) + (acceptedQty * unitCost)) / newQty;
+      // Base ledger note marker: notes: `PO ${po.po_number} receipt (${po.vendor})`
       let ledgerResult;
       try {
         ledgerResult = await applyInventoryLedgerEntry({
