@@ -12,7 +12,7 @@ export type ComplianceSummary = {
 };
 
 export type CteRow = {
-  event_type: 'harvest' | 'cooling' | 'packing' | 'shipping' | 'receiving';
+  event_type: 'harvest' | 'cooling' | 'packing' | 'processing' | 'shipping' | 'receiving';
   total: number;
   complete: number;
   pct: number;
@@ -63,7 +63,10 @@ export const MOCK_GAPS: GapRow[] = [
 export function useComplianceSummaryQuery() {
   return useQuery({
     queryKey: ['compliance', 'summary'] as const,
-    queryFn: () => fetchWithAuth<ComplianceSummary>('/api/compliance/summary'),
+    queryFn: async () => {
+      const payload = await fetchWithAuth<ComplianceSummary | { summary: ComplianceSummary }>('/api/compliance/summary');
+      return 'summary' in payload ? payload.summary : payload;
+    },
     staleTime: 30_000,
   });
 }
@@ -71,7 +74,12 @@ export function useComplianceSummaryQuery() {
 export function useCtesQuery() {
   return useQuery({
     queryKey: ['compliance', 'ctes'] as const,
-    queryFn: () => fetchWithAuth<CteRow[]>('/api/compliance/cte-completeness'),
+    queryFn: async () => {
+      const payload = await fetchWithAuth<CteRow[] | { ctes?: CteRow[]; lots?: Array<{ score: number }> }>('/api/compliance/cte-completeness');
+      if (Array.isArray(payload)) return payload;
+      if (payload.ctes) return payload.ctes;
+      return [];
+    },
     staleTime: 30_000,
   });
 }
@@ -79,7 +87,10 @@ export function useCtesQuery() {
 export function useComplianceGapsQuery() {
   return useQuery({
     queryKey: ['compliance', 'gaps'] as const,
-    queryFn: () => fetchWithAuth<GapRow[]>('/api/compliance/gaps'),
+    queryFn: async () => {
+      const payload = await fetchWithAuth<GapRow[] | { gaps: GapRow[] }>('/api/compliance/gaps');
+      return Array.isArray(payload) ? payload : payload.gaps;
+    },
     staleTime: 30_000,
   });
 }

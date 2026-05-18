@@ -124,10 +124,9 @@ export function DriverPage() {
   }
 
   async function downloadInvoice(invoiceId: string) {
-    const token = localStorage.getItem('nr_token') || '';
     try {
       const response = await fetch(`/api/invoices/${invoiceId}/pdf`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {},
+        credentials: 'include',
       });
       if (!response.ok) {
         const payload = await response.json().catch(() => ({}));

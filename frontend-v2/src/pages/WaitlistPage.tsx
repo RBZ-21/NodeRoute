@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Users, Download } from 'lucide-react';
+import { fetchWithAuth } from '../lib/api';
 
 interface WaitlistEntry {
   id: string;
@@ -16,10 +17,7 @@ export function WaitlistPage() {
   const [error,   setError]   = useState<string | null>(null);
 
   useEffect(() => {
-    fetch('/api/waitlist', {
-      headers: { Authorization: `Bearer ${localStorage.getItem('token')}` },
-    })
-      .then(r => r.ok ? r.json() : r.json().then(j => Promise.reject(j.error)))
+    fetchWithAuth<WaitlistEntry[]>('/api/waitlist')
       .then(data => { setEntries(data); setLoading(false); })
       .catch(err => { setError(String(err)); setLoading(false); });
   }, []);

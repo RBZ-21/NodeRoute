@@ -6,7 +6,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { useTrackingData } from '../hooks/useTrack';
 
-const ENV_MAP_KEY = import.meta.env.VITE_MAP_API_KEY as string | undefined;
+const ENV_MAP_KEY = (import.meta.env.VITE_GOOGLE_MAPS_KEY || import.meta.env.VITE_MAP_API_KEY) as string | undefined;
 
 function getToken(): string {
   const params = new URLSearchParams(window.location.search);
@@ -79,15 +79,7 @@ function loadMapsScript(apiKey: string): Promise<void> {
 }
 
 async function resolveTrackingMapKey(): Promise<string> {
-  if (ENV_MAP_KEY) return ENV_MAP_KEY;
-  try {
-    const res = await fetch('/api/config/maps-key');
-    if (!res.ok) return '';
-    const data = await res.json() as { key?: string; api_key?: string };
-    return data.key || data.api_key || '';
-  } catch {
-    return '';
-  }
+  return ENV_MAP_KEY || '';
 }
 
 const TIMELINE_STEPS = ['Order Placed', 'Preparing', 'Out for Delivery', 'Delivered'];
