@@ -92,55 +92,14 @@ async function insertRouteMutationAuditEntry(supabase, context, entry) {
 
 async function synchronizeRouteStopAssignments(supabase, routeId, stopIds, activeStopIds) {
   const plan = buildRouteStopPlan(routeId, stopIds, activeStopIds);
-  const currentAssignedResult = await supabase
-    .from('stops')
-    .select('id, route_id, stop_seq')
-    .eq('route_id', routeId);
 
-  if (currentAssignedResult.error) return { error: currentAssignedResult.error };
+  const { error } = await supabase.rpc('sync_route_stop_assignments', {
+    p_route_id:        String(routeId),
+    p_stop_ids:        plan.assignedStopIds,
+    p_active_stop_ids: plan.sequencedStopIds,
+  });
 
-  const currentAssignedStops = Array.isArray(currentAssignedResult.data) ? currentAssignedResult.data : [];
-  const currentAssignedIds = currentAssignedStops.map((stop) => String(stop.id));
-  const finalAssignmentIds = [...new Set([...currentAssignedIds, ...plan.assignedStopIds])];
-
-  const temporarySequenceIds = currentAssignedStops
-    .filter((stop) => stop.stop_seq != null && plan.sequenceMap.has(String(stop.id)))
-    .map((stop) => String(stop.id));
-
-  for (let index = 0; index < temporarySequenceIds.length; index += 1) {
-    const stopId = temporarySequenceIds[index];
-    const tempResult = await supabase
-      .from('stops')
-      .update({ stop_seq: -1 * (index + 1) })
-      .eq('id', stopId)
-      .select('id')
-      .single();
-
-    if (tempResult.error) return { error: tempResult.error };
-  }
-
-  for (const stopId of finalAssignmentIds) {
-    const shouldRemainAssigned = plan.assignedStopIds.includes(stopId);
-    const payload = shouldRemainAssigned
-      ? {
-          route_id: routeId,
-          stop_seq: plan.sequenceMap.get(stopId) ?? null,
-        }
-      : {
-          route_id: null,
-          stop_seq: null,
-        };
-
-    const updateResult = await supabase
-      .from('stops')
-      .update(payload)
-      .eq('id', stopId)
-      .select('id')
-      .single();
-
-    if (updateResult.error) return { error: updateResult.error };
-  }
-
+  if (error) return { error };
   return { error: null, plan };
 }
 
