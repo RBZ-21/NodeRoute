@@ -11,7 +11,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
   action_type     TEXT        NOT NULL,           -- e.g. 'order_created', 'order_edited', 'customer_updated', 'credit_limit_changed'
   customer_id     INTEGER     REFERENCES "Customers"(id) ON DELETE SET NULL,
   order_id        TEXT,                           -- matches orders.id (text PK)
-  performed_by    UUID        REFERENCES users(id) ON DELETE SET NULL,
+  performed_by    TEXT,                           -- matches users.id (text, no FK to avoid type mismatch)
   notes           TEXT,
   metadata        JSONB,                          -- arbitrary before/after diff or extra context
   ip_address      INET,
