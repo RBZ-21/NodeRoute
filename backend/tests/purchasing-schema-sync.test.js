@@ -94,6 +94,11 @@ test('scan + confirm routes persist scan records and propagate scan ids through 
   }
 });
 
+test('purchase order confirm returns a friendly missing vendor error', () => {
+  assert.match(purchaseOrdersRouteSource, /value === null \|\| value === undefined \? '' : value/);
+  assert.match(purchaseOrdersRouteSource, /min\(1,\s*'Vendor Name Required'\)/);
+});
+
 test('frontend purchasing flow keeps scan ids when confirming POs or posting receipts', () => {
   for (const marker of [
     /scan_id\?: string \| null;/,

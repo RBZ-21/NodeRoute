@@ -782,6 +782,10 @@ export function PurchasingPage() {
       setFormError(`Lot number is required before confirming mollusk item "${missingLotItem.description}".`);
       return;
     }
+    if (!vendor.trim()) {
+      setFormError('Vendor Name Required');
+      return;
+    }
 
     setFormError('');
     const total_cost = items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);

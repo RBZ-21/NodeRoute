@@ -449,6 +449,21 @@ describe('PurchasingPage', () => {
     expect(sendWithAuthMock).not.toHaveBeenCalled();
   });
 
+  it('requires a vendor name before confirming a scanned invoice', async () => {
+    renderPurchasingPage();
+
+    expect(await screen.findByText('PO-100')).toBeInTheDocument();
+
+    const lineRow = within(confirmPoCard()).getAllByRole('row')[1];
+    fireEvent.change(within(lineRow).getByPlaceholderText('Atlantic Salmon'), { target: { value: 'Fresh Salmon' } });
+    fireEvent.change(within(lineRow).getAllByRole('spinbutton')[0], { target: { value: '5' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm PO' }));
+
+    expect(await screen.findByText('Vendor Name Required')).toBeInTheDocument();
+    expect(sendWithAuthMock).not.toHaveBeenCalled();
+  });
+
   it('surfaces purchase order loading failures', async () => {
     fetchWithAuthMock.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/purchase-orders')) throw new Error('Purchasing API unavailable');
