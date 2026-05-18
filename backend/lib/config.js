@@ -71,8 +71,8 @@ const SUPABASE_SERVICE_ROLE_KEY = rawEnv.SUPABASE_SERVICE_ROLE_KEY || rawEnv.SUP
 const SUPABASE_SERVICE_KEY = SUPABASE_SERVICE_ROLE_KEY;
 const JWT_SECRET      = rawEnv.JWT_SECRET;
 const PORTAL_JWT_SECRET = rawEnv.PORTAL_JWT_SECRET;
-const SESSION_SECRET  = rawEnv.SESSION_SECRET;
-const CSRF_SECRET     = rawEnv.CSRF_SECRET;
+const SESSION_SECRET  = rawEnv.SESSION_SECRET || JWT_SECRET;
+const CSRF_SECRET     = rawEnv.CSRF_SECRET || SESSION_SECRET;
 const BASE_URL        = rawEnv.BASE_URL;
 const RESEND_API_KEY  = rawEnv.RESEND_API_KEY;
 const hasResend       = !!RESEND_API_KEY;
@@ -116,7 +116,8 @@ function validate(logger) {
     fatal.push('JWT_SECRET is not set');
   if (!SUPABASE_URL) fatal.push('SUPABASE_URL is not set');
   if (!SUPABASE_SERVICE_ROLE_KEY) fatal.push('SUPABASE_SERVICE_ROLE_KEY is not set');
-  if (!SESSION_SECRET && !CSRF_SECRET) fatal.push('SESSION_SECRET or CSRF_SECRET is not set');
+  if (!rawEnv.SESSION_SECRET && !rawEnv.CSRF_SECRET)
+    warns.push('SESSION_SECRET or CSRF_SECRET is not set — deriving CSRF/session secret from JWT_SECRET. Set a separate secret for stronger key separation.');
 
   if (!process.env.SUPERADMIN_EMAIL || SUPERADMIN_EMAIL === '__superadmin_unset__')
     warns.push('SUPERADMIN_EMAIL is not set — requireSuperadmin will reject ALL requests including legitimate ones. Set it to the superadmin account email.');
