@@ -16,8 +16,12 @@ type Tab = 'customers' | 'visits' | 'upsell' | 'history';
 
 const OUTCOMES = ['order_placed', 'follow_up', 'no_answer', 'demo', 'other'];
 
-function money(v: number) {
-  return v.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+function money(value: unknown) {
+  if (value === null || value === undefined || value === '') return '—';
+  const amount = Number(value);
+  return Number.isFinite(amount)
+    ? amount.toLocaleString('en-US', { style: 'currency', currency: 'USD' })
+    : '—';
 }
 
 export function SalesRepPage() {
@@ -30,13 +34,30 @@ export function SalesRepPage() {
   const [visitNotes, setVisitNotes] = useState('');
   const [visitOutcome, setVisitOutcome] = useState(OUTCOMES[0]);
 
-  const { data: customers = [], isLoading: loadingCustomers } = useSalesRepCustomers();
-  const { data: visits = [], isLoading: loadingVisits } = useVisitLogs();
-  const { data: alerts = [], isLoading: loadingAlerts } = useUpsellAlerts();
-  const { data: orders = [], isLoading: loadingOrders } = useOrderHistory(selectedCustomer?.id ?? null);
+  const {
+    data: customers = [],
+    isLoading: loadingCustomers,
+    isError: customersError,
+  } = useSalesRepCustomers();
+  const {
+    data: visits = [],
+    isLoading: loadingVisits,
+    isError: visitsError,
+  } = useVisitLogs();
+  const {
+    data: alerts = [],
+    isLoading: loadingAlerts,
+    isError: alertsError,
+  } = useUpsellAlerts();
+  const {
+    data: orders = [],
+    isLoading: loadingOrders,
+    isError: ordersError,
+  } = useOrderHistory(selectedCustomer?.id ?? null);
   const logVisit = useLogVisit();
 
   const loading = loadingCustomers || loadingVisits || loadingAlerts || loadingOrders || logVisit.isPending;
+  const loadError = customersError || visitsError || alertsError || ordersError;
 
   async function submitVisit(e: React.FormEvent) {
     e.preventDefault();
@@ -69,6 +90,11 @@ export function SalesRepPage() {
       </div>
 
       {notice && <div className="rounded-md border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">{notice}</div>}
+      {loadError && (
+        <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">
+          Sales Rep data could not be loaded. Please try again.
+        </div>
+      )}
       {loading && <div className="text-sm text-muted-foreground">Loading...</div>}
 
       <div className="flex gap-2 border-b border-border pb-2">
@@ -193,8 +219,8 @@ export function SalesRepPage() {
               <TableBody>
                 {alerts.length ? alerts.map((a) => (
                   <TableRow key={a.customer_id}>
-                    <TableCell className="font-medium">{a.customer_name}</TableCell>
-                    <TableCell>{a.missing_items.join(', ')}</TableCell>
+                    <TableCell className="font-medium">{a.customer_name || '—'}</TableCell>
+                    <TableCell>{a.missing_items.length ? a.missing_items.join(', ') : '—'}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">{a.alert}</TableCell>
                   </TableRow>
                 )) : (
@@ -223,9 +249,11 @@ export function SalesRepPage() {
                     <TableCell>{o.created_at ? new Date(o.created_at).toLocaleDateString() : '—'}</TableCell>
                     <TableCell className="capitalize">{o.status || '—'}</TableCell>
                     <TableCell className="text-sm text-muted-foreground">
-                      {Array.isArray(o.items) ? o.items.map((i) => `${i.description || ''} x${i.quantity || 1}`).join(', ') : '—'}
+                      {Array.isArray(o.items) && o.items.length
+                        ? o.items.map((i) => `${i.description || ''} x${i.quantity || 1}`).join(', ')
+                        : '—'}
                     </TableCell>
-                    <TableCell>{o.total != null ? money(parseFloat(String(o.total))) : '—'}</TableCell>
+                    <TableCell>{money(o.total)}</TableCell>
                   </TableRow>
                 )) : (
                   <TableRow><TableCell colSpan={4} className="text-muted-foreground">No orders found.</TableCell></TableRow>
