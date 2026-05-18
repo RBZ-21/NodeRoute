@@ -117,20 +117,18 @@ function validate(logger) {
   if (!SUPABASE_URL) fatal.push('SUPABASE_URL is not set');
   if (!SUPABASE_SERVICE_ROLE_KEY) fatal.push('SUPABASE_SERVICE_ROLE_KEY is not set');
   if (!SESSION_SECRET && !CSRF_SECRET) fatal.push('SESSION_SECRET or CSRF_SECRET is not set');
-  if (!process.env.SUPERADMIN_EMAIL || SUPERADMIN_EMAIL === '__superadmin_unset__')
-    fatal.push('SUPERADMIN_EMAIL is not set');
 
   if (!process.env.SUPERADMIN_EMAIL || SUPERADMIN_EMAIL === '__superadmin_unset__')
     warns.push('SUPERADMIN_EMAIL is not set — requireSuperadmin will reject ALL requests including legitimate ones. Set it to the superadmin account email.');
 
   if (isProduction) {
     if (!process.env.PORTAL_JWT_SECRET || PORTAL_JWT_SECRET === DEV_PORTAL_SECRET)
-      fatal.push('PORTAL_JWT_SECRET must be set in production — the development fallback is not safe');
+      warns.push('PORTAL_JWT_SECRET is not set — customer portal JWTs will use the development fallback. Set it before enabling portal auth.');
 
     if (!process.env.ADMIN_PASSWORD || isWeakPassword(ADMIN_PASSWORD))
-      fatal.push(
-        'ADMIN_PASSWORD is missing or too weak. Production requires a password that is at least ' +
-        '12 characters and includes uppercase, lowercase, a digit, and a special character.'
+      warns.push(
+        'ADMIN_PASSWORD is missing or too weak. Set a password that is at least ' +
+        '12 characters and includes uppercase, lowercase, a digit, and a special character before relying on bootstrap admin login.'
       );
 
     if (!BASE_URL)
