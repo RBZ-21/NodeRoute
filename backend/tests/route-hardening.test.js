@@ -117,7 +117,7 @@ test('invoice, inventory, and purchase-order routes enforce shared Zod validatio
   );
 
   assert.ok(purchaseOrders.includes('validateBody(purchaseOrderConfirmSchema)'), 'purchase orders should use shared body validation');
-  assert.ok(purchaseOrders.includes('vendor is required'), 'purchase orders should require vendor');
+  assert.ok(purchaseOrders.includes('Vendor Name Required'), 'purchase orders should require vendor with a friendly message');
   assert.ok(purchaseOrders.includes('items is required'), 'purchase orders should require items');
   assert.ok(purchaseOrders.includes('quantity must be a positive number'), 'purchase orders should validate item quantity');
 });
