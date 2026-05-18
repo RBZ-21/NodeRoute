@@ -30,7 +30,6 @@ const requiredConfigEnv = {
   SUPABASE_URL: 'https://example.supabase.co',
   SUPABASE_SERVICE_ROLE_KEY: 'test-service-role-key',
   SESSION_SECRET: 'test-session-secret',
-  SUPERADMIN_EMAIL: 'owner@example.com',
 };
 
 function loadFreshConfig() {
@@ -111,6 +110,43 @@ test('config exits when a required secret is missing', () => {
 
     assert.equal(exitCode, 1);
     assert.ok(logs.fatal.some((message) => message.includes('JWT_SECRET is not set')));
+  });
+});
+
+test('config does not exit for degraded production-only optional settings', () => {
+  withEnv({
+    ...requiredConfigEnv,
+    NODE_ENV: 'production',
+    PORTAL_JWT_SECRET: undefined,
+    ADMIN_PASSWORD: undefined,
+    SUPERADMIN_EMAIL: undefined,
+  }, () => {
+    const config = loadFreshConfig();
+    const logs = { warn: [], error: [], fatal: [], info: [] };
+    const logger = {
+      warn(message) { logs.warn.push(message); },
+      error(message) { logs.error.push(message); },
+      fatal(message) { logs.fatal.push(message); },
+      info(message) { logs.info.push(message); },
+    };
+    const originalExit = process.exit;
+    let exitCalled = false;
+    process.exit = () => {
+      exitCalled = true;
+      throw new Error('process.exit');
+    };
+
+    try {
+      assert.doesNotThrow(() => config.validate(logger));
+    } finally {
+      process.exit = originalExit;
+    }
+
+    assert.equal(exitCalled, false);
+    assert.ok(logs.warn.some((message) => message.includes('SUPERADMIN_EMAIL is not set')));
+    assert.ok(logs.warn.some((message) => message.includes('PORTAL_JWT_SECRET is not set')));
+    assert.ok(logs.warn.some((message) => message.includes('ADMIN_PASSWORD is missing or too weak')));
+    assert.equal(logs.fatal.length, 0);
   });
 });
 
