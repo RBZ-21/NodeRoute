@@ -166,22 +166,22 @@ test('auth schema helpers normalize login payloads and preserve existing error m
     error: 'Email and password required',
   });
 
-  assert.deepEqual(parseSetupPasswordBody({ token: ' invite-token ', password: '12345678' }), {
+  assert.deepEqual(parseSetupPasswordBody({ token: ' invite-token ', password: 'long-enough-password' }), {
     success: true,
-    data: { token: 'invite-token', password: '12345678' },
+    data: { token: 'invite-token', password: 'long-enough-password' },
   });
-  assert.deepEqual(parseSetupPasswordBody({ token: '', password: '12345678' }), {
+  assert.deepEqual(parseSetupPasswordBody({ token: '', password: 'long-enough-password' }), {
     success: false,
     error: 'Token and password required',
   });
   assert.deepEqual(parseSetupPasswordBody({ token: 'invite-token', password: 'short' }), {
     success: false,
-    error: 'Password must be at least 8 characters',
+    error: 'Password must be at least 12 characters',
   });
 
-  assert.deepEqual(parseChangePasswordBody({ currentPassword: 'old-pass', newPassword: 'new-secret' }), {
+  assert.deepEqual(parseChangePasswordBody({ currentPassword: 'old-pass', newPassword: 'new-secret-pw-1' }), {
     success: true,
-    data: { currentPassword: 'old-pass', newPassword: 'new-secret' },
+    data: { currentPassword: 'old-pass', newPassword: 'new-secret-pw-1' },
   });
   assert.deepEqual(parseChangePasswordBody({ currentPassword: '', newPassword: '' }), {
     success: false,
@@ -189,7 +189,7 @@ test('auth schema helpers normalize login payloads and preserve existing error m
   });
   assert.deepEqual(parseChangePasswordBody({ currentPassword: 'old-pass', newPassword: 'short' }), {
     success: false,
-    error: 'New password must be at least 8 characters',
+    error: 'New password must be at least 12 characters',
   });
 });
 
