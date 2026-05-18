@@ -14,6 +14,14 @@ vi.mock('../lib/api', () => ({
   sendWithAuth: sendWithAuthMock,
 }));
 
+const todayKey = (() => {
+  const date = new Date();
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+})();
+
 const baseInvoices = [
   {
     id: 'inv-1',
@@ -21,7 +29,8 @@ const baseInvoices = [
     customer_name: 'Blue Fin',
     customer_id: 'cust-1',
     order_number: 'ORD-100',
-    issue_date: '2026-04-01',
+    issue_date: todayKey,
+    created_at: `${todayKey}T09:00:00.000Z`,
     due_date: '2026-04-15',
     amount: 125,
     status: 'pending',
@@ -33,11 +42,24 @@ const baseInvoices = [
     customer_name: 'Harbor Cafe',
     customer_id: 'cust-2',
     order_number: 'ORD-200',
-    issue_date: '2026-04-02',
+    issue_date: todayKey,
+    created_at: `${todayKey}T10:00:00.000Z`,
     due_date: '2026-04-03',
     amount: 300,
     status: 'paid',
     paid_date: '2026-04-05',
+  },
+  {
+    id: 'inv-3',
+    invoice_number: 'INV-300',
+    customer_name: 'Dockside Grill',
+    customer_id: 'cust-3',
+    order_number: 'ORD-300',
+    issue_date: todayKey,
+    created_at: `${todayKey}T11:00:00.000Z`,
+    due_date: '2026-05-25',
+    amount: 220,
+    status: 'delivered',
   },
 ];
 
@@ -68,6 +90,10 @@ describe('InvoicesPage', () => {
     expect(await screen.findByText('INV-100')).toBeInTheDocument();
     expect(screen.getAllByText('$125.00').length).toBeGreaterThan(0);
     expect(screen.getAllByText('$300.00').length).toBeGreaterThan(0);
+    expect(screen.queryByText('INV-300')).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Show Delivered/ }));
+    expect(await screen.findByText('INV-300')).toBeInTheDocument();
 
     fireEvent.change(screen.getByDisplayValue('All'), { target: { value: 'paid' } });
     await waitFor(() => {
@@ -158,6 +184,27 @@ describe('InvoicesPage', () => {
     });
     expect(sendWithAuthMock).not.toHaveBeenCalledWith('/api/invoices/inv-1/resend', 'POST');
     expect(await screen.findByText('Invoice INV-200 emailed.')).toBeInTheDocument();
+  });
+
+  it('moves an invoice to the delivered dropdown after marking it delivered', async () => {
+    sendWithAuthMock.mockResolvedValueOnce({
+      id: 'inv-1',
+      invoice_number: 'INV-100',
+      status: 'delivered',
+    });
+
+    renderInvoicesPage();
+
+    expect(await screen.findByText('INV-100')).toBeInTheDocument();
+    fireEvent.click(screen.getAllByRole('button', { name: 'Delivered' })[0]);
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/invoices/inv-1', 'PATCH', { status: 'delivered' });
+    });
+    expect(await screen.findByText('Invoice INV-100 marked delivered.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: /Show Delivered/ }));
+    expect(await screen.findByText('INV-100')).toBeInTheDocument();
   });
 
   it('blocks printing while final weights are still pending', async () => {
