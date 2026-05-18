@@ -108,6 +108,7 @@ export function InvoicesPage() {
   const [followUpDraft, setFollowUpDraft] = useState<InvoiceFollowUpResult | null>(null);
   const [followUpInvoiceId, setFollowUpInvoiceId] = useState<string | null>(null);
   const [followUpError, setFollowUpError] = useState('');
+  const [markingPaidInvoiceId, setMarkingPaidInvoiceId] = useState<string | null>(null);
 
   const riskByCustomer = useMemo(() => {
     return new Map((latePaymentRisk.data?.risks || []).map((risk) => [risk.customer_name.toLowerCase(), risk]));
@@ -290,6 +291,33 @@ export function InvoicesPage() {
     });
   }
 
+  function markInvoicePaid(inv: Invoice) {
+    const id = inv.id;
+    if (!id || normalizeStatus(inv.status) === 'paid') return;
+    const idString = String(id);
+    setActionError('');
+    setMarkingPaidInvoiceId(idString);
+    updateInvoice.mutate(
+      { id, patch: { status: 'paid' } },
+      {
+        onSuccess: (updated) => {
+          const paidInvoice = { ...inv, ...(updated as Partial<Invoice>), status: 'paid' };
+          if (selected && String(selected.id || '') === idString) {
+            setSelected({ ...selected, ...paidInvoice });
+            setDraft((current) => ({ ...current, ...paidInvoice }));
+          }
+          setNotice(`Invoice ${invoiceId(inv)} marked paid.`);
+        },
+        onError: (mutationError) => {
+          setActionError(String((mutationError as Error)?.message || 'Could not mark invoice paid'));
+        },
+        onSettled: () => {
+          setMarkingPaidInvoiceId(null);
+        },
+      }
+    );
+  }
+
   function generateFollowUpForInvoice(inv: Invoice) {
     const id = String(inv.id || '');
     if (!id) return;
@@ -460,6 +488,15 @@ export function InvoicesPage() {
                         <div className="flex justify-end gap-2">
                           <Button
                             size="sm"
+                            variant={status === 'paid' ? 'outline' : 'default'}
+                            className="whitespace-nowrap"
+                            disabled={status === 'paid' || (updateInvoice.isPending && markingPaidInvoiceId === String(inv.id || ''))}
+                            onClick={() => markInvoicePaid(inv)}
+                          >
+                            {updateInvoice.isPending && markingPaidInvoiceId === String(inv.id || '') ? 'Saving...' : 'PAID'}
+                          </Button>
+                          <Button
+                            size="sm"
                             variant="outline"
                             className="whitespace-nowrap"
                             disabled={resendInvoiceEmail.isPending}
@@ -502,6 +539,16 @@ export function InvoicesPage() {
                 <p className="text-sm text-muted-foreground">{customerName(selected)}</p>
               </div>
               <div className="flex flex-wrap gap-2">
+                {!confirmDelete && (
+                  <Button
+                    size="sm"
+                    variant={normalizeStatus(selected.status) === 'paid' ? 'outline' : 'default'}
+                    disabled={normalizeStatus(selected.status) === 'paid' || (updateInvoice.isPending && markingPaidInvoiceId === String(selected.id || ''))}
+                    onClick={() => markInvoicePaid(selected)}
+                  >
+                    {updateInvoice.isPending && markingPaidInvoiceId === String(selected.id || '') ? 'Saving...' : 'PAID'}
+                  </Button>
+                )}
                 {!confirmDelete && (
                   <Button
                     size="sm"
