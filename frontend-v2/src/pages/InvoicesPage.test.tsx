@@ -121,6 +121,27 @@ describe('InvoicesPage', () => {
     expect(await screen.findByText('Invoice INV-100 deleted.')).toBeInTheDocument();
   });
 
+  it('marks an invoice paid from the invoice table for check payments', async () => {
+    sendWithAuthMock.mockResolvedValueOnce({
+      id: 'inv-1',
+      invoice_number: 'INV-100',
+      status: 'paid',
+      paid_date: '2026-05-18T13:00:00.000Z',
+    });
+
+    renderInvoicesPage();
+
+    expect(await screen.findByText('INV-100')).toBeInTheDocument();
+
+    const paidButtons = screen.getAllByRole('button', { name: 'PAID' });
+    fireEvent.click(paidButtons[0]);
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/invoices/inv-1', 'PATCH', { status: 'paid' });
+    });
+    expect(await screen.findByText('Invoice INV-100 marked paid.')).toBeInTheDocument();
+  });
+
   it('blocks printing while final weights are still pending', async () => {
     renderInvoicesPage();
 

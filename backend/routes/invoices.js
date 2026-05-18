@@ -218,7 +218,9 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
     }
     updates.status = nextStatus;
     if (nextStatus === 'paid') {
-      updates.paid_date = new Date().toISOString();
+      const paidAt = new Date().toISOString();
+      updates.paid_date = paidAt;
+      updates.paid_at = paidAt;
     }
   }
   if (req.body.notes !== undefined) updates.notes = req.body.notes || null;
