@@ -13,6 +13,8 @@ export type Invoice = {
   id?: string | number;
   invoiceNumber?: string;
   invoice_number?: string;
+  orderNumber?: string;
+  order_number?: string;
   orderId?: string;
   order_id?: string;
   customerId?: string;
@@ -23,6 +25,8 @@ export type Invoice = {
   status?: string;
   dueDate?: string;
   due_date?: string;
+  issueDate?: string;
+  issue_date?: string;
   issuedDate?: string;
   issued_date?: string;
   paidDate?: string;
@@ -47,7 +51,17 @@ export function useUpdateInvoice() {
   return useMutation({
     mutationFn: ({ id, patch }: { id: string | number; patch: Record<string, unknown> }) =>
       sendWithAuth(`/api/invoices/${id}`, 'PATCH', patch),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['invoices'] }),
+    onSuccess: (updated, variables) => {
+      queryClient.setQueryData<Invoice[]>(['invoices'], (current) => {
+        if (!current || typeof updated !== 'object' || updated === null) return current;
+        return current.map((invoice) =>
+          String(invoice.id || '') === String(variables.id)
+            ? { ...invoice, ...(updated as Partial<Invoice>) }
+            : invoice,
+        );
+      });
+      queryClient.invalidateQueries({ queryKey: ['invoices'] });
+    },
   });
 }
 

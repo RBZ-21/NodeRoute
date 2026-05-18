@@ -6,6 +6,7 @@ import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { type Invoice, type InvoiceLotEntry, useDeleteInvoice, useInvoices, useResendInvoiceEmail, useUpdateInvoice } from '../hooks/useInvoices';
 import { type InvoiceFollowUpResult, useInvoiceFollowUp, useLatePaymentRisk } from '../hooks/useAI';
+import { ChevronDown, ChevronRight } from 'lucide-react';
 
 type InvoiceStatus = 'pending' | 'sent' | 'delivered' | 'paid' | 'overdue' | 'void' | 'other';
 
@@ -49,6 +50,22 @@ function formatDate(val: string | undefined): string {
   if (!val) return '-';
   const d = new Date(val);
   return Number.isFinite(d.getTime()) ? d.toLocaleDateString() : '-';
+}
+function dateInputValue(date = new Date()): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+function invoiceActivityDate(invoice: Invoice): string | undefined {
+  return invoice.issuedDate || invoice.issued_date || invoice.issueDate || invoice.issue_date || invoice.created_at;
+}
+function isSameLocalDay(value: string | undefined, dayKey: string): boolean {
+  if (!value) return false;
+  if (/^\d{4}-\d{2}-\d{2}/.test(value)) return value.slice(0, 10) === dayKey;
+  const date = new Date(value);
+  if (!Number.isFinite(date.getTime())) return String(value).slice(0, 10) === dayKey;
+  return dateInputValue(date) === dayKey;
 }
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -101,6 +118,8 @@ export function InvoicesPage() {
   const [notice, setNotice] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | InvoiceStatus>('all');
   const [search, setSearch] = useState('');
+  const [activeDate, setActiveDate] = useState(() => dateInputValue());
+  const [deliveredOpen, setDeliveredOpen] = useState(false);
   const [selected, setSelected] = useState<Invoice | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Partial<Invoice>>({});
@@ -124,7 +143,7 @@ export function InvoicesPage() {
         const matches =
           invoiceId(inv).toLowerCase().includes(q) ||
           customerName(inv).toLowerCase().includes(q) ||
-          String(inv.orderId || inv.order_id || '').toLowerCase().includes(q) ||
+          String(inv.orderNumber || inv.order_number || inv.orderId || inv.order_id || '').toLowerCase().includes(q) ||
           lotMatch;
         if (!matches) return false;
       }
@@ -138,6 +157,17 @@ export function InvoicesPage() {
     overdue: invoices.filter((i) => normalizeStatus(i.status) === 'overdue').length,
     outstanding: invoices.filter((i) => ['pending', 'sent', 'delivered'].includes(normalizeStatus(i.status))).length,
   }), [invoices]);
+
+  const activeInvoicesForDay = useMemo(() => {
+    return filtered.filter((invoice) => {
+      const status = normalizeStatus(invoice.status);
+      return status !== 'delivered' && isSameLocalDay(invoiceActivityDate(invoice), activeDate);
+    });
+  }, [activeDate, filtered]);
+
+  const deliveredInvoices = useMemo(() => {
+    return filtered.filter((invoice) => normalizeStatus(invoice.status) === 'delivered');
+  }, [filtered]);
 
   const topRisks = useMemo(() => (latePaymentRisk.data?.risks || []).slice(0, 3), [latePaymentRisk.data]);
   const selectedRisk = selected ? riskByCustomer.get(customerName(selected).toLowerCase()) : undefined;
@@ -378,6 +408,108 @@ export function InvoicesPage() {
     }
   }
 
+  function renderInvoiceRows(rows: Invoice[], emptyMessage: string) {
+    return rows.length ? rows.map((inv) => {
+      const status = normalizeStatus(inv.status);
+      const isDelivered = status === 'delivered';
+      const isPaid = status === 'paid';
+      const risk = riskByCustomer.get(customerName(inv).toLowerCase());
+      return (
+        <TableRow key={invoiceId(inv)}>
+          <TableCell className="font-medium whitespace-nowrap">{invoiceId(inv)}</TableCell>
+          <TableCell className="max-w-[140px] truncate">{customerName(inv)}</TableCell>
+          <TableCell className="hidden sm:table-cell">
+            {risk ? (
+              <div className="flex items-center gap-2">
+                <StatusBadge status={risk.risk_level.toLowerCase()} colorMap={riskColors} fallbackLabel={risk.risk_level} />
+                <span className="text-xs text-muted-foreground">{risk.risk_score}</span>
+              </div>
+            ) : (
+              <span className="text-xs text-muted-foreground">No flag</span>
+            )}
+          </TableCell>
+          <TableCell className="hidden sm:table-cell">{inv.orderNumber || inv.order_number || inv.orderId || inv.order_id || '-'}</TableCell>
+          <TableCell className="hidden sm:table-cell font-mono text-xs">{lotSummary(inv.lot_numbers)}</TableCell>
+          <TableCell className="whitespace-nowrap">{formatAmount(inv.amount)}</TableCell>
+          <TableCell><StatusBadge status={status === 'other' ? 'unknown' : status} colorMap={statusColors} fallbackLabel="Unknown" /></TableCell>
+          <TableCell className="hidden md:table-cell whitespace-nowrap">{formatDate(invoiceActivityDate(inv))}</TableCell>
+          <TableCell className="hidden md:table-cell whitespace-nowrap">{formatDate(inv.dueDate || inv.due_date)}</TableCell>
+          <TableCell className="hidden md:table-cell whitespace-nowrap">{formatDate(inv.paidDate || inv.paid_date)}</TableCell>
+          <TableCell className="text-right">
+            <div className="flex justify-end gap-2">
+              <Button
+                size="sm"
+                variant="outline"
+                className={`whitespace-nowrap${isDelivered ? ' border-green-500 bg-green-50 text-green-700 hover:bg-green-100' : ''}`}
+                disabled={isDelivered || isPaid || (updateInvoice.isPending && markingDeliveredInvoiceId === String(inv.id || ''))}
+                onClick={() => markInvoiceDelivered(inv)}
+              >
+                {updateInvoice.isPending && markingDeliveredInvoiceId === String(inv.id || '') ? 'Saving...' : 'Delivered'}
+              </Button>
+              <Button
+                size="sm"
+                variant={isPaid ? 'outline' : 'default'}
+                className="whitespace-nowrap"
+                disabled={isPaid || (updateInvoice.isPending && markingPaidInvoiceId === String(inv.id || ''))}
+                onClick={() => markInvoicePaid(inv)}
+              >
+                {updateInvoice.isPending && markingPaidInvoiceId === String(inv.id || '') ? 'Saving...' : 'PAID'}
+              </Button>
+              <Button
+                size="sm"
+                variant="outline"
+                className="whitespace-nowrap"
+                disabled={resendInvoiceEmail.isPending}
+                onClick={() => resendInvoice(inv)}
+              >
+                {resendInvoiceEmail.isPending ? 'Sending...' : 'Resend Email'}
+              </Button>
+              {shouldSuggestFollowUp(inv) ? (
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="whitespace-nowrap"
+                  disabled={invoiceFollowUp.isPending && followUpInvoiceId === String(inv.id || '')}
+                  onClick={() => generateFollowUpForInvoice(inv)}
+                >
+                  {invoiceFollowUp.isPending && followUpInvoiceId === String(inv.id || '') ? 'Drafting...' : 'AI Follow-Up'}
+                </Button>
+              ) : null}
+              <Button size="sm" className="whitespace-nowrap" onClick={() => openInvoice(inv)}>View / Edit</Button>
+            </div>
+          </TableCell>
+        </TableRow>
+      );
+    }) : (
+      <TableRow><TableCell colSpan={11} className="text-muted-foreground">{emptyMessage}</TableCell></TableRow>
+    );
+  }
+
+  function invoiceTable(rows: Invoice[], emptyMessage: string) {
+    return (
+      <div className="overflow-x-auto rounded-lg border border-border">
+        <Table className="min-w-[860px]">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Invoice #</TableHead>
+              <TableHead>Customer</TableHead>
+              <TableHead className="hidden sm:table-cell">AI Risk</TableHead>
+              <TableHead className="hidden sm:table-cell">Order #</TableHead>
+              <TableHead className="hidden sm:table-cell">Lot #(s)</TableHead>
+              <TableHead>Amount</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead className="hidden md:table-cell">Issued</TableHead>
+              <TableHead className="hidden md:table-cell">Due</TableHead>
+              <TableHead className="hidden md:table-cell">Paid</TableHead>
+              <TableHead className="text-right">Actions</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>{renderInvoiceRows(rows, emptyMessage)}</TableBody>
+        </Table>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-5">
       {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading invoices...</div> : null}
@@ -447,10 +579,14 @@ export function InvoicesPage() {
       <Card>
         <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="space-y-1">
-            <CardTitle>Invoices</CardTitle>
-            <CardDescription>Billing records from `/api/invoices` with embedded collections AI.</CardDescription>
+            <CardTitle>Active Invoices</CardTitle>
+            <CardDescription>Undelivered invoices for the selected day. Delivered invoices move into the dropdown below.</CardDescription>
           </div>
           <div className="flex flex-wrap items-end gap-2">
+            <label className="space-y-1 text-sm">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Day</span>
+              <Input type="date" value={activeDate} onChange={(e) => setActiveDate(e.target.value)} className="w-40" />
+            </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
               <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | InvoiceStatus)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
@@ -471,102 +607,26 @@ export function InvoicesPage() {
           </div>
         </CardHeader>
         <CardContent className="p-0 sm:p-2">
-          <div className="overflow-x-auto rounded-lg border border-border">
-            <Table className="min-w-[860px]">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Invoice #</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead className="hidden sm:table-cell">AI Risk</TableHead>
-                  <TableHead className="hidden sm:table-cell">Order #</TableHead>
-                  <TableHead className="hidden sm:table-cell">Lot #(s)</TableHead>
-                  <TableHead>Amount</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead className="hidden md:table-cell">Issued</TableHead>
-                  <TableHead className="hidden md:table-cell">Due</TableHead>
-                  <TableHead className="hidden md:table-cell">Paid</TableHead>
-                  <TableHead className="text-right">Actions</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {filtered.length ? filtered.map((inv) => {
-                  const status = normalizeStatus(inv.status);
-                  const isDelivered = status === 'delivered';
-                  const isPaid = status === 'paid';
-                  const risk = riskByCustomer.get(customerName(inv).toLowerCase());
-                  return (
-                    <TableRow key={invoiceId(inv)}>
-                      <TableCell className="font-medium whitespace-nowrap">{invoiceId(inv)}</TableCell>
-                      <TableCell className="max-w-[140px] truncate">{customerName(inv)}</TableCell>
-                      <TableCell className="hidden sm:table-cell">
-                        {risk ? (
-                          <div className="flex items-center gap-2">
-                            <StatusBadge status={risk.risk_level.toLowerCase()} colorMap={riskColors} fallbackLabel={risk.risk_level} />
-                            <span className="text-xs text-muted-foreground">{risk.risk_score}</span>
-                          </div>
-                        ) : (
-                          <span className="text-xs text-muted-foreground">No flag</span>
-                        )}
-                      </TableCell>
-                      <TableCell className="hidden sm:table-cell">{inv.orderId || inv.order_id || '-'}</TableCell>
-                      <TableCell className="hidden sm:table-cell font-mono text-xs">{lotSummary(inv.lot_numbers)}</TableCell>
-                      <TableCell className="whitespace-nowrap">{formatAmount(inv.amount)}</TableCell>
-                      <TableCell><StatusBadge status={status === 'other' ? 'unknown' : status} colorMap={statusColors} fallbackLabel="Unknown" /></TableCell>
-                      <TableCell className="hidden md:table-cell whitespace-nowrap">{formatDate(inv.issuedDate || inv.issued_date)}</TableCell>
-                      <TableCell className="hidden md:table-cell whitespace-nowrap">{formatDate(inv.dueDate || inv.due_date)}</TableCell>
-                      <TableCell className="hidden md:table-cell whitespace-nowrap">{formatDate(inv.paidDate || inv.paid_date)}</TableCell>
-                      <TableCell className="text-right">
-                        <div className="flex justify-end gap-2">
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className={`whitespace-nowrap${isDelivered ? ' border-green-500 bg-green-50 text-green-700 hover:bg-green-100' : ''}`}
-                            disabled={isDelivered || isPaid || (updateInvoice.isPending && markingDeliveredInvoiceId === String(inv.id || ''))}
-                            onClick={() => markInvoiceDelivered(inv)}
-                          >
-                            {updateInvoice.isPending && markingDeliveredInvoiceId === String(inv.id || '') ? 'Saving...' : 'Delivered'}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant={isPaid ? 'outline' : 'default'}
-                            className="whitespace-nowrap"
-                            disabled={isPaid || (updateInvoice.isPending && markingPaidInvoiceId === String(inv.id || ''))}
-                            onClick={() => markInvoicePaid(inv)}
-                          >
-                            {updateInvoice.isPending && markingPaidInvoiceId === String(inv.id || '') ? 'Saving...' : 'PAID'}
-                          </Button>
-                          <Button
-                            size="sm"
-                            variant="outline"
-                            className="whitespace-nowrap"
-                            disabled={resendInvoiceEmail.isPending}
-                            onClick={() => resendInvoice(inv)}
-                          >
-                            {resendInvoiceEmail.isPending ? 'Sending...' : 'Resend Email'}
-                          </Button>
-                          {shouldSuggestFollowUp(inv) ? (
-                            <Button
-                              size="sm"
-                              variant="outline"
-                              className="whitespace-nowrap"
-                              disabled={invoiceFollowUp.isPending && followUpInvoiceId === String(inv.id || '')}
-                              onClick={() => generateFollowUpForInvoice(inv)}
-                            >
-                              {invoiceFollowUp.isPending && followUpInvoiceId === String(inv.id || '') ? 'Drafting...' : 'AI Follow-Up'}
-                            </Button>
-                          ) : null}
-                          <Button size="sm" className="whitespace-nowrap" onClick={() => openInvoice(inv)}>View / Edit</Button>
-                        </div>
-                      </TableCell>
-                    </TableRow>
-                  );
-                }) : (
-                  <TableRow><TableCell colSpan={11} className="text-muted-foreground">No invoices found.</TableCell></TableRow>
-                )}
-              </TableBody>
-            </Table>
-          </div>
+          {invoiceTable(activeInvoicesForDay, 'No active invoices found for this day.')}
         </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <CardTitle>Delivered Invoices</CardTitle>
+            <CardDescription>Completed deliveries are kept here for review and follow-up.</CardDescription>
+          </div>
+          <Button variant="outline" onClick={() => setDeliveredOpen((open) => !open)}>
+            {deliveredOpen ? <ChevronDown className="mr-2 h-4 w-4" /> : <ChevronRight className="mr-2 h-4 w-4" />}
+            {deliveredOpen ? 'Hide' : 'Show'} Delivered ({deliveredInvoices.length})
+          </Button>
+        </CardHeader>
+        {deliveredOpen ? (
+          <CardContent className="p-0 sm:p-2">
+            {invoiceTable(deliveredInvoices, 'No delivered invoices match the current filters.')}
+          </CardContent>
+        ) : null}
       </Card>
 
       {selected && (() => {
