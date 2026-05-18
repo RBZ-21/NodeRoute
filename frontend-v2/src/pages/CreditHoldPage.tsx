@@ -15,7 +15,7 @@
  */
 
 import { useEffect, useState, useCallback } from 'react';
-import { fetchWithAuth } from '../lib/api';
+import { fetchWithAuth, sendWithAuth } from '../lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface DashboardStats {
@@ -216,7 +216,7 @@ export function CreditHoldPage() {
     setActionLoading(true);
     setActionError(null);
     try {
-      await fetchWithAuth(url, { method: 'POST', body: JSON.stringify(body), headers: { 'Content-Type': 'application/json' } });
+      await sendWithAuth(url, 'POST', body);
       // refresh customer + dashboard
       const c = await fetchWithAuth<CustomerStatus>(`/api/credit/customer/${customer!.customer_id}/status`);
       setCustomer(c);
@@ -235,15 +235,11 @@ export function CreditHoldPage() {
     setActionLoading(true);
     setActionError(null);
     try {
-      await fetchWithAuth(`/api/credit/customer/${customer.customer_id}/settings`, {
-        method: 'PATCH',
-        body: JSON.stringify({
-          credit_limit: settingsCreditLimit === '' ? null : parseFloat(settingsCreditLimit),
-          credit_terms: settingsTerms,
-          warning_threshold_pct: parseFloat(settingsThreshold),
-          auto_hold_enabled: settingsAutoHold,
-        }),
-        headers: { 'Content-Type': 'application/json' },
+      await sendWithAuth(`/api/credit/customer/${customer.customer_id}/settings`, 'PATCH', {
+        credit_limit: settingsCreditLimit === '' ? null : parseFloat(settingsCreditLimit),
+        credit_terms: settingsTerms,
+        warning_threshold_pct: parseFloat(settingsThreshold),
+        auto_hold_enabled: settingsAutoHold,
       });
       const c = await fetchWithAuth<CustomerStatus>(`/api/credit/customer/${customer.customer_id}/status`);
       setCustomer(c);

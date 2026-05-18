@@ -6,6 +6,7 @@
  */
 
 import { lazy, type ComponentType } from 'react';
+import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard, Package, Map, Truck, MapPin, Globe2,
   Factory, ShoppingCart, Warehouse, Search,
@@ -23,7 +24,7 @@ export interface NavItem {
   id: string;
   label: string;
   path: string;
-  icon: ComponentType<{ className?: string; 'aria-hidden'?: string }>;
+  icon: LucideIcon;
   roles?: string[];
   badge?: string;
   component: ComponentType;
@@ -37,34 +38,44 @@ export interface NavGroup {
 
 // ── Lazy page imports ─────────────────────────────────────────────────────────
 
-const DashboardPage    = lazy(() => import('../pages/DashboardPage').then((m) => ({ default: m.DashboardPage ?? m.default })));
-const OrdersPage       = lazy(() => import('../pages/OrdersPage').then((m) => ({ default: m.OrdersPage ?? m.default })));
-const RoutesPage       = lazy(() => import('../pages/RoutesPage').then((m) => ({ default: m.RoutesPage ?? m.default })));
-const DeliveriesPage   = lazy(() => import('../pages/DeliveriesPage').then((m) => ({ default: m.DeliveriesPage ?? m.default })));
-const StopsPage        = lazy(() => import('../pages/StopsPage').then((m) => ({ default: m.StopsPage ?? m.default })));
-const MapPage          = lazy(() => import('../pages/MapPage').then((m) => ({ default: m.MapPage ?? m.default })));
-const InventoryPage    = lazy(() => import('../pages/InventoryPage').then((m) => ({ default: m.InventoryPage ?? m.default })));
-const PurchasingPage   = lazy(() => import('../pages/PurchasingPage').then((m) => ({ default: m.PurchasingPage ?? m.default })));
-const WarehousePage    = lazy(() => import('../pages/WarehousePage').then((m) => ({ default: m.WarehousePage ?? m.default })));
-const TraceabilityPage = lazy(() => import('../pages/TraceabilityPage').then((m) => ({ default: m.TraceabilityPage ?? m.default })));
-const CustomersPage    = lazy(() => import('../pages/CustomersPage').then((m) => ({ default: m.CustomersPage ?? m.default })));
-const VendorsPage      = lazy(() => import('../pages/VendorsPage').then((m) => ({ default: m.VendorsPage ?? m.default })));
-const DSRPage          = lazy(() => import('../pages/DSRPage').then((m) => ({ default: m.DSRPage ?? m.default })));
-const SalesRepPage     = lazy(() => import('../pages/SalesRepPage').then((m) => ({ default: m.SalesRepPage ?? m.default })));
-const FinancialsPage   = lazy(() => import('../pages/FinancialsPage').then((m) => ({ default: m.FinancialsPage ?? m.default })));
-const InvoicesPage     = lazy(() => import('../pages/InvoicesPage').then((m) => ({ default: m.InvoicesPage ?? m.default })));
-const CreditHoldPage   = lazy(() => import('../pages/CreditHoldPage').then((m) => ({ default: m.CreditHoldPage ?? m.default })));
-const AnalyticsPage    = lazy(() => import('../pages/AnalyticsPage').then((m) => ({ default: m.AnalyticsPage ?? m.default })));
-const ForecastPage     = lazy(() => import('../pages/ForecastPage').then((m) => ({ default: m.ForecastPage ?? m.default })));
-const ReportsPage      = lazy(() => import('../pages/ReportsPage').then((m) => ({ default: m.ReportsPage ?? m.default })));
-const AIHelpPage       = lazy(() => import('../pages/AIHelpPage').then((m) => ({ default: m.AIHelpPage ?? m.default })));
-const UsersPage        = lazy(() => import('../pages/UsersPage').then((m) => ({ default: m.UsersPage ?? m.default })));
-const CompaniesPage    = lazy(() => import('../pages/CompaniesPage').then((m) => ({ default: m.CompaniesPage ?? m.default })));
-const SettingsPage     = lazy(() => import('../pages/SettingsPage').then((m) => ({ default: m.SettingsPage ?? m.default })));
-const IntegrationsPage = lazy(() => import('../pages/IntegrationsPage').then((m) => ({ default: m.IntegrationsPage ?? m.default })));
-const CompliancePage   = lazy(() => import('../pages/CompliancePage').then((m) => ({ default: m.CompliancePage ?? m.default })));
-const PlanningPage     = lazy(() => import('../pages/PlanningPage').then((m) => ({ default: m.PlanningPage ?? m.default })));
-const AuditLogPage     = lazy(() => import('../pages/AuditLogPage').then((m) => ({ default: m.AuditLogPage ?? m.default })));
+function lazyNamed<TModule, TKey extends keyof TModule>(
+  loader: () => Promise<TModule>,
+  key: TKey,
+) {
+  return lazy(async () => {
+    const mod = await loader();
+    return { default: mod[key] as ComponentType };
+  });
+}
+
+const DashboardPage    = lazyNamed(() => import('../pages/DashboardPage'), 'DashboardPage');
+const OrdersPage       = lazyNamed(() => import('../pages/OrdersPage'), 'OrdersPage');
+const RoutesPage       = lazyNamed(() => import('../pages/RoutesPage'), 'RoutesPage');
+const DeliveriesPage   = lazyNamed(() => import('../pages/DeliveriesPage'), 'DeliveriesPage');
+const StopsPage        = lazyNamed(() => import('../pages/StopsPage'), 'StopsPage');
+const MapPage          = lazyNamed(() => import('../pages/MapPage'), 'MapPage');
+const InventoryPage    = lazyNamed(() => import('../pages/InventoryPage'), 'InventoryPage');
+const PurchasingPage   = lazyNamed(() => import('../pages/PurchasingPage'), 'PurchasingPage');
+const WarehousePage    = lazyNamed(() => import('../pages/WarehousePage'), 'WarehousePage');
+const TraceabilityPage = lazyNamed(() => import('../pages/TraceabilityPage'), 'TraceabilityPage');
+const CustomersPage    = lazyNamed(() => import('../pages/CustomersPage'), 'CustomersPage');
+const VendorsPage      = lazyNamed(() => import('../pages/VendorsPage'), 'VendorsPage');
+const DSRPage          = lazyNamed(() => import('../pages/DSRPage'), 'DSRPage');
+const SalesRepPage     = lazyNamed(() => import('../pages/SalesRepPage'), 'SalesRepPage');
+const FinancialsPage   = lazyNamed(() => import('../pages/FinancialsPage'), 'FinancialsPage');
+const InvoicesPage     = lazyNamed(() => import('../pages/InvoicesPage'), 'InvoicesPage');
+const CreditHoldPage   = lazyNamed(() => import('../pages/CreditHoldPage'), 'CreditHoldPage');
+const AnalyticsPage    = lazyNamed(() => import('../pages/AnalyticsPage'), 'AnalyticsPage');
+const ForecastPage     = lazyNamed(() => import('../pages/ForecastingPage'), 'ForecastingPage');
+const ReportsPage      = lazyNamed(() => import('../pages/ReportsPage'), 'ReportsPage');
+const AIHelpPage       = lazyNamed(() => import('../pages/AIHelpPage'), 'AIHelpPage');
+const UsersPage        = lazyNamed(() => import('../pages/UsersPage'), 'UsersPage');
+const CompaniesPage    = lazyNamed(() => import('../pages/CompaniesPage'), 'CompaniesPage');
+const SettingsPage     = lazyNamed(() => import('../pages/SettingsPage'), 'SettingsPage');
+const IntegrationsPage = lazyNamed(() => import('../pages/IntegrationsPage'), 'IntegrationsPage');
+const CompliancePage   = lazyNamed(() => import('../pages/ComplianceDashboardPage'), 'ComplianceDashboardPage');
+const PlanningPage     = lazyNamed(() => import('../pages/PlanningPage'), 'PlanningPage');
+const AuditLogPage     = lazyNamed(() => import('../pages/AuditLogPage'), 'AuditLogPage');
 
 // ── Nav groups ────────────────────────────────────────────────────────────────
 
