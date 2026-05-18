@@ -84,6 +84,14 @@ app.use(helmet({
   }
 })();
 
+// Attach a unique request ID to every request for log correlation.
+const crypto = require('crypto');
+app.use((req, res, next) => {
+  req.id = crypto.randomUUID();
+  res.setHeader('X-Request-ID', req.id);
+  next();
+});
+
 // ── Security headers ─────────────────────────────────────────────────────────
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
@@ -251,8 +259,8 @@ app.get('/track',           (req, res) => res.sendFile(frontendV2Entry));
 app.get('/track/:token',    (req, res) => res.redirect(`/track?t=${encodeURIComponent(req.params.token)}`));
 app.get('/setup-password',  (req, res) => res.sendFile(frontendV2Entry));
 
-app.use('/api', (req, res) => {
-  res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
+app.use('/api', (_req, res) => {
+  res.status(404).json({ error: 'Not found' });
 });
 
 Sentry.setupExpressErrorHandler(app);
