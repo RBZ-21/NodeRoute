@@ -1009,4 +1009,148 @@ router.get('/bad-debt-risk', authenticateToken, requireRole('admin', 'manager'),
   }
 });
 
+router.get('/reorder-performance', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const range = resolveReportingDateRange(req.query.start, req.query.end);
+  if (range.error) return res.status(400).json({ error: range.error });
+  const { startDate, endDate } = range;
+
+  try {
+    const { data, error } = await supabase
+      .from('reorder_suggestions')
+      .select('*')
+      .gte('created_at', startDate.toISOString())
+      .lte('created_at', endDate.toISOString())
+      .limit(5000);
+    if (error) return res.status(500).json({ error: error.message });
+    const rows = filterRowsByContext(data || [], req.context);
+    const byStatus = rows.reduce((acc, row) => {
+      const status = row.status || 'unknown';
+      acc[status] = (acc[status] || 0) + 1;
+      return acc;
+    }, {});
+    const converted = rows.filter((row) => row.status === 'converted_to_po' && row.approved_at);
+    const avgHoursToPo = converted.length
+      ? round2(converted.reduce((sum, row) => sum + Math.max(0, new Date(row.approved_at).getTime() - new Date(row.created_at).getTime()) / 3_600_000, 0) / converted.length)
+      : 0;
+    const lowConfidence = rows.filter((row) => toNumber(row.ai_confidence_score, 1) < 0.6).length;
+    const stockoutSignals = rows.filter((row) => toNumber(row.days_of_stock_remaining, 999) <= 0).length;
+    const overstockSignals = rows.filter((row) => {
+      const breakdown = row.calculation_breakdown || {};
+      return toNumber(breakdown.max_stock_level, 0) > 0
+        && toNumber(row.current_stock, 0) + toNumber(row.suggested_quantity, 0) >= toNumber(breakdown.max_stock_level, 0);
+    }).length;
+
+    res.json({
+      generated_at: new Date().toISOString(),
+      filters: { start: startDate.toISOString(), end: endDate.toISOString() },
+      total_suggestions: rows.length,
+      approved_count: byStatus.approved || 0,
+      converted_to_po_count: byStatus.converted_to_po || 0,
+      dismissed_count: byStatus.dismissed || 0,
+      ignored_pending_count: byStatus.pending || 0,
+      snoozed_count: byStatus.snoozed || 0,
+      average_hours_suggestion_to_po: avgHoursToPo,
+      low_confidence_count: lowConfidence,
+      stockout_signal_count: stockoutSignals,
+      overstock_signal_count: overstockSignals,
+      status_breakdown: byStatus,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Could not build reorder performance report' });
+  }
+});
+
+router.get('/stockout-risk', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const horizon = Math.max(1, Math.min(parseInt(req.query.days || '14', 10), 30));
+  try {
+    const { data, error } = await supabase
+      .from('products')
+      .select('id,item_number,name,description,category,unit,on_hand_qty,avg_daily_usage,reorder_point,safety_stock,lead_time_days,company_id,location_id')
+      .eq('reorder_enabled', true);
+    if (error) return res.status(500).json({ error: error.message });
+    const rows = filterRowsByContext(data || [], req.context)
+      .map((product) => {
+        const dailyUsage = toNumber(product.avg_daily_usage, 0);
+        const currentStock = toNumber(product.on_hand_qty, 0);
+        const daysRemaining = dailyUsage > 0 ? round2(currentStock / dailyUsage) : null;
+        return {
+          product_id: product.id,
+          item_number: product.item_number,
+          product_name: product.name || product.description,
+          category: product.category,
+          current_stock: currentStock,
+          unit: product.unit,
+          avg_daily_usage: dailyUsage,
+          days_remaining: daysRemaining,
+          projected_stock_at_horizon: dailyUsage > 0 ? round2(currentStock - dailyUsage * horizon) : currentStock,
+          reorder_point: toNumber(product.reorder_point, 0),
+          lead_time_days: product.lead_time_days,
+          risk_level: daysRemaining === null ? 'unknown' : daysRemaining <= 2 ? 'critical' : daysRemaining <= horizon ? 'at_risk' : 'watch',
+        };
+      })
+      .filter((row) => row.days_remaining === null || row.days_remaining <= horizon)
+      .sort((a, b) => toNumber(a.days_remaining, 9999) - toNumber(b.days_remaining, 9999));
+    res.json({
+      generated_at: new Date().toISOString(),
+      horizon_days: horizon,
+      product_count: rows.length,
+      products: rows,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Could not build stockout risk report' });
+  }
+});
+
+router.get('/inventory-turnover', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const days = Math.max(7, Math.min(parseInt(req.query.days || '30', 10), 365));
+  const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
+  try {
+    const [{ data: products, error: pErr }, { data: usage, error: uErr }] = await Promise.all([
+      supabase
+        .from('products')
+        .select('id,item_number,name,description,category,unit,on_hand_qty,cost,avg_daily_usage,company_id,location_id')
+        .eq('reorder_enabled', true)
+        .limit(5000),
+      supabase
+        .from('product_usage_history')
+        .select('product_id,units_used,recorded_date')
+        .gte('recorded_date', since)
+        .limit(10000),
+    ]);
+    if (pErr || uErr) return res.status(500).json({ error: (pErr || uErr).message });
+    const scopedProducts = filterRowsByContext(products || [], req.context);
+    const usageByProduct = new Map();
+    (usage || []).forEach((row) => {
+      usageByProduct.set(row.product_id, toNumber(usageByProduct.get(row.product_id), 0) + toNumber(row.units_used, 0));
+    });
+    const rows = scopedProducts.map((product) => {
+      const used = round2(usageByProduct.get(product.id) || 0);
+      const onHand = toNumber(product.on_hand_qty, 0);
+      const averageInventory = Math.max(1, (onHand + Math.max(0, onHand + used)) / 2);
+      const turnover = round2(used / averageInventory);
+      return {
+        product_id: product.id,
+        item_number: product.item_number,
+        product_name: product.name || product.description,
+        category: product.category,
+        unit: product.unit,
+        current_stock: onHand,
+        units_used: used,
+        turnover_ratio: turnover,
+        days_of_stock: toNumber(product.avg_daily_usage, 0) > 0 ? round2(onHand / toNumber(product.avg_daily_usage, 0)) : null,
+        movement_class: turnover >= 2 ? 'fast_mover' : turnover <= 0.25 ? 'slow_mover' : 'normal',
+      };
+    }).sort((a, b) => b.turnover_ratio - a.turnover_ratio);
+    res.json({
+      generated_at: new Date().toISOString(),
+      window_days: days,
+      fastest_movers: rows.filter((row) => row.movement_class === 'fast_mover').slice(0, 25),
+      slow_movers: rows.filter((row) => row.movement_class === 'slow_mover').slice(0, 25),
+      products: rows,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Could not build inventory turnover report' });
+  }
+});
+
 module.exports = { router, computeRollups, computeSalesSummary, computeRecentSoldItems, computeDailyOps };

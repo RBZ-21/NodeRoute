@@ -21,6 +21,7 @@ const {
   insertRecordWithOptionalScope,
   rowMatchesContext,
 } = require('../services/operating-context');
+const reorderEngine = require('../services/reorderEngine');
 
 const router = express.Router();
 
@@ -85,6 +86,22 @@ const inventoryTransferBodySchema = z.object({
   qty: z.coerce.number().positive('qty must be > 0'),
   notes: z.string().optional(),
 }).passthrough();
+
+async function triggerReorderForItemNumber(itemNumber, context) {
+  const normalized = String(itemNumber || '').trim();
+  if (!normalized) return;
+  try {
+    const { data } = await supabase
+      .from('products')
+      .select('id')
+      .eq('item_number', normalized)
+      .limit(1);
+    const productId = data?.[0]?.id;
+    if (productId) await reorderEngine.runReorderCheck({ productIds: [productId], context });
+  } catch (err) {
+    console.warn('[reorder] product check skipped after inventory mutation:', err.message);
+  }
+}
 const inventoryYieldBodySchema = z.object({
   raw_weight: z.coerce.number().positive('raw_weight must be > 0'),
   yield_weight: z.coerce.number().positive('yield_weight must be > 0'),
@@ -406,6 +423,7 @@ router.post('/lots', authenticateToken, requireRole('admin', 'manager'), validat
         unitCost: parseFloat(cost_per_unit) || 0,
         context: req.context,
       });
+      await triggerReorderForItemNumber(item_number, req.context);
     } catch (ledgerErr) {
       return res.status(500).json({ error: ledgerErr.message });
     }
@@ -474,6 +492,7 @@ router.post('/lots/:lotId/deplete', authenticateToken, requireRole('admin', 'man
     return res.status(500).json({ error: ledgerErr.message });
   }
   const updProd = ledger.item_after;
+  await triggerReorderForItemNumber(lot.item_number, req.context);
 
   res.json({
     lot:     { ...updLot, item_description: ledger.item_before?.description || null },
@@ -519,6 +538,7 @@ router.post('/count', authenticateToken, requireRole('admin', 'manager'), valida
         preventNegative: false,
         context: req.context,
       });
+      await triggerReorderForItemNumber(entry.item_number, req.context);
       updatedItems.push(ledger.item_after);
     } catch (ledgerErr) {
       return res.status(500).json({ error: ledgerErr.message });
@@ -552,6 +572,7 @@ router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager'), 
       createdBy: req.user.name || req.user.email,
       context: req.context,
     });
+    await triggerReorderForItemNumber(req.params.id, req.context);
     res.json(ledger.item_after);
   } catch (ledgerErr) {
     res.status(500).json({ error: ledgerErr.message });
@@ -572,6 +593,7 @@ router.post('/:id/adjust', authenticateToken, requireRole('admin', 'manager'), v
       createdBy: req.user.name || req.user.email,
       context: req.context,
     });
+    await triggerReorderForItemNumber(req.params.id, req.context);
     res.json(ledger.item_after);
   } catch (ledgerErr) {
     if (ledgerErr.code === 'LEDGER_ITEM_NOT_FOUND') return res.status(404).json({ error: 'Product not found' });
@@ -595,6 +617,7 @@ router.post('/:id/pick', authenticateToken, requireRole('admin', 'manager'), val
       createdBy: req.user.name || req.user.email,
       context: req.context,
     });
+    await triggerReorderForItemNumber(req.params.id, req.context);
     res.json(ledger.item_after);
   } catch (ledgerErr) {
     if (ledgerErr.code === 'LEDGER_ITEM_NOT_FOUND') return res.status(404).json({ error: 'Product not found' });
@@ -618,6 +641,7 @@ router.post('/:id/spoilage', authenticateToken, requireRole('admin', 'manager'),
       createdBy: req.user.name || req.user.email,
       context: req.context,
     });
+    await triggerReorderForItemNumber(req.params.id, req.context);
     res.json(ledger.item_after);
   } catch (ledgerErr) {
     if (ledgerErr.code === 'LEDGER_ITEM_NOT_FOUND') return res.status(404).json({ error: 'Product not found' });
@@ -640,6 +664,8 @@ router.post('/transfer', authenticateToken, requireRole('admin', 'manager'), val
       createdBy: req.user.name || req.user.email,
       context: req.context,
     });
+    await triggerReorderForItemNumber(fromItemNumber, req.context);
+    await triggerReorderForItemNumber(toItemNumber, req.context);
     res.json(result);
   } catch (ledgerErr) {
     if (ledgerErr.code === 'LEDGER_ITEM_NOT_FOUND') return res.status(404).json({ error: ledgerErr.message });

@@ -39,6 +39,7 @@ async function fetchInvoicesForRoute(routeId, user) {
 const { triggerPrintJob } = require('../services/printer');
 const printRouter = require('./print');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
+const reorderEngine = require('../services/reorderEngine');
 const { sendInvoiceEmail } = require('../services/invoice-email');
 const { invoiceLotEntriesFromItems } = require('../services/invoice-lots');
 const {
@@ -76,6 +77,30 @@ function lotMapKey(value) {
 
 function isMissingFtlColumnError(error) {
   return !!error?.message && error.message.includes('seafood_inventory.is_ftl_product does not exist');
+}
+
+async function triggerReorderForOrderItems(items, context) {
+  const productIds = new Set();
+  const itemNumbers = new Set();
+  for (const item of Array.isArray(items) ? items : []) {
+    if (item?.product_id) productIds.add(String(item.product_id));
+    if (item?.item_number) itemNumbers.add(String(item.item_number));
+    if (item?.product_item_number) itemNumbers.add(String(item.product_item_number));
+  }
+  try {
+    if (itemNumbers.size) {
+      const { data } = await supabase
+        .from('products')
+        .select('id')
+        .in('item_number', [...itemNumbers]);
+      (data || []).forEach((product) => productIds.add(product.id));
+    }
+    if (productIds.size) {
+      await reorderEngine.runReorderCheck({ productIds: [...productIds], context });
+    }
+  } catch (err) {
+    console.warn('[reorder] order-triggered check skipped:', err.message);
+  }
 }
 
 // ── FSMA 204 lot validation ────────────────────────────────────────────────────
@@ -183,6 +208,65 @@ async function enrichItemsWithLotData(items) {
       lot_number:        lot.lot_number,
       quantity_from_lot: qtyFromLot,
       lot_expiration:    lot.expiration_date || null,
+    };
+  });
+}
+
+async function enrichItemsWithCatchWeightData(items) {
+  if (!Array.isArray(items) || !items.length) return items || [];
+
+  const productIds = [...new Set(items.map((item) => normalizeText(item.product_id)).filter(Boolean))];
+  const itemNumbers = [...new Set(items.map((item) => normalizeText(item.item_number)).filter(Boolean))];
+  const products = [];
+
+  if (productIds.length) {
+    const { data, error } = await supabase
+      .from('products')
+      .select('id,item_number,name,description,is_catch_weight,catch_weight_unit,estimated_unit_weight,weight_tolerance_pct,pricing_method,price_per_unit')
+      .in('id', productIds);
+    if (!error && Array.isArray(data)) products.push(...data);
+  }
+
+  if (itemNumbers.length) {
+    const { data, error } = await supabase
+      .from('products')
+      .select('id,item_number,name,description,is_catch_weight,catch_weight_unit,estimated_unit_weight,weight_tolerance_pct,pricing_method,price_per_unit')
+      .in('item_number', itemNumbers);
+    if (!error && Array.isArray(data)) products.push(...data);
+  }
+
+  const byId = Object.create(null);
+  const byItemNumber = Object.create(null);
+  products.forEach((product) => {
+    if (product.id) byId[normalizeText(product.id)] = product;
+    if (product.item_number) byItemNumber[normalizeText(product.item_number)] = product;
+  });
+
+  return items.map((item) => {
+    const product = byId[normalizeText(item.product_id)] || byItemNumber[normalizeText(item.item_number)] || null;
+    if (!product?.is_catch_weight && !item.is_catch_weight) return item;
+
+    const orderedQty = itemCount(item) || 1;
+    const estimatedUnitWeight = parseFloat(product?.estimated_unit_weight ?? item.estimated_unit_weight ?? 0) || 0;
+    const estimatedWeight = parseFloat(item.estimated_weight || 0) > 0
+      ? parseFloat(item.estimated_weight)
+      : parseFloat((orderedQty * estimatedUnitWeight).toFixed(4));
+    const pricePerLb = parseFloat(item.price_per_lb ?? product?.price_per_unit ?? item.unit_price ?? 0) || 0;
+
+    return {
+      ...item,
+      product_id: item.product_id || product?.id || undefined,
+      item_number: item.item_number || product?.item_number || undefined,
+      name: item.name || product?.name || product?.description || undefined,
+      is_catch_weight: true,
+      catch_weight_unit: product?.catch_weight_unit || item.catch_weight_unit || 'lb',
+      estimated_unit_weight: estimatedUnitWeight || item.estimated_unit_weight || undefined,
+      estimated_weight: estimatedWeight || item.estimated_weight || undefined,
+      weight_tolerance_pct: product?.weight_tolerance_pct ?? item.weight_tolerance_pct ?? 10,
+      pricing_method: 'per_weight',
+      price_per_lb: pricePerLb,
+      ordered_unit: item.ordered_unit || item.unit || 'case',
+      weight_status: item.weight_status || 'pending',
     };
   });
 }
@@ -326,8 +410,13 @@ function invoiceItemsFromOrder(order, fulfilledItems) {
       const hasActual = Number.isFinite(act) && act > 0;
       const weight = hasActual ? act : est;
       const pricePerLb = parseFloat(it.price_per_lb) || 0;
+      const orderedQty = itemCount(it);
+      const orderedUnit = it.ordered_unit || it.order_unit || it.unit || 'case';
+      const productName = it.name || it.description || '';
       return {
-        description: it.name || it.description || '',
+        description: hasActual
+          ? `${productName} — ${orderedQty || 1} ${orderedUnit}${(orderedQty || 1) === 1 ? '' : 's'} @ ${weight.toFixed(3)} lbs — $${pricePerLb.toFixed(4)}/lb = $${asMoney(weight * pricePerLb).toFixed(2)}`
+          : productName,
         notes: hasActual
           ? `Actual Weight: ${weight.toFixed(3)} lbs`
           : `Estimated Weight: ${est.toFixed(3)} lbs (pending confirmation)`,
@@ -385,6 +474,37 @@ function invoiceItemsFromOrder(order, fulfilledItems) {
   return invoiceItems;
 }
 
+function catchWeightInvoiceSummary(items = []) {
+  const catchItems = (Array.isArray(items) ? items : []).filter((item) => item?.is_catch_weight);
+  if (!catchItems.length) return null;
+  const summary = catchItems.reduce((acc, item) => {
+    acc.total_estimated_weight += parseFloat(item.estimated_weight || 0) || 0;
+    acc.total_actual_weight += parseFloat(item.actual_weight || 0) || 0;
+    return acc;
+  }, { total_estimated_weight: 0, total_actual_weight: 0 });
+  summary.total_variance_lbs = parseFloat((summary.total_actual_weight - summary.total_estimated_weight).toFixed(4));
+  summary.total_variance_pct = summary.total_estimated_weight > 0
+    ? parseFloat(((summary.total_variance_lbs / summary.total_estimated_weight) * 100).toFixed(3))
+    : 0;
+  return summary;
+}
+
+function catchWeightInvoiceBlock(items = []) {
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!item?.is_catch_weight) continue;
+    const name = item.name || item.description || item.item_number || 'catch weight item';
+    const status = String(item.weight_status || '').toLowerCase();
+    const hasActual = parseFloat(item.actual_weight || 0) > 0;
+    if (!hasActual || status === 'pending') {
+      return `Cannot invoice order — catch weight not recorded for: ${name}`;
+    }
+    if (status === 'variance_flagged' && !item.approved_at && !item.catch_weight_approved_at) {
+      return `Weight variance requires supervisor approval before invoicing: ${name}`;
+    }
+  }
+  return null;
+}
+
 function totalsForItems(items, taxEnabled, taxRate) {
   const subtotal = asMoney((items || []).reduce((sum, item) => sum + (parseFloat(item.total || 0) || 0), 0));
   const tax = taxEnabled ? asMoney(subtotal * taxRate) : 0;
@@ -419,6 +539,7 @@ function invoicePayloadForOrder(order, fulfilledItems = null, overrides = {}) {
     status: 'pending',
     notes: overrides.notes !== undefined ? overrides.notes : order.notes || 'Awaiting final weights',
     estimated_weight_pending: estimatedWeightPending,
+    catch_weight_summary: catchWeightInvoiceSummary(sourceItems),
   };
 }
 
@@ -577,6 +698,14 @@ async function createOrUpdateProcessingInvoice(order, fulfilledItems, overrides,
   if (existingInvoice?.id && invoiceOrder.tax_rate === undefined) {
     invoiceOrder.tax_rate = existingInvoice.tax_rate ?? DEFAULT_TAX_RATE;
   }
+  const sourceItems = Array.isArray(fulfilledItems) ? fulfilledItems : (invoiceOrder.items || []);
+  if (!overrides?.allowPendingCatchWeight) {
+    const catchWeightBlock = catchWeightInvoiceBlock(sourceItems);
+    if (catchWeightBlock) {
+      if (res) res.status(409).json({ error: catchWeightBlock, code: 'CATCH_WEIGHT_REQUIRED' });
+      return null;
+    }
+  }
   const payload = invoicePayloadForOrder(
     invoiceOrder,
     fulfilledItems,
@@ -731,7 +860,8 @@ router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole
   if (ftlError) return res.status(422).json({ error: ftlError, code: 'FTL_LOT_REQUIRED' });
 
   // Enrich items with lot metadata (lot_number, quantity_from_lot) from lot_codes
-  const enrichedItems = await enrichItemsWithLotData(items);
+  const lotEnrichedItems = await enrichItemsWithLotData(items);
+  const enrichedItems = await enrichItemsWithCatchWeightData(lotEnrichedItems);
 
   const orderNumber = 'ORD-' + Date.now().toString().slice(-6);
   const trackingToken = generateTrackingToken();
@@ -773,6 +903,8 @@ router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole
   if (creditDecision.override_id) {
     await creditEngine.consumeOverride(creditDecision.override_id);
   }
+
+  await triggerReorderForOrderItems(enrichedItems, req.context);
 
   res.json({
     ...data,
@@ -818,7 +950,13 @@ router.patch('/:id/items/:itemIndex/actual-weight', validateBody(orderActualWeig
 
   const updatedItems = items.map((it, i) => {
     if (i !== idx) return it;
-    const updatedItem = { ...it, actual_weight: rounded, total: asMoney(rounded * pricePerLb) };
+    const updatedItem = {
+      ...it,
+      actual_weight: rounded,
+      total: asMoney(rounded * pricePerLb),
+      weight_status: it.weight_status === 'approved' ? 'approved' : 'weighed',
+      weighed_at: new Date().toISOString(),
+    };
     return updatedItem;
   });
 
@@ -830,7 +968,7 @@ router.patch('/:id/items/:itemIndex/actual-weight', validateBody(orderActualWeig
   const invoice = await createOrUpdateProcessingInvoice(
     { ...order, ...updated, items: updatedItems },
     updatedItems,
-    { notes: order.notes || 'Awaiting final weights' },
+    { notes: order.notes || 'Awaiting final weights', allowPendingCatchWeight: true },
     req,
     res
   );
@@ -859,7 +997,8 @@ router.patch('/:id', validateBody(orderUpdateSchema), authenticateToken, require
   if (req.body.items !== undefined) {
     const ftlError = await validateFtlLots(req.body.items);
     if (ftlError) return res.status(422).json({ error: ftlError, code: 'FTL_LOT_REQUIRED' });
-    updates.items = await enrichItemsWithLotData(req.body.items);
+    const lotEnrichedItems = await enrichItemsWithLotData(req.body.items);
+    updates.items = await enrichItemsWithCatchWeightData(lotEnrichedItems);
 
     // Credit recheck on order edits — only blocks when the new estimate is
     // higher than the previous one. A reduction in scope should never be
@@ -930,7 +1069,7 @@ router.patch('/:id', validateBody(orderUpdateSchema), authenticateToken, require
     const invoice = await createOrUpdateProcessingInvoice(
       mergedOrder,
       mergedOrder.items || [],
-      { notes: mergedOrder.notes || 'Awaiting final weights', ...billingOverrides },
+      { notes: mergedOrder.notes || 'Awaiting final weights', allowPendingCatchWeight: true, ...billingOverrides },
       req,
       res
     );
@@ -982,7 +1121,7 @@ router.post('/:id/send', validateBody(orderSendSchema), authenticateToken, requi
   if (req.body.taxRate !== undefined || req.body.tax_rate !== undefined) {
     effectiveOrder.tax_rate = normalizeTaxRate(req.body.taxRate ?? req.body.tax_rate);
   }
-  const invoice = await createOrUpdateProcessingInvoice(effectiveOrder, null, { notes: existing.notes || 'Awaiting final weights' }, req, res);
+  const invoice = await createOrUpdateProcessingInvoice(effectiveOrder, null, { notes: existing.notes || 'Awaiting final weights', allowPendingCatchWeight: true }, req, res);
   if (!invoice) return;
   const trackingToken = existing.tracking_token || generateTrackingToken();
   const trackingExpiresAt = existing.tracking_expires_at || trackingExpiry();
@@ -1053,6 +1192,7 @@ router.post('/:id/fulfill', validateBody(orderFulfillSchema), authenticateToken,
       failures: pickFailures,
     });
   }
+  await triggerReorderForOrderItems(fulfilledItems, req.context);
 
   const orderUpdate = await executeWithOptionalScope((candidate) => supabase.from('orders').update(candidate).eq('id', req.params.id), {
     status: 'invoiced',
@@ -1130,4 +1270,5 @@ router.post('/:id/tracking-link', authenticateToken, requireRole('admin', 'manag
 module.exports = router;
 module.exports.validateFtlLots = validateFtlLots;
 module.exports.enrichItemsWithLotData = enrichItemsWithLotData;
+module.exports.enrichItemsWithCatchWeightData = enrichItemsWithCatchWeightData;
 module.exports.findInventoryMatchForFulfillment = findInventoryMatchForFulfillment;

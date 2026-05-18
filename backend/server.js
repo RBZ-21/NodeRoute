@@ -29,6 +29,7 @@ const driverRouter        = require('./routes/driver');
 const driversRouter       = require('./routes/drivers');
 const vendorsRouter       = require('./routes/vendors');
 const purchaseOrdersRouter= require('./routes/purchase-orders');
+const reorderRouter       = require('./routes/reorder');
 const trackingRouter      = require('./routes/tracking');
 const settingsRouter      = require('./routes/settings');
 const temperatureLogsRouter = require('./routes/temperature-logs');
@@ -37,6 +38,7 @@ const reportingRouter     = require('./routes/reporting').router;
 const lotsRouter          = require('./routes/lots');
 const integrationsRouter  = require('./routes/integrations');
 const warehouseRouter     = require('./routes/warehouse');
+const catchWeightRouter   = require('./routes/catch-weight');
 const superadminRouter    = require('./routes/superadmin');
 const companyConfigRouter = require('./routes/company-config');
 const onboardingRouter    = require('./routes/onboarding');
@@ -192,6 +194,7 @@ app.use('/api/driver', driverRouter);
 app.use('/api/drivers', driversRouter);
 app.use('/api/vendors', vendorsRouter);
 app.use('/api/purchase-orders', purchaseOrdersRouter);
+app.use('/api/reorder', reorderRouter);
 app.use('/api/track', trackingRouter);
 app.use('/api/settings', settingsRouter);
 app.use('/api/temperature-logs', temperatureLogsRouter);
@@ -200,6 +203,7 @@ app.use('/api/reporting', reportingRouter);
 app.use('/api/lots', lotsRouter);
 app.use('/api/integrations', integrationsRouter);
 app.use('/api/warehouse', warehouseRouter);
+app.use('/api/catch-weight', catchWeightRouter);
 // restore-session must be reachable while holding an impersonation token
 // (role=admin), so it runs with only authenticateToken — before the guarded router.
 const { authenticateToken: _authenticateToken } = require('./middleware/auth');
@@ -243,7 +247,7 @@ app.get(/^\/driver-app\/.*/, (req, res) => res.sendFile(driverAppEntry));
 const frontendV2Routes = [
   '/orders', '/deliveries', '/map', '/drivers', '/routes', '/stops',
   '/customers', '/users', '/invoices', '/analytics', '/inventory',
-  '/forecast', '/financials', '/purchasing', '/vendors', '/warehouse',
+  '/forecast', '/financials', '/purchasing', '/reorder', '/vendors', '/warehouse',
   '/planning', '/integrations', '/aihelp', '/settings', '/reports',
   '/admin/traceability',
   '/superadmin/companies',

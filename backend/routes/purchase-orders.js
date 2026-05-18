@@ -8,6 +8,7 @@ const { getAiScanErrorResponse } = require('../services/ai-errors');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 const { generatePurchaseOrderNumber } = require('../services/purchase-order-numbers');
 const { buildPurchaseOrderPDF } = require('../services/purchase-order-pdf');
+const { updateLeadTimesFromPurchaseOrder } = require('../services/reorderEngine');
 const {
   attachLotsToPurchaseOrder,
   findVendorByName,
@@ -339,6 +340,14 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
   }
   if (poInsert.error) return res.status(500).json({ error: poInsert.error.message });
   const po = poInsert.data;
+
+  if (po?.id) {
+    try {
+      await updateLeadTimesFromPurchaseOrder(po);
+    } catch (leadTimeErr) {
+      console.warn('[reorder] failed to update lead times from received PO:', leadTimeErr.message);
+    }
+  }
 
   try {
     const lotNumbers = savedItems

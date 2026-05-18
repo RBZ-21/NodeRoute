@@ -2,6 +2,8 @@ const express = require('express');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { supabase } = require('../services/supabase');
 const { filterRowsByContext, rowMatchesContext } = require('../services/operating-context');
+const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
+const reorderEngine = require('../services/reorderEngine');
 const router = express.Router();
 
 function normalize(value) {
@@ -14,6 +16,53 @@ function normalize(value) {
 function toNumber(value, fallback = 0) {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+}
+
+function deliveryItemQuantity(item) {
+  return toNumber(item?.actual_weight ?? item?.requested_weight ?? item?.estimated_weight ?? item?.requested_qty ?? item?.quantity ?? item?.qty, 0);
+}
+
+async function findProductForDeliveryItem(item) {
+  if (item?.item_number || item?.product_item_number) {
+    const itemNumber = String(item.item_number || item.product_item_number).trim();
+    const byNumber = await supabase
+      .from('products')
+      .select('id,item_number,name,description,on_hand_qty')
+      .eq('item_number', itemNumber)
+      .limit(1);
+    if (byNumber.data?.[0]) return byNumber.data[0];
+  }
+  if (item?.product_id) {
+    const byId = await supabase
+      .from('products')
+      .select('id,item_number,name,description,on_hand_qty')
+      .eq('id', item.product_id)
+      .limit(1);
+    if (byId.data?.[0]) return byId.data[0];
+  }
+  return null;
+}
+
+async function deductDeliveryInventoryAndRunReorder(order, req) {
+  const affectedProductIds = new Set();
+  for (const item of Array.isArray(order.items) ? order.items : []) {
+    const qty = deliveryItemQuantity(item);
+    if (!(qty > 0)) continue;
+    const product = await findProductForDeliveryItem(item);
+    if (!product?.item_number) continue;
+    await applyInventoryLedgerEntry({
+      itemNumber: product.item_number,
+      deltaQty: -qty,
+      changeType: 'delivery_complete',
+      notes: `Delivery ${order.order_number || order.id} completed`,
+      createdBy: req.user?.name || req.user?.email || 'system',
+      context: req.context,
+    });
+    affectedProductIds.add(product.id);
+  }
+  if (affectedProductIds.size) {
+    await reorderEngine.runReorderCheck({ productIds: [...affectedProductIds], context: req.context });
+  }
 }
 
 function haversineMiles(a, b) {
@@ -447,6 +496,17 @@ router.patch('/deliveries/:id/status', authenticateToken, async (req, res) => {
     return res.status(400).json({
       error: `Cannot transition delivery from '${currentDbStatus}' to '${nextDbStatus}'`,
     });
+  }
+
+  if (requestedStatus === 'delivered') {
+    try {
+      await deductDeliveryInventoryAndRunReorder(order, req);
+    } catch (deductError) {
+      return res.status(409).json({
+        error: 'Delivery could not be completed because inventory deduction failed',
+        detail: deductError.message,
+      });
+    }
   }
 
   const { error: updateError } = await supabase
