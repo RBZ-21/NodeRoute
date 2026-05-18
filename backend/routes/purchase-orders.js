@@ -31,6 +31,26 @@ function isMissingLotSourcePoColumnError(error) {
   return !!error?.message && String(error.message).includes('lot_codes.source_po_number does not exist');
 }
 
+function isDuplicatePoNumberError(error) {
+  const message = String(error?.message || '');
+  return error?.code === '23505'
+    && (message.includes('idx_purchase_orders_po_number_unique') || message.includes('purchase_orders_po_number'));
+}
+
+async function generateUniquePurchaseOrderNumber(maxAttempts = 5) {
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    const candidate = generatePurchaseOrderNumber();
+    const { data, error } = await supabase
+      .from('purchase_orders')
+      .select('id')
+      .eq('po_number', candidate)
+      .limit(1);
+    if (error) return candidate;
+    if (!Array.isArray(data) || data.length === 0) return candidate;
+  }
+  return generatePurchaseOrderNumber();
+}
+
 const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -126,7 +146,8 @@ router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
 // ── POST /api/purchase-orders/confirm ──────────────────────────────────────
 router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), validateBody(purchaseOrderConfirmSchema), async (req, res) => {
   const { vendor, po_number, date, items, total_cost, notes, scan_id } = req.validated.body;
-  const resolvedPoNumber = String(po_number || '').trim() || generatePurchaseOrderNumber();
+  const providedPoNumber = String(po_number || '').trim();
+  const resolvedPoNumber = providedPoNumber || await generateUniquePurchaseOrderNumber();
   const vendorRecord = await findVendorByName(vendor, req.context || {});
 
   let { data: inventory, error: invErr } = await supabase
@@ -294,7 +315,7 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
   const computedTotal = parseFloat(total_cost) ||
     parseFloat(items.reduce((s, i) => s + (parseFloat(i.total) || 0), 0).toFixed(2));
 
-  const poInsert = await insertRecordWithOptionalScope(supabase, 'purchase_orders', {
+  const poPayload = {
     po_number:    resolvedPoNumber,
     vendor:       vendor    || null,
     vendor_id:    vendorRecord?.id || null,
@@ -311,7 +332,11 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
     source_scan_id: String(scan_id || '').trim() || null,
     confirmed_by: req.user.name || req.user.email,
     ...buildScopeFields(req.context),
-  }, req.context);
+  };
+  const poInsert = await insertRecordWithOptionalScope(supabase, 'purchase_orders', poPayload, req.context);
+  if (poInsert.error && isDuplicatePoNumberError(poInsert.error)) {
+    return res.status(409).json({ error: 'PO number already exists. Enter a unique PO number.' });
+  }
   if (poInsert.error) return res.status(500).json({ error: poInsert.error.message });
   const po = poInsert.data;
 

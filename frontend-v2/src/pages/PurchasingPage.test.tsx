@@ -464,6 +464,24 @@ describe('PurchasingPage', () => {
     expect(sendWithAuthMock).not.toHaveBeenCalled();
   });
 
+  it('shows a friendly duplicate PO number error returned by the API', async () => {
+    sendWithAuthMock.mockRejectedValueOnce(new Error('PO number already exists. Enter a unique PO number.'));
+
+    renderPurchasingPage();
+
+    expect(await screen.findByText('PO-100')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('Blue Ocean Seafood'), { target: { value: 'Blue Ocean Seafood' } });
+    fireEvent.change(screen.getByPlaceholderText('PO-2026-044'), { target: { value: 'PO-300' } });
+    const lineRow = within(confirmPoCard()).getAllByRole('row')[1];
+    fireEvent.change(within(lineRow).getByPlaceholderText('Atlantic Salmon'), { target: { value: 'Fresh Salmon' } });
+    fireEvent.change(within(lineRow).getAllByRole('spinbutton')[0], { target: { value: '5' } });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm PO' }));
+
+    expect(await screen.findByText('PO number already exists. Enter a unique PO number.')).toBeInTheDocument();
+  });
+
   it('surfaces purchase order loading failures', async () => {
     fetchWithAuthMock.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/purchase-orders')) throw new Error('Purchasing API unavailable');

@@ -99,6 +99,13 @@ test('purchase order confirm returns a friendly missing vendor error', () => {
   assert.match(purchaseOrdersRouteSource, /min\(1,\s*'Vendor Name Required'\)/);
 });
 
+test('purchase order confirm returns a friendly duplicate po number error', () => {
+  assert.match(purchaseOrdersRouteSource, /function isDuplicatePoNumberError/);
+  assert.match(purchaseOrdersRouteSource, /idx_purchase_orders_po_number_unique/);
+  assert.match(purchaseOrdersRouteSource, /PO number already exists\. Enter a unique PO number\./);
+  assert.match(purchaseOrdersRouteSource, /async function generateUniquePurchaseOrderNumber/);
+});
+
 test('frontend purchasing flow keeps scan ids when confirming POs or posting receipts', () => {
   for (const marker of [
     /scan_id\?: string \| null;/,
