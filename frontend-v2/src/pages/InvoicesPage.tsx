@@ -109,6 +109,7 @@ export function InvoicesPage() {
   const [followUpInvoiceId, setFollowUpInvoiceId] = useState<string | null>(null);
   const [followUpError, setFollowUpError] = useState('');
   const [markingPaidInvoiceId, setMarkingPaidInvoiceId] = useState<string | null>(null);
+  const [markingDeliveredInvoiceId, setMarkingDeliveredInvoiceId] = useState<string | null>(null);
 
   const riskByCustomer = useMemo(() => {
     return new Map((latePaymentRisk.data?.risks || []).map((risk) => [risk.customer_name.toLowerCase(), risk]));
@@ -318,6 +319,34 @@ export function InvoicesPage() {
     );
   }
 
+  function markInvoiceDelivered(inv: Invoice) {
+    const id = inv.id;
+    const status = normalizeStatus(inv.status);
+    if (!id || status === 'delivered' || status === 'paid') return;
+    const idString = String(id);
+    setActionError('');
+    setMarkingDeliveredInvoiceId(idString);
+    updateInvoice.mutate(
+      { id, patch: { status: 'delivered' } },
+      {
+        onSuccess: (updated) => {
+          const deliveredInvoice = { ...inv, ...(updated as Partial<Invoice>), status: 'delivered' };
+          if (selected && String(selected.id || '') === idString) {
+            setSelected({ ...selected, ...deliveredInvoice });
+            setDraft((current) => ({ ...current, ...deliveredInvoice }));
+          }
+          setNotice(`Invoice ${invoiceId(inv)} marked delivered.`);
+        },
+        onError: (mutationError) => {
+          setActionError(String((mutationError as Error)?.message || 'Could not mark invoice delivered'));
+        },
+        onSettled: () => {
+          setMarkingDeliveredInvoiceId(null);
+        },
+      }
+    );
+  }
+
   function generateFollowUpForInvoice(inv: Invoice) {
     const id = String(inv.id || '');
     if (!id) return;
@@ -462,6 +491,8 @@ export function InvoicesPage() {
               <TableBody>
                 {filtered.length ? filtered.map((inv) => {
                   const status = normalizeStatus(inv.status);
+                  const isDelivered = status === 'delivered';
+                  const isPaid = status === 'paid';
                   const risk = riskByCustomer.get(customerName(inv).toLowerCase());
                   return (
                     <TableRow key={invoiceId(inv)}>
@@ -488,9 +519,18 @@ export function InvoicesPage() {
                         <div className="flex justify-end gap-2">
                           <Button
                             size="sm"
-                            variant={status === 'paid' ? 'outline' : 'default'}
+                            variant="outline"
+                            className={`whitespace-nowrap${isDelivered ? ' border-green-500 bg-green-50 text-green-700 hover:bg-green-100' : ''}`}
+                            disabled={isDelivered || isPaid || (updateInvoice.isPending && markingDeliveredInvoiceId === String(inv.id || ''))}
+                            onClick={() => markInvoiceDelivered(inv)}
+                          >
+                            {updateInvoice.isPending && markingDeliveredInvoiceId === String(inv.id || '') ? 'Saving...' : 'Delivered'}
+                          </Button>
+                          <Button
+                            size="sm"
+                            variant={isPaid ? 'outline' : 'default'}
                             className="whitespace-nowrap"
-                            disabled={status === 'paid' || (updateInvoice.isPending && markingPaidInvoiceId === String(inv.id || ''))}
+                            disabled={isPaid || (updateInvoice.isPending && markingPaidInvoiceId === String(inv.id || ''))}
                             onClick={() => markInvoicePaid(inv)}
                           >
                             {updateInvoice.isPending && markingPaidInvoiceId === String(inv.id || '') ? 'Saving...' : 'PAID'}
@@ -529,242 +569,258 @@ export function InvoicesPage() {
         </CardContent>
       </Card>
 
-      {selected && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setSelected(null)} />
-          <div className="relative z-10 flex h-full w-full max-w-2xl flex-col overflow-y-auto bg-background shadow-xl">
-            <div className="flex items-center justify-between border-b px-6 py-4">
-              <div>
-                <h2 className="text-lg font-semibold">{invoiceId(selected)}</h2>
-                <p className="text-sm text-muted-foreground">{customerName(selected)}</p>
-              </div>
-              <div className="flex flex-wrap gap-2">
-                {!confirmDelete && (
-                  <Button
-                    size="sm"
-                    variant={normalizeStatus(selected.status) === 'paid' ? 'outline' : 'default'}
-                    disabled={normalizeStatus(selected.status) === 'paid' || (updateInvoice.isPending && markingPaidInvoiceId === String(selected.id || ''))}
-                    onClick={() => markInvoicePaid(selected)}
-                  >
-                    {updateInvoice.isPending && markingPaidInvoiceId === String(selected.id || '') ? 'Saving...' : 'PAID'}
-                  </Button>
-                )}
-                {!confirmDelete && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={invoicePrintBlocked(selected)}
-                    onClick={() => {
-                      if (invoicePrintBlocked(selected)) {
-                        setNotice(`Invoice ${invoiceId(selected)} cannot be printed until final weights are entered.`);
-                        return;
-                      }
-                      printInvoiceSummary(selected);
-                    }}
-                  >
-                    Print / Save PDF
-                  </Button>
-                )}
-                {!confirmDelete && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={resendInvoiceEmail.isPending}
-                    onClick={() => resendInvoice(selected)}
-                  >
-                    {resendInvoiceEmail.isPending ? 'Sending...' : 'Resend Email'}
-                  </Button>
-                )}
-                {!editing && !confirmDelete && shouldSuggestFollowUp(selected) && (
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    disabled={invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '')}
-                    onClick={() => generateFollowUpForInvoice(selected)}
-                  >
-                    {invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '') ? 'Drafting...' : 'Refresh AI Draft'}
-                  </Button>
-                )}
-                {!editing && !confirmDelete && (
-                  <>
-                    <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
-                    <Button size="sm" variant="outline" onClick={() => setConfirmDelete(true)}>Delete</Button>
-                  </>
-                )}
-                {editing && (
-                  <>
-                    <Button size="sm" variant="outline" onClick={() => { setEditing(false); setDraft({ ...selected }); }}>Cancel</Button>
-                    <Button size="sm" disabled={updateInvoice.isPending} onClick={saveInvoice}>{updateInvoice.isPending ? 'Saving...' : 'Save'}</Button>
-                  </>
-                )}
-                {confirmDelete && (
-                  <>
-                    <span className="self-center text-sm text-destructive">Delete?</span>
-                    <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>No</Button>
-                    <Button size="sm" disabled={deleteInvoice.isPending} onClick={handleDelete}>{deleteInvoice.isPending ? 'Deleting...' : 'Yes'}</Button>
-                  </>
-                )}
-                <Button size="sm" variant="ghost" onClick={() => { setSelected(null); setConfirmDelete(false); }}>X</Button>
-              </div>
-            </div>
-            <div className="flex-1 space-y-4 p-6">
-              <div className="grid gap-3 lg:grid-cols-3">
-                <div className="rounded-lg border border-border bg-muted/20 px-4 py-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Invoice Summary</div>
-                  <div className="mt-2 space-y-1 text-sm">
-                    <div>Status: <strong className="capitalize">{String(selected.status || 'pending').replace('_', ' ')}</strong></div>
-                    <div>Amount: <strong>{formatAmount(draft.amount)}</strong></div>
-                    <div>Issued: <strong>{formatDate(selected.created_at || selected.issuedDate || selected.issued_date)}</strong></div>
-                    <div>Due: <strong>{formatDate(draft.dueDate || draft.due_date)}</strong></div>
-                  </div>
+      {selected && (() => {
+        const selStatus = normalizeStatus(selected.status);
+        const selDelivered = selStatus === 'delivered';
+        const selPaid = selStatus === 'paid';
+        return (
+          <div className="fixed inset-0 z-50 flex justify-end">
+            <div className="absolute inset-0 bg-black/30" onClick={() => setSelected(null)} />
+            <div className="relative z-10 flex h-full w-full max-w-2xl flex-col overflow-y-auto bg-background shadow-xl">
+              <div className="flex items-center justify-between border-b px-6 py-4">
+                <div>
+                  <h2 className="text-lg font-semibold">{invoiceId(selected)}</h2>
+                  <p className="text-sm text-muted-foreground">{customerName(selected)}</p>
                 </div>
-                <div className="rounded-lg border border-border bg-muted/20 px-4 py-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fulfillment Summary</div>
-                  <div className="mt-2 space-y-1 text-sm">
-                    <div>Lots tracked: <strong>{(selected.lot_numbers || []).length.toLocaleString()}</strong></div>
-                    <div>Total lot qty: <strong>{totalLotQuantity(selected.lot_numbers).toLocaleString()}</strong></div>
-                    <div>Total weight: <strong>{totalLotWeight(selected.lot_numbers).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} lbs</strong></div>
-                    <div>Printable record: <strong>{invoicePrintBlocked(selected) ? 'Waiting on final weights' : 'Ready'}</strong></div>
-                  </div>
-                </div>
-                <div className="rounded-lg border border-border bg-muted/20 px-4 py-3">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">AI Collections Risk</div>
-                  <div className="mt-2 space-y-2 text-sm">
-                    {selectedRisk ? (
-                      <>
-                        <StatusBadge status={selectedRisk.risk_level.toLowerCase()} colorMap={riskColors} fallbackLabel={selectedRisk.risk_level} />
-                        <div>Risk score: <strong>{selectedRisk.risk_score}</strong></div>
-                        <div>{selectedRisk.flag_reason}</div>
-                        <div className="text-muted-foreground">{selectedRisk.recommended_action}</div>
-                      </>
-                    ) : (
-                      <div className="text-muted-foreground">No AI risk flag for this customer right now.</div>
-                    )}
-                  </div>
+                <div className="flex flex-wrap gap-2">
+                  {!confirmDelete && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className={selDelivered ? 'border-green-500 bg-green-50 text-green-700 hover:bg-green-100' : ''}
+                      disabled={selDelivered || selPaid || (updateInvoice.isPending && markingDeliveredInvoiceId === String(selected.id || ''))}
+                      onClick={() => markInvoiceDelivered(selected)}
+                    >
+                      {updateInvoice.isPending && markingDeliveredInvoiceId === String(selected.id || '') ? 'Saving...' : 'Delivered'}
+                    </Button>
+                  )}
+                  {!confirmDelete && (
+                    <Button
+                      size="sm"
+                      variant={selPaid ? 'outline' : 'default'}
+                      disabled={selPaid || (updateInvoice.isPending && markingPaidInvoiceId === String(selected.id || ''))}
+                      onClick={() => markInvoicePaid(selected)}
+                    >
+                      {updateInvoice.isPending && markingPaidInvoiceId === String(selected.id || '') ? 'Saving...' : 'PAID'}
+                    </Button>
+                  )}
+                  {!confirmDelete && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={invoicePrintBlocked(selected)}
+                      onClick={() => {
+                        if (invoicePrintBlocked(selected)) {
+                          setNotice(`Invoice ${invoiceId(selected)} cannot be printed until final weights are entered.`);
+                          return;
+                        }
+                        printInvoiceSummary(selected);
+                      }}
+                    >
+                      Print / Save PDF
+                    </Button>
+                  )}
+                  {!confirmDelete && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={resendInvoiceEmail.isPending}
+                      onClick={() => resendInvoice(selected)}
+                    >
+                      {resendInvoiceEmail.isPending ? 'Sending...' : 'Resend Email'}
+                    </Button>
+                  )}
+                  {!editing && !confirmDelete && shouldSuggestFollowUp(selected) && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '')}
+                      onClick={() => generateFollowUpForInvoice(selected)}
+                    >
+                      {invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '') ? 'Drafting...' : 'Refresh AI Draft'}
+                    </Button>
+                  )}
+                  {!editing && !confirmDelete && (
+                    <>
+                      <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
+                      <Button size="sm" variant="outline" onClick={() => setConfirmDelete(true)}>Delete</Button>
+                    </>
+                  )}
+                  {editing && (
+                    <>
+                      <Button size="sm" variant="outline" onClick={() => { setEditing(false); setDraft({ ...selected }); }}>Cancel</Button>
+                      <Button size="sm" disabled={updateInvoice.isPending} onClick={saveInvoice}>{updateInvoice.isPending ? 'Saving...' : 'Save'}</Button>
+                    </>
+                  )}
+                  {confirmDelete && (
+                    <>
+                      <span className="self-center text-sm text-destructive">Delete?</span>
+                      <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)}>No</Button>
+                      <Button size="sm" disabled={deleteInvoice.isPending} onClick={handleDelete}>{deleteInvoice.isPending ? 'Deleting...' : 'Yes'}</Button>
+                    </>
+                  )}
+                  <Button size="sm" variant="ghost" onClick={() => { setSelected(null); setConfirmDelete(false); }}>X</Button>
                 </div>
               </div>
-
-              {invoicePrintBlocked(selected) ? (
-                <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-                  Print is locked for this invoice because weight-based items are still marked as estimated. Finish final weight entry before creating a customer-facing PDF.
-                </div>
-              ) : null}
-
-              {shouldSuggestFollowUp(selected) ? (
-                <Card className="border-blue-200 bg-blue-50/60">
-                  <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                    <div>
-                      <CardTitle className="text-base">AI Follow-Up Draft</CardTitle>
-                      <CardDescription>
-                        {followUpDraft
-                          ? `${toneLabel(followUpDraft.tone)} tone drafted for ${followUpDraft.days_overdue ?? daysPastDue(selected)} day(s) overdue.`
-                          : 'This invoice is overdue, so AI is preparing a customer-ready collection email.'}
-                      </CardDescription>
+              <div className="flex-1 space-y-4 p-6">
+                <div className="grid gap-3 lg:grid-cols-3">
+                  <div className="rounded-lg border border-border bg-muted/20 px-4 py-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Invoice Summary</div>
+                    <div className="mt-2 space-y-1 text-sm">
+                      <div>Status: <strong className="capitalize">{String(selected.status || 'pending').replace('_', ' ')}</strong></div>
+                      <div>Amount: <strong>{formatAmount(draft.amount)}</strong></div>
+                      <div>Issued: <strong>{formatDate(selected.created_at || selected.issuedDate || selected.issued_date)}</strong></div>
+                      <div>Due: <strong>{formatDate(draft.dueDate || draft.due_date)}</strong></div>
                     </div>
-                    <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        disabled={invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '')}
-                        onClick={() => generateFollowUpForInvoice(selected)}
-                      >
-                        {invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '') ? 'Drafting...' : 'Regenerate'}
-                      </Button>
-                      <Button size="sm" onClick={() => void copyFollowUp()} disabled={!followUpDraft}>
-                        Copy Draft
-                      </Button>
+                  </div>
+                  <div className="rounded-lg border border-border bg-muted/20 px-4 py-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Fulfillment Summary</div>
+                    <div className="mt-2 space-y-1 text-sm">
+                      <div>Lots tracked: <strong>{(selected.lot_numbers || []).length.toLocaleString()}</strong></div>
+                      <div>Total lot qty: <strong>{totalLotQuantity(selected.lot_numbers).toLocaleString()}</strong></div>
+                      <div>Total weight: <strong>{totalLotWeight(selected.lot_numbers).toLocaleString(undefined, { minimumFractionDigits: 0, maximumFractionDigits: 2 })} lbs</strong></div>
+                      <div>Printable record: <strong>{invoicePrintBlocked(selected) ? 'Waiting on final weights' : 'Ready'}</strong></div>
                     </div>
-                  </CardHeader>
-                  <CardContent className="space-y-4">
-                    {followUpError ? (
-                      <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{followUpError}</div>
-                    ) : null}
-                    {followUpDraft ? (
-                      <>
-                        <div className="rounded-lg border border-border bg-background px-4 py-3">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Subject</div>
-                          <div className="mt-2 text-sm font-medium">{followUpDraft.subject}</div>
-                        </div>
-                        <div className="rounded-lg border border-border bg-background px-4 py-3">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Message</div>
-                          <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-foreground">{followUpDraft.body}</pre>
-                        </div>
-                        <div className="rounded-lg border border-border bg-background px-4 py-3">
-                          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">AR Notes</div>
-                          <div className="mt-2 space-y-2">
-                            {followUpDraft.key_points.map((point, index) => (
-                              <div key={`${point}-${index}`} className="text-sm text-foreground">{point}</div>
-                            ))}
-                          </div>
-                        </div>
-                      </>
-                    ) : (
-                      <div className="rounded-lg border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-                        {invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '') ? 'Generating follow-up draft...' : 'Open an overdue invoice to generate a follow-up.'}
+                  </div>
+                  <div className="rounded-lg border border-border bg-muted/20 px-4 py-3">
+                    <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">AI Collections Risk</div>
+                    <div className="mt-2 space-y-2 text-sm">
+                      {selectedRisk ? (
+                        <>
+                          <StatusBadge status={selectedRisk.risk_level.toLowerCase()} colorMap={riskColors} fallbackLabel={selectedRisk.risk_level} />
+                          <div>Risk score: <strong>{selectedRisk.risk_score}</strong></div>
+                          <div>{selectedRisk.flag_reason}</div>
+                          <div className="text-muted-foreground">{selectedRisk.recommended_action}</div>
+                        </>
+                      ) : (
+                        <div className="text-muted-foreground">No AI risk flag for this customer right now.</div>
+                      )}
+                    </div>
+                  </div>
+                </div>
+
+                {invoicePrintBlocked(selected) ? (
+                  <div className="rounded-md border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+                    Print is locked for this invoice because weight-based items are still marked as estimated. Finish final weight entry before creating a customer-facing PDF.
+                  </div>
+                ) : null}
+
+                {shouldSuggestFollowUp(selected) ? (
+                  <Card className="border-blue-200 bg-blue-50/60">
+                    <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                      <div>
+                        <CardTitle className="text-base">AI Follow-Up Draft</CardTitle>
+                        <CardDescription>
+                          {followUpDraft
+                            ? `${toneLabel(followUpDraft.tone)} tone drafted for ${followUpDraft.days_overdue ?? daysPastDue(selected)} day(s) overdue.`
+                            : 'This invoice is overdue, so AI is preparing a customer-ready collection email.'}
+                        </CardDescription>
                       </div>
-                    )}
-                  </CardContent>
-                </Card>
-              ) : null}
+                      <div className="flex gap-2">
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '')}
+                          onClick={() => generateFollowUpForInvoice(selected)}
+                        >
+                          {invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '') ? 'Drafting...' : 'Regenerate'}
+                        </Button>
+                        <Button size="sm" onClick={() => void copyFollowUp()} disabled={!followUpDraft}>
+                          Copy Draft
+                        </Button>
+                      </div>
+                    </CardHeader>
+                    <CardContent className="space-y-4">
+                      {followUpError ? (
+                        <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{followUpError}</div>
+                      ) : null}
+                      {followUpDraft ? (
+                        <>
+                          <div className="rounded-lg border border-border bg-background px-4 py-3">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Subject</div>
+                            <div className="mt-2 text-sm font-medium">{followUpDraft.subject}</div>
+                          </div>
+                          <div className="rounded-lg border border-border bg-background px-4 py-3">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Message</div>
+                            <pre className="mt-2 whitespace-pre-wrap font-sans text-sm text-foreground">{followUpDraft.body}</pre>
+                          </div>
+                          <div className="rounded-lg border border-border bg-background px-4 py-3">
+                            <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">AR Notes</div>
+                            <div className="mt-2 space-y-2">
+                              {followUpDraft.key_points.map((point, index) => (
+                                <div key={`${point}-${index}`} className="text-sm text-foreground">{point}</div>
+                              ))}
+                            </div>
+                          </div>
+                        </>
+                      ) : (
+                        <div className="rounded-lg border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                          {invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '') ? 'Generating follow-up draft...' : 'Open an overdue invoice to generate a follow-up.'}
+                        </div>
+                      )}
+                    </CardContent>
+                  </Card>
+                ) : null}
 
-              <InvoiceField label="Invoice #" value={draft.invoiceNumber || draft.invoice_number} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, invoiceNumber: v }))} />
-              <InvoiceField label="Customer" value={draft.customerName || draft.customer_name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, customerName: v }))} />
-              <div className="flex items-start gap-3">
-                <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Order Date</span>
-                <span className="text-sm">{formatDate(selected.created_at || selected.issuedDate || selected.issued_date)}</span>
-              </div>
-              <InvoiceField label="Amount" value={String(draft.amount ?? '')} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, amount: v }))} />
-              <div className="flex items-start gap-3">
-                <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Status</span>
-                {editing ? (
-                  <select value={draft.status || ''} onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value }))} className="h-10 flex-1 rounded-md border border-input bg-background px-3 text-sm">
-                    <option value="pending">Pending</option>
-                    <option value="sent">Sent</option>
-                    <option value="delivered">Delivered</option>
-                    <option value="paid">Paid</option>
-                    <option value="overdue">Overdue</option>
-                    <option value="void">Voided</option>
-                  </select>
-                ) : (
-                  <span className="text-sm capitalize">{selected.status || '-'}</span>
+                <InvoiceField label="Invoice #" value={draft.invoiceNumber || draft.invoice_number} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, invoiceNumber: v }))} />
+                <InvoiceField label="Customer" value={draft.customerName || draft.customer_name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, customerName: v }))} />
+                <div className="flex items-start gap-3">
+                  <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Order Date</span>
+                  <span className="text-sm">{formatDate(selected.created_at || selected.issuedDate || selected.issued_date)}</span>
+                </div>
+                <InvoiceField label="Amount" value={String(draft.amount ?? '')} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, amount: v }))} />
+                <div className="flex items-start gap-3">
+                  <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Status</span>
+                  {editing ? (
+                    <select value={draft.status || ''} onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value }))} className="h-10 flex-1 rounded-md border border-input bg-background px-3 text-sm">
+                      <option value="pending">Pending</option>
+                      <option value="sent">Sent</option>
+                      <option value="delivered">Delivered</option>
+                      <option value="paid">Paid</option>
+                      <option value="overdue">Overdue</option>
+                      <option value="void">Voided</option>
+                    </select>
+                  ) : (
+                    <span className="text-sm capitalize">{selected.status || '-'}</span>
+                  )}
+                </div>
+                <InvoiceField label="Due Date" value={draft.dueDate || draft.due_date} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, dueDate: v }))} />
+                <InvoiceField label="Notes" value={draft.notes} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} multiline />
+
+                {(selected.lot_numbers && selected.lot_numbers.length > 0) && (
+                  <div className="space-y-2">
+                    <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Lot Numbers</span>
+                    <div className="overflow-hidden rounded-md border border-border">
+                      <table className="w-full text-xs">
+                        <thead className="bg-muted/50">
+                          <tr>
+                            <th className="px-3 py-2 text-left font-semibold">Item #</th>
+                            <th className="px-3 py-2 text-left font-semibold">Description</th>
+                            <th className="px-3 py-2 text-left font-semibold">Lot #</th>
+                            <th className="px-3 py-2 text-right font-semibold">Qty</th>
+                            <th className="px-3 py-2 text-right font-semibold">Weight</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {selected.lot_numbers.map((lot, i) => (
+                            <tr key={i} className="border-t border-border">
+                              <td className="px-3 py-2 font-mono">{lot.item_number || '-'}</td>
+                              <td className="px-3 py-2">{lot.description || '-'}</td>
+                              <td className="px-3 py-2 font-mono font-semibold text-amber-700">{lot.lot_number}</td>
+                              <td className="px-3 py-2 text-right">{lot.qty ?? '-'}</td>
+                              <td className="px-3 py-2 text-right">{lot.weight != null ? `${lot.weight} lbs` : '-'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 )}
               </div>
-              <InvoiceField label="Due Date" value={draft.dueDate || draft.due_date} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, dueDate: v }))} />
-              <InvoiceField label="Notes" value={draft.notes} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} multiline />
-
-              {(selected.lot_numbers && selected.lot_numbers.length > 0) && (
-                <div className="space-y-2">
-                  <span className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">Lot Numbers</span>
-                  <div className="overflow-hidden rounded-md border border-border">
-                    <table className="w-full text-xs">
-                      <thead className="bg-muted/50">
-                        <tr>
-                          <th className="px-3 py-2 text-left font-semibold">Item #</th>
-                          <th className="px-3 py-2 text-left font-semibold">Description</th>
-                          <th className="px-3 py-2 text-left font-semibold">Lot #</th>
-                          <th className="px-3 py-2 text-right font-semibold">Qty</th>
-                          <th className="px-3 py-2 text-right font-semibold">Weight</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {selected.lot_numbers.map((lot, i) => (
-                          <tr key={i} className="border-t border-border">
-                            <td className="px-3 py-2 font-mono">{lot.item_number || '-'}</td>
-                            <td className="px-3 py-2">{lot.description || '-'}</td>
-                            <td className="px-3 py-2 font-mono font-semibold text-amber-700">{lot.lot_number}</td>
-                            <td className="px-3 py-2 text-right">{lot.qty ?? '-'}</td>
-                            <td className="px-3 py-2 text-right">{lot.weight != null ? `${lot.weight} lbs` : '-'}</td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-              )}
             </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
