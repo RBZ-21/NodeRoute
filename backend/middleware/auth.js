@@ -12,8 +12,8 @@ const { JWT_SECRET, SUPERADMIN_EMAIL } = require('../lib/config');
 // Methods that mutate state — CSRF check is enforced on these.
 const CSRF_METHODS = new Set(['POST', 'PATCH', 'DELETE', 'PUT']);
 
-// Routes that are exempt from CSRF (they set the cookie, so no token exists yet).
-const CSRF_EXEMPT = new Set(['/login', '/setup-password']);
+// Routes that are exempt from CSRF (they set or refresh non-cookie credentials).
+const CSRF_EXEMPT = new Set(['/login', '/setup-password', '/driver/login', '/driver/refresh']);
 
 function normalizeId(value) {
   if (value === null || value === undefined) return '';
@@ -65,13 +65,20 @@ async function findUserFromTokenPayload(payload) {
   return { user: null, dbError: null, notFound: true };
 }
 
-/**
- * Extract a raw JWT string from the request.
- * Cookie-only — the Authorization: Bearer header fallback was removed in Step 4
- * of the JWT migration. All clients must authenticate via the HttpOnly cookie.
- */
+function extractAuthToken(req) {
+  const cookieToken = req.cookies?.token;
+  if (cookieToken) return { token: cookieToken, source: 'cookie' };
+
+  const [scheme, token] = String(req.headers.authorization || '').split(/\s+/);
+  if (scheme?.toLowerCase() === 'bearer' && token) {
+    return { token, source: 'bearer' };
+  }
+
+  return { token: null, source: null };
+}
+
 function extractToken(req) {
-  return req.cookies?.token || null;
+  return extractAuthToken(req).token;
 }
 
 /**
@@ -99,7 +106,7 @@ function verifyCsrf(req) {
 }
 
 async function authenticateToken(req, res, next) {
-  const token = extractToken(req);
+  const { token, source } = extractAuthToken(req);
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
 
   let payload;
@@ -113,7 +120,7 @@ async function authenticateToken(req, res, next) {
   if (dbError) return res.status(503).json({ error: 'Authentication service temporarily unavailable' });
   if (notFound || !user) return res.status(401).json({ error: 'User not found' });
 
-  if (!verifyCsrf(req)) {
+  if (source === 'cookie' && !verifyCsrf(req)) {
     return res.status(403).json({ error: 'Invalid CSRF token' });
   }
 
@@ -156,16 +163,10 @@ function requireSuperadmin(req, res, next) {
   const configuredEmail = normalizeEmail(SUPERADMIN_EMAIL);
   const requestEmail = normalizeEmail(req.user.email);
   if (
-    configuredEmail
-    && configuredEmail !== '__superadmin_unset__'
-    && requestEmail
+    req.user.role === 'superadmin'
     && requestEmail !== configuredEmail
   ) {
-    console.warn('[auth] superadmin email mismatch bypassed for role-based access', {
-      configuredEmail,
-      requestEmail,
-      userId: req.user.id,
-    });
+    return res.status(403).json({ error: 'Forbidden' });
   }
 
   next();

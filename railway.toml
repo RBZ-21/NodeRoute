@@ -2,5 +2,5 @@
 buildCommand = "npm run install:all && npm run build"
 
 [deploy]
-startCommand = "node backend/server.js"
+startCommand = "NODE_ENV=production node backend/server.js"
 restartPolicyType = "on_failure"

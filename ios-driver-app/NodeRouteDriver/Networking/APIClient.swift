@@ -36,7 +36,7 @@ struct APIClient {
 extension APIClient {
     static let live = APIClient(
         login: { email, password in
-            try await HTTPClient.shared.request("/auth/login", method: "POST", body: ["email": email, "password": password])
+            try await HTTPClient.shared.request("/auth/driver/login", method: "POST", body: ["email": email, "password": password])
         },
         driverRoutes: { token in
             try await HTTPClient.shared.request("/api/driver/routes", token: token)

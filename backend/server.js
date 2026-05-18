@@ -45,6 +45,7 @@ const dwellRouter         = require('./routes/dwell');
 const salesRepsRouter     = require('./routes/sales-reps');
 const arHubRouter         = require('./routes/ar-hub');
 const vendorBillsRouter   = require('./routes/vendor-bills');
+const complianceRouter    = require('./routes/compliance');
 const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
 
 const helmet = require('helmet');
@@ -203,13 +204,9 @@ app.use('/api/dwell', dwellRouter);
 app.use('/api/sales-reps', salesRepsRouter);
 app.use('/api/ar', arHubRouter);
 app.use('/api/vendor-bills', vendorBillsRouter);
+app.use('/api/compliance', complianceRouter);
 
 const { authenticateToken, requireRole } = require('./middleware/auth');
-
-// Issue #6 fix: Maps key restricted to admin+ roles — drivers no longer have access.
-app.get('/api/config/maps-key', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
-  res.json({ key: config.GOOGLE_MAPS_KEY });
-});
 
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 

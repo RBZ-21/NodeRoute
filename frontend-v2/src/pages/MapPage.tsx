@@ -2,10 +2,9 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { StatusBadge } from '../components/ui/status-badge';
-import { fetchWithAuth } from '../lib/api';
 import { type DriverLocation, type StopMarker, useMapDrivers, useMapStops } from '../hooks/useMap';
 
-const ENV_MAP_KEY = import.meta.env.VITE_MAP_API_KEY as string | undefined;
+const ENV_MAP_KEY = (import.meta.env.VITE_GOOGLE_MAPS_KEY || import.meta.env.VITE_MAP_API_KEY) as string | undefined;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type GMaps = any;
@@ -52,11 +51,7 @@ function hasCoordinates(lat: number | string | null | undefined, lng: number | s
 }
 
 async function resolveMapKey(): Promise<string> {
-  if (ENV_MAP_KEY) return ENV_MAP_KEY;
-  try {
-    const data = await fetchWithAuth<{ key?: string; api_key?: string }>('/api/config/maps-key');
-    return data.key || data.api_key || '';
-  } catch { return ''; }
+  return ENV_MAP_KEY || '';
 }
 
 function loadGoogleMapsScript(apiKey: string): Promise<void> {
@@ -143,7 +138,7 @@ export function MapPage() {
     (async () => {
       try {
         const apiKey = await resolveMapKey();
-        if (!apiKey) { setMapError('Map API key is not configured. Set VITE_MAP_API_KEY in .env or ensure /api/config/maps-key is accessible.'); return; }
+        if (!apiKey) { setMapError('Map API key is not configured. Set VITE_GOOGLE_MAPS_KEY in .env.'); return; }
         await loadGoogleMapsScript(apiKey);
         if (cancelled || !mapRef.current) return;
         const gm = (window as GMaps).google.maps;
@@ -166,13 +161,12 @@ export function MapPage() {
   const mappableActiveDrivers = activeDrivers.filter((d) => hasCoordinates(d.lat, d.lng));
   const unmappedActiveDrivers = activeDrivers.filter((d) => !hasCoordinates(d.lat, d.lng));
   const mappedStops = stops.filter((s) => hasCoordinates(s.lat, s.lng));
-  const mapGuidance = mapError
-    ? mapError
-    : !activeDrivers.length
-      ? 'No dispatched drivers are live right now. Dispatch a route once the truck leaves the shop to start live tracking.'
-      : !mappableActiveDrivers.length
-        ? 'Drivers are marked on duty, but no GPS coordinates are flowing yet. Confirm the driver app is open and location sharing is enabled.'
-        : null;
+  const operationalGuidance = !activeDrivers.length
+    ? 'No dispatched drivers are live right now. Dispatch a route once the truck leaves the shop to start live tracking.'
+    : !mappableActiveDrivers.length
+      ? 'Drivers are marked on duty, but no GPS coordinates are flowing yet. Confirm the driver app is open and location sharing is enabled.'
+      : null;
+  const mapGuidance = operationalGuidance || mapError;
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row">

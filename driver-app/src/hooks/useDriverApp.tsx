@@ -25,6 +25,7 @@ import {
   clearCache,
   clearSelectedRouteId,
   clearToken,
+  initializeTokenStorage,
   clearUser,
   enqueueStopNoteUpdate,
   enqueueTemperatureLog,
@@ -136,6 +137,17 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
   const currentRoute = getCurrentRoute(routes, selectedRouteId);
   const routeInvoices = getRouteInvoices(currentRoute, invoices);
   const lastSyncedAt = payload?.cachedAt || null;
+
+  useEffect(() => {
+    void initializeTokenStorage().then(({ token: storedToken }) => {
+      if (storedToken) {
+        setToken(storedToken);
+        setLoading(true);
+      } else {
+        setLoading(false);
+      }
+    }).catch(() => setLoading(false));
+  }, []);
 
   useEffect(() => {
     if (!token) return;
@@ -316,7 +328,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
 
   async function login(email: string, password: string) {
     const response = await loginRequest(email, password);
-    saveToken(response.token);
+    await saveToken(response.token, response.refreshToken);
     saveUser(response.user);
     setToken(response.token);
     setUser(response.user);
@@ -329,7 +341,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     } catch {
       // Clear local state even if the network call fails.
     } finally {
-      clearToken();
+      await clearToken();
       clearUser();
       clearCache();
       clearSelectedRouteId();

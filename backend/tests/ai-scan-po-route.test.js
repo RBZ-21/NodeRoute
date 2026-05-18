@@ -186,15 +186,15 @@ async function postScanPo(baseUrl, { cookie, csrfToken, filePath, fileName, mime
   return { status: response.status, body };
 }
 
-test('scan-po rejects bearer-only requests after the auth migration', async (t) => {
+test('scan-po accepts bearer auth after driver token contract restoration and still validates uploads', async (t) => {
   const harness = await startAiScanHarness(t);
 
   const response = await postScanPo(harness.baseUrl, {
     authorization: `Bearer ${jwt.sign({ userId: harness.user.id }, harness.jwtSecret, { expiresIn: '1h' })}`,
   });
 
-  assert.equal(response.status, 401);
-  assert.deepEqual(response.body, { error: 'Unauthorized' });
+  assert.equal(response.status, 400);
+  assert.deepEqual(response.body, { error: 'No file uploaded. Send the image as multipart field "file" or "image".' });
   assert.equal(harness.aiCalls.length, 0);
 });
 

@@ -7,7 +7,7 @@ import type {
   DriverSummary,
   DriverUser,
 } from '@/types';
-import { loadToken } from '@/lib/storage';
+import { loadRefreshTokenAsync, loadTokenAsync, saveToken } from '@/lib/storage';
 import { getApiBaseUrl } from '@/lib/utils';
 
 type RequestOptions = RequestInit & {
@@ -36,8 +36,12 @@ function readCsrfToken() {
 }
 
 async function request<T>(path: string, options: RequestOptions = {}) {
+  return requestWithRefresh<T>(path, options, true);
+}
+
+async function requestWithRefresh<T>(path: string, options: RequestOptions = {}, allowRefresh: boolean): Promise<T> {
   const { skipAuth = false, responseType = 'json', headers, ...rest } = options;
-  const token = loadToken();
+  const token = await loadTokenAsync();
   const nextHeaders = new Headers(headers);
 
   if (!nextHeaders.has('Content-Type') && rest.body && !(rest.body instanceof FormData)) {
@@ -60,6 +64,11 @@ async function request<T>(path: string, options: RequestOptions = {}) {
     ...rest,
   });
 
+  if (response.status === 401 && allowRefresh && !skipAuth) {
+    const refreshed = await refreshDriverToken();
+    if (refreshed) return requestWithRefresh<T>(path, options, false);
+  }
+
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`;
     try {
@@ -77,8 +86,26 @@ async function request<T>(path: string, options: RequestOptions = {}) {
   return response.json() as Promise<T>;
 }
 
+async function refreshDriverToken() {
+  const refreshToken = await loadRefreshTokenAsync();
+  if (!refreshToken) return false;
+
+  const response = await fetch(buildUrl('/auth/driver/refresh'), {
+    method: 'POST',
+    credentials: 'omit',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ refreshToken }),
+  });
+  if (!response.ok) return false;
+
+  const payload = await response.json() as { token?: string; refreshToken?: string };
+  if (!payload.token || !payload.refreshToken) return false;
+  await saveToken(payload.token, payload.refreshToken);
+  return true;
+}
+
 export async function login(email: string, password: string) {
-  return request<{ token: string; user: DriverUser }>('/auth/login', {
+  return request<{ token: string; refreshToken: string; user: DriverUser }>('/auth/driver/login', {
     method: 'POST',
     skipAuth: true,
     body: JSON.stringify({ email, password }),

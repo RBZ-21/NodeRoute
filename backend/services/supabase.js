@@ -11,7 +11,8 @@ if (!isTestMode || allowLiveSupabaseInTests) {
   require('dotenv').config({ path: path.join(__dirname, '../../.env') });
 }
 
-const hasSupabaseConfig = !!(process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_KEY);
+const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SERVICE_KEY;
+const hasSupabaseConfig = !!(process.env.SUPABASE_URL && serviceRoleKey);
 const isProduction = nodeEnv === 'production';
 const shouldUseCloudSupabase = hasSupabaseConfig && !forceDemoMode && (!isTestMode || allowLiveSupabaseInTests);
 const isDemoMode = !shouldUseCloudSupabase;
@@ -639,11 +640,11 @@ let supabase;
 
 if (shouldUseCloudSupabase) {
   const { createClient } = require('@supabase/supabase-js');
-  const cloudSupabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY);
+  const cloudSupabase = createClient(process.env.SUPABASE_URL, serviceRoleKey);
   supabase = createResilientSupabaseClient(cloudSupabase);
   console.log(`[backup] Resilient data mode enabled. Local backup path: ${backupRoot}`);
 } else if (isProduction) {
-  throw new Error('SUPABASE_URL and SUPABASE_SERVICE_KEY are required in production.');
+  throw new Error('SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required in production.');
 } else {
   supabase = createDemoSupabaseClient({
     stateRef: localState,
