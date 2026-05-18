@@ -104,3 +104,15 @@ test('orders route, invoice email, PDF, and invoice API all include invoice lot 
     assert.ok(source.includes(marker), `missing marker ${marker}`);
   }
 });
+
+test('customer invoice PDF uses office contact note and aligned total block', () => {
+  for (const marker of [
+    "const CUSTOMER_INVOICE_NOTE = 'Please contact the office if you have any questions.';",
+    'doc.page.width - 50 - totalBoxX',
+    'totalsAmountWidth = 90',
+    '`Notes: ${CUSTOMER_INVOICE_NOTE}`',
+  ]) {
+    assert.ok(invoicePdfServiceSource.includes(marker), `invoice PDF missing marker ${marker}`);
+  }
+  assert.ok(!invoicePdfServiceSource.includes('`Notes: ${inv.notes}`'), 'customer invoice PDF should not print raw internal invoice notes');
+});
