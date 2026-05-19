@@ -107,6 +107,24 @@ test('buildEta adds dwell time for stops before customer', () => {
   assert.equal(etaWithStop.dwellMinutes, etaNoStops.dwellMinutes + 8);
 });
 
+test('buildEta uses median dwell history estimate when provided', () => {
+  const driver = { lat: 32.77, lng: -79.93, speed_mph: 30 };
+  const destination = { lat: 32.84, lng: -79.93 };
+  const etaEightMinutes = buildEta(driver, destination, 3, 0, 480000);
+  const etaTwentyMinutes = buildEta(driver, destination, 3, 0, 1200000);
+  assert.ok(etaTwentyMinutes.totalMinutes > etaEightMinutes.totalMinutes);
+  assert.equal(etaTwentyMinutes.medianStopMinutes, 20);
+  assert.equal(etaTwentyMinutes.etaIsEstimated, true);
+});
+
+test('buildEta includes median stop estimate fields in ETA response', () => {
+  const driver = { lat: 32.77, lng: -79.93, speed_mph: 30 };
+  const destination = { lat: 32.84, lng: -79.93 };
+  const eta = buildEta(driver, destination, 2, 0, 600000);
+  assert.equal(eta.medianStopMinutes, 10);
+  assert.equal(eta.etaIsEstimated, true);
+});
+
 test('buildEta accounts for active dwell time at the current stop', () => {
   const driver = { lat: 32.77, lng: -79.93, speed_mph: 30 };
   const destination = { lat: 32.84, lng: -79.93 };
@@ -142,6 +160,13 @@ test('tracking route queries dwell_records from Supabase', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'tracking.js'), 'utf8');
   assert.ok(src.includes("from('dwell_records')"), 'tracking.js must query dwell_records table');
   assert.ok(src.includes('.eq(\'route_id\''), 'dwell_records query must filter by route_id');
+});
+
+test('tracking route uses dwell stats service for median dwell ETA', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'tracking.js'), 'utf8');
+  assert.ok(src.includes("require('../services/dwell-stats')"), 'tracking route should import dwell stats service');
+  assert.ok(src.includes('getMedianDwellMs(supabase, trackingContext)'), 'tracking route should load median dwell by context');
+  assert.ok(src.includes('medianDwellMs'), 'tracking route should pass median dwell into buildEta');
 });
 
 test('tracking API response includes customerEmail and customerPhone fields', () => {

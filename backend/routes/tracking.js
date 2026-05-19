@@ -1,6 +1,8 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const { filterRowsByContext, rowMatchesContext } = require('../services/operating-context');
+const { buildDeliveryWindow } = require('../lib/delivery-window');
+const { getMedianDwellMs } = require('../services/dwell-stats');
 
 const router = express.Router();
 
@@ -75,13 +77,14 @@ function findMatchingStopIndex(order, orderedStops) {
   });
 }
 
-function buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes) {
+function buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes, medianStopMs = 8 * 60 * 1000) {
   const miles = haversineMiles(driver, destination);
   if (miles === null) return null;
 
   const speedMph = Math.max(18, toNumber(driver.speed_mph, 28));
   const driveMinutes = Math.max(1, Math.round((miles / speedMph) * 60));
-  const dwellMinutes = Math.max(0, Math.round(activeDwellMinutes + Math.max(stopsBeforeYou - 1, 0) * 8));
+  const medianStopMinutes = medianStopMs / 60000;
+  const dwellMinutes = Math.max(0, Math.round(activeDwellMinutes + Math.max(stopsBeforeYou - 1, 0) * medianStopMinutes));
   const totalMinutes = driveMinutes + dwellMinutes;
   const etaDate = new Date(Date.now() + totalMinutes * 60 * 1000);
 
@@ -89,6 +92,8 @@ function buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes) {
     totalMinutes,
     driveMinutes,
     dwellMinutes,
+    medianStopMinutes: parseFloat(medianStopMinutes.toFixed(1)),
+    etaIsEstimated: true,
     etaTime: etaDate.toISOString(),
     legs: [{ withTraffic: false }],
   };
@@ -188,6 +193,7 @@ router.get('/:token', async (req, res) => {
 
   let completedStopIds = new Set();
   let activeDwellMinutes = 0;
+  let medianDwellMs = 8 * 60 * 1000;
   if (order.route_id) {
     const { data: dwellRows } = await supabase
       .from('dwell_records')
@@ -197,6 +203,7 @@ router.get('/:token', async (req, res) => {
     completedStopIds = new Set(relevantDwell.filter((r) => r.departed_at).map((r) => r.stop_id));
     const activeDwell = relevantDwell.find((r) => !r.departed_at) || null;
     activeDwellMinutes = activeDwell ? (Date.now() - new Date(activeDwell.arrived_at).getTime()) / 60000 : 0;
+    medianDwellMs = await getMedianDwellMs(supabase, trackingContext);
   }
 
   const stopsBeforeYou =
@@ -204,8 +211,10 @@ router.get('/:token', async (req, res) => {
       ? orderedStops.slice(0, matchedStopIndex).filter((stop) => !completedStopIds.has(stop.id)).length
       : 0;
 
+  const matchedStop = matchedStopIndex >= 0 ? orderedStops[matchedStopIndex] : null;
+  const deliveryWindow = buildDeliveryWindow(matchedStop, order.created_at);
   const delivered = order.status === 'invoiced' || order.status === 'delivered';
-  const eta = delivered || !outingStarted ? null : buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes);
+  const eta = delivered || !outingStarted ? null : buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes, medianDwellMs);
 
   res.json({
     orderId: order.id,
@@ -223,6 +232,7 @@ router.get('/:token', async (req, res) => {
     totalRouteStops: orderedStops.length,
     driver,
     destination,
+    deliveryWindow,
     eta,
   });
 });
