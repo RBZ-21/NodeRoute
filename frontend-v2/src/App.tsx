@@ -19,6 +19,7 @@ import { useAuth } from './hooks/useAuth';
 import { AppShell } from './components/layout/AppShell';
 import { PageSkeleton } from './components/layout/PageSkeleton';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
+import { StatuspageBanner } from './components/StatuspageBanner';
 
 const LoginPage          = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })));
 const SignupPage         = lazy(() => import('./pages/SignupPage').then(m => ({ default: m.SignupPage })));
@@ -26,6 +27,15 @@ const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPage').then(
 const TrackPage          = lazy(() => import('./pages/TrackPage').then(m => ({ default: m.TrackPage })));
 const SetupPasswordPage  = lazy(() => import('./pages/SetupPasswordPage').then(m => ({ default: m.SetupPasswordPage })));
 const DriverPage         = lazy(() => import('./pages/DriverPage').then(m => ({ default: m.DriverPage })));
+
+function withStatuspage(element: JSX.Element) {
+  return (
+    <>
+      {element}
+      <StatuspageBanner />
+    </>
+  );
+}
 
 // ── Onboarding gate ───────────────────────────────────────────────────────────
 // Checks whether the authenticated company has completed the onboarding wizard.
@@ -53,15 +63,15 @@ export function App() {
   const isSetupPasswordRoute = pathname === '/setup-password';
 
   if (pathname === '/login')
-    return <Suspense fallback={<PageSkeleton />}><LoginPage /></Suspense>;
+    return withStatuspage(<Suspense fallback={<PageSkeleton />}><LoginPage /></Suspense>);
   if (pathname === '/signup')
-    return <Suspense fallback={<PageSkeleton />}><SignupPage /></Suspense>;
+    return withStatuspage(<Suspense fallback={<PageSkeleton />}><SignupPage /></Suspense>);
   if (pathname === '/portal' || pathname === '/customer-portal')
-    return <Suspense fallback={<PageSkeleton />}><CustomerPortalPage /></Suspense>;
+    return withStatuspage(<Suspense fallback={<PageSkeleton />}><CustomerPortalPage /></Suspense>);
   if (isTrackRoute)
-    return <Suspense fallback={<PageSkeleton />}><TrackPage /></Suspense>;
+    return withStatuspage(<Suspense fallback={<PageSkeleton />}><TrackPage /></Suspense>);
   if (isSetupPasswordRoute)
-    return <Suspense fallback={<PageSkeleton />}><SetupPasswordPage /></Suspense>;
+    return withStatuspage(<Suspense fallback={<PageSkeleton />}><SetupPasswordPage /></Suspense>);
 
   // ── Session in flight ─────────────────────────────────────────────────────
   if (authState === 'checking')
@@ -76,11 +86,11 @@ export function App() {
   // ── Driver workspace ──────────────────────────────────────────────────────
   if (pathname === '/driver') {
     if (getUserRole() !== 'driver') { window.location.href = '/dashboard'; return null; }
-    return <Suspense fallback={<PageSkeleton />}><DriverPage /></Suspense>;
+    return withStatuspage(<Suspense fallback={<PageSkeleton />}><DriverPage /></Suspense>);
   }
 
   // ── Authenticated app ─────────────────────────────────────────────────────
-  return <AuthenticatedApp />;
+  return withStatuspage(<AuthenticatedApp />);
 }
 
 function AuthenticatedApp() {
