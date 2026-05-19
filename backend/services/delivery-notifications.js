@@ -3,6 +3,9 @@
 const logger = require('./logger');
 const { sendSms } = require('./sms');
 const { buildTrackingUrlFromBase } = require('../lib/tracking-url');
+const { getMedianDwellMs } = require('./dwell-stats');
+
+const NOTIFY_AT_STOPS_AWAY = 2;
 
 function normalizePhone(raw) {
   if (!raw) return null;
@@ -143,9 +146,79 @@ async function notifyDeliveryCompleted(client, stopId, orderId) {
   }
 }
 
+async function notifyUpcomingStops(client, routeId, completedStopId, context = {}) {
+  try {
+    if (!routeId) return { sent: false, skipped: true, reason: 'missing_route_id' };
+
+    const route = await first(client.from('routes').select('*').eq('id', routeId).limit(1));
+    const activeStopIds = Array.isArray(route?.active_stop_ids) && route.active_stop_ids.length
+      ? route.active_stop_ids
+      : (Array.isArray(route?.stop_ids) ? route.stop_ids : []);
+    if (!activeStopIds.length) {
+      return { sent: false, skipped: true, reason: 'empty_route_queue' };
+    }
+
+    const { data: stops, error: stopsError } = await client
+      .from('stops')
+      .select('*')
+      .in('id', activeStopIds);
+    if (stopsError) throw stopsError;
+
+    const stopMap = new Map((stops || []).map((stop) => [String(stop.id), stop]));
+    const remainingQueue = activeStopIds
+      .map((id) => stopMap.get(String(id)))
+      .filter(Boolean)
+      .filter((stop) => !['completed', 'arrived'].includes(String(stop.status || '').toLowerCase()));
+
+    const targetStop = remainingQueue[NOTIFY_AT_STOPS_AWAY - 1] || null;
+    if (!targetStop) {
+      return { sent: false, skipped: true, reason: 'no_stop_at_notify_position' };
+    }
+    if (targetStop.proximity_notified_at) {
+      return { sent: false, skipped: true, reason: 'already_notified', stopId: targetStop.id };
+    }
+
+    const order = await loadOrderForStop(client, targetStop);
+    if (!order?.tracking_token) {
+      return { sent: false, skipped: true, reason: 'missing_tracking_token', stopId: targetStop.id };
+    }
+
+    const medianStopMs = await getMedianDwellMs(client, context);
+    const medianStopMinutes = Math.max(1, Math.round((medianStopMs / 60000) * NOTIFY_AT_STOPS_AWAY));
+    const trackingBaseUrl = context?.trackingBaseUrl || context?.tracking_base_url || process.env.BASE_URL || 'http://localhost:3001';
+    const trackingUrl = buildTrackingUrlFromBase(trackingBaseUrl, order.tracking_token);
+    const body = `Hi ${order.customer_name || 'there'}, your NodeRoute driver is ${NOTIFY_AT_STOPS_AWAY} stops away and heading to you. Estimated arrival: ~${medianStopMinutes} minutes. Track live: ${trackingUrl}`;
+
+    const result = await safeSendSms(order.customer_phone, body, {
+      event: 'upcoming_stop',
+      routeId,
+      completedStopId,
+      stopId: targetStop.id,
+      orderId: order.id,
+    });
+
+    if (result.sent) {
+      const { error: updateError } = await client
+        .from('stops')
+        .update({ proximity_notified_at: new Date().toISOString() })
+        .eq('id', targetStop.id);
+      if (updateError) {
+        logger.warn({ routeId, stopId: targetStop.id, error: updateError.message }, 'Delivery proximity SMS idempotency update failed');
+      }
+    }
+
+    return { ...result, stopId: targetStop.id, orderId: order.id };
+  } catch (error) {
+    logger.warn({ routeId, completedStopId, error: error?.message || String(error) }, 'Delivery proximity SMS failed');
+    return { sent: false, error: error?.message || String(error) };
+  }
+}
+
 module.exports = {
   notifyRouteDispatched,
   notifyDriverArriving,
   notifyDeliveryCompleted,
+  notifyUpcomingStops,
   normalizePhone,
+  NOTIFY_AT_STOPS_AWAY,
 };

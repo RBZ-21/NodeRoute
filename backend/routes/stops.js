@@ -377,6 +377,7 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
     }).eq('id', req.params.id);
     invalidateDashboardCache(req.context);
     deliveryNotifications.notifyDeliveryCompleted(supabase, req.params.id, stop.invoice_id || null).catch(() => {});
+    deliveryNotifications.notifyUpcomingStops(supabase, route.id, req.params.id, req.context).catch(() => {});
 
     // Fire delivery confirmation email non-fatally using the invoice already linked to this stop
     try {

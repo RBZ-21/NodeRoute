@@ -5,6 +5,7 @@ const { buildDeliveryWindow } = require('../lib/delivery-window');
 const { getMedianDwellMs } = require('../services/dwell-stats');
 
 const router = express.Router();
+const STALE_THRESHOLD_SECONDS = 120;
 
 function toNumber(value, fallback = null) {
   const parsed = Number(value);
@@ -99,6 +100,31 @@ function buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes, media
   };
 }
 
+function evaluateDriverLocation(driverLocation, thresholdSeconds = STALE_THRESHOLD_SECONDS) {
+  const lastUpdatedSecondsAgo = driverLocation?.updated_at
+    ? Math.round((Date.now() - new Date(driverLocation.updated_at).getTime()) / 1000)
+    : null;
+  const locationIsStale = lastUpdatedSecondsAgo === null || lastUpdatedSecondsAgo > thresholdSeconds;
+  return { lastUpdatedSecondsAgo, locationIsStale };
+}
+
+function buildDriverResponse(driverName, route, driverLocation) {
+  const { lastUpdatedSecondsAgo, locationIsStale } = evaluateDriverLocation(driverLocation);
+  return {
+    name: driverName,
+    userId: route?.driver_id || null,
+    lat: locationIsStale ? null : toNumber(driverLocation?.lat),
+    lng: locationIsStale ? null : toNumber(driverLocation?.lng),
+    heading: locationIsStale ? null : toNumber(driverLocation?.heading, 0),
+    speed_mph: locationIsStale ? null : toNumber(driverLocation?.speed_mph, 0),
+    updatedAt: driverLocation?.updated_at || null,
+    lastUpdatedSecondsAgo,
+    last_updated_seconds_ago: lastUpdatedSecondsAgo,
+    locationIsStale,
+    locationStatus: locationIsStale ? 'stale' : 'live',
+  };
+}
+
 function routeHasStarted(route) {
   if (!route) return false;
   if (route.dispatched_at) return true;
@@ -176,20 +202,8 @@ router.get('/:token', async (req, res) => {
 
   const scopedDriverLocations = filterRowsByContext(driverLocations || [], trackingContext);
   const driverLocation = scopedDriverLocations.length ? scopedDriverLocations[0] : null;
-  const lastUpdatedSecondsAgo = driverLocation?.updated_at
-    ? Math.round((Date.now() - new Date(driverLocation.updated_at).getTime()) / 1000)
-    : null;
-  const driver = {
-    name: driverName,
-    userId: route?.driver_id || null,
-    lat: toNumber(driverLocation?.lat, null),
-    lng: toNumber(driverLocation?.lng, null),
-    heading: toNumber(driverLocation?.heading, 0),
-    speed_mph: toNumber(driverLocation?.speed_mph, 28),
-    updatedAt: driverLocation?.updated_at || null,
-    lastUpdatedSecondsAgo,
-    last_updated_seconds_ago: lastUpdatedSecondsAgo,
-  };
+  const driver = buildDriverResponse(driverName, route, driverLocation);
+  const { lastUpdatedSecondsAgo, locationIsStale } = driver;
 
   let completedStopIds = new Set();
   let activeDwellMinutes = 0;
@@ -214,7 +228,16 @@ router.get('/:token', async (req, res) => {
   const matchedStop = matchedStopIndex >= 0 ? orderedStops[matchedStopIndex] : null;
   const deliveryWindow = buildDeliveryWindow(matchedStop, order.created_at);
   const delivered = order.status === 'invoiced' || order.status === 'delivered';
-  const eta = delivered || !outingStarted ? null : buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes, medianDwellMs);
+  const eta = delivered || !outingStarted || locationIsStale
+    ? null
+    : buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes, medianDwellMs);
+  const etaUnavailableReason = !outingStarted
+    ? 'route_not_started'
+    : locationIsStale
+      ? 'driver_location_stale'
+      : delivered
+        ? 'delivered'
+        : null;
 
   res.json({
     orderId: order.id,
@@ -234,6 +257,7 @@ router.get('/:token', async (req, res) => {
     destination,
     deliveryWindow,
     eta,
+    etaUnavailableReason,
   });
 });
 
@@ -241,3 +265,6 @@ module.exports = router;
 module.exports.buildEta = buildEta;
 module.exports.findMatchingStopIndex = findMatchingStopIndex;
 module.exports.buildDestination = buildDestination;
+module.exports.evaluateDriverLocation = evaluateDriverLocation;
+module.exports.buildDriverResponse = buildDriverResponse;
+module.exports.STALE_THRESHOLD_SECONDS = STALE_THRESHOLD_SECONDS;
