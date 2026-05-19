@@ -7,7 +7,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { sendWithAuth } from '../lib/api';
+import { sendWithAuth, getUserRole, hasRole } from '../lib/api';
 import type { CountSheetRow, InventoryItem, InventoryLotSummary, LedgerEntry, LedgerSummary } from '../types/inventory.types';
 import { ActiveToggle, CatchWeightPriceInput, CatchWeightToggle, FtlToggle, InventoryLedger } from '../components/inventory';
 import {
@@ -162,10 +162,11 @@ export function InventoryPage() {
   const [addForm, setAddForm] = useState({ item_number: '', description: '', category: '', unit: 'lb', cost: '', on_hand_qty: '0', reorder_point: '', barcode: '' });
   const [addItemError, setAddItemError] = useState('');
 
-  type EditForm = { item_number: string; description: string; category: string; unit: string; cost: string; reorder_point: string; barcode: string };
+  type EditForm = { item_number: string; description: string; category: string; unit: string; cost: string; base_cost: string; landed_cost: string; lot_cost: string; market_cost: string; real_cost: string; reorder_point: string; barcode: string };
   const [editingItemNumber, setEditingItemNumber] = useState<string | null>(null);
-  const [editForm, setEditForm] = useState<EditForm>({ item_number: '', description: '', category: '', unit: 'lb', cost: '', reorder_point: '', barcode: '' });
+  const [editForm, setEditForm] = useState<EditForm>({ item_number: '', description: '', category: '', unit: 'lb', cost: '', base_cost: '', landed_cost: '', lot_cost: '', market_cost: '', real_cost: '', reorder_point: '', barcode: '' });
   const [editItemError, setEditItemError] = useState('');
+  const canEditCosts = hasRole(getUserRole(), 'manager');
 
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
@@ -283,6 +284,11 @@ export function InventoryPage() {
       category:      String(item.category ?? ''),
       unit:          String(item.unit ?? 'lb'),
       cost:          item.cost != null ? String(asNumber(item.cost)) : '',
+      base_cost:     item.base_cost   != null ? String(asNumber(item.base_cost))   : '',
+      landed_cost:   item.landed_cost != null ? String(asNumber(item.landed_cost)) : '',
+      lot_cost:      item.lot_cost    != null ? String(asNumber(item.lot_cost))    : '',
+      market_cost:   item.market_cost != null ? String(asNumber(item.market_cost)) : '',
+      real_cost:     item.real_cost   != null ? String(asNumber(item.real_cost))   : '',
       reorder_point: item.reorder_point != null ? String(asNumber(item.reorder_point)) : '',
       barcode:       String(item.barcode ?? ''),
     });
@@ -304,6 +310,13 @@ export function InventoryPage() {
           category:      editForm.category.trim() || undefined,
           unit:          editForm.unit || undefined,
           cost:          editForm.cost !== '' ? Number(editForm.cost) : undefined,
+          ...(canEditCosts ? {
+            base_cost:   editForm.base_cost   !== '' ? Number(editForm.base_cost)   : undefined,
+            landed_cost: editForm.landed_cost !== '' ? Number(editForm.landed_cost) : undefined,
+            lot_cost:    editForm.lot_cost    !== '' ? Number(editForm.lot_cost)    : undefined,
+            market_cost: editForm.market_cost !== '' ? Number(editForm.market_cost) : undefined,
+            real_cost:   editForm.real_cost   !== '' ? Number(editForm.real_cost)   : undefined,
+          } : {}),
           reorder_point: editForm.reorder_point !== '' ? Number(editForm.reorder_point) : null,
           barcode:       editForm.barcode.trim() || null,
         },
@@ -975,6 +988,36 @@ export function InventoryPage() {
                             <span className="font-semibold">Barcode (UPC/EAN)</span>
                             <Input value={editForm.barcode} onChange={(e) => setEditForm((f) => ({ ...f, barcode: e.target.value }))} />
                           </label>
+                          {canEditCosts && (
+                            <div className="sm:col-span-2 lg:col-span-4 mt-2 rounded-md border border-border bg-background p-3">
+                              <div className="mb-2 flex items-baseline justify-between">
+                                <h4 className="text-sm font-semibold">Cost Tracking</h4>
+                                <span className="text-xs text-muted-foreground">Admin / Manager only</span>
+                              </div>
+                              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
+                                <label className="space-y-1 text-sm">
+                                  <span className="font-semibold" title="Standard purchase cost from the vendor">Base Cost ($)</span>
+                                  <Input type="number" min="0" step="0.0001" value={editForm.base_cost} onChange={(e) => setEditForm((f) => ({ ...f, base_cost: e.target.value }))} />
+                                </label>
+                                <label className="space-y-1 text-sm">
+                                  <span className="font-semibold" title="Base + freight, duties, handling to warehouse">Landed Cost ($)</span>
+                                  <Input type="number" min="0" step="0.0001" value={editForm.landed_cost} onChange={(e) => setEditForm((f) => ({ ...f, landed_cost: e.target.value }))} />
+                                </label>
+                                <label className="space-y-1 text-sm">
+                                  <span className="font-semibold" title="Actual cost tied to the most recent lot/batch received">Lot Cost ($)</span>
+                                  <Input type="number" min="0" step="0.0001" value={editForm.lot_cost} onChange={(e) => setEditForm((f) => ({ ...f, lot_cost: e.target.value }))} />
+                                </label>
+                                <label className="space-y-1 text-sm">
+                                  <span className="font-semibold" title="Current market reference price (for repricing)">Market Cost ($)</span>
+                                  <Input type="number" min="0" step="0.0001" value={editForm.market_cost} onChange={(e) => setEditForm((f) => ({ ...f, market_cost: e.target.value }))} />
+                                </label>
+                                <label className="space-y-1 text-sm">
+                                  <span className="font-semibold" title="True all-in cost after overrides / catch-weight reconciliation">Real Cost ($)</span>
+                                  <Input type="number" min="0" step="0.0001" value={editForm.real_cost} onChange={(e) => setEditForm((f) => ({ ...f, real_cost: e.target.value }))} />
+                                </label>
+                              </div>
+                            </div>
+                          )}
                           {editItemError && <div className="sm:col-span-2 lg:col-span-4 text-sm text-destructive">{editItemError}</div>}
                           <div className="sm:col-span-2 lg:col-span-4 flex gap-2">
                             <Button type="submit" disabled={editItemMutation.isPending}>{editItemMutation.isPending ? 'Saving…' : 'Save Changes'}</Button>
