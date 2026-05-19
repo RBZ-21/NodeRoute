@@ -4,7 +4,39 @@ const { supabase } = require('../services/supabase');
 const { filterRowsByContext, rowMatchesContext } = require('../services/operating-context');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 const reorderEngine = require('../services/reorderEngine');
+const deliveryNotifications = require('../services/delivery-notifications');
+const { buildDeliveryWindow } = require('../lib/delivery-window');
 const router = express.Router();
+
+// Per-context cache for dashboard data. TTL is intentionally short
+// (15 seconds) so ops staff see near-real-time data without hammering DB.
+const dashboardCache = new Map();
+const CACHE_TTL_MS = 15 * 1000;
+
+function getCacheKey(context) {
+  const companyId  = context?.companyId  || 'global';
+  const locationId = context?.activeLocationId || 'all';
+  return `${companyId}:${locationId}`;
+}
+
+function getCached(context) {
+  const key = getCacheKey(context);
+  const entry = dashboardCache.get(key);
+  if (!entry) return null;
+  if (Date.now() - entry.ts > CACHE_TTL_MS) {
+    dashboardCache.delete(key);
+    return null;
+  }
+  return entry.data;
+}
+
+function setCache(context, data) {
+  dashboardCache.set(getCacheKey(context), { data, ts: Date.now() });
+}
+
+function invalidateDashboardCache(context) {
+  dashboardCache.delete(getCacheKey(context));
+}
 
 function normalize(value) {
   return String(value || '')
@@ -93,6 +125,11 @@ function mapOrderStatus(order, activeDriver) {
 }
 
 function findMatchingStop(order, orderedStops) {
+  if (order.stop_id) {
+    const direct = orderedStops.find((stop) => String(stop.id) === String(order.stop_id));
+    if (direct) return direct;
+  }
+
   const orderAddress = normalize(order.customer_address);
   const orderName = normalize(order.customer_name);
 
@@ -119,6 +156,9 @@ function sameDay(date, target) {
 }
 
 async function loadDashboardContext(context) {
+  const cached = getCached(context);
+  if (cached) return cached;
+
   const [
     ordersResult,
     routesResult,
@@ -130,11 +170,11 @@ async function loadDashboardContext(context) {
   ] = await Promise.all([
     supabase
       .from('orders')
-      .select('id, order_number, customer_name, customer_address, customer_email, items, status, notes, created_at, driver_name, route_id, customer_lat, customer_lng')
+      .select('id, order_number, customer_name, customer_address, customer_email, customer_phone, items, status, notes, created_at, driver_name, route_id, stop_id, customer_lat, customer_lng')
       .order('created_at', { ascending: false }),
-    supabase.from('routes').select('id, name, stop_ids, driver, notes, created_at'),
-    supabase.from('stops').select('id, name, address, lat, lng, notes, door_code, created_at'),
-    supabase.from('driver_locations').select('driver_name, lat, lng, heading, speed_mph, updated_at'),
+    supabase.from('routes').select('id, name, stop_ids, driver, driver_id, notes, created_at'),
+    supabase.from('stops').select('id, name, address, lat, lng, notes, door_code, scheduled_date, scheduled_time, created_at'),
+    supabase.from('driver_locations').select('user_id, driver_name, lat, lng, heading, speed_mph, updated_at'),
     supabase.from('users').select('id, name, email, role, status, phone, vehicle_id, created_at').order('created_at', { ascending: true }),
     supabase.from('portal_contacts').select('name, email, door_code, phone'),
     supabase.from('dwell_records').select('id, stop_id, route_id, driver_id, arrived_at, departed_at, dwell_ms'),
@@ -158,7 +198,12 @@ async function loadDashboardContext(context) {
   const stops = filterRowsByContext(stopsResult.data || [], context);
   const stopMap = Object.fromEntries(stops.map((stop) => [stop.id, stop]));
   const driverLocations = filterRowsByContext(driverLocationsResult.data || [], context);
-  const locationMap = Object.fromEntries(driverLocations.map((loc) => [normalize(loc.driver_name), loc]));
+  // Build location map keyed by user_id (preferred) and driver_name (fallback)
+  const locationMap = {};
+  driverLocations.forEach((loc) => {
+    if (loc.user_id) locationMap[loc.user_id] = loc;
+    locationMap[normalize(loc.driver_name)] = loc;
+  });
   const dwellRecords = dwellResult.data || [];
   const contacts = filterRowsByContext(contactsResult.data || [], context);
   const contactDoorMap = {};
@@ -183,7 +228,7 @@ async function loadDashboardContext(context) {
     const route = order.route_id ? routeMap[order.route_id] : null;
     const matchedStop = route ? findMatchingStop(order, route.orderedStops) : null;
     const driverName = order.driver_name || route?.driver || 'Unassigned';
-    const driverLocation = locationMap[normalize(driverName)] || null;
+    const driverLocation = locationMap[route?.driver_id] || locationMap[normalize(driverName)] || null;
 
     const activeDwell = matchedStop
       ? dwellRecords.find((record) => record.stop_id === matchedStop.id && String(record.route_id || '') === String(order.route_id || '') && !record.departed_at)
@@ -201,7 +246,7 @@ async function loadDashboardContext(context) {
       lng: toNumber(driverLocation?.lng, destination.lng),
     };
     const status = mapOrderStatus(order, !!driverLocation);
-    const createdAt = new Date(order.created_at);
+    const deliveryWindow = buildDeliveryWindow(matchedStop, order.created_at);
     const stopDurationMinutes = completedDwell?.dwell_ms
       ? Math.round(completedDwell.dwell_ms / 60000)
       : activeDwell?.arrived_at
@@ -231,9 +276,10 @@ async function loadDashboardContext(context) {
       onTime: status === 'delivered' ? true : null,
       address: order.customer_address || matchedStop?.address || '—',
       distanceMiles,
-      expectedWindowStart: order.created_at,
-      expectedWindowEnd: new Date(createdAt.getTime() + 2 * 60 * 60 * 1000).toISOString(),
-      startTime: route?.created_at || order.created_at,
+      expectedWindowStart: deliveryWindow.windowStart,
+      expectedWindowEnd: deliveryWindow.windowEnd,
+      isScheduledDelivery: deliveryWindow.isScheduled,
+      startTime: deliveryWindow.windowStart,
       endTime: status === 'delivered' ? (completedDwell?.departed_at || order.created_at) : null,
       stopDurationMinutes,
       speedMph: Number(toNumber(driverLocation?.speed_mph, 0).toFixed(1)),
@@ -253,7 +299,7 @@ async function loadDashboardContext(context) {
   const driverSummaries = driverUsers.map((user) => {
     const myDeliveries = deliveries.filter((delivery) => normalize(delivery.driverName) === normalize(user.name));
     const completed = myDeliveries.filter((delivery) => delivery.status === 'delivered');
-    const activeLocation = locationMap[normalize(user.name)] || null;
+    const activeLocation = locationMap[user.id] || locationMap[normalize(user.name)] || null;
     const onDuty = myDeliveries.some((delivery) => delivery.status === 'pending' || delivery.status === 'in-transit') ||
       (activeLocation?.updated_at && (Date.now() - new Date(activeLocation.updated_at).getTime()) < 30 * 60 * 1000);
 
@@ -281,7 +327,9 @@ async function loadDashboardContext(context) {
     };
   });
 
-  return { deliveries, drivers: driverSummaries };
+  const result = { deliveries, drivers: driverSummaries };
+  setCache(context, result);
+  return result;
 }
 
 function buildStats(deliveries, drivers) {
@@ -410,6 +458,10 @@ router.get('/stats', authenticateToken, requireRole('admin', 'manager'), async (
   }
 });
 
+router.get('/cache-status', authenticateToken, requireRole('admin'), async (req, res) => {
+  res.json({ cachedKeys: dashboardCache.size, ttlMs: CACHE_TTL_MS });
+});
+
 router.get('/deliveries', authenticateToken, async (req, res) => {
   try {
     const { deliveries } = await loadDashboardContext(req.context);
@@ -516,6 +568,10 @@ router.patch('/deliveries/:id/status', authenticateToken, async (req, res) => {
     .eq('id', req.params.id);
 
   if (updateError) return res.status(500).json({ error: updateError.message });
+  invalidateDashboardCache(req.context);
+  if (requestedStatus === 'delivered') {
+    deliveryNotifications.notifyDeliveryCompleted(supabase, order.stop_id || null, order.id).catch(() => {});
+  }
 
   try {
     const { deliveries } = await loadDashboardContext(req.context);
@@ -529,3 +585,7 @@ router.patch('/deliveries/:id/status', authenticateToken, async (req, res) => {
 module.exports = router;
 module.exports.mapOrderStatus = mapOrderStatus;
 module.exports.findMatchingStop = findMatchingStop;
+module.exports.loadDashboardContext = loadDashboardContext;
+module.exports.invalidateDashboardCache = invalidateDashboardCache;
+module.exports.buildDeliveryWindow = buildDeliveryWindow;
+module.exports.dashboardCache = dashboardCache;

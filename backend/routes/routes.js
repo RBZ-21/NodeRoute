@@ -11,6 +11,8 @@ const {
   logRouteMutation,
   syncRouteMutation,
 } = require('../services/route-stop-sync');
+const deliveryNotifications = require('../services/delivery-notifications');
+const { buildTrackingUrl } = require('../lib/tracking-url');
 
 const router = express.Router();
 
@@ -216,6 +218,9 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   const rows = Array.isArray(updateResult.data) ? updateResult.data : (updateResult.data ? [updateResult.data] : []);
   const updatedRoute = rows[0];
   if (!updatedRoute) return res.status(404).json({ error: 'Route not found or no route fields were updated' });
+  const becameDispatched =
+    (!!updatedRoute.dispatched_at && !existing.dispatched_at) ||
+    (String(updatedRoute.status || '').toLowerCase() === 'active' && String(existing.status || '').toLowerCase() !== 'active');
 
   const changedRouteLists = payload.stop_ids !== undefined || payload.active_stop_ids !== undefined;
   if (changedRouteLists) {
@@ -231,6 +236,9 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
       },
     });
     if (syncResult.error) return res.status(500).json({ error: syncResult.error.message });
+    if (becameDispatched) {
+      deliveryNotifications.notifyRouteDispatched(supabase, req.params.id, buildTrackingUrl(req, '')).catch(() => {});
+    }
     return res.json(syncResult.data || updatedRoute);
   }
 
@@ -248,6 +256,9 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
     },
   });
   if (auditResult.error) return res.status(500).json({ error: auditResult.error.message });
+  if (becameDispatched) {
+    deliveryNotifications.notifyRouteDispatched(supabase, req.params.id, buildTrackingUrl(req, '')).catch(() => {});
+  }
 
   res.json(updatedRoute);
 });

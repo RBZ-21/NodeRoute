@@ -1,8 +1,11 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const { filterRowsByContext, rowMatchesContext } = require('../services/operating-context');
+const { buildDeliveryWindow } = require('../lib/delivery-window');
+const { getMedianDwellMs } = require('../services/dwell-stats');
 
 const router = express.Router();
+const STALE_THRESHOLD_SECONDS = 120;
 
 function toNumber(value, fallback = null) {
   const parsed = Number(value);
@@ -55,6 +58,11 @@ function buildDestination(order, orderedStops, matchedStopIndex) {
 }
 
 function findMatchingStopIndex(order, orderedStops) {
+  if (order.stop_id) {
+    const directIndex = orderedStops.findIndex((stop) => String(stop.id) === String(order.stop_id));
+    if (directIndex >= 0) return directIndex;
+  }
+
   const orderAddress = normalize(order.customer_address);
   const orderName = normalize(order.customer_name);
 
@@ -70,13 +78,14 @@ function findMatchingStopIndex(order, orderedStops) {
   });
 }
 
-function buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes) {
+function buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes, medianStopMs = 8 * 60 * 1000) {
   const miles = haversineMiles(driver, destination);
   if (miles === null) return null;
 
   const speedMph = Math.max(18, toNumber(driver.speed_mph, 28));
   const driveMinutes = Math.max(1, Math.round((miles / speedMph) * 60));
-  const dwellMinutes = Math.max(0, Math.round(activeDwellMinutes + Math.max(stopsBeforeYou - 1, 0) * 8));
+  const medianStopMinutes = medianStopMs / 60000;
+  const dwellMinutes = Math.max(0, Math.round(activeDwellMinutes + Math.max(stopsBeforeYou - 1, 0) * medianStopMinutes));
   const totalMinutes = driveMinutes + dwellMinutes;
   const etaDate = new Date(Date.now() + totalMinutes * 60 * 1000);
 
@@ -84,8 +93,35 @@ function buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes) {
     totalMinutes,
     driveMinutes,
     dwellMinutes,
+    medianStopMinutes: parseFloat(medianStopMinutes.toFixed(1)),
+    etaIsEstimated: true,
     etaTime: etaDate.toISOString(),
     legs: [{ withTraffic: false }],
+  };
+}
+
+function evaluateDriverLocation(driverLocation, thresholdSeconds = STALE_THRESHOLD_SECONDS) {
+  const lastUpdatedSecondsAgo = driverLocation?.updated_at
+    ? Math.round((Date.now() - new Date(driverLocation.updated_at).getTime()) / 1000)
+    : null;
+  const locationIsStale = lastUpdatedSecondsAgo === null || lastUpdatedSecondsAgo > thresholdSeconds;
+  return { lastUpdatedSecondsAgo, locationIsStale };
+}
+
+function buildDriverResponse(driverName, route, driverLocation) {
+  const { lastUpdatedSecondsAgo, locationIsStale } = evaluateDriverLocation(driverLocation);
+  return {
+    name: driverName,
+    userId: route?.driver_id || null,
+    lat: locationIsStale ? null : toNumber(driverLocation?.lat),
+    lng: locationIsStale ? null : toNumber(driverLocation?.lng),
+    heading: locationIsStale ? null : toNumber(driverLocation?.heading, 0),
+    speed_mph: locationIsStale ? null : toNumber(driverLocation?.speed_mph, 0),
+    updatedAt: driverLocation?.updated_at || null,
+    lastUpdatedSecondsAgo,
+    last_updated_seconds_ago: lastUpdatedSecondsAgo,
+    locationIsStale,
+    locationStatus: locationIsStale ? 'stale' : 'live',
   };
 }
 
@@ -154,10 +190,10 @@ router.get('/:token', async (req, res) => {
   const driverName = order.driver_name || route?.driver || 'NodeRoute Driver';
   const outingStarted = routeHasStarted(route);
 
-  const { data: driverLocations, error: driverLocationError } = await supabase
-    .from('driver_locations')
-    .select('*')
-    .ilike('driver_name', driverName)
+  const driverLocationQuery = route?.driver_id
+    ? supabase.from('driver_locations').select('*').eq('user_id', route.driver_id)
+    : supabase.from('driver_locations').select('*').ilike('driver_name', driverName);
+  const { data: driverLocations, error: driverLocationError } = await driverLocationQuery
     .order('updated_at', { ascending: false })
     .limit(10);
   if (driverLocationError) {
@@ -166,17 +202,12 @@ router.get('/:token', async (req, res) => {
 
   const scopedDriverLocations = filterRowsByContext(driverLocations || [], trackingContext);
   const driverLocation = scopedDriverLocations.length ? scopedDriverLocations[0] : null;
-  const driver = {
-    name: driverName,
-    lat: toNumber(driverLocation?.lat, destination.lat ?? 32.7765),
-    lng: toNumber(driverLocation?.lng, destination.lng ?? -79.9311),
-    heading: toNumber(driverLocation?.heading, 0),
-    speed_mph: toNumber(driverLocation?.speed_mph, 28),
-    updatedAt: driverLocation?.updated_at || null,
-  };
+  const driver = buildDriverResponse(driverName, route, driverLocation);
+  const { lastUpdatedSecondsAgo, locationIsStale } = driver;
 
   let completedStopIds = new Set();
   let activeDwellMinutes = 0;
+  let medianDwellMs = 8 * 60 * 1000;
   if (order.route_id) {
     const { data: dwellRows } = await supabase
       .from('dwell_records')
@@ -186,6 +217,7 @@ router.get('/:token', async (req, res) => {
     completedStopIds = new Set(relevantDwell.filter((r) => r.departed_at).map((r) => r.stop_id));
     const activeDwell = relevantDwell.find((r) => !r.departed_at) || null;
     activeDwellMinutes = activeDwell ? (Date.now() - new Date(activeDwell.arrived_at).getTime()) / 60000 : 0;
+    medianDwellMs = await getMedianDwellMs(supabase, trackingContext);
   }
 
   const stopsBeforeYou =
@@ -193,8 +225,19 @@ router.get('/:token', async (req, res) => {
       ? orderedStops.slice(0, matchedStopIndex).filter((stop) => !completedStopIds.has(stop.id)).length
       : 0;
 
+  const matchedStop = matchedStopIndex >= 0 ? orderedStops[matchedStopIndex] : null;
+  const deliveryWindow = buildDeliveryWindow(matchedStop, order.created_at);
   const delivered = order.status === 'invoiced' || order.status === 'delivered';
-  const eta = delivered || !outingStarted ? null : buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes);
+  const eta = delivered || !outingStarted || locationIsStale
+    ? null
+    : buildEta(driver, destination, stopsBeforeYou, activeDwellMinutes, medianDwellMs);
+  const etaUnavailableReason = !outingStarted
+    ? 'route_not_started'
+    : locationIsStale
+      ? 'driver_location_stale'
+      : delivered
+        ? 'delivered'
+        : null;
 
   res.json({
     orderId: order.id,
@@ -206,11 +249,15 @@ router.get('/:token', async (req, res) => {
     customerPhone: order.customer_phone || null,
     outingStarted,
     routeDispatchedAt: route?.dispatched_at || null,
+    lastUpdatedSecondsAgo,
+    last_updated_seconds_ago: lastUpdatedSecondsAgo,
     stopsBeforeYou,
     totalRouteStops: orderedStops.length,
     driver,
     destination,
+    deliveryWindow,
     eta,
+    etaUnavailableReason,
   });
 });
 
@@ -218,3 +265,6 @@ module.exports = router;
 module.exports.buildEta = buildEta;
 module.exports.findMatchingStopIndex = findMatchingStopIndex;
 module.exports.buildDestination = buildDestination;
+module.exports.evaluateDriverLocation = evaluateDriverLocation;
+module.exports.buildDriverResponse = buildDriverResponse;
+module.exports.STALE_THRESHOLD_SECONDS = STALE_THRESHOLD_SECONDS;

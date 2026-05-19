@@ -4,6 +4,7 @@ const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { required, maxLen, isArray, maxItems, compose } = require('../lib/validate');
 const { validateBody } = require('../lib/zod-validate');
+const { buildTrackingUrl } = require('../lib/tracking-url');
 const {
   orderCreateSchema, orderUpdateSchema, orderActualWeightSchema,
   orderSendSchema, orderFulfillSchema,
@@ -41,6 +42,7 @@ const printRouter = require('./print');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 const reorderEngine = require('../services/reorderEngine');
 const { sendInvoiceEmail } = require('../services/invoice-email');
+const deliveryNotifications = require('../services/delivery-notifications');
 const { invoiceLotEntriesFromItems } = require('../services/invoice-lots');
 const {
   executeWithOptionalScope,
@@ -279,12 +281,6 @@ function generateTrackingToken() {
 
 function trackingExpiry(days = 7) {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
-}
-
-function buildTrackingUrl(req, token) {
-  const fallbackBase = `${req.protocol}://${req.get('host')}`;
-  const baseUrl = (process.env.BASE_URL || fallbackBase).replace(/\/$/, '');
-  return `${baseUrl}/track?t=${encodeURIComponent(token)}`;
 }
 
 const DEFAULT_TAX_RATE = 0.09;
@@ -580,6 +576,15 @@ async function updateRecord(table, id, payload, res) {
 }
 
 async function findOrderStop(order) {
+  if (order?.stop_id) {
+    const { data, error } = await supabase
+      .from('stops')
+      .select('*')
+      .eq('id', order.stop_id)
+      .limit(1);
+    if (!error && Array.isArray(data) && data[0]) return data[0];
+  }
+
   const orderNumber = String(order?.order_number || '').trim();
   if (!orderNumber) return null;
   const { data, error } = await supabase
@@ -619,11 +624,23 @@ async function syncOrderStop(order, req, removeOnly = false) {
       (candidate) => supabase.from('stops').update(candidate).eq('id', existingStop.id).select().single(),
       payload
     );
+    if (order?.id && !order.stop_id) {
+      await executeWithOptionalScope(
+        (candidate) => supabase.from('orders').update(candidate).eq('id', order.id),
+        { stop_id: existingStop.id }
+      );
+    }
     return existingStop.id;
   }
 
   const insertResult = await insertRecordWithOptionalScope(supabase, 'stops', payload, req.context);
   if (insertResult.error) throw insertResult.error;
+  if (order?.id && insertResult.data?.id) {
+    await executeWithOptionalScope(
+      (candidate) => supabase.from('orders').update(candidate).eq('id', order.id),
+      { stop_id: insertResult.data.id }
+    );
+  }
   return insertResult.data?.id || null;
 }
 
@@ -685,6 +702,8 @@ async function markOrderDelivered(order, req, res) {
       emailError = error?.message || 'Failed to send invoice email';
     }
   }
+
+  deliveryNotifications.notifyDeliveryCompleted(supabase, order.stop_id || null, order.id).catch(() => {});
 
   return { deliveredAt, invoiceId, emailSent, emailError };
 }
@@ -805,6 +824,7 @@ router.use('/print', printRouter);
 
 router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { customerName, customerEmail, customerAddress, items, charges, notes } = req.body;
+  const customerPhone = req.body.customerPhone ?? req.body.customer_phone ?? null;
   const fulfillmentType = normalizeFulfillmentType(req.body.fulfillmentType ?? req.body.fulfillment_type);
 
   // ── Credit check (runs BEFORE any other order logic) ─────────────────────
@@ -871,6 +891,7 @@ router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole
     order_number: orderNumber,
     customer_name: customerName,
     customer_email: customerEmail || null,
+    customer_phone: customerPhone || null,
     customer_address: fulfillmentType === 'delivery' ? customerAddress || null : null,
     items: enrichedItems || [],
     charges: Array.isArray(charges) ? charges : [],
@@ -880,6 +901,7 @@ router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole
     tax_rate: taxRate,
     driver_name: null,
     route_id: req.body.routeId || null,
+    stop_id: req.body.stop_id || req.body.stopId || null,
     tracking_token: trackingToken,
     tracking_expires_at: trackingExpiry(),
   }, req.context);
@@ -993,6 +1015,9 @@ router.patch('/:id', validateBody(orderUpdateSchema), authenticateToken, require
   const updates = {};
   if (req.body.customerName !== undefined) updates.customer_name = req.body.customerName;
   if (req.body.customerEmail !== undefined) updates.customer_email = req.body.customerEmail || null;
+  if (req.body.customerPhone !== undefined || req.body.customer_phone !== undefined) {
+    updates.customer_phone = req.body.customerPhone ?? req.body.customer_phone ?? null;
+  }
   if (req.body.customerAddress !== undefined) updates.customer_address = fulfillmentType === 'delivery' ? (req.body.customerAddress || null) : null;
   if (req.body.items !== undefined) {
     const ftlError = await validateFtlLots(req.body.items);
@@ -1043,6 +1068,9 @@ router.patch('/:id', validateBody(orderUpdateSchema), authenticateToken, require
   if (req.body.status !== undefined) updates.status = req.body.status;
   if (req.body.driverName !== undefined) updates.driver_name = req.body.driverName;
   if (req.body.routeId !== undefined) updates.route_id = req.body.routeId;
+  if (req.body.stop_id !== undefined || req.body.stopId !== undefined) {
+    updates.stop_id = req.body.stop_id ?? req.body.stopId ?? null;
+  }
   if (req.body.notes !== undefined) updates.notes = req.body.notes;
   if (req.body.taxEnabled !== undefined || req.body.tax_enabled !== undefined) {
     updates.tax_enabled = parseBoolean(req.body.taxEnabled ?? req.body.tax_enabled);
