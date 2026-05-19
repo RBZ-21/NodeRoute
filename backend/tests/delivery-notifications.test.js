@@ -18,14 +18,45 @@ function loadNotifications(sendSms) {
 function makeSupabase(tables) {
   class Query {
     constructor(table) {
+      this.table = table;
       this.rows = [...(tables[table] || [])];
       this.singleRow = false;
+      this.patch = null;
     }
 
     select() { return this; }
+    order() { return this; }
 
     eq(field, value) {
       this.rows = this.rows.filter((row) => String(row[field] ?? '') === String(value ?? ''));
+      return this;
+    }
+
+    in(field, values) {
+      const wanted = new Set((values || []).map((value) => String(value)));
+      this.rows = this.rows.filter((row) => wanted.has(String(row[field])));
+      return this;
+    }
+
+    not(field, operator, value) {
+      if (operator === 'is' && value === null) {
+        this.rows = this.rows.filter((row) => row[field] !== null && row[field] !== undefined);
+      }
+      return this;
+    }
+
+    gt(field, value) {
+      this.rows = this.rows.filter((row) => Number(row[field]) > Number(value));
+      return this;
+    }
+
+    lt(field, value) {
+      this.rows = this.rows.filter((row) => Number(row[field]) < Number(value));
+      return this;
+    }
+
+    update(patch) {
+      this.patch = patch;
       return this;
     }
 
@@ -40,6 +71,14 @@ function makeSupabase(tables) {
     }
 
     then(resolve) {
+      if (this.patch) {
+        const tableRows = tables[this.table] || [];
+        const matchingIds = new Set(this.rows.map((row) => row.id));
+        for (const row of tableRows) {
+          if (matchingIds.has(row.id)) Object.assign(row, this.patch);
+        }
+        this.rows = this.rows.map((row) => ({ ...row, ...this.patch }));
+      }
       const data = this.singleRow ? (this.rows[0] || null) : this.rows;
       return Promise.resolve({ data, error: null }).then(resolve);
     }
@@ -92,4 +131,92 @@ test('notifyDeliveryCompleted does not throw when sendSms throws', async () => {
   });
 
   await assert.doesNotReject(() => notifications.notifyDeliveryCompleted(supabase, 'stop-1', 'order-1'));
+});
+
+test('notifyUpcomingStops sends SMS to stop at index 1 of remaining queue', async () => {
+  const sent = [];
+  const notifications = loadNotifications(async (to, body) => {
+    sent.push({ to, body });
+    return { success: true, sid: 'SM456' };
+  });
+  const supabase = makeSupabase({
+    routes: [{ id: 'route-1', active_stop_ids: ['s0', 's1', 's2', 's3', 's4'] }],
+    stops: [
+      { id: 's0', status: 'completed', address: '0 Dock St' },
+      { id: 's1', status: 'completed', address: '1 Dock St' },
+      { id: 's2', status: 'pending', address: '2 Dock St' },
+      { id: 's3', status: 'pending', address: '3 Dock St' },
+      { id: 's4', status: 'pending', address: '4 Dock St' },
+    ],
+    orders: [
+      { id: 'o3', stop_id: 's3', customer_name: 'Sea Mart', customer_phone: '(843) 555-0103', tracking_token: 'tok-3' },
+    ],
+    dwell_records: [
+      { dwell_ms: 600000, arrived_at: '2026-05-19T10:00:00Z' },
+      { dwell_ms: 600000, arrived_at: '2026-05-19T10:01:00Z' },
+      { dwell_ms: 600000, arrived_at: '2026-05-19T10:02:00Z' },
+      { dwell_ms: 600000, arrived_at: '2026-05-19T10:03:00Z' },
+      { dwell_ms: 600000, arrived_at: '2026-05-19T10:04:00Z' },
+    ],
+  });
+
+  await notifications.notifyUpcomingStops(supabase, 'route-1', 's1', {});
+
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, '+18435550103');
+  assert.match(sent[0].body, /2 stops away/);
+  assert.match(sent[0].body, /~20 minutes/);
+});
+
+test('notifyUpcomingStops skips stops already proximity notified', async () => {
+  const sent = [];
+  const notifications = loadNotifications(async (to, body) => {
+    sent.push({ to, body });
+    return { success: true, sid: 'SM456' };
+  });
+  const supabase = makeSupabase({
+    routes: [{ id: 'route-1', active_stop_ids: ['s0', 's1', 's2', 's3', 's4'] }],
+    stops: [
+      { id: 's0', status: 'completed' },
+      { id: 's1', status: 'completed' },
+      { id: 's2', status: 'pending' },
+      { id: 's3', status: 'pending', proximity_notified_at: '2026-05-19T10:00:00Z' },
+      { id: 's4', status: 'pending' },
+    ],
+    orders: [
+      { id: 'o3', stop_id: 's3', customer_name: 'Sea Mart', customer_phone: '(843) 555-0103', tracking_token: 'tok-3' },
+    ],
+  });
+
+  await notifications.notifyUpcomingStops(supabase, 'route-1', 's1', {});
+
+  assert.equal(sent.length, 0);
+});
+
+test('notifyUpcomingStops does not throw when sendSms rejects', async () => {
+  const notifications = loadNotifications(async () => {
+    throw new Error('Twilio exploded');
+  });
+  const supabase = makeSupabase({
+    routes: [{ id: 'route-1', active_stop_ids: ['s0', 's1', 's2', 's3', 's4'] }],
+    stops: [
+      { id: 's0', status: 'completed' },
+      { id: 's1', status: 'completed' },
+      { id: 's2', status: 'pending' },
+      { id: 's3', status: 'pending' },
+      { id: 's4', status: 'pending' },
+    ],
+    orders: [
+      { id: 'o3', stop_id: 's3', customer_name: 'Sea Mart', customer_phone: '(843) 555-0103', tracking_token: 'tok-3' },
+    ],
+    dwell_records: [
+      { dwell_ms: 600000, arrived_at: '2026-05-19T10:00:00Z' },
+      { dwell_ms: 600000, arrived_at: '2026-05-19T10:01:00Z' },
+      { dwell_ms: 600000, arrived_at: '2026-05-19T10:02:00Z' },
+      { dwell_ms: 600000, arrived_at: '2026-05-19T10:03:00Z' },
+      { dwell_ms: 600000, arrived_at: '2026-05-19T10:04:00Z' },
+    ],
+  });
+
+  await assert.doesNotReject(() => notifications.notifyUpcomingStops(supabase, 'route-1', 's1', {}));
 });
