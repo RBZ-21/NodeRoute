@@ -125,6 +125,11 @@ export function useEditInventoryItemMutation() {
         category: string;
         unit: string;
         cost: number;
+        base_cost: number;
+        landed_cost: number;
+        lot_cost: number;
+        market_cost: number;
+        real_cost: number;
         on_hand_qty: number;
         reorder_point: number | null;
         barcode: string | null;

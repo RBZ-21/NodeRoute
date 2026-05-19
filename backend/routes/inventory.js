@@ -827,6 +827,8 @@ router.post('/:id/reorder-alert', authenticateToken, requireRole('admin', 'manag
 
 // ── EXISTING CRUD (must come after named sub-routes) ─────────────────────────
 
+const COST_FIELDS = ['cost', 'base_cost', 'landed_cost', 'lot_cost', 'market_cost', 'real_cost'];
+
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryProductPatchBodySchema), async (req, res) => {
   const existing = await dbQuery(supabase.from('products').select('*').eq('item_number', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Product not found' });
@@ -842,8 +844,39 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), validat
   if (fields.unit !== undefined) {
     fields.default_unit = fields.unit;
   }
+
+  // Capture before/after for any of the 5 cost fields so we can audit-log them.
+  const costChanges = {};
+  for (const key of COST_FIELDS) {
+    if (fields[key] === undefined) continue;
+    const before = toNumber(existing[key], 0);
+    const after = toNumber(fields[key], 0);
+    if (before !== after) costChanges[key] = { from: before, to: after };
+  }
+
   const data = await dbQuery(supabase.from('products').update(fields).eq('item_number', req.params.id).select().single(), res);
   if (!data) return;
+
+  if (Object.keys(costChanges).length) {
+    try {
+      await supabase.from('audit_log').insert([{
+        action_type: 'cost_updated',
+        performed_by: req.user?.id || null,
+        metadata: {
+          product_id: data.id,
+          item_number: data.item_number,
+          description: data.description || data.name,
+          changes: costChanges,
+        },
+        company_id: data.company_id || null,
+        location_id: data.location_id || null,
+      }]);
+    } catch (err) {
+      // Audit-log failure must not break the update; surface to logs only.
+      console.warn('[audit] cost_updated insert failed:', err.message);
+    }
+  }
+
   res.json(data);
 });
 
