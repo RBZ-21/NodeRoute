@@ -13,6 +13,7 @@ type Props = {
   editingOrderId: string | null;
   customerName: string; setCustomerName: (v: string) => void;
   customerEmail: string; setCustomerEmail: (v: string) => void;
+  customerPhone: string; setCustomerPhone: (v: string) => void;
   customerAddress: string; setCustomerAddress: (v: string) => void;
   fulfillmentType: 'delivery' | 'pickup'; setFulfillmentType: (v: 'delivery' | 'pickup') => void;
   routeId: string; setRouteId: (v: string) => void;
@@ -45,6 +46,7 @@ export function OrderFormCard({
   editingOrderId,
   customerName, setCustomerName,
   customerEmail, setCustomerEmail,
+  customerPhone, setCustomerPhone,
   customerAddress, setCustomerAddress,
   fulfillmentType, setFulfillmentType,
   routeId, setRouteId,
@@ -65,7 +67,6 @@ export function OrderFormCard({
   const lookupInFlightRef = useRef<string | null>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [addressLookupLoading, setAddressLookupLoading] = useState(false);
-  const [customerPhone, setCustomerPhone] = useState('');
   const [browseLineIndex, setBrowseLineIndex] = useState<number | null>(null);
   const [browseSearch, setBrowseSearch] = useState('');
 
