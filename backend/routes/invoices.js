@@ -77,6 +77,37 @@ function normalizeInvoiceItems(items = []) {
   });
 }
 
+function catchWeightInvoiceBlock(items = []) {
+  for (const item of Array.isArray(items) ? items : []) {
+    if (!item?.is_catch_weight) continue;
+    const name = item.name || item.description || item.item_number || 'catch weight item';
+    const status = String(item.weight_status || '').toLowerCase();
+    const hasActual = parseFloat(item.actual_weight || 0) > 0;
+    if (!hasActual || status === 'pending') {
+      return `Cannot invoice order — catch weight not recorded for: ${name}`;
+    }
+    if (status === 'variance_flagged' && !item.approved_at && !item.catch_weight_approved_at) {
+      return `Weight variance requires supervisor approval before invoicing: ${name}`;
+    }
+  }
+  return null;
+}
+
+function catchWeightInvoiceSummary(items = []) {
+  const catchItems = (Array.isArray(items) ? items : []).filter((item) => item?.is_catch_weight);
+  if (!catchItems.length) return null;
+  const summary = catchItems.reduce((acc, item) => {
+    acc.total_estimated_weight += parseFloat(item.estimated_weight || 0) || 0;
+    acc.total_actual_weight += parseFloat(item.actual_weight || 0) || 0;
+    return acc;
+  }, { total_estimated_weight: 0, total_actual_weight: 0 });
+  summary.total_variance_lbs = parseFloat((summary.total_actual_weight - summary.total_estimated_weight).toFixed(4));
+  summary.total_variance_pct = summary.total_estimated_weight > 0
+    ? parseFloat(((summary.total_variance_lbs / summary.total_estimated_weight) * 100).toFixed(3))
+    : 0;
+  return summary;
+}
+
 function isMissingProofOfDeliveryColumns(error) {
   const message = String(error?.message || '');
   return /proof_of_delivery_(image_data|uploaded_at).*does not exist|schema cache/i.test(message);
@@ -128,7 +159,17 @@ router.get('/', authenticateToken, async (req, res) => {
 router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBody(invoiceBodySchema), async (req, res) => {
   const body = req.validated.body;
   const customer_name = invoiceBodyValue(body, 'customer_name', 'customerName');
+  const orderId = invoiceBodyValue(body, 'order_id', 'orderId');
+  let linkedOrder = null;
+  if (orderId) {
+    linkedOrder = await dbQuery(supabase.from('orders').select('*').eq('id', orderId).single(), res);
+    if (!linkedOrder) return res.status(404).json({ error: 'Order not found' });
+    if (!rowMatchesContext(linkedOrder, req.context)) return res.status(403).json({ error: 'Forbidden' });
+    const catchWeightBlock = catchWeightInvoiceBlock(linkedOrder.items || []);
+    if (catchWeightBlock) return res.status(409).json({ error: catchWeightBlock, code: 'CATCH_WEIGHT_REQUIRED' });
+  }
   const items = normalizeInvoiceItems(body.items);
+  const catchWeightItems = linkedOrder?.items || body.items;
   const subtotal = body.subtotal !== undefined
     ? asMoney(body.subtotal)
     : asMoney(items.reduce((sum, item) => sum + item.total, 0));
@@ -153,12 +194,13 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
     total,
     tax_enabled: taxEnabled,
     tax_rate: normalizedTaxRate,
-    order_id: invoiceBodyValue(body, 'order_id', 'orderId'),
+    order_id: orderId,
     status: 'pending',
     driver_name: invoiceBodyValue(body, 'driver_name', 'driverName'),
     driver_id: invoiceBodyValue(body, 'driver_id', 'driverId'),
     notes: body.notes || null,
     entree_invoice_id: body.entree_invoice_id || null,
+    catch_weight_summary: catchWeightInvoiceSummary(catchWeightItems),
   }, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
@@ -385,3 +427,5 @@ router.get('/:id/pdf', authenticateToken, async (req, res) => {
 });
 
 module.exports = router;
+module.exports.catchWeightInvoiceBlock = catchWeightInvoiceBlock;
+module.exports.catchWeightInvoiceSummary = catchWeightInvoiceSummary;
