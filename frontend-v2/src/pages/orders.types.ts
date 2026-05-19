@@ -43,6 +43,7 @@ export type Order = {
   order_number?: string;
   customer_name?: string;
   customer_email?: string;
+  customer_phone?: string;
   customer_address?: string;
   fulfillment_type?: 'delivery' | 'pickup' | string;
   status?: string;

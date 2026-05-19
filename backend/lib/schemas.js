@@ -17,7 +17,11 @@ const orderCharge = z.object({}).passthrough();
 const orderCreateSchema = z.object({
   customerName:    z.string({ required_error: 'customerName is required' }).min(1).max(200),
   customerEmail:   optStr(200),
+  customerPhone:   optStr(50),
+  customer_phone:  optStr(50),
   customerAddress: optStr(500),
+  stop_id:         optStr(100),
+  stopId:          optStr(100),
   notes:           optStr(2000),
   items:           z.array(orderItem).max(200).optional(),
   charges:         z.array(orderCharge).max(20).optional(),
@@ -30,7 +34,11 @@ const orderCreateSchema = z.object({
 const orderUpdateSchema = z.object({
   customerName:    optStr(200),
   customerEmail:   optStr(200),
+  customerPhone:   optStr(50),
+  customer_phone:  optStr(50),
   customerAddress: optStr(500),
+  stop_id:         optStr(100),
+  stopId:          optStr(100),
   notes:           optStr(2000),
   items:           z.array(orderItem).max(200).optional(),
   charges:         z.array(orderCharge).max(20).optional(),

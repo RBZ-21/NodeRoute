@@ -121,10 +121,10 @@ router.get('/routes', authenticateToken, requireRole('driver'), async (req, res)
 });
 
 router.get('/location', authenticateToken, async (req, res) => {
-  const { data, error } = await supabase
-    .from('driver_locations')
-    .select('*')
-    .ilike('driver_name', req.user.name)
+  const lookupQuery = req.user.id
+    ? supabase.from('driver_locations').select('*').eq('user_id', req.user.id)
+    : supabase.from('driver_locations').select('*').ilike('driver_name', req.user.name);
+  const { data, error } = await lookupQuery
     .order('updated_at', { ascending: false })
     .limit(10);
 
@@ -147,6 +147,7 @@ router.patch('/location', authenticateToken, requireRole('driver', 'manager', 'a
 
   const payload = {
     ...buildScopeFields(req.context),
+    user_id: req.user.id || null,
     driver_name: req.user.name,
     lat,
     lng,
@@ -155,10 +156,11 @@ router.patch('/location', authenticateToken, requireRole('driver', 'manager', 'a
     updated_at: new Date().toISOString(),
   };
 
-  const { data: existingRows, error: existingError } = await supabase
-    .from('driver_locations')
-    .select('*')
-    .ilike('driver_name', req.user.name)
+  // Prefer user_id lookup; fall back to driver_name for legacy records
+  const lookupQuery = req.user.id
+    ? supabase.from('driver_locations').select('*').eq('user_id', req.user.id)
+    : supabase.from('driver_locations').select('*').ilike('driver_name', req.user.name);
+  const { data: existingRows, error: existingError } = await lookupQuery
     .order('updated_at', { ascending: false })
     .limit(10);
 

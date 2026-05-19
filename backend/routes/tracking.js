@@ -55,6 +55,11 @@ function buildDestination(order, orderedStops, matchedStopIndex) {
 }
 
 function findMatchingStopIndex(order, orderedStops) {
+  if (order.stop_id) {
+    const directIndex = orderedStops.findIndex((stop) => String(stop.id) === String(order.stop_id));
+    if (directIndex >= 0) return directIndex;
+  }
+
   const orderAddress = normalize(order.customer_address);
   const orderName = normalize(order.customer_name);
 
@@ -154,10 +159,10 @@ router.get('/:token', async (req, res) => {
   const driverName = order.driver_name || route?.driver || 'NodeRoute Driver';
   const outingStarted = routeHasStarted(route);
 
-  const { data: driverLocations, error: driverLocationError } = await supabase
-    .from('driver_locations')
-    .select('*')
-    .ilike('driver_name', driverName)
+  const driverLocationQuery = route?.driver_id
+    ? supabase.from('driver_locations').select('*').eq('user_id', route.driver_id)
+    : supabase.from('driver_locations').select('*').ilike('driver_name', driverName);
+  const { data: driverLocations, error: driverLocationError } = await driverLocationQuery
     .order('updated_at', { ascending: false })
     .limit(10);
   if (driverLocationError) {
@@ -166,13 +171,19 @@ router.get('/:token', async (req, res) => {
 
   const scopedDriverLocations = filterRowsByContext(driverLocations || [], trackingContext);
   const driverLocation = scopedDriverLocations.length ? scopedDriverLocations[0] : null;
+  const lastUpdatedSecondsAgo = driverLocation?.updated_at
+    ? Math.round((Date.now() - new Date(driverLocation.updated_at).getTime()) / 1000)
+    : null;
   const driver = {
     name: driverName,
-    lat: toNumber(driverLocation?.lat, destination.lat ?? 32.7765),
-    lng: toNumber(driverLocation?.lng, destination.lng ?? -79.9311),
+    userId: route?.driver_id || null,
+    lat: toNumber(driverLocation?.lat, null),
+    lng: toNumber(driverLocation?.lng, null),
     heading: toNumber(driverLocation?.heading, 0),
     speed_mph: toNumber(driverLocation?.speed_mph, 28),
     updatedAt: driverLocation?.updated_at || null,
+    lastUpdatedSecondsAgo,
+    last_updated_seconds_ago: lastUpdatedSecondsAgo,
   };
 
   let completedStopIds = new Set();
@@ -206,6 +217,8 @@ router.get('/:token', async (req, res) => {
     customerPhone: order.customer_phone || null,
     outingStarted,
     routeDispatchedAt: route?.dispatched_at || null,
+    lastUpdatedSecondsAgo,
+    last_updated_seconds_ago: lastUpdatedSecondsAgo,
     stopsBeforeYou,
     totalRouteStops: orderedStops.length,
     driver,
