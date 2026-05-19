@@ -49,6 +49,7 @@ const arHubRouter         = require('./routes/ar-hub');
 const creditHoldRouter    = require('./routes/credit-hold');
 const vendorBillsRouter   = require('./routes/vendor-bills');
 const complianceRouter    = require('./routes/compliance');
+const auditLogRouter      = require('./routes/audit-log');
 const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
 
 const helmet = require('helmet');
@@ -63,11 +64,6 @@ app.use(express.json({ limit: config.JSON_BODY_LIMIT }));
 app.use(cookieParser());
 app.disable('x-powered-by');
 
-// Helmet supplies headers not covered by the custom security middleware below:
-// dnsPrefetchControl, ieNoOpen, originAgentCluster, permittedCrossDomainPolicies,
-// crossOriginEmbedderPolicy, crossOriginResourcePolicy.
-// Headers already set explicitly below (CSP, HSTS, frameguard, noSniff,
-// referrerPolicy, crossOriginOpenerPolicy) are disabled here to avoid conflicts.
 app.use(helmet({
   contentSecurityPolicy:        false,
   crossOriginOpenerPolicy:      false,
@@ -75,10 +71,9 @@ app.use(helmet({
   hsts:                         false,
   noSniff:                      false,
   referrerPolicy:               false,
-  hidePoweredBy:                false, // already done with app.disable('x-powered-by')
+  hidePoweredBy:                false,
 }));
 
-// Warn at startup if body limit is unusually large (potential DoS risk).
 (function warnBodyLimit() {
   const raw = String(config.JSON_BODY_LIMIT || '1mb').toLowerCase();
   const mb = raw.endsWith('mb') ? parseFloat(raw) : raw.endsWith('kb') ? parseFloat(raw) / 1024 : NaN;
@@ -87,7 +82,6 @@ app.use(helmet({
   }
 })();
 
-// Attach a unique request ID to every request for log correlation.
 const crypto = require('crypto');
 app.use((req, res, next) => {
   req.id = crypto.randomUUID();
@@ -204,8 +198,6 @@ app.use('/api/lots', lotsRouter);
 app.use('/api/integrations', integrationsRouter);
 app.use('/api/warehouse', warehouseRouter);
 app.use('/api/catch-weight', catchWeightRouter);
-// restore-session must be reachable while holding an impersonation token
-// (role=admin), so it runs with only authenticateToken — before the guarded router.
 const { authenticateToken: _authenticateToken } = require('./middleware/auth');
 app.post('/api/superadmin/restore-session', _authenticateToken, superadminRouter.restoreSessionHandler);
 
@@ -219,6 +211,7 @@ app.use('/api/ar', arHubRouter);
 app.use('/api/credit', creditHoldRouter);
 app.use('/api/vendor-bills', vendorBillsRouter);
 app.use('/api/compliance', complianceRouter);
+app.use('/api/audit-log', auditLogRouter);
 
 const { authenticateToken, requireRole } = require('./middleware/auth');
 
@@ -256,6 +249,7 @@ const frontendV2Routes = [
   '/ar-hub',
   '/ar',
   '/credit',
+  '/audit-log',
 ];
 app.get(frontendV2Routes, (req, res) => res.sendFile(frontendV2Entry));
 
