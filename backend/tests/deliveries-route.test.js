@@ -220,3 +220,8 @@ test('deliveries status patch validates allowed statuses and checks context', ()
   assert.ok(src.includes("'Invalid delivery status'"), 'patch must reject unknown statuses');
   assert.ok(src.includes('rowMatchesContext'), 'patch must check operating context');
 });
+
+test('deliveries status patch allows processed orders to be delivered', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'deliveries.js'), 'utf8');
+  assert.ok(src.includes("processed:  ['invoiced']"), 'processed orders must be deliverable');
+});

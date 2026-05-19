@@ -537,6 +537,7 @@ router.patch('/deliveries/:id/status', authenticateToken, async (req, res) => {
   const validTransitions = {
     pending:    ['pending', 'in_process'],
     in_process: ['invoiced'],
+    processed:  ['invoiced'],
     in_transit: ['invoiced'], // legacy alias for in_process
     invoiced:   [],
   };
