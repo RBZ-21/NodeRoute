@@ -19,7 +19,7 @@ import { useAuth } from './hooks/useAuth';
 import { AppShell } from './components/layout/AppShell';
 import { PageSkeleton } from './components/layout/PageSkeleton';
 import { OnboardingWizard } from './components/onboarding/OnboardingWizard';
-import { StatuspageBanner } from './components/StatuspageBanner';
+import { StatuspageEmbed } from './components/StatuspageEmbed';
 
 const LoginPage          = lazy(() => import('./pages/LoginPage').then(m => ({ default: m.LoginPage })));
 const SignupPage         = lazy(() => import('./pages/SignupPage').then(m => ({ default: m.SignupPage })));
@@ -32,7 +32,7 @@ function withStatuspage(element: JSX.Element) {
   return (
     <>
       {element}
-      <StatuspageBanner />
+      <StatuspageEmbed />
     </>
   );
 }
