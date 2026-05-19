@@ -4,6 +4,7 @@ const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { sendInvoiceEmail } = require('../services/invoice-email');
 const deliveryNotifications = require('../services/delivery-notifications');
+const { invalidateDashboardCache } = require('./deliveries');
 const {
   buildScopeFields,
   insertRecordWithOptionalScope,
@@ -230,6 +231,7 @@ router.patch('/:id', authenticateToken, async (req, res) => {
       const { data, error } = await supabase
         .from('stops').update(update).eq('id', req.params.id).select().single();
       if (error) return res.status(500).json({ error: error.message });
+      invalidateDashboardCache(req.context);
       if (update.driver_notes !== undefined) {
         try {
           await syncLinkedInvoiceForStop(data, req.context, { syncDriverNotes: true });
@@ -279,6 +281,7 @@ router.patch('/:id', authenticateToken, async (req, res) => {
     const { data, error } = await supabase
       .from('stops').update(update).eq('id', req.params.id).select().single();
     if (error) return res.status(500).json({ error: error.message });
+    invalidateDashboardCache(req.context);
     if (update.driver_notes !== undefined) {
       try {
         await syncLinkedInvoiceForStop(data, req.context, { syncDriverNotes: true });
@@ -325,6 +328,7 @@ router.post('/:id/arrive', authenticateToken, async (req, res) => {
       .select()
       .single();
     if (insertErr) return res.status(500).json({ error: insertErr.message });
+    invalidateDashboardCache(req.context);
     deliveryNotifications.notifyDriverArriving(supabase, req.params.id, route.id).catch(() => {});
     res.json(record);
   } catch (err) {
@@ -371,6 +375,7 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
       status: 'completed',
       ...(driverNotes ? { driver_notes: driverNotes } : {}),
     }).eq('id', req.params.id);
+    invalidateDashboardCache(req.context);
     deliveryNotifications.notifyDeliveryCompleted(supabase, req.params.id, stop.invoice_id || null).catch(() => {});
 
     // Fire delivery confirmation email non-fatally using the invoice already linked to this stop

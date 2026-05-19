@@ -3,7 +3,15 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { mapOrderStatus, findMatchingStop } = require('../routes/deliveries');
+const deliveriesRoute = require('../routes/deliveries');
+const {
+  mapOrderStatus,
+  findMatchingStop,
+  buildDeliveryWindow,
+  loadDashboardContext,
+  invalidateDashboardCache,
+} = deliveriesRoute;
+const { supabase } = require('../services/supabase');
 
 // ── mapOrderStatus ────────────────────────────────────────────────────────────
 
@@ -85,6 +93,93 @@ test('findMatchingStop returns null when nothing matches', () => {
 test('findMatchingStop returns null for empty stop list', () => {
   const order = { customer_name: 'Anyone', customer_address: '123 Main St' };
   assert.equal(findMatchingStop(order, []), null);
+});
+
+// ── Delivery windows ─────────────────────────────────────────────────────────
+
+test('buildDeliveryWindow uses stop scheduled date and time when present', () => {
+  const window = buildDeliveryWindow(
+    { scheduled_date: '2026-06-01', scheduled_time: '08:30' },
+    '2026-05-19T10:00:00.000Z'
+  );
+  assert.ok(window.windowStart.includes('2026-06-01T08:30'));
+  assert.equal(window.isScheduled, true);
+});
+
+test('buildDeliveryWindow falls back to order creation when stop schedule is missing', () => {
+  const window = buildDeliveryWindow({}, '2026-05-19T10:00:00.000Z');
+  assert.equal(window.windowStart, '2026-05-19T10:00:00.000Z');
+  assert.equal(window.isScheduled, false);
+});
+
+function makeDashboardQuery(table, rows, onFrom) {
+  class Query {
+    constructor() {
+      this.rows = [...(rows[table] || [])];
+    }
+    select() { return this; }
+    order() { return this; }
+    then(resolve) {
+      return Promise.resolve({ data: this.rows, error: null }).then(resolve);
+    }
+  }
+  onFrom();
+  return new Query();
+}
+
+test('loadDashboardContext caches dashboard queries for same context', async () => {
+  const originalFrom = supabase.from;
+  const context = { companyId: 'cache-company', activeLocationId: 'cache-location' };
+  invalidateDashboardCache(context);
+  let fromCalls = 0;
+  const rows = {
+    orders: [],
+    routes: [],
+    stops: [],
+    driver_locations: [],
+    users: [],
+    portal_contacts: [],
+    dwell_records: [],
+  };
+
+  supabase.from = (table) => makeDashboardQuery(table, rows, () => { fromCalls += 1; });
+  try {
+    await loadDashboardContext(context);
+    await loadDashboardContext(context);
+  } finally {
+    supabase.from = originalFrom;
+    invalidateDashboardCache(context);
+  }
+
+  assert.equal(fromCalls, 7);
+});
+
+test('invalidateDashboardCache forces loadDashboardContext to query again', async () => {
+  const originalFrom = supabase.from;
+  const context = { companyId: 'cache-company-2', activeLocationId: 'cache-location-2' };
+  invalidateDashboardCache(context);
+  let fromCalls = 0;
+  const rows = {
+    orders: [],
+    routes: [],
+    stops: [],
+    driver_locations: [],
+    users: [],
+    portal_contacts: [],
+    dwell_records: [],
+  };
+
+  supabase.from = (table) => makeDashboardQuery(table, rows, () => { fromCalls += 1; });
+  try {
+    await loadDashboardContext(context);
+    invalidateDashboardCache(context);
+    await loadDashboardContext(context);
+  } finally {
+    supabase.from = originalFrom;
+    invalidateDashboardCache(context);
+  }
+
+  assert.equal(fromCalls, 14);
 });
 
 // ── Structural integrity ──────────────────────────────────────────────────────
