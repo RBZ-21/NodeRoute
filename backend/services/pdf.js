@@ -122,6 +122,24 @@ async function buildInvoicePDF(inv) {
         doc.text(`$${parseFloat(inv.total||0).toFixed(2)}`, totalsAmountX, y + 2, { width: totalsAmountWidth, align: 'right' });
         y += 40;
 
+        if (inv.catch_weight_summary) {
+          let cw = inv.catch_weight_summary;
+          if (typeof cw === 'string') {
+            try { cw = JSON.parse(cw); } catch { cw = null; }
+          }
+          if (cw) {
+            doc.fillColor('#111').font('Helvetica-Bold').fontSize(10).text('CATCH WEIGHT SUMMARY', 50, y);
+            y += 14;
+            doc.fillColor(MUTED).font('Helvetica').fontSize(9)
+              .text(`Total estimated weight: ${parseFloat(cw.total_estimated_weight || 0).toFixed(3)} lbs`, 50, y);
+            y += 12;
+            doc.text(`Total actual weight: ${parseFloat(cw.total_actual_weight || 0).toFixed(3)} lbs`, 50, y);
+            y += 12;
+            doc.text(`Total variance: ${parseFloat(cw.total_variance_lbs || 0).toFixed(3)} lbs (${parseFloat(cw.total_variance_pct || 0).toFixed(3)}%)`, 50, y);
+            y += 18;
+          }
+        }
+
         if (invoiceLots.length) {
           doc.moveTo(50, y).lineTo(doc.page.width - 50, y).strokeColor('#dddddd').stroke();
           y += 14;

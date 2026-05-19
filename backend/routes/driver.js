@@ -12,6 +12,7 @@ const {
 const { validateBody } = require('../lib/zod-validate');
 
 const router = express.Router();
+const STALE_THRESHOLD_SECONDS = 120;
 
 const driverLocationBodySchema = z.object({
   lat: z.coerce.number(),
@@ -121,16 +122,72 @@ router.get('/routes', authenticateToken, requireRole('driver'), async (req, res)
 });
 
 router.get('/location', authenticateToken, async (req, res) => {
-  const { data, error } = await supabase
-    .from('driver_locations')
-    .select('*')
-    .ilike('driver_name', req.user.name)
+  const lookupQuery = req.user.id
+    ? supabase.from('driver_locations').select('*').eq('user_id', req.user.id)
+    : supabase.from('driver_locations').select('*').ilike('driver_name', req.user.name);
+  const { data, error } = await lookupQuery
     .order('updated_at', { ascending: false })
     .limit(10);
 
   if (error) return res.status(500).json({ error: error.message });
   const scopedLocations = filterRowsByContext(data || [], req.context);
   res.json(scopedLocations[0] || null);
+});
+
+async function loadCurrentDriverLocation(req) {
+  if (!req.user.id) return null;
+  const { data, error } = await supabase
+    .from('driver_locations')
+    .select('*')
+    .eq('user_id', req.user.id)
+    .order('updated_at', { ascending: false })
+    .limit(10);
+  if (error) throw error;
+  const scopedLocations = filterRowsByContext(data || [], req.context);
+  return scopedLocations[0] || null;
+}
+
+// POST /api/driver/heartbeat
+// Lightweight ping that updates updated_at on the driver's location record
+// without requiring a full lat/lng payload. Used to keep the location record
+// fresh when the driver is stationary (e.g., at a long stop).
+router.post('/heartbeat', authenticateToken, requireRole('driver', 'manager', 'admin'), async (req, res) => {
+  try {
+    const location = await loadCurrentDriverLocation(req);
+    if (!location?.id) return res.status(204).end();
+
+    const updatedAt = new Date().toISOString();
+    const { data, error } = await supabase
+      .from('driver_locations')
+      .update({ updated_at: updatedAt })
+      .eq('id', location.id)
+      .select('updated_at')
+      .single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.json({ ok: true, updatedAt: data?.updated_at || updatedAt });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
+});
+
+// Returns whether the current driver's location record is fresh or stale.
+// Used by the driver app to show a self-diagnostic warning if the app
+// detects it hasn't updated recently.
+router.get('/location-status', authenticateToken, requireRole('driver', 'manager', 'admin'), async (req, res) => {
+  try {
+    const location = await loadCurrentDriverLocation(req);
+    const lastUpdatedSecondsAgo = location?.updated_at
+      ? Math.round((Date.now() - new Date(location.updated_at).getTime()) / 1000)
+      : null;
+    return res.json({
+      hasLocation: !!location,
+      lastUpdatedSecondsAgo,
+      isStale: lastUpdatedSecondsAgo === null || lastUpdatedSecondsAgo > STALE_THRESHOLD_SECONDS,
+      staleThresholdSeconds: STALE_THRESHOLD_SECONDS,
+    });
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
 });
 
 router.get('/invoices', authenticateToken, requireRole('driver', 'manager', 'admin'), async (req, res) => {
@@ -147,6 +204,7 @@ router.patch('/location', authenticateToken, requireRole('driver', 'manager', 'a
 
   const payload = {
     ...buildScopeFields(req.context),
+    user_id: req.user.id || null,
     driver_name: req.user.name,
     lat,
     lng,
@@ -155,10 +213,11 @@ router.patch('/location', authenticateToken, requireRole('driver', 'manager', 'a
     updated_at: new Date().toISOString(),
   };
 
-  const { data: existingRows, error: existingError } = await supabase
-    .from('driver_locations')
-    .select('*')
-    .ilike('driver_name', req.user.name)
+  // Prefer user_id lookup; fall back to driver_name for legacy records
+  const lookupQuery = req.user.id
+    ? supabase.from('driver_locations').select('*').eq('user_id', req.user.id)
+    : supabase.from('driver_locations').select('*').ilike('driver_name', req.user.name);
+  const { data: existingRows, error: existingError } = await lookupQuery
     .order('updated_at', { ascending: false })
     .limit(10);
 
@@ -213,3 +272,4 @@ router.get('/summary', authenticateToken, requireRole('driver'), async (req, res
 
 module.exports = router;
 module.exports.routeStopIdsForToday = routeStopIdsForToday;
+module.exports.STALE_THRESHOLD_SECONDS = STALE_THRESHOLD_SECONDS;

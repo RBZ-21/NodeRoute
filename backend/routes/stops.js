@@ -3,6 +3,8 @@ const router = express.Router();
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { sendInvoiceEmail } = require('../services/invoice-email');
+const deliveryNotifications = require('../services/delivery-notifications');
+const { invalidateDashboardCache } = require('./deliveries');
 const {
   buildScopeFields,
   insertRecordWithOptionalScope,
@@ -109,6 +111,20 @@ async function syncLinkedInvoiceForStop(stop, context, { markDelivered = false, 
   return data || { ...linkedInvoice, ...updates };
 }
 
+async function linkOrderToStop(stop, body = {}, context = {}) {
+  const orderId = body.order_id || body.orderId || null;
+  const orderNumber = body.order_number || body.orderNumber || null;
+  if (!stop?.id || (!orderId && !orderNumber)) return;
+
+  const result = await executeWithOptionalScope((candidate) => {
+    let scopedQuery = supabase.from('orders').update(candidate);
+    scopedQuery = orderId ? scopedQuery.eq('id', orderId) : scopedQuery.eq('order_number', orderNumber);
+    return scopedQuery;
+  }, { stop_id: stop.id });
+
+  if (result.error) throw result.error;
+}
+
 async function authorizeDwellEvent(req, res, stopId) {
   const { data: stop, error: stopErr } = await supabase
     .from('stops').select('*').eq('id', stopId).single();
@@ -186,6 +202,11 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
     }
     const result = await insertRecordWithOptionalScope(supabase, 'stops', payload, req.context);
     if (result.error) return res.status(500).json({ error: result.error.message });
+    try {
+      await linkOrderToStop(result.data, req.body, req.context);
+    } catch (linkError) {
+      console.error('[stops] order stop_id sync failed:', linkError.message);
+    }
     res.status(201).json(result.data);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -210,6 +231,7 @@ router.patch('/:id', authenticateToken, async (req, res) => {
       const { data, error } = await supabase
         .from('stops').update(update).eq('id', req.params.id).select().single();
       if (error) return res.status(500).json({ error: error.message });
+      invalidateDashboardCache(req.context);
       if (update.driver_notes !== undefined) {
         try {
           await syncLinkedInvoiceForStop(data, req.context, { syncDriverNotes: true });
@@ -259,6 +281,7 @@ router.patch('/:id', authenticateToken, async (req, res) => {
     const { data, error } = await supabase
       .from('stops').update(update).eq('id', req.params.id).select().single();
     if (error) return res.status(500).json({ error: error.message });
+    invalidateDashboardCache(req.context);
     if (update.driver_notes !== undefined) {
       try {
         await syncLinkedInvoiceForStop(data, req.context, { syncDriverNotes: true });
@@ -305,6 +328,8 @@ router.post('/:id/arrive', authenticateToken, async (req, res) => {
       .select()
       .single();
     if (insertErr) return res.status(500).json({ error: insertErr.message });
+    invalidateDashboardCache(req.context);
+    deliveryNotifications.notifyDriverArriving(supabase, req.params.id, route.id).catch(() => {});
     res.json(record);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -350,6 +375,9 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
       status: 'completed',
       ...(driverNotes ? { driver_notes: driverNotes } : {}),
     }).eq('id', req.params.id);
+    invalidateDashboardCache(req.context);
+    deliveryNotifications.notifyDeliveryCompleted(supabase, req.params.id, stop.invoice_id || null).catch(() => {});
+    deliveryNotifications.notifyUpcomingStops(supabase, route.id, req.params.id, req.context).catch(() => {});
 
     // Fire delivery confirmation email non-fatally using the invoice already linked to this stop
     try {

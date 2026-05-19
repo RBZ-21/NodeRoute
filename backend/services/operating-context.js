@@ -24,6 +24,7 @@ const OPTIONAL_SCOPE_FIELDS = [
   'invoice_id',
   'tracking_token',
   'tracking_expires_at',
+  'catch_weight_summary',
   'logged_at',
   'storage_area',
   'temperature',
@@ -31,6 +32,7 @@ const OPTIONAL_SCOPE_FIELDS = [
   'check_type',
   'corrective_action',
   'driver_id',
+  'user_id',
   'driver_name',
   'route_id',
   'stop_id',
@@ -42,6 +44,8 @@ const OPTIONAL_SCOPE_FIELDS = [
   'billing_address',
   'initials',
   'recorded_by',
+  'approved_at',
+  'approved_by',
 ];
 
 // Lazy-load logger to avoid circular dependency at module init time.

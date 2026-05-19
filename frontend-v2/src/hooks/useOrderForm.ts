@@ -12,6 +12,7 @@ export function useOrderForm({
   const [editingOrderId, setEditingOrderId] = useState<string | null>(null);
   const [customerName, setCustomerName]       = useState('');
   const [customerEmail, setCustomerEmail]     = useState('');
+  const [customerPhone, setCustomerPhone]     = useState('');
   const [customerAddress, setCustomerAddress] = useState('');
   const [fulfillmentType, setFulfillmentType] = useState<'delivery' | 'pickup'>('delivery');
   const [notes, setNotes]                     = useState('');
@@ -126,7 +127,7 @@ export function useOrderForm({
 
   function reset() {
     setEditingOrderId(null);
-    setCustomerName(''); setCustomerEmail(''); setCustomerAddress('');
+    setCustomerName(''); setCustomerEmail(''); setCustomerPhone(''); setCustomerAddress('');
     setFulfillmentType('delivery');
     setNotes(''); setTaxEnabled(false); setTaxRate('0.09');
     setFuelPercent(''); setServicePercent(''); setMinimumFlat('');
@@ -138,6 +139,7 @@ export function useOrderForm({
     setEditingOrderId(order.id);
     setCustomerName(order.customer_name || '');
     setCustomerEmail(order.customer_email || '');
+    setCustomerPhone(order.customer_phone || '');
     setCustomerAddress(order.customer_address || '');
     setFulfillmentType(String(order.fulfillment_type || '').toLowerCase() === 'pickup' ? 'pickup' : 'delivery');
     setNotes(order.notes || '');
@@ -221,6 +223,7 @@ export function useOrderForm({
     return {
       customerName:    customerName.trim(),
       customerEmail:   customerEmail.trim()   || '',
+      customerPhone:   customerPhone.trim()   || '',
       customerAddress: fulfillmentType === 'delivery' ? customerAddress.trim() || '' : '',
       fulfillmentType,
       notes:           notes.trim() || '',
@@ -279,6 +282,7 @@ export function useOrderForm({
     editingOrderId,
     customerName, setCustomerName,
     customerEmail, setCustomerEmail,
+    customerPhone, setCustomerPhone,
     customerAddress, setCustomerAddress,
     fulfillmentType, setFulfillmentType,
     routeId, setRouteId,

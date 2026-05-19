@@ -3,7 +3,14 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
-const { buildEta, findMatchingStopIndex, buildDestination } = require('../routes/tracking');
+const {
+  buildEta,
+  findMatchingStopIndex,
+  buildDestination,
+  evaluateDriverLocation,
+  buildDriverResponse,
+  STALE_THRESHOLD_SECONDS,
+} = require('../routes/tracking');
 
 // ── findMatchingStopIndex ────────────────────────────────────────────────────
 
@@ -107,6 +114,24 @@ test('buildEta adds dwell time for stops before customer', () => {
   assert.equal(etaWithStop.dwellMinutes, etaNoStops.dwellMinutes + 8);
 });
 
+test('buildEta uses median dwell history estimate when provided', () => {
+  const driver = { lat: 32.77, lng: -79.93, speed_mph: 30 };
+  const destination = { lat: 32.84, lng: -79.93 };
+  const etaEightMinutes = buildEta(driver, destination, 3, 0, 480000);
+  const etaTwentyMinutes = buildEta(driver, destination, 3, 0, 1200000);
+  assert.ok(etaTwentyMinutes.totalMinutes > etaEightMinutes.totalMinutes);
+  assert.equal(etaTwentyMinutes.medianStopMinutes, 20);
+  assert.equal(etaTwentyMinutes.etaIsEstimated, true);
+});
+
+test('buildEta includes median stop estimate fields in ETA response', () => {
+  const driver = { lat: 32.77, lng: -79.93, speed_mph: 30 };
+  const destination = { lat: 32.84, lng: -79.93 };
+  const eta = buildEta(driver, destination, 2, 0, 600000);
+  assert.equal(eta.medianStopMinutes, 10);
+  assert.equal(eta.etaIsEstimated, true);
+});
+
 test('buildEta accounts for active dwell time at the current stop', () => {
   const driver = { lat: 32.77, lng: -79.93, speed_mph: 30 };
   const destination = { lat: 32.84, lng: -79.93 };
@@ -131,6 +156,42 @@ test('buildEta etaTime is an ISO string in the future', () => {
   assert.ok(new Date(eta.etaTime).getTime() > before);
 });
 
+// ── GPS staleness ────────────────────────────────────────────────────────────
+
+test('tracking staleness marks 3 minute old driver location stale', () => {
+  const updated_at = new Date(Date.now() - 3 * 60 * 1000).toISOString();
+  const status = evaluateDriverLocation({ updated_at });
+  const driver = buildDriverResponse('Driver One', { driver_id: 'u1' }, {
+    updated_at,
+    lat: 32.77,
+    lng: -79.93,
+    heading: 90,
+    speed_mph: 12,
+  });
+  assert.equal(status.locationIsStale, true);
+  assert.ok(status.lastUpdatedSecondsAgo >= STALE_THRESHOLD_SECONDS);
+  assert.equal(driver.locationIsStale, true);
+  assert.equal(driver.lat, null);
+  assert.equal(driver.lng, null);
+});
+
+test('tracking staleness keeps 30 second old driver location live', () => {
+  const updated_at = new Date(Date.now() - 30 * 1000).toISOString();
+  const status = evaluateDriverLocation({ updated_at });
+  const driver = buildDriverResponse('Driver One', { driver_id: 'u1' }, {
+    updated_at,
+    lat: 32.77,
+    lng: -79.93,
+    heading: 90,
+    speed_mph: 12,
+  });
+  assert.equal(status.locationIsStale, false);
+  assert.ok(status.lastUpdatedSecondsAgo < STALE_THRESHOLD_SECONDS);
+  assert.equal(driver.locationIsStale, false);
+  assert.equal(driver.lat, 32.77);
+  assert.equal(driver.lng, -79.93);
+});
+
 // ── Structural integrity ──────────────────────────────────────────────────────
 
 test('tracking route does not import the removed dwellRecords in-memory export', () => {
@@ -142,6 +203,13 @@ test('tracking route queries dwell_records from Supabase', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'tracking.js'), 'utf8');
   assert.ok(src.includes("from('dwell_records')"), 'tracking.js must query dwell_records table');
   assert.ok(src.includes('.eq(\'route_id\''), 'dwell_records query must filter by route_id');
+});
+
+test('tracking route uses dwell stats service for median dwell ETA', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'tracking.js'), 'utf8');
+  assert.ok(src.includes("require('../services/dwell-stats')"), 'tracking route should import dwell stats service');
+  assert.ok(src.includes('getMedianDwellMs(supabase, trackingContext)'), 'tracking route should load median dwell by context');
+  assert.ok(src.includes('medianDwellMs'), 'tracking route should pass median dwell into buildEta');
 });
 
 test('tracking API response includes customerEmail and customerPhone fields', () => {
@@ -156,7 +224,7 @@ test('tracking API response exposes outing dispatch state and pauses ETA before 
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'tracking.js'), 'utf8');
   assert.ok(src.includes('outingStarted'), 'response must include outingStarted');
   assert.ok(src.includes('routeDispatchedAt'), 'response must include routeDispatchedAt');
-  assert.ok(src.includes('delivered || !outingStarted ? null : buildEta'), 'ETA must stay null until the outing has started');
+  assert.ok(src.includes('delivered || !outingStarted || locationIsStale'), 'ETA must stay null until the outing has started or driver location is stale');
 });
 
 test('tracking route validates token expiry and returns 410 for expired links', () => {
@@ -164,4 +232,14 @@ test('tracking route validates token expiry and returns 410 for expired links', 
   assert.ok(src.includes('tracking_expires_at'), 'route must check tracking_expires_at');
   assert.ok(src.includes('res.status(410)'), 'expired token should return 410 Gone');
   assert.ok(src.includes('res.status(404)'), 'missing token should return 404');
+});
+
+test('tracking API response suppresses stale GPS coordinates and ETA', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'tracking.js'), 'utf8');
+  assert.ok(src.includes('const STALE_THRESHOLD_SECONDS = 120'), 'stale GPS threshold should be module-level');
+  assert.ok(src.includes('lat: locationIsStale ? null : toNumber(driverLocation?.lat)'), 'stale driver latitude must be suppressed');
+  assert.ok(src.includes('lng: locationIsStale ? null : toNumber(driverLocation?.lng)'), 'stale driver longitude must be suppressed');
+  assert.ok(src.includes("etaUnavailableReason"), 'response must include ETA unavailable reason');
+  assert.ok(src.includes("'driver_location_stale'"), 'stale GPS should have a distinct ETA unavailable reason');
+  assert.ok(src.includes("locationStatus: locationIsStale ? 'stale' : 'live'"), 'driver response should expose live/stale status');
 });
