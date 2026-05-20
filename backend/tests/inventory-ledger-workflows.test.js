@@ -5,6 +5,7 @@ const assert = require('node:assert/strict');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const inventoryRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'inventory.js'), 'utf8');
+const lotDepletionSource = fs.readFileSync(path.join(repoRoot, 'backend', 'services', 'lot-depletion.js'), 'utf8');
 const opsRouteSource = [
   fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops.js'), 'utf8'),
   fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops-purchasing.js'), 'utf8'),
@@ -65,7 +66,7 @@ test('purchase orders are tenant-scoped with company and location context', () =
     'buildScopeFields,',
     'filterRowsByContext,',
     'insertRecordWithOptionalScope,',
-    ".select('item_number, description, on_hand_qty, cost, unit, is_ftl_product, company_id, location_id')",
+    ".select('item_number, description, on_hand_qty, cost, unit, is_ftl_regulated, company_id, location_id')",
     "'id, po_number, vendor, total_cost, items, confirmed_by, created_at, company_id, location_id'",
     "filterRowsByContext(result.data || [], req.context)",
     "const poInsert = await insertRecordWithOptionalScope(supabase, 'purchase_orders', poPayload, req.context)",
@@ -73,4 +74,99 @@ test('purchase orders are tenant-scoped with company and location context', () =
   ]) {
     assert.ok(purchaseOrdersRouteSource.includes(marker), `purchase-orders missing tenant-scope marker ${marker}`);
   }
+});
+
+test('lot-depletion service implements FEFO ordering', () => {
+  assert.ok(lotDepletionSource.includes('async function depleteLotsFefo'), 'depleteLotsFefo function missing');
+  assert.ok(lotDepletionSource.includes("order('expiry_date', { ascending: true, nullsFirst: false })"), 'FEFO expiry ordering missing');
+  assert.ok(lotDepletionSource.includes("order('created_at', { ascending: true })"), 'FEFO created_at tiebreak ordering missing');
+  assert.ok(lotDepletionSource.includes("status: newStatus"), 'lot status update to depleted missing');
+  assert.ok(inventoryRouteSource.includes("require('../services/lot-depletion')"), 'inventory route must import lot-depletion service');
+  assert.ok(inventoryRouteSource.includes('depleteLotsFefo'), 'inventory pick route must call depleteLotsFefo');
+});
+
+test('depleteLotsFefo correctly applies FEFO order and returns remaining qty', async () => {
+  const { depleteLotsFefo: fefo } = require(path.join(repoRoot, 'backend', 'services', 'lot-depletion.js'));
+
+  const lotA = { id: 'lot-a', lot_number: 'LOT-A', qty_on_hand: 5, expiry_date: '2026-06-01', created_at: '2026-01-01', status: 'active' };
+  const lotB = { id: 'lot-b', lot_number: 'LOT-B', qty_on_hand: 10, expiry_date: '2026-08-01', created_at: '2026-01-02', status: 'active' };
+
+  const updates = {};
+
+  // Build a chainable mock supabase that returns lots in FEFO order on select,
+  // and records updates by lot id.
+  function makeSelectChain(returnLots) {
+    const chain = {
+      eq: () => chain,
+      gt: () => chain,
+      order: () => chain,
+      then: (resolve) => resolve({ data: returnLots, error: null }),
+    };
+    return chain;
+  }
+
+  function makeUpdateChain(lotId) {
+    const chain = {
+      eq: (col, val) => { if (col === 'id') updates[val] = chain._payload; return chain; },
+      then: (resolve) => resolve({ error: null }),
+    };
+    chain._payload = null;
+    return chain;
+  }
+
+  const mockSupabase = {
+    from(table) {
+      if (table === 'inventory_lots') {
+        return {
+          select() { return makeSelectChain([lotA, lotB]); },
+          update(payload) {
+            const updateId = Object.keys(updates).length === 0 ? 'lot-a' : 'lot-b';
+            updates[updateId] = payload;
+            const chain = { eq: () => chain, then: (resolve) => resolve({ error: null }) };
+            return chain;
+          },
+        };
+      }
+      throw new Error(`unexpected table: ${table}`);
+    },
+  };
+
+  const result = await fefo(mockSupabase, 'OYSTER-001', 7, { createdBy: 'test', context: {} });
+
+  assert.strictEqual(result.remaining, 0, 'remaining should be 0 after depleting 7 from 15 total');
+  assert.strictEqual(result.depleted.length, 2, 'should have depleted 2 lots');
+  assert.strictEqual(result.depleted[0].lot_id, 'lot-a', 'lot A (earlier expiry) depleted first');
+  assert.strictEqual(result.depleted[0].qty_taken, 5, 'lot A fully depleted (qty_taken = 5)');
+  assert.strictEqual(result.depleted[1].lot_id, 'lot-b', 'lot B depleted second');
+  assert.strictEqual(result.depleted[1].qty_taken, 2, 'lot B partially depleted (qty_taken = 2)');
+});
+
+test('depleteLotsFefo returns remaining > 0 when lots are insufficient', async () => {
+  const { depleteLotsFefo: fefo } = require(path.join(repoRoot, 'backend', 'services', 'lot-depletion.js'));
+
+  const lotA = { id: 'lot-a', lot_number: 'LOT-A', qty_on_hand: 5, expiry_date: '2026-06-01', created_at: '2026-01-01', status: 'active' };
+  const lotB = { id: 'lot-b', lot_number: 'LOT-B', qty_on_hand: 10, expiry_date: '2026-08-01', created_at: '2026-01-02', status: 'active' };
+
+  const mockSupabase = {
+    from(table) {
+      if (table === 'inventory_lots') {
+        return {
+          select() {
+            const chain = { eq: () => chain, gt: () => chain, order: () => chain, then: (resolve) => resolve({ data: [lotA, lotB], error: null }) };
+            return chain;
+          },
+          update() {
+            const chain = { eq: () => chain, then: (resolve) => resolve({ error: null }) };
+            return chain;
+          },
+        };
+      }
+      throw new Error(`unexpected table: ${table}`);
+    },
+  };
+
+  const result = await fefo(mockSupabase, 'OYSTER-001', 20, { createdBy: 'test', context: {} });
+
+  assert.ok(result.remaining > 0, `remaining should be > 0 when requesting 20 but only 15 available; got ${result.remaining}`);
+  assert.strictEqual(result.remaining, 5, 'remaining should be 5 (20 requested - 15 available)');
 });
