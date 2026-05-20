@@ -71,7 +71,7 @@ router.get('/inventory/:itemNumber', authenticateToken, requireRole('admin', 'ma
   const days = Math.min(parseInt(req.query.days) || 14, 90);
 
   const { data: product, error: pErr } = await supabase
-    .from('seafood_inventory')
+    .from('products')
     .select('item_number,description,category,unit,cost,on_hand_qty')
     .eq('item_number', itemNumber)
     .single();
@@ -100,7 +100,7 @@ router.get('/inventory', authenticateToken, requireRole('admin', 'manager'), asy
   const days = Math.min(parseInt(req.query.days) || 14, 90);
 
   const { data: products, error: pErr } = await supabase
-    .from('seafood_inventory')
+    .from('products')
     .select('item_number,description,category,unit,cost,on_hand_qty')
     .order('category');
   if (pErr) return res.status(500).json({ error: pErr.message });

@@ -585,7 +585,7 @@ router.get('/rollups', authenticateToken, requireRole('admin', 'manager'), async
         .lte('created_at', endDate.toISOString())
         .limit(5000),
       supabase.from('routes').select('*').limit(2000),
-      supabase.from('seafood_inventory').select('item_number,description,cost').limit(5000),
+      supabase.from('products').select('item_number,description,cost').limit(5000),
     ]);
 
     const ordersMissing = isMissingTableError(ordersResult.error);
@@ -727,7 +727,7 @@ router.get('/daily-ops', authenticateToken, requireRole('admin', 'manager'), asy
         .lte('created_at', endDate.toISOString())
         .limit(5000),
       supabase.from('routes').select('*').limit(2000),
-      supabase.from('seafood_inventory').select('item_number,description,category,cost,on_hand_qty').limit(5000),
+      supabase.from('products').select('item_number,description,category,cost,on_hand_qty').limit(5000),
     ]);
 
     const ordersMissing = isMissingTableError(ordersResult.error);

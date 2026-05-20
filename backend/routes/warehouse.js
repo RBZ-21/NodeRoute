@@ -28,7 +28,7 @@ function toNumber(value, fallback = 0) {
 router.get('/', authenticateToken, requireRole(...WAREHOUSE_ROLES), async (req, res) => {
   try {
     const { data: inventory, error: invErr } = await supabase
-      .from('seafood_inventory')
+      .from('products')
       .select('id, item_number, description, on_hand_qty, unit, category, status, company_id, location_id');
     if (invErr) return res.status(500).json({ error: invErr.message });
 
@@ -80,7 +80,7 @@ router.get('/', authenticateToken, requireRole(...WAREHOUSE_ROLES), async (req, 
 router.get('/inventory', authenticateToken, requireRole(...WAREHOUSE_ROLES), async (req, res) => {
   try {
     const { data, error } = await supabase
-      .from('seafood_inventory')
+      .from('products')
       .select('*')
       .order('description');
     if (error) return res.status(500).json({ error: error.message });
@@ -97,7 +97,7 @@ router.get('/inventory', authenticateToken, requireRole(...WAREHOUSE_ROLES), asy
 router.patch('/inventory/:id', authenticateToken, requireRole(...WAREHOUSE_ROLES), async (req, res) => {
   try {
     const { data: existing, error: fetchErr } = await supabase
-      .from('seafood_inventory')
+      .from('products')
       .select('*')
       .eq('id', req.params.id)
       .single();
@@ -128,7 +128,7 @@ router.patch('/inventory/:id', authenticateToken, requireRole(...WAREHOUSE_ROLES
     }
     if (Object.keys(update).length) {
       const { data: updated, error } = await supabase
-        .from('seafood_inventory')
+        .from('products')
         .update(update)
         .eq('id', req.params.id)
         .select()

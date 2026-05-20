@@ -39,7 +39,7 @@ async function loadLotTraceData(lotNumber) {
       .contains('shipped_lots', JSON.stringify([{ lot_number: lotNumber }])),
 
     lot.product_id
-      ? supabase.from('seafood_inventory').select('item_number, description, category, unit').eq('item_number', lot.product_id).limit(1)
+      ? supabase.from('products').select('item_number, description, category, unit').eq('item_number', lot.product_id).limit(1)
       : Promise.resolve({ data: null, error: null }),
   ]);
 
@@ -285,17 +285,17 @@ router.post('/:lotNumber/notice', authenticateToken, requireRole('admin'), async
 });
 
 // ── PATCH /api/lots/products/:itemNumber/ftl ──────────────────────────────────
-// Toggle is_ftl_product flag on a seafood_inventory item.
+// Toggle is_ftl_regulated flag on a products item.
 // Admin only — determines whether lot assignment is required on orders.
 router.patch('/products/:itemNumber/ftl', authenticateToken, requireRole('admin'), validateBody(lotFtlPatchBodySchema), async (req, res) => {
   const { itemNumber } = req.params;
   const isFtl = req.validated.body.is_ftl_product;
 
   const { data, error } = await supabase
-    .from('seafood_inventory')
-    .update({ is_ftl_product: isFtl })
+    .from('products')
+    .update({ is_ftl_regulated: isFtl })
     .eq('item_number', itemNumber)
-    .select('item_number, description, is_ftl_product')
+    .select('item_number, description, is_ftl_regulated')
     .single();
 
   if (error) return res.status(500).json({ error: error.message });
