@@ -6,6 +6,11 @@ export type InventoryItem = {
   category?: string;
   on_hand_qty?: number | string;
   cost?: number | string;
+  base_cost?: number | string;
+  landed_cost?: number | string;
+  lot_cost?: number | string;
+  market_cost?: number | string;
+  real_cost?: number | string;
   unit?: string;
   is_ftl_product?: boolean;
   is_catch_weight?: boolean;
