@@ -152,7 +152,7 @@ async function loadChatContext(message, context = {}) {
       : Promise.resolve([]),
     shouldLoadInventory
       ? runScopedQuery(
-        supabase.from('seafood_inventory')
+        supabase.from('products')
           .select('item_number,description,on_hand_qty,unit,category')
           .order('description', { ascending: true }),
         context
@@ -208,7 +208,7 @@ async function loadChatContext(message, context = {}) {
       : Promise.resolve([]),
     searchTerms.length
       ? searchTableByTerms({
-        table: 'seafood_inventory',
+        table: 'products',
         field: 'description',
         select: 'item_number,description,on_hand_qty,unit,category',
         terms: searchTerms,
@@ -397,7 +397,7 @@ router.post('/chat', authenticateToken, requireRole('admin', 'manager'), async (
 router.post('/inventory-analysis', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('inventory-analysis'), async (req, res) => {
   try {
     const { data: products, error: pErr } = await supabase
-      .from('seafood_inventory')
+      .from('products')
       .select('item_number,description,category,unit,cost,on_hand_qty')
       .order('category');
     if (pErr) return res.status(500).json({ error: pErr.message });
@@ -638,7 +638,7 @@ router.post('/markdown-recommendations', authenticateToken, requireRole('admin',
 
     const itemNumbers = [...new Set(expiringLots.map((l) => l.item_number))];
     const { data: products } = await supabase
-      .from('seafood_inventory')
+      .from('products')
       .select('item_number,description,on_hand_qty,unit,cost')
       .in('item_number', itemNumbers);
 
@@ -699,7 +699,7 @@ router.post('/invoice-followup', authenticateToken, requireRole('admin', 'manage
 router.get('/reorder-alerts', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('reorder-alerts'), async (req, res) => {
   try {
     const { data: products, error: pErr } = await supabase
-      .from('seafood_inventory')
+      .from('products')
       .select('item_number,description,on_hand_qty,unit,cost')
       .order('description');
     if (pErr) return res.status(500).json({ error: pErr.message });

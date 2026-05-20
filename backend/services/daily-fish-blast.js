@@ -78,7 +78,7 @@ async function fetchReceivedSinceCutoff(cutoff, scope = {}) {
 
   const itemNumbers = [...new Set(data.map((r) => r.item_number))];
   const inventoryQuery = supabase
-    .from('seafood_inventory')
+    .from('products')
     .select('item_number, description, unit, company_id, location_id')
     .in('item_number', itemNumbers);
   const { data: inventory } = await applyScope(inventoryQuery, scope);
