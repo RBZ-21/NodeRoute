@@ -16,6 +16,7 @@ const {
   transferInventoryLedgerEntry,
   toNumber,
 } = require('../services/inventory-ledger');
+const { depleteLotsFefo } = require('../services/lot-depletion');
 const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
@@ -609,16 +610,53 @@ router.post('/:id/pick', authenticateToken, requireRole('admin', 'manager'), val
   const trimmedNotes = String(notes || '').trim();
 
   try {
+    // Fetch item to check lot_item flag
+    const { data: item, error: itemErr } = await supabase
+      .from('products')
+      .select('item_number, lot_item, description')
+      .eq('item_number', req.params.id)
+      .single();
+    if (itemErr || !item) return res.status(404).json({ error: 'Product not found' });
+
+    let lotId = null;
+
+    if (item.lot_item === 'Y') {
+      // FEFO: deplete lots before touching master stock
+      const fefo = await depleteLotsFefo(supabase, req.params.id, qty, {
+        createdBy: req.user.name || req.user.email,
+        context: req.context,
+      });
+
+      if (fefo.remaining > 0) {
+        return res.status(422).json({
+          error: `Insufficient lot stock for ${item.description}. `
+            + `${qty - fefo.remaining} of ${qty} units available across active lots. `
+            + `Add a lot receipt before picking.`,
+          requires_lot: true,
+          qty_available: parseFloat((qty - fefo.remaining).toFixed(4)),
+          depleted_lots: fefo.depleted,
+        });
+      }
+
+      // Use the first depleted lot for the ledger history entry
+      lotId = fefo.depleted[0]?.lot_id || null;
+    }
+
     const ledger = await applyInventoryLedgerEntry({
       itemNumber: req.params.id,
       deltaQty: -qty,
       changeType: 'pick',
       notes: trimmedNotes || (orderRef ? `Order pick ${orderRef}` : 'Order pick'),
       createdBy: req.user.name || req.user.email,
+      lotId,
       context: req.context,
     });
+
     await triggerReorderForItemNumber(req.params.id, req.context);
-    res.json(ledger.item_after);
+    res.json({
+      ...ledger.item_after,
+      depleted_lots: lotId ? [{ lot_id: lotId }] : [],
+    });
   } catch (ledgerErr) {
     if (ledgerErr.code === 'LEDGER_ITEM_NOT_FOUND') return res.status(404).json({ error: 'Product not found' });
     if (ledgerErr.code === 'LEDGER_NEGATIVE_STOCK') return res.status(400).json({ error: ledgerErr.message });
