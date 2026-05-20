@@ -283,7 +283,7 @@ module.exports = function buildOpsPurchasingOrderRouter() {
       }
     }
 
-    const { data: inventory, error: invErr } = await supabase.from('seafood_inventory').select('*');
+    const { data: inventory, error: invErr } = await supabase.from('products').select('*');
     if (invErr) return res.status(500).json({ error: invErr.message });
     const inventoryRows = inventory || [];
     const receiptLines = [];
@@ -368,7 +368,7 @@ module.exports = function buildOpsPurchasingOrderRouter() {
           updated_at: new Date().toISOString(),
         };
         const { data: inserted, error: insertError } = await supabase
-          .from('seafood_inventory')
+          .from('products')
           .insert([insertPayload])
           .select()
           .single();

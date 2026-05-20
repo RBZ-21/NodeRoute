@@ -24,10 +24,6 @@ const {
   rowMatchesContext,
 } = require('../services/operating-context');
 
-function isMissingFtlColumnError(error) {
-  return !!error?.message && error.message.includes('seafood_inventory.is_ftl_product does not exist');
-}
-
 function isMissingLotSourcePoColumnError(error) {
   return !!error?.message && String(error.message).includes('lot_codes.source_po_number does not exist');
 }
@@ -151,14 +147,9 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
   const resolvedPoNumber = providedPoNumber || await generateUniquePurchaseOrderNumber();
   const vendorRecord = await findVendorByName(vendor, req.context || {});
 
-  let { data: inventory, error: invErr } = await supabase
-    .from('seafood_inventory')
-    .select('item_number, description, on_hand_qty, cost, unit, is_ftl_product, company_id, location_id');
-  if (isMissingFtlColumnError(invErr)) {
-    ({ data: inventory, error: invErr } = await supabase
-      .from('seafood_inventory')
-      .select('item_number, description, on_hand_qty, cost, unit, company_id, location_id'));
-  }
+  const { data: inventory, error: invErr } = await supabase
+    .from('products')
+    .select('item_number, description, on_hand_qty, cost, unit, is_ftl_regulated, company_id, location_id');
   if (invErr) return res.status(500).json({ error: invErr.message });
 
   const invMap = {};
@@ -206,16 +197,16 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
       const itemNumber = 'PO-' + Date.now().toString(36).toUpperCase() + '-' + Math.random().toString(36).slice(2, 5).toUpperCase();
       resolvedItemNumber = itemNumber;
 
-      const inventoryInsert = await insertRecordWithOptionalScope(supabase, 'seafood_inventory', {
-        item_number:    itemNumber,
-        description:    desc,
-        category:       item.category || 'Other',
-        unit:           item.unit || 'lb',
-        cost:           unitPrice > 0 ? unitPrice : 0,
-        on_hand_qty:    0,
-        on_hand_weight: 0,
-        lot_item:       LOT_REQUIRED.test(desc) ? 'Y' : 'N',
-        is_ftl_product: false,
+      const inventoryInsert = await insertRecordWithOptionalScope(supabase, 'products', {
+        item_number:      itemNumber,
+        name:             desc,
+        category:         item.category || 'Other',
+        unit:             item.unit || 'lb',
+        cost:             unitPrice > 0 ? unitPrice : 0,
+        on_hand_qty:      0,
+        on_hand_weight:   0,
+        lot_item:         LOT_REQUIRED.test(desc) ? 'Y' : 'N',
+        is_ftl_regulated: false,
       }, req.context);
       const inserted = inventoryInsert.data;
       const insErr = inventoryInsert.error;

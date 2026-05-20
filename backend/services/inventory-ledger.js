@@ -33,7 +33,7 @@ async function fetchInventoryByItemNumber(itemNumber, context = null) {
   const normalized = String(itemNumber || '').trim();
   if (!normalized) throw formatLedgerError('item_number is required', 'LEDGER_INVALID_ITEM');
   const query = supabase
-    .from('seafood_inventory')
+    .from('products')
     .select('*')
     .eq('item_number', normalized);
   const { data, error } = await scopeQuery(query, context)
@@ -88,7 +88,7 @@ async function applyInventoryLedgerEntry({
   if (nextCost !== prevCost) updatePayload.cost = nextCost;
 
   const updateQuery = supabase
-    .from('seafood_inventory')
+    .from('products')
     .update(updatePayload)
     .eq('item_number', item.item_number);
   const { data: updated, error: updateErr } = await scopeQuery(updateQuery, context)
