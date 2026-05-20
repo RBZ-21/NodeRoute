@@ -415,7 +415,7 @@ function summarizeVendorPo(po) {
 async function loadInventoryAndUsage(lookbackDays) {
   const lookbackStart = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
   const [{ data: inventory, error: invErr }, { data: orders, error: ordErr }] = await Promise.all([
-    supabase.from('seafood_inventory').select('*'),
+    supabase.from('products').select('*'),
     supabase.from('orders').select('items, created_at').gte('created_at', lookbackStart),
   ]);
   if (invErr) throw new Error(invErr.message);

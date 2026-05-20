@@ -77,10 +77,6 @@ function lotMapKey(value) {
   return normalizeText(value);
 }
 
-function isMissingFtlColumnError(error) {
-  return !!error?.message && error.message.includes('seafood_inventory.is_ftl_product does not exist');
-}
-
 async function triggerReorderForOrderItems(items, context) {
   const productIds = new Set();
   const itemNumbers = new Set();
@@ -120,15 +116,14 @@ async function validateFtlLots(items) {
 
   // Fetch FTL flags for all referenced products in one query
   const { data: products, error: prodErr } = await supabase
-    .from('seafood_inventory')
-    .select('item_number, description, is_ftl_product')
+    .from('products')
+    .select('item_number, description, is_ftl_regulated')
     .in('item_number', itemNumbers);
 
-  if (isMissingFtlColumnError(prodErr)) return null;
   if (prodErr) return `Could not verify FTL product status: ${prodErr.message}`;
 
   const ftlSet = new Set(
-    (products || []).filter((p) => p.is_ftl_product).map((p) => p.item_number)
+    (products || []).filter((p) => p.is_ftl_regulated).map((p) => p.item_number)
   );
 
   if (!ftlSet.size) return null; // no FTL products in this order — nothing to check
@@ -331,7 +326,7 @@ async function findInventoryMatchForFulfillment(item) {
   const explicitProductId = normalizeText(item?.product_id);
   if (explicitProductId) {
     const byId = await supabase
-      .from('seafood_inventory')
+      .from('products')
       .select('id,item_number,description,on_hand_qty,cost')
       .eq('id', explicitProductId)
       .single();
@@ -341,7 +336,7 @@ async function findInventoryMatchForFulfillment(item) {
   const explicitItemNumber = normalizeText(item?.item_number);
   if (explicitItemNumber) {
     const byNumber = await supabase
-      .from('seafood_inventory')
+      .from('products')
       .select('id,item_number,description,on_hand_qty,cost')
       .eq('item_number', explicitItemNumber)
       .single();
@@ -351,7 +346,7 @@ async function findInventoryMatchForFulfillment(item) {
   const name = normalizeText(item?.name || item?.description);
   if (!name) return null;
   const byName = await supabase
-    .from('seafood_inventory')
+    .from('products')
     .select('id,item_number,description,on_hand_qty,cost')
     .ilike('description', name)
     .limit(1);

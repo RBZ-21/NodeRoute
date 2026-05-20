@@ -140,7 +140,7 @@ module.exports = function buildOpsAdminRouter() {
       return res.status(400).json({ error: 'countedItems is required' });
     }
 
-    const { data: inventory, error: invErr } = await supabase.from('seafood_inventory').select('*');
+    const { data: inventory, error: invErr } = await supabase.from('products').select('*');
     if (invErr) return res.status(500).json({ error: invErr.message });
 
     const scopedInventory = filterRowsByContext(inventory || [], req.context);
