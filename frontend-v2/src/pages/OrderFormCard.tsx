@@ -327,6 +327,10 @@ export function OrderFormCard({
                 const isCw     = line.isCatchWeight || catchWeightSet.has(productLookupKey);
                 const lots     = lotsCache[line.itemNumber.trim()] || [];
                 const needsLot = isFtl && !line.lotId;
+                const lineProduct = products.find((p) => productSelectionKey(p) === line.productId)
+                  || (line.itemNumber.trim() ? products.find((p) => normalizeText(p.item_number) === line.itemNumber.trim()) : undefined);
+                const landedCost = lineProduct ? asNumber(lineProduct.landed_cost) : 0;
+                const realCost   = lineProduct ? asNumber(lineProduct.real_cost)   : 0;
                 const lineTotal = isCw
                   ? asMoney(asNumber(line.estimatedWeight) * asNumber(line.pricePerLb))
                   : asMoney((line.unit === 'lb' ? asNumber(line.requestedWeight) : asNumber(line.quantity)) * asNumber(line.unitPrice));
@@ -414,6 +418,12 @@ export function OrderFormCard({
                       {isCw
                         ? <span className="text-sm">{lineTotal}<span className="ml-1 text-xs text-muted-foreground">(est.)</span></span>
                         : lineTotal}
+                      {(landedCost > 0 || realCost > 0) && (
+                        <div className="mt-0.5 text-[11px] leading-tight text-muted-foreground">
+                          {landedCost > 0 && <div title="Landed cost: base + freight, duties, handling">Landed {asMoney(landedCost)}</div>}
+                          {realCost   > 0 && <div title="Real cost: true all-in cost after overrides">Real {asMoney(realCost)}</div>}
+                        </div>
+                      )}
                     </TableCell>
                     <TableCell>
                       <Input value={line.notes} onChange={(e) => updateLine(index, 'notes', e.target.value)} placeholder="Optional" />
