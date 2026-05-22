@@ -91,6 +91,16 @@ async function runScopedQuery(query, context) {
   return filterRowsByContext(data || [], context);
 }
 
+async function runOptionalScopedQuery(query, context) {
+  try {
+    const { data, error } = await query;
+    if (error) return [];
+    return filterRowsByContext(data || [], context);
+  } catch {
+    return [];
+  }
+}
+
 async function searchTableByTerms({ table, field, select, terms, context, limit = 5, orderField = null }) {
   const matches = [];
   for (const term of terms || []) {
@@ -101,6 +111,59 @@ async function searchTableByTerms({ table, field, select, terms, context, limit 
     if (matches.length >= limit) break;
   }
   return uniqBy(matches, (row) => row.id || row.item_number || row.customer_number || row.po_number || row.name).slice(0, limit);
+}
+
+const CHAT_INVENTORY_SELECT = 'id,item_number,description,on_hand_qty,unit,category,company_id,location_id';
+
+function normalizeChatInventoryItem(item) {
+  return {
+    ...item,
+    description: item.description || item.name || item.item_number || 'Unknown item',
+  };
+}
+
+async function loadChatInventory(context) {
+  const [products, legacyInventory] = await Promise.all([
+    runOptionalScopedQuery(
+      supabase.from('products')
+        .select(CHAT_INVENTORY_SELECT)
+        .order('description', { ascending: true }),
+      context
+    ),
+    runOptionalScopedQuery(
+      supabase.from('seafood_inventory')
+        .select(CHAT_INVENTORY_SELECT)
+        .order('description', { ascending: true }),
+      context
+    ),
+  ]);
+
+  return uniqBy([...products, ...legacyInventory].map(normalizeChatInventoryItem), (row) => row.id || row.item_number);
+}
+
+async function searchInventoryByTerms({ terms, context, limit = 5 }) {
+  const matches = [];
+  for (const term of terms || []) {
+    const [products, legacyInventory] = await Promise.all([
+      runOptionalScopedQuery(
+        supabase.from('products')
+          .select(CHAT_INVENTORY_SELECT)
+          .ilike('description', `%${term}%`)
+          .limit(limit),
+        context
+      ),
+      runOptionalScopedQuery(
+        supabase.from('seafood_inventory')
+          .select(CHAT_INVENTORY_SELECT)
+          .ilike('description', `%${term}%`)
+          .limit(limit),
+        context
+      ),
+    ]);
+    matches.push(...products, ...legacyInventory);
+    if (matches.length >= limit) break;
+  }
+  return uniqBy(matches.map(normalizeChatInventoryItem), (row) => row.id || row.item_number).slice(0, limit);
 }
 
 function buildChatOverview({ recentOrders, overdueInvoices, lowInventory, activeRoutes, creditHoldCustomers, vendorPurchaseOrders }) {
@@ -151,12 +214,7 @@ async function loadChatContext(message, context = {}) {
       )
       : Promise.resolve([]),
     shouldLoadInventory
-      ? runScopedQuery(
-        supabase.from('products')
-          .select('item_number,description,on_hand_qty,unit,category')
-          .order('description', { ascending: true }),
-        context
-      )
+      ? loadChatInventory(context)
       : Promise.resolve([]),
     shouldLoadInvoices
       ? runScopedQuery(
@@ -207,13 +265,7 @@ async function loadChatContext(message, context = {}) {
       })
       : Promise.resolve([]),
     searchTerms.length
-      ? searchTableByTerms({
-        table: 'products',
-        field: 'description',
-        select: 'item_number,description,on_hand_qty,unit,category',
-        terms: searchTerms,
-        context,
-      })
+      ? searchInventoryByTerms({ terms: searchTerms, context })
       : Promise.resolve([]),
     searchTerms.length
       ? searchTableByTerms({
