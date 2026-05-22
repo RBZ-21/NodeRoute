@@ -9,11 +9,15 @@ export default defineConfig(({ mode }) => {
   const rootEnv = loadEnv(mode, resolve(__dirname, '..'), '');
   const env = { ...rootEnv, ...frontendEnv };
   const hasSentryReleaseConfig = !!(env.SENTRY_AUTH_TOKEN && env.SENTRY_ORG && env.SENTRY_PROJECT);
+  const shouldUploadSentrySourcemaps =
+    env.CI === 'true' &&
+    env.SENTRY_UPLOAD_SOURCEMAPS === 'true' &&
+    hasSentryReleaseConfig;
 
   return {
     plugins: [
       react(),
-      ...(hasSentryReleaseConfig
+      ...(shouldUploadSentrySourcemaps
         ? [
             sentryVitePlugin({
               authToken: env.SENTRY_AUTH_TOKEN,
