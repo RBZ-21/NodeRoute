@@ -22,6 +22,26 @@ const {
 } = require('./payments-shared');
 const creditEngine = require('../../services/creditEngine');
 
+function portalCompanyId(context = {}) {
+  return context.activeCompanyId || context.companyId || '';
+}
+
+function portalLocationId(context = {}) {
+  return context.activeLocationId || context.locationId || '';
+}
+
+function scopedInvoiceUpdate(invoiceId, portalContext, updates) {
+  let query = supabase
+    .from('invoices')
+    .update(updates)
+    .eq('id', invoiceId);
+  const companyId = portalCompanyId(portalContext);
+  const locationId = portalLocationId(portalContext);
+  if (companyId) query = query.eq('company_id', companyId);
+  if (locationId) query = query.eq('location_id', locationId);
+  return query;
+}
+
 module.exports = function buildPortalPaymentCollectionRouter({ authenticatePortalToken }) {
   const router = express.Router();
 
@@ -74,8 +94,8 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
               source: 'autopay_charge_now',
               customer_email: req.customerEmail,
               invoice_id: invoice.id,
-              company_id: req.portalContext.companyId || '',
-              location_id: req.portalContext.activeLocationId || '',
+              company_id: portalCompanyId(req.portalContext),
+              location_id: portalLocationId(req.portalContext),
             },
             idempotencyKey: `portal-autopay-${invoice.id}-${Date.now()}`,
           });
@@ -92,7 +112,14 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
           });
 
           if (status === 'succeeded') {
-            await supabase.from('invoices').update({ status: 'paid', sent_at: new Date().toISOString() }).eq('id', invoice.id);
+            const paidAt = new Date().toISOString();
+            await scopedInvoiceUpdate(invoice.id, req.portalContext, {
+              status: 'paid',
+              sent_at: paidAt,
+              paid_at: paidAt,
+              payment_status: 'paid',
+              stripe_payment_intent_id: intent.id,
+            });
           }
 
           runningTotal += amount;
@@ -169,8 +196,8 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
           metadata: {
             source: 'portal_checkout',
             customer_email: req.customerEmail,
-            company_id: req.portalContext.companyId || '',
-            location_id: req.portalContext.activeLocationId || '',
+            company_id: portalCompanyId(req.portalContext),
+            location_id: portalLocationId(req.portalContext),
           },
         });
 
@@ -255,8 +282,8 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
           source: 'portal_invoice_pay',
           customer_email: req.customerEmail,
           invoice_id: invoiceRow.id,
-          company_id: req.portalContext.companyId || '',
-          location_id: req.portalContext.activeLocationId || '',
+          company_id: portalCompanyId(req.portalContext),
+          location_id: portalLocationId(req.portalContext),
         },
         idempotencyKey: `portal-invoice-pay-${invoiceRow.id}-${Date.now()}`,
       });
@@ -273,7 +300,14 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
       });
 
       if (paymentStatus === 'succeeded') {
-        await supabase.from('invoices').update({ status: 'paid', sent_at: new Date().toISOString() }).eq('id', invoiceRow.id);
+        const paidAt = new Date().toISOString();
+        await scopedInvoiceUpdate(invoiceRow.id, req.portalContext, {
+          status: 'paid',
+          sent_at: paidAt,
+          paid_at: paidAt,
+          payment_status: 'paid',
+          stripe_payment_intent_id: intent.id,
+        });
 
         // Real-time auto-release: a portal payment may clear a credit hold.
         // Fire-and-forget — failures are logged inside the engine and must
