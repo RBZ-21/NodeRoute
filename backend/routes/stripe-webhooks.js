@@ -12,15 +12,26 @@
  *  4. Status guard — only 'open' or 'pending' invoices are eligible.
  *  5. Timestamp    — stale / missing / non-numeric t= values are rejected
  *     before constructEvent (handled in services/stripe.js).
+ *  6. Async intents — payment_intent.succeeded and payment_intent.payment_failed
+ *     reconcile invoice state from PaymentIntent metadata.
  */
 const { supabase } = require('../services/supabase');
 const { verifyWebhookSignature } = require('../services/stripe');
 const logger = require('../services/logger');
 
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
+const PAYABLE_INVOICE_STATUSES = new Set(['open', 'pending', 'signed', 'sent', 'delivered', 'overdue']);
 
 /** Record this event id; return true if it is a fresh event, false if replay. */
 async function claimEvent(eventId) {
+  const { data: existing, error: existingError } = await supabase
+    .from('stripe_webhook_events')
+    .select('event_id')
+    .eq('event_id', eventId)
+    .limit(1);
+  if (existingError) throw existingError;
+  if (Array.isArray(existing) && existing.length) return false;
+
   const { error } = await supabase
     .from('stripe_webhook_events')
     .insert({ event_id: eventId });
@@ -32,6 +43,72 @@ async function claimEvent(eventId) {
 
 /** Resolve cents → dollars rounded to 2dp. */
 const cents = (n) => Math.round(n) / 100;
+
+function paymentIntentAmount(intent) {
+  return cents(intent.amount_received || intent.amount || 0);
+}
+
+function paymentIntentFailureMessage(intent) {
+  return (
+    intent.last_payment_error?.message
+    || intent.last_payment_error?.decline_code
+    || intent.cancellation_reason
+    || intent.status
+    || 'Payment failed'
+  );
+}
+
+async function loadInvoiceForPaymentIntent(intent, eventType) {
+  const { company_id, invoice_id, location_id } = intent.metadata || {};
+  if (!invoice_id || !company_id) {
+    logger.warn({ payment_intent_id: intent.id, eventType }, 'payment_intent webhook missing invoice_id or company_id metadata');
+    return null;
+  }
+
+  const { data: invoice, error } = await supabase
+    .from('invoices')
+    .select('id, total, company_id, location_id, status, stripe_payment_intent_id')
+    .eq('id', invoice_id)
+    .single();
+  if (error || !invoice) {
+    logger.error({ invoice_id, payment_intent_id: intent.id, eventType }, 'payment_intent webhook invoice not found');
+    return null;
+  }
+
+  if (String(invoice.company_id || '') !== String(company_id || '')) {
+    logger.error({
+      invoice_id,
+      payment_intent_id: intent.id,
+      metadata_company_id: company_id,
+      invoice_company_id: invoice.company_id,
+      eventType,
+    }, 'Tenant scope violation on PaymentIntent invoice payment');
+    return null;
+  }
+
+  if (location_id && invoice.location_id && String(invoice.location_id) !== String(location_id)) {
+    logger.error({
+      invoice_id,
+      payment_intent_id: intent.id,
+      metadata_location_id: location_id,
+      invoice_location_id: invoice.location_id,
+      eventType,
+    }, 'Location scope violation on PaymentIntent invoice payment');
+    return null;
+  }
+
+  return { invoice, company_id, invoice_id, location_id };
+}
+
+function scopedInvoiceUpdate(invoiceId, companyId, locationId, updates) {
+  let query = supabase
+    .from('invoices')
+    .update(updates)
+    .eq('id', invoiceId)
+    .eq('company_id', companyId);
+  if (locationId) query = query.eq('location_id', locationId);
+  return query.select('id').single();
+}
 
 async function handleCheckoutSessionCompleted(session) {
   const { company_id, invoice_id, checkout_type } = session.metadata || {};
@@ -115,6 +192,59 @@ async function handleCheckoutSessionCompleted(session) {
   logger.info({ invoice_id }, 'checkout.session.completed: invoice marked paid');
 }
 
+async function handlePaymentIntentSucceeded(intent) {
+  const resolved = await loadInvoiceForPaymentIntent(intent, 'payment_intent.succeeded');
+  if (!resolved) return;
+  const { invoice, company_id, invoice_id, location_id } = resolved;
+
+  if (invoice.status === 'paid') {
+    logger.info({ invoice_id, payment_intent_id: intent.id }, 'payment_intent.succeeded: invoice already paid — skipping');
+    return;
+  }
+
+  if (!PAYABLE_INVOICE_STATUSES.has(String(invoice.status || '').toLowerCase())) {
+    logger.info({ invoice_id, status: invoice.status }, 'payment_intent.succeeded: invoice not in payable status — skipping');
+    return;
+  }
+
+  const amountPaid = paymentIntentAmount(intent);
+  const expected = Number(invoice.total || 0);
+  if (Math.abs(amountPaid - expected) > 0.01) {
+    logger.warn({ amountPaid, expected, invoice_id, payment_intent_id: intent.id }, 'payment_intent.succeeded: paid amount mismatch — skipping');
+    return;
+  }
+
+  const paidAt = new Date().toISOString();
+  const { error } = await scopedInvoiceUpdate(invoice_id, company_id, location_id, {
+    status: 'paid',
+    paid_at: paidAt,
+    payment_status: 'paid',
+    stripe_payment_intent_id: intent.id,
+  });
+  if (error) throw error;
+  logger.info({ invoice_id, payment_intent_id: intent.id }, 'payment_intent.succeeded: invoice marked paid');
+}
+
+async function handlePaymentIntentFailed(intent) {
+  const resolved = await loadInvoiceForPaymentIntent(intent, 'payment_intent.payment_failed');
+  if (!resolved) return;
+  const { invoice, company_id, invoice_id, location_id } = resolved;
+
+  if (invoice.status === 'paid') {
+    logger.info({ invoice_id, payment_intent_id: intent.id }, 'payment_intent.payment_failed: invoice already paid — skipping failed status');
+    return;
+  }
+
+  const { error } = await scopedInvoiceUpdate(invoice_id, company_id, location_id, {
+    payment_status: 'failed',
+    payment_failed_at: new Date().toISOString(),
+    payment_failure_reason: paymentIntentFailureMessage(intent),
+    stripe_payment_intent_id: intent.id,
+  });
+  if (error) throw error;
+  logger.warn({ invoice_id, payment_intent_id: intent.id, reason: paymentIntentFailureMessage(intent) }, 'payment_intent.payment_failed: invoice payment marked failed');
+}
+
 async function stripeWebhookHandler(req, res) {
   let event;
   try {
@@ -141,8 +271,11 @@ async function stripeWebhookHandler(req, res) {
   try {
     if (event.type === 'checkout.session.completed') {
       await handleCheckoutSessionCompleted(event.data.object);
+    } else if (event.type === 'payment_intent.succeeded') {
+      await handlePaymentIntentSucceeded(event.data.object);
+    } else if (event.type === 'payment_intent.payment_failed') {
+      await handlePaymentIntentFailed(event.data.object);
     }
-    // Add additional event type handlers here
     res.json({ received: true });
   } catch (err) {
     logger.error({ err: err.message, event_id: event.id, type: event.type }, 'Stripe webhook processing error');
