@@ -31,7 +31,7 @@ const patchSchema = z.object({
 // Returns the company_config row for the authenticated user's company.
 // Creates a default row if one does not yet exist.
 router.get('/', authenticateToken, async (req, res) => {
-  const companyId = req.context?.company_id;
+  const companyId = req.context?.activeCompanyId || req.context?.companyId;
   if (!companyId) return res.status(400).json({ error: 'No company context.' });
 
   const { data, error } = await supabase
@@ -84,7 +84,7 @@ router.patch('/', authenticateToken, requireRole('admin', 'manager'), async (req
   const companyId =
     (req.user?.role === 'superadmin' && req.query.company_id)
       ? req.query.company_id
-      : req.context?.company_id;
+      : req.context?.activeCompanyId || req.context?.companyId;
 
   if (!companyId) return res.status(400).json({ error: 'No company context.' });
 
@@ -103,7 +103,7 @@ router.patch('/', authenticateToken, requireRole('admin', 'manager'), async (req
 // Lightweight endpoint — returns only the feature-flag booleans + enabled units.
 // Used by the frontend useCompanyConfig hook for fast hydration.
 router.get('/features', authenticateToken, async (req, res) => {
-  const companyId = req.context?.company_id;
+  const companyId = req.context?.activeCompanyId || req.context?.companyId;
   if (!companyId) return res.status(400).json({ error: 'No company context.' });
 
   const { data, error } = await supabase
