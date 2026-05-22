@@ -53,7 +53,8 @@ const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB
   fileFilter: (req, file, cb) => {
-    if (!file.mimetype.startsWith('image/')) return cb(new Error('Only image files are accepted'));
+    const isAcceptedScanFile = file.mimetype === 'application/pdf' || file.mimetype.startsWith('image/');
+    if (!isAcceptedScanFile) return cb(new Error('Only image or PDF files are accepted'));
     cb(null, true);
   },
 });
@@ -96,7 +97,7 @@ const purchaseOrderConfirmSchema = z.object({
 router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
   upload.single('image'),
   async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: 'No image uploaded' });
+    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
 
     const base64   = req.file.buffer.toString('base64');
     const mimeType = req.file.mimetype || 'image/jpeg';
