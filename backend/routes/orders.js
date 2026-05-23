@@ -322,36 +322,58 @@ function allWeightsCaptured(items) {
   return Array.isArray(items) && items.length > 0 && items.every((item) => !itemNeedsActualWeight(item));
 }
 
+function normalizeInventoryMatch(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    product_id: row.product_id || row.id || null,
+    description: row.description || row.name || '',
+  };
+}
+
+async function findInventoryMatchByField(table, field, value) {
+  const result = await supabase
+    .from(table)
+    .select('id,item_number,description,on_hand_qty,cost')
+    .eq(field, value)
+    .single();
+  if (result.error || !result.data) return null;
+  return normalizeInventoryMatch(result.data);
+}
+
+async function findInventoryMatchByName(table, name) {
+  const result = await supabase
+    .from(table)
+    .select('id,item_number,description,on_hand_qty,cost')
+    .ilike('description', name)
+    .limit(1);
+  if (result.error || !Array.isArray(result.data) || !result.data.length) return null;
+  return normalizeInventoryMatch(result.data[0]);
+}
+
 async function findInventoryMatchForFulfillment(item) {
   const explicitProductId = normalizeText(item?.product_id);
   if (explicitProductId) {
-    const byId = await supabase
-      .from('products')
-      .select('id,item_number,description,on_hand_qty,cost')
-      .eq('id', explicitProductId)
-      .single();
-    if (!byId.error && byId.data) return byId.data;
+    const byId =
+      await findInventoryMatchByField('products', 'id', explicitProductId)
+      || await findInventoryMatchByField('seafood_inventory', 'id', explicitProductId);
+    if (byId) return byId;
   }
 
   const explicitItemNumber = normalizeText(item?.item_number);
   if (explicitItemNumber) {
-    const byNumber = await supabase
-      .from('products')
-      .select('id,item_number,description,on_hand_qty,cost')
-      .eq('item_number', explicitItemNumber)
-      .single();
-    if (!byNumber.error && byNumber.data) return byNumber.data;
+    const byNumber =
+      await findInventoryMatchByField('products', 'item_number', explicitItemNumber)
+      || await findInventoryMatchByField('seafood_inventory', 'item_number', explicitItemNumber);
+    if (byNumber) return byNumber;
   }
 
   const name = normalizeText(item?.name || item?.description);
   if (!name) return null;
-  const byName = await supabase
-    .from('products')
-    .select('id,item_number,description,on_hand_qty,cost')
-    .ilike('description', name)
-    .limit(1);
-  if (byName.error || !Array.isArray(byName.data) || !byName.data.length) return null;
-  return byName.data[0];
+  return (
+    await findInventoryMatchByName('products', name)
+    || await findInventoryMatchByName('seafood_inventory', name)
+  );
 }
 
 async function billingOverridesForOrderCustomer(customerName) {

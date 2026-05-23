@@ -17,11 +17,13 @@ type RequestOptions = RequestInit & {
 
 export class ApiError extends Error {
   status: number;
+  details: unknown;
 
-  constructor(message: string, status: number) {
+  constructor(message: string, status: number, details?: unknown) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.details = details;
   }
 }
 
@@ -71,14 +73,16 @@ async function requestWithRefresh<T>(path: string, options: RequestOptions = {},
 
   if (!response.ok) {
     let message = `${response.status} ${response.statusText}`;
+    let details: unknown;
     try {
       const payload = await response.json();
+      details = payload;
       message = payload.error || payload.message || message;
     } catch {
       // Fall through with the HTTP status text.
     }
 
-    throw new ApiError(message, response.status);
+    throw new ApiError(message, response.status, details);
   }
 
   if (responseType === 'blob') return response.blob() as Promise<T>;

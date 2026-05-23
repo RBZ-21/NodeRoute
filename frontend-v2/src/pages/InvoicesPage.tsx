@@ -196,7 +196,7 @@ export function InvoicesPage() {
         setFollowUpError(String((mutationError as Error)?.message || 'Could not build invoice follow-up'));
       },
     });
-  }, [followUpDraft, followUpInvoiceId, invoiceFollowUp, selected]);
+  }, [followUpDraft, followUpInvoiceId, invoiceFollowUp.isPending, invoiceFollowUp.mutate, selected]);
 
   function openInvoice(inv: Invoice) {
     setSelected(inv);
@@ -807,7 +807,7 @@ export function InvoicesPage() {
                           <div className="rounded-lg border border-border bg-background px-4 py-3">
                             <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">AR Notes</div>
                             <div className="mt-2 space-y-2">
-                              {followUpDraft.key_points.map((point, index) => (
+                              {(followUpDraft.key_points || []).map((point, index) => (
                                 <div key={`${point}-${index}`} className="text-sm text-foreground">{point}</div>
                               ))}
                             </div>

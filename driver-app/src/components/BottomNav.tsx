@@ -3,8 +3,8 @@ import { useDriverApp } from '@/hooks/useDriverApp';
 import { classNames } from '@/lib/utils';
 
 export function BottomNav() {
-  const { queuedStopNoteCount, queuedTemperatureLogCount } = useDriverApp();
-  const queuedTotal = queuedStopNoteCount + queuedTemperatureLogCount;
+  const { queuedStatusCount, queuedStopNoteCount, queuedTemperatureLogCount } = useDriverApp();
+  const queuedTotal = queuedStopNoteCount + queuedTemperatureLogCount + queuedStatusCount;
   const items = [
     { to: '/', label: 'Route' },
     { to: '/stops', label: 'Stops' },

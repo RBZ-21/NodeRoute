@@ -46,8 +46,21 @@ import {
   saveUser,
 } from '@/lib/storage';
 import { extractStopItems, findLinkedDelivery, getCurrentRoute, getRouteInvoices, isArrivedStatus, isDeliveredStatus } from '@/lib/utils';
-import type { BootstrapPayload, CompanySettings, DriverInvoice, DriverRoute, DriverStop, DriverUser, OfflineRoutePackStatus, StopDraft } from '@/types';
+import type {
+  BootstrapPayload,
+  CompanySettings,
+  DriverInvoice,
+  DriverRoute,
+  DriverStop,
+  DriverUser,
+  OfflineRoutePackStatus,
+  OfflineStatusConflict,
+  QueuedStatusAction,
+  StatusAction,
+  StopDraft,
+} from '@/types';
 import { useToast } from '@/hooks/useToast';
+import { clearOfflineStatusConflicts, clearOfflineStatusQueue, useOfflineQueue } from '@/hooks/useOfflineQueue';
 
 const defaultCompanySettings: CompanySettings = {
   forceDriverSignature: false,
@@ -71,6 +84,8 @@ type DriverAppContextValue = {
   lastSyncedAt: string | null;
   queuedTemperatureLogCount: number;
   queuedStopNoteCount: number;
+  queuedStatusCount: number;
+  statusConflicts: OfflineStatusConflict[];
   stopDrafts: StopDraft[];
   preparingOfflineRoute: boolean;
   offlineRoutePackStatus: OfflineRoutePackStatus | null;
@@ -85,6 +100,8 @@ type DriverAppContextValue = {
   refreshOfflineDrafts: () => void;
   setSelectedRouteId: (routeId: string) => void;
   stopById: (stopId: string) => DriverStop | null;
+  getStopStatusConflict: (stopId: string) => OfflineStatusConflict | null;
+  resolveStatusConflict: (stopId: string, resolution: 'keep-local' | 'accept-server') => Promise<void>;
   stopItems: (stop: DriverStop) => string[];
   markArrived: (stop: DriverStop) => Promise<void>;
   deferStopToEnd: (stop: DriverStop) => Promise<void>;
@@ -114,6 +131,13 @@ async function openBlobInNewTab(blob: Blob, fileName: string) {
   window.setTimeout(() => URL.revokeObjectURL(url), 60000);
 }
 
+function statusForAction(action: StatusAction) {
+  if (action === 'arrived') return 'arrived';
+  if (action === 'delivered' || action === 'dropoff') return 'completed';
+  if (action === 'failed') return 'failed';
+  return 'skipped';
+}
+
 export function DriverAppProvider({ children }: { children: ReactNode }) {
   const { pushToast } = useToast();
   const [token, setToken] = useState<string | null>(() => loadToken());
@@ -137,6 +161,33 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
   const currentRoute = getCurrentRoute(routes, selectedRouteId);
   const routeInvoices = getRouteInvoices(currentRoute, invoices);
   const lastSyncedAt = payload?.cachedAt || null;
+  const {
+    queuedStatusCount,
+    statusConflicts,
+    enqueueStatusAction,
+    drainOfflineStatusQueue,
+    resolveStatusConflict: resolveQueuedConflict,
+  } = useOfflineQueue({
+    isOnline,
+    driverId: user?.id || null,
+    dispatchQueuedStatus,
+    getServerStatus: (stopId) => stopById(stopId)?.status || null,
+    onSyncStart: (count) => {
+      pushToast(`Syncing ${count} queued status action${count === 1 ? '' : 's'}...`, 'info');
+    },
+    onSyncComplete: (count) => {
+      if (count > 0) {
+        pushToast(
+          count === 1
+            ? '1 queued status action synced.'
+            : `${count} queued status actions synced.`,
+          'success',
+        );
+      }
+      void refreshData(true);
+    },
+    onUnauthorized: logout,
+  });
 
   useEffect(() => {
     void initializeTokenStorage().then(({ token: storedToken }) => {
@@ -157,6 +208,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     function handleOnline() {
       setIsOnline(true);
+      void drainOfflineStatusQueue();
       void flushQueuedTemperatureLogs();
       void flushQueuedStopNoteUpdates();
     }
@@ -169,7 +221,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
       window.removeEventListener('online', handleOnline);
       window.removeEventListener('offline', handleOffline);
     };
-  }, []);
+  }, [drainOfflineStatusQueue]);
 
   function applyStopPatchLocally(stopId: string, update: Partial<DriverStop>) {
     setPayload((current) => {
@@ -348,6 +400,8 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
       clearQueuedTemperatureLogs();
       clearOfflineRoutePackStatus();
       clearQueuedStopNoteUpdates();
+      clearOfflineStatusConflicts();
+      await clearOfflineStatusQueue();
       clearAllStopDrafts();
       setToken(null);
       setUser(null);
@@ -370,11 +424,74 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     return routes.flatMap((route) => route.stops).find((stop) => stop.id === stopId) || null;
   }
 
+  function getStopStatusConflict(stopId: string) {
+    return statusConflicts.find((conflict) => conflict.stopId === stopId) || null;
+  }
+
   function stopItems(stop: DriverStop) {
     return extractStopItems(stop, invoices, deliveries);
   }
 
-  async function markArrived(stop: DriverStop) {
+  async function queueStatusAction(
+    stop: DriverStop,
+    action: StatusAction,
+    payload: Record<string, unknown> = {},
+  ) {
+    await enqueueStatusAction(stop.id, action, payload);
+    applyStopPatchLocally(stop.id, { status: statusForAction(action) });
+    pushToast(`Offline: ${stop.name || 'stop'} status queued for sync.`, 'info');
+  }
+
+  async function dispatchQueuedStatus(entry: QueuedStatusAction) {
+    const stop = stopById(entry.stopId) || { id: entry.stopId };
+
+    if (entry.action === 'arrived') {
+      await dispatchMarkArrived(stop);
+      return;
+    }
+
+    if (entry.action === 'skipped') {
+      await dispatchDeferStop(stop);
+      return;
+    }
+
+    if (entry.action === 'delivered' || entry.action === 'dropoff') {
+      await dispatchMarkDelivered(
+        stop,
+        typeof entry.payload.proofImage === 'string' ? entry.payload.proofImage : null,
+        typeof entry.payload.notes === 'string' ? entry.payload.notes : '',
+        { deliveryMode: entry.action === 'dropoff' ? 'drop_off' : 'standard' },
+      );
+      return;
+    }
+
+    await dispatchMarkFailed(
+      stop,
+      typeof entry.payload.reason === 'string' ? entry.payload.reason : '',
+      typeof entry.payload.notes === 'string' ? entry.payload.notes : '',
+    );
+  }
+
+  async function resolveStatusConflict(stopId: string, resolution: 'keep-local' | 'accept-server') {
+    const resolved = resolveQueuedConflict(stopId, resolution);
+    if (!resolved) return;
+
+    if (resolution === 'accept-server') {
+      await refreshData(true);
+      pushToast('Server status kept for this stop.', 'info');
+      return;
+    }
+
+    await enqueueStatusAction(stopId, resolved.conflict.action, {
+      ...resolved.conflict.payload,
+      conflictResolution: 'keep-local',
+    });
+    applyStopPatchLocally(stopId, { status: resolved.conflict.localStatus });
+    pushToast('Local status queued to sync again.', 'info');
+    if (navigator.onLine) void drainOfflineStatusQueue();
+  }
+
+  async function dispatchMarkArrived(stop: DriverStop) {
     await markStopArrived(stop.id);
     const linkedDelivery = findLinkedDelivery(stop, deliveries);
     if (linkedDelivery?.orderDbId) {
@@ -384,12 +501,48 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
         // Stop arrival is the source of truth; delivery status is best-effort.
       }
     }
+    applyStopPatchLocally(stop.id, { status: 'arrived', arrived_at: new Date().toISOString() });
+  }
+
+  async function markArrived(stop: DriverStop) {
+    if (!navigator.onLine) {
+      await queueStatusAction(stop, 'arrived');
+      return;
+    }
+
+    try {
+      await dispatchMarkArrived(stop);
+    } catch (error) {
+      if (!(error instanceof ApiError)) {
+        await queueStatusAction(stop, 'arrived');
+        return;
+      }
+      throw error;
+    }
     pushToast(`Marked ${stop.name || 'stop'} as arrived.`, 'success');
     await refreshData(true);
   }
 
-  async function deferStopToEnd(stop: DriverStop) {
+  async function dispatchDeferStop(stop: DriverStop) {
     await deferStop(stop.id);
+    applyStopPatchLocally(stop.id, { status: 'skipped' });
+  }
+
+  async function deferStopToEnd(stop: DriverStop) {
+    if (!navigator.onLine) {
+      await queueStatusAction(stop, 'skipped');
+      return;
+    }
+
+    try {
+      await dispatchDeferStop(stop);
+    } catch (error) {
+      if (!(error instanceof ApiError)) {
+        await queueStatusAction(stop, 'skipped');
+        return;
+      }
+      throw error;
+    }
     pushToast(`Skipped ${stop.name || 'stop'} to the end of the route.`, 'success');
     await refreshData(true);
   }
@@ -403,7 +556,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     pushToast(`Saved signature for ${stop.name || 'stop'}.`, 'success');
   }
 
-  async function markDelivered(
+  async function dispatchMarkDelivered(
     stop: DriverStop,
     proofImage: string | null,
     notes: string,
@@ -461,8 +614,44 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
       }
     }
 
+    applyStopPatchLocally(activeStop.id, {
+      status: 'completed',
+      driver_notes: combinedNotes || activeStop.driver_notes,
+      invoice_has_proof_of_delivery: proofImage ? true : activeStop.invoice_has_proof_of_delivery,
+      invoice_proof_of_delivery_uploaded_at: proofImage ? new Date().toISOString() : activeStop.invoice_proof_of_delivery_uploaded_at,
+    });
+  }
+
+  async function markDelivered(
+    stop: DriverStop,
+    proofImage: string | null,
+    notes: string,
+    options: { deliveryMode?: 'standard' | 'drop_off' } = {},
+  ) {
+    const activeStop = stopById(stop.id) || stop;
+    if (!navigator.onLine) {
+      await queueStatusAction(stop, options.deliveryMode === 'drop_off' ? 'dropoff' : 'delivered', {
+        proofImage,
+        notes,
+      });
+      return;
+    }
+
+    try {
+      await dispatchMarkDelivered(stop, proofImage, notes, options);
+    } catch (error) {
+      if (!(error instanceof ApiError)) {
+        await queueStatusAction(stop, options.deliveryMode === 'drop_off' ? 'dropoff' : 'delivered', {
+          proofImage,
+          notes,
+        });
+        return;
+      }
+      throw error;
+    }
+
     pushToast(
-      deliveryMode === 'drop_off'
+      options.deliveryMode === 'drop_off'
         ? `Marked ${activeStop.name || 'stop'} as a drop-off delivery.`
         : `Marked ${activeStop.name || 'stop'} as delivered.`,
       'success'
@@ -470,7 +659,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     await refreshData(true);
   }
 
-  async function markFailed(stop: DriverStop, reason: string, notes: string) {
+  async function dispatchMarkFailed(stop: DriverStop, reason: string, notes: string) {
     const trimmedReason = reason.trim();
     const trimmedNotes = notes.trim();
     const driverNotes = [
@@ -482,6 +671,27 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
       status: 'failed',
       driver_notes: driverNotes || `Marked failed at ${new Date().toLocaleTimeString()}`,
     });
+    applyStopPatchLocally(stop.id, {
+      status: 'failed',
+      driver_notes: driverNotes || `Marked failed at ${new Date().toLocaleTimeString()}`,
+    });
+  }
+
+  async function markFailed(stop: DriverStop, reason: string, notes: string) {
+    if (!navigator.onLine) {
+      await queueStatusAction(stop, 'failed', { reason, notes });
+      return;
+    }
+
+    try {
+      await dispatchMarkFailed(stop, reason, notes);
+    } catch (error) {
+      if (!(error instanceof ApiError)) {
+        await queueStatusAction(stop, 'failed', { reason, notes });
+        return;
+      }
+      throw error;
+    }
     pushToast(`Marked ${stop.name || 'stop'} as failed.`, 'success');
     await refreshData(true);
   }
@@ -605,6 +815,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     }
 
     await refreshData(true);
+    await drainOfflineStatusQueue();
     await flushQueuedTemperatureLogs();
     await flushQueuedStopNoteUpdates();
     pushToast('Offline work sync complete.', 'success');
@@ -640,6 +851,8 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
         lastSyncedAt,
         queuedTemperatureLogCount,
         queuedStopNoteCount,
+        queuedStatusCount,
+        statusConflicts,
         stopDrafts,
         preparingOfflineRoute,
         offlineRoutePackStatus,
@@ -654,6 +867,8 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
         refreshOfflineDrafts: refreshStopDrafts,
         setSelectedRouteId,
         stopById,
+        getStopStatusConflict,
+        resolveStatusConflict,
         stopItems,
         markArrived,
         deferStopToEnd,

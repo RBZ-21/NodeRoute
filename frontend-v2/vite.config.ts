@@ -9,11 +9,15 @@ export default defineConfig(({ mode }) => {
   const rootEnv = loadEnv(mode, resolve(__dirname, '..'), '');
   const env = { ...rootEnv, ...frontendEnv };
   const hasSentryReleaseConfig = !!(env.SENTRY_AUTH_TOKEN && env.SENTRY_ORG && env.SENTRY_PROJECT);
+  const shouldUploadSentrySourcemaps =
+    env.CI === 'true' &&
+    env.SENTRY_UPLOAD_SOURCEMAPS === 'true' &&
+    hasSentryReleaseConfig;
 
   return {
     plugins: [
       react(),
-      ...(hasSentryReleaseConfig
+      ...(shouldUploadSentrySourcemaps
         ? [
             sentryVitePlugin({
               authToken: env.SENTRY_AUTH_TOKEN,
@@ -40,6 +44,12 @@ export default defineConfig(({ mode }) => {
       globals: true,
       setupFiles: './src/setupTests.ts',
       exclude: ['**/node_modules/**', 'e2e/**', 'tests/**'],
+      reporters: ['verbose', 'hanging-process'],
+      pool: 'forks',
+      fileParallelism: false,
+      testTimeout: 30000,
+      hookTimeout: 10000,
+      teardownTimeout: 10000,
     },
     build: {
       outDir: 'dist',
