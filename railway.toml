@@ -1,5 +1,5 @@
 [build]
-buildCommand = "npm run install:all && npm run build"
+buildCommand = "npm install --include=dev && npm run build"
 
 [deploy]
 startCommand = "NODE_ENV=production node backend/server.js"

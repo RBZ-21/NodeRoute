@@ -4,13 +4,17 @@ import { MemoryRouter } from 'react-router-dom';
 import { InventoryPage } from './InventoryPage';
 import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
-const { fetchWithAuthMock, sendWithAuthMock } = vi.hoisted(() => ({
+const { fetchWithAuthMock, getUserRoleMock, hasRoleMock, sendWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
+  getUserRoleMock: vi.fn(),
+  hasRoleMock: vi.fn(),
   sendWithAuthMock: vi.fn(),
 }));
 
 vi.mock('../lib/api', () => ({
   fetchWithAuth: fetchWithAuthMock,
+  getUserRole: getUserRoleMock,
+  hasRole: hasRoleMock,
   sendWithAuth: sendWithAuthMock,
 }));
 
@@ -89,6 +93,20 @@ const ledgerResponse = {
 function mockInventoryApi() {
   fetchWithAuthMock.mockImplementation(async (url: string) => {
     if (url === '/api/inventory') return inventoryItems;
+    if (url === '/api/company-config/features') {
+      return {
+        business_types: ['seafood'],
+        enabled_units: ['lb', 'each'],
+        feat_catch_weight: true,
+        feat_fsma_lot_tracking: true,
+        feat_cold_chain_notes: false,
+        feat_alcohol_compliance: false,
+        feat_deposit_tracking: false,
+        feat_case_to_each: false,
+        catalog_template: 'seafood',
+        onboarding_completed: true,
+      };
+    }
     if (url === '/api/lots?active_only=true') return activeLots;
     if (url.startsWith('/api/inventory/ledger?')) return ledgerResponse;
     if (url === '/api/reporting/recent-sold-items?days=30') {
@@ -127,7 +145,11 @@ function renderInventoryPage() {
 describe('InventoryPage', () => {
   beforeEach(() => {
     fetchWithAuthMock.mockReset();
+    getUserRoleMock.mockReset();
+    hasRoleMock.mockReset();
     sendWithAuthMock.mockReset();
+    getUserRoleMock.mockReturnValue('admin');
+    hasRoleMock.mockReturnValue(true);
     mockInventoryApi();
   });
 

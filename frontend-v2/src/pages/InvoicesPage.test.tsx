@@ -31,7 +31,7 @@ const baseInvoices = [
     order_number: 'ORD-100',
     issue_date: todayKey,
     created_at: `${todayKey}T09:00:00.000Z`,
-    due_date: '2026-04-15',
+    due_date: '2026-06-15',
     amount: 125,
     status: 'pending',
     estimated_weight_pending: true,
@@ -65,6 +65,7 @@ const baseInvoices = [
 
 function mockInvoicesApi() {
   fetchWithAuthMock.mockImplementation(async (url: string) => {
+    if (url === '/api/ai/late-payment-risk') return { risks: [] };
     if (url.startsWith('/api/invoices')) return baseInvoices;
     return [];
   });
@@ -121,7 +122,7 @@ describe('InvoicesPage', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
     fireEvent.change(screen.getByDisplayValue('125'), { target: { value: '150' } });
-    fireEvent.change(screen.getByDisplayValue('2026-04-15'), { target: { value: '2026-04-20' } });
+    fireEvent.change(screen.getByDisplayValue('2026-06-15'), { target: { value: '2026-06-20' } });
     const statusSelect = screen.getAllByRole('combobox')[screen.getAllByRole('combobox').length - 1] as HTMLSelectElement;
     fireEvent.change(statusSelect, { target: { value: 'paid' } });
     fireEvent.click(screen.getByRole('button', { name: 'Save' }));
@@ -132,7 +133,7 @@ describe('InvoicesPage', () => {
         'PATCH',
         expect.objectContaining({
           amount: '150',
-          dueDate: '2026-04-20',
+          dueDate: '2026-06-20',
           status: 'paid',
         }),
       );

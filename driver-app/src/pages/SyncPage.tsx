@@ -21,6 +21,7 @@ export function SyncPage() {
     offlineRoutePackStatus,
     prepareOfflineRoute,
     preparingOfflineRoute,
+    queuedStatusCount,
     queuedStopNoteCount,
     queuedTemperatureLogCount,
     stopDrafts,
@@ -32,7 +33,7 @@ export function SyncPage() {
   const [syncing, setSyncing] = useState(false);
 
   const currentPackReady = offlineRoutePackStatus?.routeId === currentRoute?.id ? offlineRoutePackStatus : null;
-  const queuedTotal = queuedStopNoteCount + queuedTemperatureLogCount;
+  const queuedTotal = queuedStopNoteCount + queuedTemperatureLogCount + queuedStatusCount;
 
   useEffect(() => {
     refreshOfflineDrafts();
@@ -85,7 +86,7 @@ export function SyncPage() {
       <div className="grid gap-4">
         <div className="rounded-[2rem] bg-white p-5 shadow-card">
           <p className="text-sm font-semibold text-ink">Queued work</p>
-          <div className="mt-4 grid grid-cols-2 gap-3">
+          <div className="mt-4 grid gap-3 sm:grid-cols-3">
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Temp logs</p>
               <p className="mt-2 text-2xl font-semibold text-ink">{queuedTemperatureLogCount}</p>
@@ -93,6 +94,10 @@ export function SyncPage() {
             <div className="rounded-2xl bg-slate-50 p-4">
               <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Stop notes</p>
               <p className="mt-2 text-2xl font-semibold text-ink">{queuedStopNoteCount}</p>
+            </div>
+            <div className="rounded-2xl bg-slate-50 p-4">
+              <p className="text-xs uppercase tracking-[0.18em] text-slate-500">Statuses</p>
+              <p className="mt-2 text-2xl font-semibold text-ink">{queuedStatusCount}</p>
             </div>
           </div>
           <p className="mt-4 text-sm text-slate-600">
