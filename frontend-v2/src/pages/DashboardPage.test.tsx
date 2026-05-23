@@ -128,7 +128,7 @@ describe('DashboardPage', () => {
     expect(screen.getByText('Orders Needing Weights')).toBeInTheDocument();
     expect(screen.getByText('Weights Entered')).toBeInTheDocument();
     expect(screen.getByText('North Route')).toBeInTheDocument();
-    expect(screen.getByText('$2,000.00')).toBeInTheDocument();
+    expect(screen.getAllByText('$2,000.00').length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getByRole('button', { name: 'Orders Queue' }));
     expect(navigateMock).toHaveBeenCalledWith('/orders');

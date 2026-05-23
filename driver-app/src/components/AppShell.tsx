@@ -4,7 +4,7 @@ import { InstallPrompt } from '@/components/InstallPrompt';
 import { useDriverApp } from '@/hooks/useDriverApp';
 
 export function AppShell() {
-  const { currentRoute, isOnline, lastSyncedAt, logout, queuedStopNoteCount, queuedTemperatureLogCount, user, usingCachedData } = useDriverApp();
+  const { currentRoute, isOnline, lastSyncedAt, logout, queuedStatusCount, queuedStopNoteCount, queuedTemperatureLogCount, user, usingCachedData } = useDriverApp();
   const location = useLocation();
   const navigate = useNavigate();
   const isDetail = location.pathname.startsWith('/stops/');
@@ -40,6 +40,11 @@ export function AppShell() {
                     {queuedStopNoteCount} stop note{queuedStopNoteCount === 1 ? '' : 's'} queued
                   </span>
                 ) : null}
+                {queuedStatusCount > 0 ? (
+                  <span className="rounded-full bg-sky-100 px-3 py-1 text-sky-900">
+                    {queuedStatusCount} status action{queuedStatusCount === 1 ? '' : 's'} queued
+                  </span>
+                ) : null}
               </div>
             </div>
             <button
@@ -56,6 +61,11 @@ export function AppShell() {
           {usingCachedData && (
             <p className="mt-4 rounded-2xl bg-sand px-3 py-2 text-sm font-medium text-amber-900">
               Showing your last synced route because the network is unavailable. Route details stay available offline until the next sync.
+            </p>
+          )}
+          {!isOnline && (
+            <p className="mt-4 rounded-2xl bg-amber-100 px-3 py-2 text-sm font-semibold text-amber-950">
+              Offline: stop status changes, notes, proof, and temperature logs will queue on this device and sync when service returns.
             </p>
           )}
           {!isDetail && <div className="mt-4"><InstallPrompt /></div>}

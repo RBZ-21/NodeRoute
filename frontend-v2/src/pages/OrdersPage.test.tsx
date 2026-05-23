@@ -19,17 +19,25 @@ vi.mock('../lib/api', () => ({
 function renderOrdersPage(initialEntry = '/orders') {
   const queryClient = new QueryClient({
     defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
+      queries: { retry: false, gcTime: 0 },
+      mutations: { retry: false, gcTime: 0 },
     },
   });
-  return render(
+  const renderResult = render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter initialEntries={[initialEntry]}>
         <OrdersPage />
       </MemoryRouter>
     </QueryClientProvider>
   );
+  return {
+    queryClient,
+    ...renderResult,
+    unmount: () => {
+      renderResult.unmount();
+      queryClient.clear();
+    },
+  };
 }
 
 describe('OrdersPage', () => {
@@ -73,8 +81,11 @@ describe('OrdersPage', () => {
     expect(await screen.findByText('ORD-001')).toBeInTheDocument();
     expect(screen.getByText('ORD-002')).toBeInTheDocument();
 
-    const comboboxes = screen.getAllByRole('combobox');
-    fireEvent.change(comboboxes[comboboxes.length - 1], { target: { value: 'pending' } });
+    const statusSelect = screen.getAllByRole('combobox').find((select) => (
+      (select as HTMLSelectElement).value === 'all'
+    ));
+    if (!statusSelect) throw new Error('Expected an order status filter');
+    fireEvent.change(statusSelect, { target: { value: 'pending' } });
 
     await waitFor(() => {
       expect(screen.getByText('ORD-001')).toBeInTheDocument();

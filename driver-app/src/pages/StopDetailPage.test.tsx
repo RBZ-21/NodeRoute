@@ -34,11 +34,13 @@ type DriverAppMock = {
     businessName: string;
   };
   deferStopToEnd: typeof deferStopToEndMock;
+  getStopStatusConflict: ReturnType<typeof vi.fn>;
   isOnline: boolean;
   markArrived: typeof markArrivedMock;
   markDelivered: typeof markDeliveredMock;
   markFailed: typeof markFailedMock;
   refreshOfflineDrafts: typeof refreshOfflineDraftsMock;
+  resolveStatusConflict: ReturnType<typeof vi.fn>;
   saveStopNotes: typeof saveStopNotesMock;
   stopById: ReturnType<typeof vi.fn>;
   stopItems: typeof stopItemsMock;
@@ -55,11 +57,13 @@ function createDriverAppValue(overrides: Partial<DriverAppMock> = {}): DriverApp
       businessName: 'NodeRoute',
     },
     deferStopToEnd: deferStopToEndMock,
+    getStopStatusConflict: vi.fn(() => null),
     isOnline: true,
     markArrived: markArrivedMock,
     markDelivered: markDeliveredMock,
     markFailed: markFailedMock,
     refreshOfflineDrafts: refreshOfflineDraftsMock,
+    resolveStatusConflict: vi.fn(),
     saveStopNotes: saveStopNotesMock,
     stopById: vi.fn(() => baseStop),
     stopItems: stopItemsMock,

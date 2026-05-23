@@ -35,11 +35,13 @@ export function StopDetailPage() {
     captureSignature,
     companySettings,
     deferStopToEnd,
+    getStopStatusConflict,
     isOnline,
     markArrived,
     markDelivered,
     markFailed,
     refreshOfflineDrafts,
+    resolveStatusConflict,
     saveStopNotes,
     stopById,
     stopItems,
@@ -60,6 +62,7 @@ export function StopDetailPage() {
 
   if (!stop) return <Navigate to="/stops" replace />;
   const activeStop = stop;
+  const statusConflict = getStopStatusConflict(activeStop.id);
 
   const items = stopItems(activeStop);
   const signatureRequired = companySettings.forceDriverSignature && !activeStop.invoice_has_signature;
@@ -222,6 +225,16 @@ export function StopDetailPage() {
     }
   }
 
+  const offlineHint = !isOnline ? (
+    <span className="ml-2 inline-flex items-center gap-1 rounded-full bg-white/25 px-2 py-1 text-[11px] font-bold uppercase tracking-[0.14em]">
+      <svg aria-hidden="true" viewBox="0 0 24 24" className="h-4 w-4" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+        <path d="M17.5 19H9a6 6 0 0 1-.8-11.95 7 7 0 0 1 12.25 3.1A4.5 4.5 0 0 1 17.5 19Z" />
+        <path d="m3 3 18 18" />
+      </svg>
+      Sync later
+    </span>
+  ) : null;
+
   return (
     <section className="space-y-4">
       <Link to="/stops" className="inline-flex min-h-12 items-center rounded-2xl bg-white px-4 text-sm font-semibold text-slate-700 shadow-card">
@@ -237,6 +250,30 @@ export function StopDetailPage() {
           </div>
           <StatusBadge status={activeStop.status} />
         </div>
+        {statusConflict ? (
+          <div className="mt-4 rounded-2xl bg-rose-50 p-3 text-sm text-rose-950 ring-1 ring-rose-100">
+            <p className="font-semibold">Sync conflict - tap to resolve</p>
+            <p className="mt-1">
+              Local status: {statusConflict.localStatus}. Server status: {statusConflict.serverStatus}.
+            </p>
+            <div className="mt-3 grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => void resolveStatusConflict(activeStop.id, 'keep-local')}
+                className="min-h-10 rounded-2xl bg-rose-600 px-3 text-sm font-semibold text-white"
+              >
+                Keep local
+              </button>
+              <button
+                type="button"
+                onClick={() => void resolveStatusConflict(activeStop.id, 'accept-server')}
+                className="min-h-10 rounded-2xl bg-white px-3 text-sm font-semibold text-rose-900 ring-1 ring-rose-200"
+              >
+                Use server
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="mt-5 space-y-3 rounded-3xl bg-slate-50 p-4 text-sm text-slate-700">
           <div className="flex items-center justify-between gap-3">
@@ -380,30 +417,30 @@ export function StopDetailPage() {
 
       {!isOnline && (
         <div className="rounded-[2rem] bg-white p-4 text-sm text-slate-700 shadow-card">
-          Stop status changes still require a connection so arrival time, dwell tracking, and delivery completion stay accurate. You can keep capturing notes and proof offline.
+          You are offline. Stop status changes will be saved on this device and synced automatically when service returns.
         </div>
       )}
 
       <div className="grid grid-cols-1 gap-3 pb-4">
         <button
           type="button"
-          disabled={submitting !== null || !isOnline}
+          disabled={submitting !== null}
           onClick={() => void runAction('skipped')}
           className="min-h-12 rounded-2xl bg-white px-4 py-3 text-base font-semibold text-slate-800 ring-1 ring-slate-200 disabled:opacity-60"
         >
-          {submitting === 'skipped' ? 'Skipping stop...' : 'Skip - move to end'}
+          {submitting === 'skipped' ? 'Skipping stop...' : 'Skip - move to end'}{offlineHint}
         </button>
         <button
           type="button"
-          disabled={submitting !== null || !isOnline}
+          disabled={submitting !== null}
           onClick={() => void runAction('arrived')}
           className="min-h-12 rounded-2xl bg-amber-400 px-4 py-3 text-base font-semibold text-amber-950 disabled:opacity-60"
         >
-          {submitting === 'arrived' ? 'Saving arrival...' : 'Mark Arrived'}
+          {submitting === 'arrived' ? 'Saving arrival...' : 'Mark Arrived'}{offlineHint}
         </button>
         <button
           type="button"
-          disabled={submitting !== null || !isOnline}
+          disabled={submitting !== null}
           onClick={() => {
             if (proofBlockedByMissingInvoice) {
               pushToast('This stop requires an invoice before a proof-of-delivery photo can be saved.', 'error');
@@ -421,11 +458,11 @@ export function StopDetailPage() {
           }}
           className="min-h-12 rounded-2xl bg-emerald-500 px-4 py-3 text-base font-semibold text-white disabled:opacity-60"
         >
-          {submitting === 'delivered' ? 'Completing stop...' : deliveryButtonLabel}
+          {submitting === 'delivered' ? 'Completing stop...' : deliveryButtonLabel}{offlineHint}
         </button>
         <button
           type="button"
-          disabled={submitting !== null || !isOnline}
+          disabled={submitting !== null}
           onClick={() => {
             if (proofBlockedByMissingInvoice) {
               pushToast('This stop requires an invoice before a proof-of-delivery photo can be saved.', 'error');
@@ -439,15 +476,15 @@ export function StopDetailPage() {
           }}
           className="min-h-12 rounded-2xl bg-sky-500 px-4 py-3 text-base font-semibold text-white disabled:opacity-60"
         >
-          {submitting === 'dropoff' ? 'Recording drop off...' : 'Drop Off (No Signature)'}
+          {submitting === 'dropoff' ? 'Recording drop off...' : 'Drop Off (No Signature)'}{offlineHint}
         </button>
         <button
           type="button"
-          disabled={submitting !== null || !isOnline}
+          disabled={submitting !== null}
           onClick={() => void runAction('failed')}
           className="min-h-12 rounded-2xl bg-rose-500 px-4 py-3 text-base font-semibold text-white disabled:opacity-60"
         >
-          {submitting === 'failed' ? 'Saving failure...' : 'Mark Failed'}
+          {submitting === 'failed' ? 'Saving failure...' : 'Mark Failed'}{offlineHint}
         </button>
       </div>
 
