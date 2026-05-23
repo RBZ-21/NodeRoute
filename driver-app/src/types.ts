@@ -105,6 +105,25 @@ export type QueuedStopNoteUpdate = {
   driverNotes: string;
 };
 
+export type StatusAction = 'arrived' | 'delivered' | 'skipped' | 'dropoff' | 'failed';
+
+export type QueuedStatusAction = {
+  stopId: string;
+  action: StatusAction;
+  payload: Record<string, unknown>;
+  timestamp: number;
+  driverId: string;
+};
+
+export type OfflineStatusConflict = {
+  stopId: string;
+  localStatus: string;
+  serverStatus: string;
+  timestamp: number;
+  action: StatusAction;
+  payload: Record<string, unknown>;
+};
+
 export type StopDraft = {
   stopId: string;
   notes: string;

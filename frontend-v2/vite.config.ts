@@ -44,6 +44,12 @@ export default defineConfig(({ mode }) => {
       globals: true,
       setupFiles: './src/setupTests.ts',
       exclude: ['**/node_modules/**', 'e2e/**', 'tests/**'],
+      reporters: ['verbose', 'hanging-process'],
+      pool: 'forks',
+      fileParallelism: false,
+      testTimeout: 30000,
+      hookTimeout: 10000,
+      teardownTimeout: 10000,
     },
     build: {
       outDir: 'dist',

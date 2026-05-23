@@ -52,6 +52,7 @@ function setTrackUrl(search = '') {
 
 describe('TrackPage', () => {
   beforeEach(() => {
+    vi.useFakeTimers({ shouldAdvanceTime: true });
     fetchMock.mockReset();
     localStorage.clear();
     sessionStorage.clear();
@@ -60,6 +61,9 @@ describe('TrackPage', () => {
   });
 
   afterEach(() => {
+    vi.runOnlyPendingTimers();
+    vi.clearAllTimers();
+    vi.useRealTimers();
     vi.unstubAllGlobals();
   });
 

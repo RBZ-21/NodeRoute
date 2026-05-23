@@ -5,8 +5,8 @@ import type { ReactElement, ReactNode } from 'react';
 export function createTestQueryClient() {
   return new QueryClient({
     defaultOptions: {
-      queries: { retry: false },
-      mutations: { retry: false },
+      queries: { retry: false, gcTime: 0 },
+      mutations: { retry: false, gcTime: 0 },
     },
   });
 }
@@ -21,13 +21,19 @@ export function renderWithQueryClient(
     : ({ children }: { children: ReactNode }) => <>{children}</>;
   const { wrapper: _wrapper, ...renderOptions } = options ?? {};
 
+  const renderResult = render(
+    <QueryClientProvider client={queryClient}>
+      <Wrapper>{ui}</Wrapper>
+    </QueryClientProvider>,
+    renderOptions,
+  );
+
   return {
     queryClient,
-    ...render(
-      <QueryClientProvider client={queryClient}>
-        <Wrapper>{ui}</Wrapper>
-      </QueryClientProvider>,
-      renderOptions,
-    ),
+    ...renderResult,
+    unmount: () => {
+      renderResult.unmount();
+      queryClient.clear();
+    },
   };
 }
