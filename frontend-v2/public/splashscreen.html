@@ -25,7 +25,12 @@
       }
 
       .splash {
+        align-items: center;
+        background: #0f172a;
+        display: flex;
         height: 100vh;
+        justify-content: center;
+        position: relative;
         width: 100vw;
       }
 
@@ -35,13 +40,43 @@
         object-fit: contain;
         width: 100%;
       }
+
+      .fallback {
+        color: #f8fafc;
+        font-size: 28px;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        position: absolute;
+        text-transform: uppercase;
+      }
+
+      .video-ready .fallback {
+        display: none;
+      }
     </style>
   </head>
   <body>
-    <main class="splash" aria-label="NodeRoute is starting">
-      <video autoplay muted playsinline>
-        <source src="./Animated_Logo.mp4" type="video/mp4" />
+    <main class="splash" id="splash" aria-label="NodeRoute is starting">
+      <div class="fallback">NodeRoute</div>
+      <video id="splash-video" autoplay muted loop playsinline preload="auto" aria-hidden="true">
+        <source src="Animated_NodeRoute_Logo.mp4" type="video/mp4" />
       </video>
     </main>
+    <script>
+      const splash = document.getElementById('splash');
+      const video = document.getElementById('splash-video');
+
+      function markReady() {
+        splash.classList.add('video-ready');
+      }
+
+      if (video) {
+        video.addEventListener('loadeddata', markReady, { once: true });
+        video.addEventListener('canplay', markReady, { once: true });
+        video.play().catch(() => {
+          splash.classList.remove('video-ready');
+        });
+      }
+    </script>
   </body>
 </html>
