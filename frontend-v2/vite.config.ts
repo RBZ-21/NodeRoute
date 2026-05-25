@@ -32,8 +32,8 @@ export default defineConfig(({ mode }) => {
         '@': resolve(__dirname, 'src'),
       },
     },
-    // Tauri expects a relative base so assets load correctly in the desktop shell
-    base: mode === 'tauri' ? '/' : '/dashboard-v2/',
+    // Tauri expects a relative base so assets load correctly in the desktop shell.
+    base: mode === 'tauri' ? './' : '/dashboard-v2/',
     // Tauri dev server port -- must be locked
     server: {
       port: 5173,
