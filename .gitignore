@@ -147,3 +147,6 @@ backend/data/
 
 # Local agent worktrees
 .claude/worktrees/
+
+# Rust/Tauri build output
+frontend-v2/src-tauri/target/
