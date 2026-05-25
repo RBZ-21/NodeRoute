@@ -1,6 +1,6 @@
 declare global {
   interface Window {
-    __TAURI__?: unknown;
+    __TAURI_INTERNALS__?: unknown;
   }
 }
 import './instrument';
@@ -13,10 +13,12 @@ import { App } from './App';
 import './styles.css';
 
 async function revealTauriMainWindow() {
+  if (!window.__TAURI_INTERNALS__) return;
+
   try {
-    const { Window } = await import('@tauri-apps/api/window');
-    const main = await Window.getByLabel('main');
-    const splash = await Window.getByLabel('splashscreen');
+    const { WebviewWindow } = await import('@tauri-apps/api/webviewWindow');
+    const main = await WebviewWindow.getByLabel('main');
+    const splash = await WebviewWindow.getByLabel('splashscreen');
 
     await main?.show();
     await main?.setFocus();
@@ -46,4 +48,4 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
 window.setTimeout(() => {
   void revealTauriMainWindow();
-}, 10000);
+}, 2500);
