@@ -8,7 +8,6 @@ const { getAiScanErrorResponse } = require('../services/ai-errors');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 const { generatePurchaseOrderNumber } = require('../services/purchase-order-numbers');
 const { buildPurchaseOrderPDF } = require('../services/purchase-order-pdf');
-const { updateLeadTimesFromPurchaseOrder } = require('../services/reorderEngine');
 const {
   attachLotsToPurchaseOrder,
   findVendorByName,
@@ -105,17 +104,24 @@ router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
     try {
       const parsed = await parsePurchaseOrderImage(base64, mimeType);
       if (!Array.isArray(parsed.items)) parsed.items = [];
-      parsed.items = parsed.items.map(item => ({
-        ...item,
-        quantity:   parseFloat(item.quantity)   || 0,
-        unit_price: parseFloat(item.unit_price) || 0,
-        total:      parseFloat(item.total)      || parseFloat((parseFloat(item.quantity || 0) * parseFloat(item.unit_price || 0)).toFixed(2)),
-        unit:       item.unit || 'lb',
-        category:   item.category || 'Other',
-        item_type:  item.item_type || 'unknown',
-        lot_number: item.lot_number || null,
-        lot_number_confidence: item.lot_number_confidence || 'none',
-      }));
+      parsed.items = parsed.items.map(item => {
+        const desc = String(item.description || '').toLowerCase();
+        const isChargeLine = item.item_type === 'unknown' && (
+          /fuel|surcharge|freight|delivery fee|brokerage|handling|service fee|misc charge/i.test(desc)
+          || (parseFloat(item.quantity) === 1 && !item.unit)
+        );
+        return {
+          ...item,
+          quantity:   parseFloat(item.quantity)   || 0,
+          unit_price: parseFloat(item.unit_price) || 0,
+          total:      parseFloat(item.total)      || parseFloat((parseFloat(item.quantity || 0) * parseFloat(item.unit_price || 0)).toFixed(2)),
+          unit:       item.unit || 'lb',
+          category:   item.category || 'Other',
+          item_type:  isChargeLine ? 'charge' : (item.item_type || 'unknown'),
+          lot_number: item.lot_number || null,
+          lot_number_confidence: item.lot_number_confidence || 'none',
+        };
+      });
       if (!parsed.total_cost) {
         parsed.total_cost = parseFloat(parsed.items.reduce((s, i) => s + i.total, 0).toFixed(2));
       }
@@ -165,6 +171,12 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
   const savedItems  = [];
 
   for (const item of items) {
+    // Skip non-product charge lines (fuel surcharges, fees, etc.)
+    if (String(item.item_type || '').toLowerCase() === 'charge') {
+      savedItems.push({ ...item, skipped: true });
+      continue;
+    }
+
     const desc = (item.description || '').trim();
     if (!desc) continue;
 
@@ -295,6 +307,34 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
           lotsCreated++;
         }
       }
+
+      if (lotId || (item.lot_number && item.lot_number.trim())) {
+        const lotNumber = String(item.lot_number || '').trim();
+        if (lotNumber) {
+          const inventoryLotPayload = {
+            item_number:       resolvedItemNumber,
+            lot_number:        lotNumber,
+            supplier_name:     vendor || null,
+            received_date:     date || new Date().toISOString().slice(0, 10),
+            qty_received:      qty,
+            qty_on_hand:       qty,
+            cost_per_unit:     unitPrice > 0 ? unitPrice : 0,
+            status:            'active',
+            notes:             `Auto-created from PO confirm · ${resolvedPoNumber}`,
+            created_by:        req.user.name || req.user.email,
+            ...buildScopeFields(req.context),
+          };
+          const { error: invLotErr } = await insertRecordWithOptionalScope(
+            supabase,
+            'inventory_lots',
+            inventoryLotPayload,
+            req.context
+          );
+          if (invLotErr && invLotErr.code !== '23505') {
+            errors.push(`inventory_lots for Lot ${lotNumber}: ${invLotErr.message}`);
+          }
+        }
+      }
     }
 
     savedItems.push({
@@ -322,6 +362,7 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
     updated_by:   req.user.name || req.user.email,
     updated_at:   new Date().toISOString(),
     received_at:  new Date().toISOString(),
+    closed_at:    new Date().toISOString(),
     source_scan_id: String(scan_id || '').trim() || null,
     confirmed_by: req.user.name || req.user.email,
     ...buildScopeFields(req.context),
@@ -334,10 +375,54 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
   const po = poInsert.data;
 
   if (po?.id) {
+    // Build a single synthetic receipt from the confirmed items so the formal
+    // receiving pipeline (po_receipts -> po_receiving_lines -> po_discrepancy_log)
+    // is populated for every scan-confirmed PO.
+    const syntheticReceipt = {
+      received_by: req.user.name || req.user.email,
+      received_at: poPayload.received_at,
+      notes: notes || null,
+      scan_id: String(scan_id || '').trim() || null,
+      receipt_rules_applied: {},
+      variance_audit: {},
+      lines: savedItems
+        .filter((item) => String(item.item_type || '').toLowerCase() !== 'charge')
+        .map((item, index) => {
+          const qty = parseFloat(item.quantity) || 0;
+          return {
+            line_no: index + 1,
+            item_number: item.item_number || null,
+            product_name: (item.description || '').trim() || null,
+            lot_number: item.lot_number ? String(item.lot_number).trim() : null,
+            qty_received: qty,
+            requested_receive_qty: qty,
+            accepted_receive_qty: qty,
+            rejected_receive_qty: 0,
+            over_receipt_qty: 0,
+            remaining_before_qty: qty,
+            remaining_after_qty: 0,
+            quantity_variance_qty: 0,
+            variance_type: 'exact_receipt',
+            backordered_qty_after_receipt: 0,
+            waived_backorder_qty_applied: 0,
+            unit: item.unit || 'lb',
+            unit_cost: parseFloat(item.unit_price) || 0,
+            item_type: item.item_type || 'unknown',
+            approval_status: null,
+          };
+        }),
+    };
+
+    const syntheticPo = {
+      receipts: [syntheticReceipt],
+      receipt_rules: {},
+    };
+
     try {
-      await updateLeadTimesFromPurchaseOrder(po);
-    } catch (leadTimeErr) {
-      console.warn('[reorder] failed to update lead times from received PO:', leadTimeErr.message);
+      const { replaceReceiptAuditRows } = require('../services/purchase-order-workflows');
+      await replaceReceiptAuditRows(po.id, syntheticPo, req.context || {});
+    } catch (receiptErr) {
+      console.warn('[po-confirm] failed to write receiving pipeline rows:', receiptErr.message);
     }
   }
 
