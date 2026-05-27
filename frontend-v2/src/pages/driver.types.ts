@@ -7,6 +7,8 @@ export type DriverStop = {
   address?: string;
   notes?: string;
   door_code?: string | null;
+  driver_notes?: string | null;
+  customer_id?: string | null;
   invoice_id?: string | null;
   invoice_number?: string | null;
   invoice_status?: string | null;

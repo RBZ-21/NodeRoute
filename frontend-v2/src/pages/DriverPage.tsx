@@ -286,6 +286,7 @@ export function DriverPage() {
               onOpenSignature={setSignatureStopId}
               onUploadProofOfDelivery={promptForProofOfDelivery}
               onDownloadInvoice={(id) => void downloadInvoice(id)}
+              onRouteReordered={() => void ws.load()}
             />
           ) : null}
 

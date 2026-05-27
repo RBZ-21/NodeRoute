@@ -1,32 +1,15 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { useInventoryProducts } from '../hooks/usePurchasing';
+import { sendWithAuth } from '../lib/api';
+import { type Vendor, useSaveVendorMutation, useVendorsQuery } from '../hooks/useVendors';
 
 type VendorStatus = 'active' | 'inactive' | 'on-hold' | 'other';
-
-type Vendor = {
-  id?: string | number;
-  vendorId?: string;
-  vendor_id?: string;
-  name?: string;
-  contact?: string;
-  contactName?: string;
-  contact_name?: string;
-  email?: string;
-  phone?: string;
-  category?: string;
-  activePOs?: number | string;
-  active_pos?: number | string;
-  status?: string;
-  address?: string;
-  notes?: string;
-  payment_terms?: string;
-};
 
 const statusColors = {
   active: 'green',
@@ -63,35 +46,67 @@ function activePOs(vendor: Vendor): number {
   return toNumber(vendor.activePOs ?? vendor.active_pos);
 }
 
+function normalizeCatalogItemNumber(value: unknown): string {
+  return String(value || '').trim().toLowerCase();
+}
+
+function vendorCatalogItemNumbers(vendor: Vendor): string[] {
+  if (!Array.isArray(vendor.catalog_item_numbers)) return [];
+  return Array.from(
+    new Set(
+      vendor.catalog_item_numbers
+        .map((value) => String(value || '').trim())
+        .filter(Boolean)
+    )
+  );
+}
+
 export function VendorsPage() {
   const navigate = useNavigate();
-  const [vendors, setVendors] = useState<Vendor[]>([]);
-  const [loading, setLoading] = useState(true);
+  const vendorsQuery = useVendorsQuery();
+  const inventoryProductsQuery = useInventoryProducts();
+  const saveVendorMutation = useSaveVendorMutation();
+
+  const vendors = vendorsQuery.data ?? [];
+  const inventoryProducts = useMemo(
+    () =>
+      (inventoryProductsQuery.data ?? [])
+        .filter((product) => String(product.item_number || '').trim())
+        .sort((left, right) =>
+          String(left.description || left.item_number || '').localeCompare(String(right.description || right.item_number || ''))
+        ),
+    [inventoryProductsQuery.data],
+  );
+
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | VendorStatus>('all');
   const [categoryFilter, setCategoryFilter] = useState<'all' | string>('all');
 
-  // Edit panel
   const [selected, setSelected] = useState<Vendor | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Vendor>({});
   const [saving, setSaving] = useState(false);
 
-  async function load() {
-    setLoading(true);
-    setError('');
+  const [addingNew, setAddingNew] = useState(false);
+  const [newDraft, setNewDraft] = useState<Vendor>({});
+  const [newSaving, setNewSaving] = useState(false);
+
+  type VendorScore = { overall_grade: string; on_time_score: number; quality_score: number; price_consistency_score: number; summary: string; strengths: string[]; concerns: string[] };
+  const [vendorScores, setVendorScores] = useState<Record<string, VendorScore>>({});
+  const [scoreLoading, setScoreLoading] = useState<Record<string, boolean>>({});
+
+  async function scoreVendor(id: string) {
+    setScoreLoading((prev) => ({ ...prev, [id]: true }));
     try {
-      const data = await fetchWithAuth<Vendor[]>('/api/vendors');
-      setVendors(Array.isArray(data) ? data : []);
+      const result = await sendWithAuth<VendorScore & { vendor_id: string }>('/api/ai/vendor-score', 'POST', { vendor_id: id });
+      setVendorScores((prev) => ({ ...prev, [id]: result }));
     } catch (err) {
-      setError(String((err as Error).message || 'Could not load vendors'));
+      setError(String((err as Error).message || 'Vendor scoring failed'));
     } finally {
-      setLoading(false);
+      setScoreLoading((prev) => ({ ...prev, [id]: false }));
     }
   }
-
-  useEffect(() => { load(); }, []);
 
   const categoryOptions = useMemo(() => {
     const options = new Set<string>();
@@ -123,8 +138,7 @@ export function VendorsPage() {
     setSaving(true);
     setError('');
     try {
-      const updated = await sendWithAuth<Vendor>(`/api/vendors/${id}`, 'PATCH', draft);
-      setVendors((prev) => prev.map((v) => String(v.id) === String(id) ? { ...v, ...updated } : v));
+      const updated = await saveVendorMutation.mutateAsync({ id: String(id), draft });
       setSelected({ ...selected!, ...updated });
       setEditing(false);
       setNotice(`${draft.name || vendorName(draft)} saved.`);
@@ -132,6 +146,22 @@ export function VendorsPage() {
       setError(String((err as Error).message || 'Save failed'));
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function createVendor() {
+    setNewSaving(true);
+    setError('');
+    try {
+      await saveVendorMutation.mutateAsync({ id: undefined, draft: newDraft });
+      setAddingNew(false);
+      setNewDraft({ status: 'active', catalog_item_numbers: [] });
+      setNotice(`Vendor "${newDraft.name || 'New Vendor'}" created.`);
+      await vendorsQuery.refetch();
+    } catch (err) {
+      setError(String((err as Error).message || 'Create failed'));
+    } finally {
+      setNewSaving(false);
     }
   }
 
@@ -144,10 +174,15 @@ export function VendorsPage() {
     setNotice(`Opened new PO flow for ${vendorName(vendor)}.`);
   }
 
+  const fetchError = vendorsQuery.error
+    ? String((vendorsQuery.error as Error)?.message || 'Could not load vendors')
+    : '';
+  const displayError = error || fetchError;
+
   return (
     <div className="space-y-5">
-      {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading vendors...</div> : null}
-      {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
+      {vendorsQuery.isPending ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading vendors...</div> : null}
+      {displayError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{displayError}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
       <Card>
@@ -173,24 +208,26 @@ export function VendorsPage() {
                 {categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
               </select>
             </label>
-            <Button variant="outline" onClick={load}>Refresh</Button>
+            <Button variant="outline" onClick={() => void vendorsQuery.refetch()}>Refresh</Button>
+            <Button onClick={() => { setNewDraft({ status: 'active', catalog_item_numbers: [] }); setAddingNew(true); }}>+ Add Vendor</Button>
           </div>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Vendor ID</TableHead>
-                <TableHead>Name</TableHead>
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Vendor ID</TableHead>
+                  <TableHead>Name</TableHead>
                 <TableHead>Contact</TableHead>
-                <TableHead>Email</TableHead>
-                <TableHead>Phone</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Active POs</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Actions</TableHead>
-              </TableRow>
-            </TableHeader>
+                  <TableHead>Email</TableHead>
+                  <TableHead>Phone</TableHead>
+                  <TableHead>Category</TableHead>
+                  <TableHead>Catalog</TableHead>
+                  <TableHead>Active POs</TableHead>
+                  <TableHead>Status</TableHead>
+                  <TableHead>Actions</TableHead>
+                </TableRow>
+              </TableHeader>
             <TableBody>
               {filtered.length ? filtered.map((vendor, index) => {
                 const status = normalizeStatus(vendor.status);
@@ -202,6 +239,11 @@ export function VendorsPage() {
                     <TableCell>{vendor.email || '-'}</TableCell>
                     <TableCell>{vendor.phone || '-'}</TableCell>
                     <TableCell>{vendor.category || '-'}</TableCell>
+                    <TableCell>
+                      {vendorCatalogItemNumbers(vendor).length
+                        ? `${vendorCatalogItemNumbers(vendor).length} SKU${vendorCatalogItemNumbers(vendor).length === 1 ? '' : 's'}`
+                        : 'All inventory'}
+                    </TableCell>
                     <TableCell>{activePOs(vendor).toLocaleString()}</TableCell>
                     <TableCell><StatusBadge status={status} colorMap={statusColors} fallbackLabel="Unknown" /></TableCell>
                     <TableCell>
@@ -209,19 +251,72 @@ export function VendorsPage() {
                         <Button variant="ghost" size="sm" onClick={() => viewPOs(vendor)}>View POs</Button>
                         <Button variant="secondary" size="sm" onClick={() => newPO(vendor)}>New PO</Button>
                         <Button size="sm" onClick={() => openVendor(vendor)}>Edit</Button>
+                        {vendor.id && (
+                          <Button variant="ghost" size="sm" onClick={() => void scoreVendor(String(vendor.id))} disabled={scoreLoading[String(vendor.id)]} title="AI performance score">
+                            {scoreLoading[String(vendor.id)] ? '…' : '✦ Score'}
+                          </Button>
+                        )}
+                        {vendor.id && vendorScores[String(vendor.id)] && (
+                          <span className={`rounded-full px-2 py-0.5 text-xs font-bold ${vendorScores[String(vendor.id)].overall_grade === 'A' ? 'bg-emerald-100 text-emerald-700' : vendorScores[String(vendor.id)].overall_grade === 'B' ? 'bg-blue-100 text-blue-700' : vendorScores[String(vendor.id)].overall_grade === 'C' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
+                            {vendorScores[String(vendor.id)].overall_grade}
+                          </span>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>
                 );
               }) : (
-                <TableRow><TableCell colSpan={9} className="text-muted-foreground">No vendors found for the selected filters.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={10} className="text-muted-foreground">No vendors found for the selected filters.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
 
-      {/* ── Vendor Edit Slide-Over ── */}
+      {addingNew ? (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <div className="absolute inset-0 bg-black/30" onClick={() => setAddingNew(false)} />
+          <div className="relative z-10 flex h-full w-full max-w-md flex-col overflow-y-auto bg-background shadow-xl">
+            <div className="flex items-center justify-between border-b px-6 py-4">
+              <div>
+                <h2 className="text-lg font-semibold">New Vendor</h2>
+                <p className="text-sm text-muted-foreground">Fill in the details below to add a vendor.</p>
+              </div>
+              <div className="flex gap-2">
+                <Button size="sm" variant="outline" onClick={() => setAddingNew(false)}>Cancel</Button>
+                <Button size="sm" disabled={newSaving} onClick={createVendor}>{newSaving ? 'Saving...' : 'Save'}</Button>
+                <Button size="sm" variant="ghost" onClick={() => setAddingNew(false)}>✕</Button>
+              </div>
+            </div>
+            <div className="flex-1 space-y-4 p-6">
+              <VendorField label="Name" value={newDraft.name} editing onChange={(v) => setNewDraft((d) => ({ ...d, name: v }))} />
+              <VendorField label="Contact" value={newDraft.contact} editing onChange={(v) => setNewDraft((d) => ({ ...d, contact: v }))} />
+              <VendorField label="Email" value={newDraft.email} editing onChange={(v) => setNewDraft((d) => ({ ...d, email: v }))} />
+              <VendorField label="Phone" value={newDraft.phone} editing onChange={(v) => setNewDraft((d) => ({ ...d, phone: v }))} />
+              <VendorField label="Category" value={newDraft.category} editing onChange={(v) => setNewDraft((d) => ({ ...d, category: v }))} />
+              <VendorCatalogField
+                value={newDraft.catalog_item_numbers}
+                editing
+                products={inventoryProducts}
+                loading={inventoryProductsQuery.isPending}
+                onChange={(catalog_item_numbers) => setNewDraft((d) => ({ ...d, catalog_item_numbers }))}
+              />
+              <VendorField label="Address" value={newDraft.address} editing onChange={(v) => setNewDraft((d) => ({ ...d, address: v }))} />
+              <VendorField label="Payment Terms" value={newDraft.payment_terms} editing onChange={(v) => setNewDraft((d) => ({ ...d, payment_terms: v }))} />
+              <div className="flex items-start gap-3">
+                <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Status</span>
+                <select value={newDraft.status || 'active'} onChange={(e) => setNewDraft((d) => ({ ...d, status: e.target.value }))} className="flex-1 h-10 rounded-md border border-input bg-background px-3 text-sm">
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                  <option value="on-hold">On Hold</option>
+                </select>
+              </div>
+              <VendorField label="Notes" value={newDraft.notes} editing onChange={(v) => setNewDraft((d) => ({ ...d, notes: v }))} multiline />
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {selected ? (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/30" onClick={() => setSelected(null)} />
@@ -249,6 +344,13 @@ export function VendorsPage() {
               <VendorField label="Email" value={draft.email} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
               <VendorField label="Phone" value={draft.phone} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, phone: v }))} />
               <VendorField label="Category" value={draft.category} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, category: v }))} />
+              <VendorCatalogField
+                value={draft.catalog_item_numbers}
+                editing={editing}
+                products={inventoryProducts}
+                loading={inventoryProductsQuery.isPending}
+                onChange={(catalog_item_numbers) => setDraft((d) => ({ ...d, catalog_item_numbers }))}
+              />
               <VendorField label="Address" value={draft.address} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, address: v }))} />
               <VendorField label="Payment Terms" value={draft.payment_terms} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, payment_terms: v }))} />
               <div className="flex items-start gap-3">
@@ -284,6 +386,128 @@ function VendorField({ label, value, editing, onChange, multiline }: { label: st
         )
       ) : (
         <span className="text-sm">{value || '-'}</span>
+      )}
+    </div>
+  );
+}
+
+function VendorCatalogField({
+  value,
+  editing,
+  products,
+  loading,
+  onChange,
+}: {
+  value?: string[] | null;
+  editing: boolean;
+  products: Array<{ item_number: string; description: string; unit?: string; category?: string }>;
+  loading: boolean;
+  onChange: (value: string[]) => void;
+}) {
+  const [search, setSearch] = useState('');
+  const selectedItemNumbers = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          (Array.isArray(value) ? value : [])
+            .map((entry) => String(entry || '').trim())
+            .filter(Boolean)
+        )
+      ),
+    [value],
+  );
+  const selectedLookup = useMemo(
+    () => new Set(selectedItemNumbers.map((entry) => normalizeCatalogItemNumber(entry))),
+    [selectedItemNumbers],
+  );
+  const filteredProducts = useMemo(() => {
+    const query = search.trim().toLowerCase();
+    if (!query) return products.slice(0, 24);
+    return products.filter((product) => {
+      const haystack = `${product.description} ${product.item_number} ${product.category || ''}`.toLowerCase();
+      return haystack.includes(query);
+    });
+  }, [products, search]);
+  const selectedPreview = selectedItemNumbers.slice(0, 4).join(', ');
+
+  function toggleItem(itemNumber: string) {
+    const normalized = normalizeCatalogItemNumber(itemNumber);
+    const next = selectedItemNumbers.filter((entry) => normalizeCatalogItemNumber(entry) !== normalized);
+    if (next.length === selectedItemNumbers.length) {
+      next.push(itemNumber.trim());
+    }
+    onChange(next.sort((left, right) => left.localeCompare(right)));
+  }
+
+  return (
+    <div className="flex items-start gap-3">
+      <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Catalog</span>
+      {editing ? (
+        <div className="flex-1 space-y-2">
+          <div className="rounded-lg border border-border bg-muted/10 p-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="text-sm font-medium text-foreground">
+                {selectedItemNumbers.length
+                  ? `Scoped to ${selectedItemNumbers.length} SKU${selectedItemNumbers.length === 1 ? '' : 's'}`
+                  : 'No catalog filter yet'}
+              </div>
+              <div className="flex items-center gap-2">
+                <Button size="sm" variant="ghost" onClick={() => onChange([])} disabled={!selectedItemNumbers.length}>
+                  Clear
+                </Button>
+              </div>
+            </div>
+            <div className="mt-3 space-y-2">
+              <Input
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+                placeholder="Search catalog items"
+                aria-label="Search catalog items"
+              />
+              {loading ? (
+                <div className="rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
+                  Loading inventory items...
+                </div>
+              ) : filteredProducts.length ? (
+                <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
+                  {filteredProducts.map((product) => {
+                    const itemNumber = String(product.item_number || '').trim();
+                    const checked = selectedLookup.has(normalizeCatalogItemNumber(itemNumber));
+                    return (
+                      <label key={itemNumber} className="flex cursor-pointer items-start gap-3 rounded-md border border-border bg-background px-3 py-2 text-sm">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() => toggleItem(itemNumber)}
+                          aria-label={`${product.description} ${itemNumber}`}
+                        />
+                        <span>
+                          <span className="block font-medium text-foreground">{product.description}</span>
+                          <span className="block text-xs text-muted-foreground">
+                            #{itemNumber} · {product.category || 'Uncategorized'} · {product.unit || 'unit'}
+                          </span>
+                        </span>
+                      </label>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="rounded-md border border-dashed border-border bg-background px-3 py-4 text-sm text-muted-foreground">
+                  No inventory items matched that search.
+                </div>
+              )}
+            </div>
+          </div>
+          <div className="text-xs text-muted-foreground">
+            Leave the catalog empty to keep the PO form open to all inventory items. Assign SKUs here to narrow product suggestions to this vendor.
+          </div>
+        </div>
+      ) : (
+        <span className="text-sm">
+          {selectedItemNumbers.length
+            ? `${selectedItemNumbers.length} SKU${selectedItemNumbers.length === 1 ? '' : 's'}${selectedPreview ? ` · ${selectedPreview}` : ''}`
+            : 'All inventory'}
+        </span>
       )}
     </div>
   );

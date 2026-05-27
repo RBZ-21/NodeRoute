@@ -5,6 +5,12 @@ const LOCATION_FIELD_CANDIDATES = ['location_id', 'site_id', 'warehouse_id'];
 const LOCATION_NAME_FIELD_CANDIDATES = ['location_name', 'site_name', 'warehouse_name'];
 const LOCATION_LIST_FIELD_CANDIDATES = ['location_ids', 'site_ids', 'warehouse_ids', 'accessible_location_ids'];
 const PLATFORM_ROLE_CANDIDATES = ['platform_role', 'scope_role'];
+const {
+  DEFAULT_COMPANY_ID,
+  DEFAULT_COMPANY_NAME,
+  DEFAULT_LOCATION_ID,
+  DEFAULT_LOCATION_NAME,
+} = require('../lib/config');
 const OPTIONAL_SCOPE_FIELDS = [
   'location_id',
   'location_name',
@@ -27,6 +33,7 @@ const OPTIONAL_SCOPE_FIELDS = [
   'driver_id',
   'driver_name',
   'route_id',
+  'stop_id',
   'active_stop_ids',
   'billing_name',
   'billing_contact',
@@ -36,10 +43,13 @@ const OPTIONAL_SCOPE_FIELDS = [
   'initials',
   'recorded_by',
 ];
-const DEFAULT_COMPANY_ID = process.env.DEFAULT_COMPANY_ID || '00000000-0000-0000-0000-000000000001';
-const DEFAULT_COMPANY_NAME = process.env.DEFAULT_COMPANY_NAME || 'Default Company';
-const DEFAULT_LOCATION_ID = process.env.DEFAULT_LOCATION_ID || '00000000-0000-0000-0000-000000000101';
-const DEFAULT_LOCATION_NAME = process.env.DEFAULT_LOCATION_NAME || 'Primary Location';
+
+// Lazy-load logger to avoid circular dependency at module init time.
+let _logger = null;
+function getLogger() {
+  if (!_logger) _logger = require('./logger');
+  return _logger;
+}
 
 function firstValue(source, keys) {
   if (!source || typeof source !== 'object') return null;
@@ -106,6 +116,8 @@ function getUserOperatingContext(user) {
 
 function buildRequestContext(req, user) {
   const userContext = getUserOperatingContext(user);
+  const logger = getLogger();
+
   const requestedCompanyId = normalizeId(
     req?.headers?.['x-company-id'] ||
     req?.query?.companyId ||
@@ -116,9 +128,16 @@ function buildRequestContext(req, user) {
   if (requestedCompanyId) {
     const canUseRequestedCompany =
       userContext.isGlobalOperator ||
-      !userContext.accessibleCompanyIds.length ||
       userContext.accessibleCompanyIds.includes(requestedCompanyId);
-    if (canUseRequestedCompany) activeCompanyId = requestedCompanyId;
+    if (canUseRequestedCompany) {
+      activeCompanyId = requestedCompanyId;
+    } else {
+      // Log rejected context-shift attempts for audit visibility.
+      logger.warn(
+        { userId: user?.id, role: user?.role, requestedCompanyId, allowedCompanyIds: userContext.accessibleCompanyIds },
+        'Context shift rejected: x-company-id not in accessibleCompanyIds'
+      );
+    }
   }
 
   const requestedLocationId = normalizeId(
@@ -127,14 +146,20 @@ function buildRequestContext(req, user) {
     req?.body?.locationId ||
     null
   );
-
   let activeLocationId = userContext.locationId;
   if (requestedLocationId) {
     const canUseRequestedLocation =
       userContext.isGlobalOperator ||
-      !userContext.accessibleLocationIds.length ||
       userContext.accessibleLocationIds.includes(requestedLocationId);
-    if (canUseRequestedLocation) activeLocationId = requestedLocationId;
+    if (canUseRequestedLocation) {
+      activeLocationId = requestedLocationId;
+    } else {
+      // Log rejected context-shift attempts for audit visibility.
+      logger.warn(
+        { userId: user?.id, role: user?.role, requestedLocationId, allowedLocationIds: userContext.accessibleLocationIds },
+        'Context shift rejected: x-location-id not in accessibleLocationIds'
+      );
+    }
   }
 
   return {

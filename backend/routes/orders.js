@@ -8,14 +8,53 @@ const {
   orderCreateSchema, orderUpdateSchema, orderActualWeightSchema,
   orderSendSchema, orderFulfillSchema,
 } = require('../lib/schemas');
+// Driver-invoices endpoint (Step 14) - best placed here to avoid extra mounting.
+// This endpoint serves both drivers (restricted to their route) and admins/managers.
+async function fetchInvoicesForRoute(routeId, user) {
+  if (!routeId) return { invoices: [], orders: [] };
+  const role = String(user?.role || '').toLowerCase();
+  if (role === 'driver') {
+    // Enforce route ownership when possible
+    try {
+      const { data: route, error: routeErr } = await supabase.from('routes').select('id, driver_id').eq('id', routeId).single();
+      if (routeErr) throw routeErr;
+      if (route?.driver_id && String(route.driver_id) !== String(user?.id)) {
+        return { invoices: [], orders: [], error: 'Not authorized for this route' };
+      }
+    } catch (e) {
+      return { invoices: [], orders: [], error: (e && e.message) || 'Authorization failed' };
+    }
+  }
+  const { data: orders, error: oErr } = await supabase.from('orders').select('id, order_number, invoice_id, route_id').eq('route_id', routeId);
+  if (oErr) throw oErr;
+  const invoiceIds = (orders || []).map((o) => o.invoice_id).filter((id) => id);
+  let invoices = [];
+  if (invoiceIds.length) {
+    const { data: invs, error: iErr } = await supabase.from('invoices').select('*').in('id', invoiceIds);
+    if (iErr) throw iErr;
+    invoices = invs;
+  }
+  return { invoices, orders };
+}
+const { triggerPrintJob } = require('../services/printer');
+const printRouter = require('./print');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 const { sendInvoiceEmail } = require('../services/invoice-email');
+const { invoiceLotEntriesFromItems } = require('../services/invoice-lots');
 const {
   executeWithOptionalScope,
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
 } = require('../services/operating-context');
+
+function normalizeText(value) {
+  return String(value ?? '').trim();
+}
+
+function lotMapKey(value) {
+  return normalizeText(value);
+}
 
 function isMissingFtlColumnError(error) {
   return !!error?.message && error.message.includes('seafood_inventory.is_ftl_product does not exist');
@@ -29,7 +68,7 @@ async function validateFtlLots(items) {
 
   // Collect item_numbers that appear in this order
   const itemNumbers = items
-    .map((it) => String(it.item_number || '').trim())
+    .map((it) => normalizeText(it.item_number))
     .filter(Boolean);
 
   if (!itemNumbers.length) return null;
@@ -51,13 +90,13 @@ async function validateFtlLots(items) {
 
   // Collect lot_ids that need to be validated
   const lotIds = items
-    .filter((it) => ftlSet.has(String(it.item_number || '').trim()) && it.lot_id)
-    .map((it) => parseInt(it.lot_id, 10))
-    .filter((id) => Number.isFinite(id));
+    .filter((it) => ftlSet.has(normalizeText(it.item_number)) && normalizeText(it.lot_id))
+    .map((it) => normalizeText(it.lot_id))
+    .filter(Boolean);
 
   // Check each FTL item has a lot_id
   for (const item of items) {
-    const itemNum = String(item.item_number || '').trim();
+    const itemNum = normalizeText(item.item_number);
     if (!ftlSet.has(itemNum)) continue;
     if (!item.lot_id) {
       const prodName = (products || []).find((p) => p.item_number === itemNum)?.description || itemNum;
@@ -75,13 +114,16 @@ async function validateFtlLots(items) {
 
   if (lotErr) return `Could not verify lot assignments: ${lotErr.message}`;
 
-  const lotMap = {};
-  (lots || []).forEach((l) => { lotMap[l.id] = l; });
+  const lotMap = Object.create(null);
+  (lots || []).forEach((l) => {
+    const key = lotMapKey(l?.id);
+    if (key) lotMap[key] = l;
+  });
 
   for (const item of items) {
-    const itemNum = String(item.item_number || '').trim();
+    const itemNum = normalizeText(item.item_number);
     if (!ftlSet.has(itemNum) || !item.lot_id) continue;
-    const lotId = parseInt(item.lot_id, 10);
+    const lotId = lotMapKey(item.lot_id);
     const lot = lotMap[lotId];
     if (!lot) return `Lot ID ${item.lot_id} not found.`;
     if (lot.product_id && lot.product_id !== itemNum) {
@@ -97,7 +139,7 @@ async function enrichItemsWithLotData(items) {
   if (!Array.isArray(items) || !items.length) return items || [];
 
   const lotIds = [...new Set(
-    items.map((it) => parseInt(it.lot_id, 10)).filter((id) => Number.isFinite(id))
+    items.map((it) => normalizeText(it.lot_id)).filter(Boolean)
   )];
   if (!lotIds.length) return items;
 
@@ -106,12 +148,15 @@ async function enrichItemsWithLotData(items) {
     .select('id, lot_number, expiration_date')
     .in('id', lotIds);
 
-  const lotMap = {};
-  (lots || []).forEach((l) => { lotMap[l.id] = l; });
+  const lotMap = Object.create(null);
+  (lots || []).forEach((l) => {
+    const key = lotMapKey(l?.id);
+    if (key) lotMap[key] = l;
+  });
 
   return items.map((item) => {
-    const lotId = parseInt(item.lot_id, 10);
-    if (!Number.isFinite(lotId) || !lotMap[lotId]) return item;
+    const lotId = lotMapKey(item.lot_id);
+    if (!lotId || !lotMap[lotId]) return item;
     const lot = lotMap[lotId];
     const qtyFromLot = parseFloat(item.quantity_from_lot ?? item.requested_weight ?? item.quantity ?? 0) || 0;
     return {
@@ -185,21 +230,31 @@ function allWeightsCaptured(items) {
 }
 
 async function findInventoryMatchForFulfillment(item) {
-  const explicitItemNumber = String(item?.item_number || '').trim();
+  const explicitProductId = normalizeText(item?.product_id);
+  if (explicitProductId) {
+    const byId = await supabase
+      .from('seafood_inventory')
+      .select('id,item_number,description,on_hand_qty,cost')
+      .eq('id', explicitProductId)
+      .single();
+    if (!byId.error && byId.data) return byId.data;
+  }
+
+  const explicitItemNumber = normalizeText(item?.item_number);
   if (explicitItemNumber) {
     const byNumber = await supabase
       .from('seafood_inventory')
-      .select('item_number,description,on_hand_qty,cost')
+      .select('id,item_number,description,on_hand_qty,cost')
       .eq('item_number', explicitItemNumber)
       .single();
     if (!byNumber.error && byNumber.data) return byNumber.data;
   }
 
-  const name = String(item?.name || item?.description || '').trim();
+  const name = normalizeText(item?.name || item?.description);
   if (!name) return null;
   const byName = await supabase
     .from('seafood_inventory')
-    .select('item_number,description,on_hand_qty,cost')
+    .select('id,item_number,description,on_hand_qty,cost')
     .ilike('description', name)
     .limit(1);
   if (byName.error || !Array.isArray(byName.data) || !byName.data.length) return null;
@@ -266,6 +321,11 @@ function invoiceItemsFromOrder(order, fulfilledItems) {
         total: asMoney(weight * pricePerLb),
         is_catch_weight: true,
         weight_confirmed: hasActual,
+        item_number: it.item_number || null,
+        lot_id: it.lot_id || null,
+        lot_number: it.lot_number || null,
+        quantity_from_lot: it.quantity_from_lot || null,
+        lot_expiration: it.lot_expiration || null,
       };
     }
     const qty = itemQuantity(it);
@@ -282,6 +342,11 @@ function invoiceItemsFromOrder(order, fulfilledItems) {
       unit: it.unit || (it.requested_weight ? 'lb' : 'each'),
       unit_price: unitPrice,
       total: asMoney(qty * unitPrice),
+      item_number: it.item_number || null,
+      lot_id: it.lot_id || null,
+      lot_number: it.lot_number || null,
+      quantity_from_lot: it.quantity_from_lot || null,
+      lot_expiration: it.lot_expiration || null,
     };
   });
 
@@ -314,6 +379,7 @@ function invoicePayloadForOrder(order, fulfilledItems = null, overrides = {}) {
   const sourceItems = Array.isArray(fulfilledItems) ? fulfilledItems : (order.items || []);
   const estimatedWeightPending = sourceItems.some((it) => itemNeedsActualWeight(it));
   const items = invoiceItemsFromOrder(order, fulfilledItems);
+  const lotNumbers = invoiceLotEntriesFromItems(sourceItems);
   const totals = totalsForItems(items, taxEnabled, taxRate);
   return {
     invoice_number: overrides.invoice_number || `INV-${Date.now().toString().slice(-6)}`,
@@ -326,6 +392,7 @@ function invoicePayloadForOrder(order, fulfilledItems = null, overrides = {}) {
     billing_phone: overrides.billing_phone || null,
     billing_address: overrides.billing_address || order.customer_address || null,
     items,
+    lot_numbers: lotNumbers,
     ...totals,
     tax_enabled: taxEnabled,
     tax_rate: taxRate,
@@ -341,9 +408,23 @@ function isMissingEstimatedWeightPendingError(error) {
   return !!error?.message && error.message.includes("estimated_weight_pending");
 }
 
+function isMissingLotNumbersError(error) {
+  return !!error?.message && error.message.includes('lot_numbers');
+}
+
 function withoutEstimatedWeightPending(payload) {
   const next = { ...payload };
   delete next.estimated_weight_pending;
+  return next;
+}
+
+function withoutOptionalInvoiceFields(payload, { stripEstimatedWeightPending = false, stripLotNumbers = false } = {}) {
+  let next = { ...payload };
+  if (stripEstimatedWeightPending) next = withoutEstimatedWeightPending(next);
+  if (stripLotNumbers) {
+    next = { ...next };
+    delete next.lot_numbers;
+  }
   return next;
 }
 
@@ -391,6 +472,7 @@ async function syncOrderStop(order, req, removeOnly = false) {
     lat: parseFloat(order?.customer_lat) || 0,
     lng: parseFloat(order?.customer_lng) || 0,
     notes: stopNotes,
+    route_id: order?.route_id || null,
   };
 
   if (existingStop?.id) {
@@ -442,7 +524,16 @@ async function createOrUpdateProcessingInvoice(order, fulfilledItems, overrides,
     if (isMissingEstimatedWeightPendingError(updateResult.error)) {
       updateResult = await executeWithOptionalScope(
         (candidate) => supabase.from('invoices').update(candidate).eq('id', existingInvoice.id).select().single(),
-        withoutEstimatedWeightPending(payload)
+        withoutOptionalInvoiceFields(payload, { stripEstimatedWeightPending: true })
+      );
+    }
+    if (isMissingLotNumbersError(updateResult.error)) {
+      updateResult = await executeWithOptionalScope(
+        (candidate) => supabase.from('invoices').update(candidate).eq('id', existingInvoice.id).select().single(),
+        withoutOptionalInvoiceFields(payload, {
+          stripEstimatedWeightPending: isMissingEstimatedWeightPendingError(updateResult.error),
+          stripLotNumbers: true,
+        })
       );
     }
     if (updateResult.error) {
@@ -454,7 +545,23 @@ async function createOrUpdateProcessingInvoice(order, fulfilledItems, overrides,
 
   let invoiceInsert = await insertRecordWithOptionalScope(supabase, 'invoices', payload, req.context);
   if (isMissingEstimatedWeightPendingError(invoiceInsert.error)) {
-    invoiceInsert = await insertRecordWithOptionalScope(supabase, 'invoices', withoutEstimatedWeightPending(payload), req.context);
+    invoiceInsert = await insertRecordWithOptionalScope(
+      supabase,
+      'invoices',
+      withoutOptionalInvoiceFields(payload, { stripEstimatedWeightPending: true }),
+      req.context
+    );
+  }
+  if (isMissingLotNumbersError(invoiceInsert.error)) {
+    invoiceInsert = await insertRecordWithOptionalScope(
+      supabase,
+      'invoices',
+      withoutOptionalInvoiceFields(payload, {
+        stripEstimatedWeightPending: isMissingEstimatedWeightPendingError(invoiceInsert.error),
+        stripLotNumbers: true,
+      }),
+      req.context
+    );
   }
   if (invoiceInsert.error) {
     if (res) res.status(500).json({ error: invoiceInsert.error.message });
@@ -485,6 +592,20 @@ router.get('/', authenticateToken, async (req, res) => {
   if (!data) return;
   res.json(filterRowsByContext(data || [], req.context));
 });
+
+// Driver-visible invoices for a specific route (consolidated path for Step 14)
+router.get('/driver-invoices', authenticateToken, async (req, res) => {
+  const routeId = req.query.routeId;
+  if (!routeId) return res.status(400).json({ error: 'routeId is required' });
+  const user = req.user || {};
+  const { invoices, orders, error } = await fetchInvoicesForRoute(routeId, user)
+    .catch((err) => ({ invoices: [], orders: [], error: err?.message || 'Failed to fetch invoices' }));
+  if (error) return res.status(403).json({ error });
+  res.json({ invoices, orders });
+});
+
+// Mount basic print endpoint under /print
+router.use('/print', printRouter);
 
 router.post('/', validate(orderCreateSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { customerName, customerEmail, customerAddress, items, charges, notes } = req.body;
@@ -532,13 +653,21 @@ router.post('/', validate(orderCreateSchema), authenticateToken, requireRole('ad
     tax_enabled: taxEnabled,
     tax_rate: taxRate,
     driver_name: null,
-    route_id: null,
+    route_id: req.body.routeId || null,
     tracking_token: trackingToken,
     tracking_expires_at: trackingExpiry(),
   }, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
   if (!data) return;
+  // Trigger print job for the newly created order (best-effort, non-fatal if printing fails)
+  try {
+    await triggerPrintJob(data, enrichedItems, req.context);
+  } catch (printErr) {
+    // Do not fail the request due to print errors; log for investigation
+    // eslint-disable-next-line no-console
+    console.error('[print-trigger] failed', printErr?.message || printErr);
+  }
   try {
     await syncOrderStop({ ...data, fulfillment_type: fulfillmentType }, req);
   } catch (stopErr) {
@@ -602,7 +731,7 @@ router.patch('/:id/items/:itemIndex/actual-weight', validate(orderActualWeightSc
   );
   if (!invoice) return;
 
-  const orderStatus = allWeightsCaptured(updatedItems) ? 'in_process' : 'in_process';
+  const orderStatus = allWeightsCaptured(updatedItems) ? 'processed' : 'in_process';
   const orderWithInvoice = await updateRecord('orders', req.params.id, {
     invoice_id: invoice.id,
     status: orderStatus,
@@ -842,3 +971,6 @@ router.post('/:id/tracking-link', authenticateToken, requireRole('admin', 'manag
 });
 
 module.exports = router;
+module.exports.validateFtlLots = validateFtlLots;
+module.exports.enrichItemsWithLotData = enrichItemsWithLotData;
+module.exports.findInventoryMatchForFulfillment = findInventoryMatchForFulfillment;

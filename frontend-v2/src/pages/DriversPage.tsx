@@ -1,37 +1,10 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
-
-type DriverStatus = 'active' | 'off-duty' | 'on-break' | 'other';
-
-type Driver = {
-  id?: string | number;
-  driverId?: string;
-  driver_id?: string;
-  name?: string;
-  fullName?: string;
-  full_name?: string;
-  phone?: string;
-  email?: string;
-  status?: string;
-  assignedRoute?: string;
-  assigned_route?: string;
-  routeId?: string;
-  route_id?: string;
-  vehicle?: string;
-  vehicleName?: string;
-  vehicle_name?: string;
-  lastLocation?: string;
-  last_location?: string;
-  lat?: number | string | null;
-  lng?: number | string | null;
-  license_number?: string;
-  notes?: string;
-};
+import { type Driver, type DriverStatus, useDrivers, useUpdateDriver } from '../hooks/useDrivers';
 
 const statusColors = {
   active: 'green',
@@ -73,33 +46,15 @@ function locationLabel(driver: Driver): string {
 }
 
 export function DriversPage() {
-  const [drivers, setDrivers] = useState<Driver[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const { data: drivers = [], isLoading, isError, error, refetch } = useDrivers();
+  const updateDriver = useUpdateDriver();
+
   const [statusFilter, setStatusFilter] = useState<'all' | DriverStatus>('all');
   const [routeFilter, setRouteFilter] = useState<'all' | string>('all');
-
-  // Detail panel
   const [selected, setSelected] = useState<Driver | null>(null);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Driver>({});
-  const [saving, setSaving] = useState(false);
-
-  async function load() {
-    setLoading(true);
-    setError('');
-    try {
-      const data = await fetchWithAuth<Driver[]>('/api/drivers');
-      setDrivers(Array.isArray(data) ? data : []);
-    } catch (err) {
-      setError(String((err as Error).message || 'Could not load drivers'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { load(); }, []);
+  const [notice, setNotice] = useState('');
 
   const routeOptions = useMemo(() => {
     const unique = new Set<string>();
@@ -134,25 +89,22 @@ export function DriversPage() {
   async function saveDriver() {
     const id = selected?.id || selected?.driver_id || selected?.driverId;
     if (!id) return;
-    setSaving(true);
-    setError('');
-    try {
-      const updated = await sendWithAuth<Driver>(`/api/drivers/${id}`, 'PATCH', draft);
-      setDrivers((prev) => prev.map((d) => (String(d.id) === String(id) ? { ...d, ...updated } : d)));
-      setSelected({ ...selected!, ...updated });
-      setEditing(false);
-      setNotice(`${draft.name || driverName(draft)} saved.`);
-    } catch (err) {
-      setError(String((err as Error).message || 'Save failed'));
-    } finally {
-      setSaving(false);
-    }
+    updateDriver.mutate(
+      { id, patch: draft },
+      {
+        onSuccess: (updated) => {
+          setSelected({ ...selected!, ...updated });
+          setEditing(false);
+          setNotice(`${driverName(draft)} saved.`);
+        },
+      }
+    );
   }
 
   return (
     <div className="space-y-5">
-      {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading drivers...</div> : null}
-      {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
+      {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading drivers...</div> : null}
+      {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load drivers')}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -185,7 +137,7 @@ export function DriversPage() {
                 {routeOptions.map((route) => <option key={route} value={route}>{route}</option>)}
               </select>
             </label>
-            <Button variant="outline" onClick={load}>Refresh</Button>
+            <Button variant="outline" onClick={() => refetch()}>Refresh</Button>
           </div>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
@@ -228,7 +180,6 @@ export function DriversPage() {
         </CardContent>
       </Card>
 
-      {/* ── Driver Detail Slide-Over ── */}
       {selected ? (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/30" onClick={() => setSelected(null)} />
@@ -244,7 +195,7 @@ export function DriversPage() {
                 ) : (
                   <>
                     <Button size="sm" variant="outline" onClick={() => { setEditing(false); setDraft({ ...selected }); }}>Cancel</Button>
-                    <Button size="sm" disabled={saving} onClick={saveDriver}>{saving ? 'Saving...' : 'Save'}</Button>
+                    <Button size="sm" disabled={updateDriver.isPending} onClick={saveDriver}>{updateDriver.isPending ? 'Saving...' : 'Save'}</Button>
                   </>
                 )}
                 <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>✕</Button>

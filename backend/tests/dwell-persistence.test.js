@@ -9,7 +9,7 @@ const os = require('node:os');
 test('stops.js arrive endpoint writes to Supabase dwell_records not in-memory array', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'stops.js'), 'utf8');
   assert.ok(src.includes("from('dwell_records')"), 'arrive must query dwell_records table');
-  assert.ok(src.includes("from('dwell_records').insert("), 'arrive must insert a dwell_record row');
+  assert.ok(src.includes('.insert([{'), 'arrive must insert a dwell_record row');
 });
 
 test('stops.js depart endpoint updates existing dwell_record row in Supabase', () => {
@@ -39,11 +39,12 @@ test('stops.js arrive is idempotent — re-arrival returns existing open record'
   assert.ok(src.includes('if (existing && existing[0]) return res.json(existing[0])'), 'arrive must return early when already checked in');
 });
 
-test('server.js GET /api/dwell uses Supabase not in-memory array', () => {
-  const src = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
-  assert.ok(!src.includes('dwellRecords'), 'server.js must not reference in-memory dwellRecords');
-  assert.ok(src.includes("from('dwell_records')"), 'GET /api/dwell must query dwell_records table');
-  assert.ok(src.includes("eq('driver_id', req.user.id)"), 'GET /api/dwell must scope to driver by driver_id');
+test('GET /api/dwell uses Supabase not in-memory array', () => {
+  const serverSrc = fs.readFileSync(path.join(__dirname, '..', 'server.js'), 'utf8');
+  const dwellSrc  = fs.readFileSync(path.join(__dirname, '..', 'routes', 'dwell.js'), 'utf8');
+  assert.ok(!serverSrc.includes('dwellRecords'), 'server.js must not reference in-memory dwellRecords');
+  assert.ok(dwellSrc.includes("from('dwell_records')"), 'GET /api/dwell must query dwell_records table');
+  assert.ok(dwellSrc.includes("eq('driver_id', req.user.id)"), 'GET /api/dwell must scope to driver by driver_id');
 });
 
 // ── Demo client round-trip for dwell record lifecycle ─────────────────────────
@@ -51,7 +52,9 @@ test('server.js GET /api/dwell uses Supabase not in-memory array', () => {
 function freshSupabase() {
   const backupPath = fs.mkdtempSync(path.join(os.tmpdir(), 'noderoute-dwell-'));
   const prev = process.env.NODEROUTE_BACKUP_PATH;
+  const prevForceDemoMode = process.env.NODEROUTE_FORCE_DEMO_MODE;
   process.env.NODEROUTE_BACKUP_PATH = backupPath;
+  process.env.NODEROUTE_FORCE_DEMO_MODE = 'true';
   for (const key of Object.keys(require.cache)) {
     if (key.includes(`${path.sep}services${path.sep}supabase.js`)) delete require.cache[key];
   }
@@ -61,6 +64,8 @@ function freshSupabase() {
     cleanup() {
       if (prev === undefined) delete process.env.NODEROUTE_BACKUP_PATH;
       else process.env.NODEROUTE_BACKUP_PATH = prev;
+      if (prevForceDemoMode === undefined) delete process.env.NODEROUTE_FORCE_DEMO_MODE;
+      else process.env.NODEROUTE_FORCE_DEMO_MODE = prevForceDemoMode;
       for (const key of Object.keys(require.cache)) {
         if (key.includes(`${path.sep}services${path.sep}supabase.js`)) delete require.cache[key];
       }

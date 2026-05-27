@@ -283,7 +283,7 @@ describe('DriverPage', () => {
       expect(inputClickMock).toHaveBeenCalled();
     });
     expect(sendWithAuthMock).not.toHaveBeenCalledWith('/api/stops/stop-1/depart', 'POST', expect.anything());
-    expect(screen.getByText('A delivery photo is required before the driver can move to the next stop.')).toBeInTheDocument();
+    expect(screen.getAllByText('A delivery photo is required before the driver can move to the next stop.').length).toBeGreaterThan(0);
 
     inputClickMock.mockRestore();
   });

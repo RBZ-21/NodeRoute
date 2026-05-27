@@ -1,11 +1,11 @@
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { InvoicesPage } from './InvoicesPage';
+import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
-const { fetchWithAuthMock, navigateMock, sendWithAuthMock } = vi.hoisted(() => ({
+const { fetchWithAuthMock, sendWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
-  navigateMock: vi.fn(),
   sendWithAuthMock: vi.fn(),
 }));
 
@@ -13,14 +13,6 @@ vi.mock('../lib/api', () => ({
   fetchWithAuth: fetchWithAuthMock,
   sendWithAuth: sendWithAuthMock,
 }));
-
-vi.mock('react-router-dom', async () => {
-  const actual = await vi.importActual<typeof import('react-router-dom')>('react-router-dom');
-  return {
-    ...actual,
-    useNavigate: () => navigateMock,
-  };
-});
 
 const baseInvoices = [
   {
@@ -33,6 +25,7 @@ const baseInvoices = [
     due_date: '2026-04-15',
     amount: 125,
     status: 'pending',
+    estimated_weight_pending: true,
   },
   {
     id: 'inv-2',
@@ -59,36 +52,18 @@ describe('InvoicesPage', () => {
   beforeEach(() => {
     fetchWithAuthMock.mockReset();
     sendWithAuthMock.mockReset();
-    navigateMock.mockReset();
     vi.stubGlobal('confirm', vi.fn(() => true));
-    vi.stubGlobal('open', vi.fn());
-    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
-      if (String(url).startsWith('/api/invoices/inv-1/pdf')) {
-        return {
-          ok: true,
-          status: 200,
-          blob: async () => new Blob(['pdf-bytes'], { type: 'application/pdf' }),
-        } as Response;
-      }
-      return {
-        ok: true,
-        status: 200,
-        json: async () => ({}),
-      } as Response;
-    }));
-    vi.stubGlobal('URL', {
-      createObjectURL: vi.fn(() => 'blob:invoice-pdf'),
-      revokeObjectURL: vi.fn(),
-    } as unknown as typeof URL);
     mockInvoicesApi();
   });
 
-  it('renders invoice data, filters by status, and opens related order navigation', async () => {
-    render(
-      <MemoryRouter>
-        <InvoicesPage />
-      </MemoryRouter>
-    );
+  function renderInvoicesPage() {
+    return renderWithQueryClient(<InvoicesPage />, {
+      wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter>,
+    });
+  }
+
+  it('renders invoice data, filters by status, and opens the invoice detail panel', async () => {
+    renderInvoicesPage();
 
     expect(await screen.findByText('INV-100')).toBeInTheDocument();
     expect(screen.getAllByText('$125.00').length).toBeGreaterThan(0);
@@ -101,44 +76,60 @@ describe('InvoicesPage', () => {
     });
 
     fireEvent.change(screen.getByDisplayValue('Paid'), { target: { value: 'all' } });
-    fireEvent.click(screen.getByRole('button', { name: 'ORD-100' }));
-    expect(navigateMock).toHaveBeenCalledWith('/orders?customerId=cust-1');
+    fireEvent.click(screen.getAllByRole('button', { name: 'View / Edit' })[0]);
+    expect(await screen.findByRole('heading', { name: 'INV-100' })).toBeInTheDocument();
+    expect(screen.getByText('Blue Fin', { selector: 'p' })).toBeInTheDocument();
   });
 
-  it('supports PDF viewing, reminders, mark paid, and voiding', async () => {
+  it('supports editing and deleting an invoice', async () => {
     sendWithAuthMock
-      .mockResolvedValueOnce({})
       .mockResolvedValueOnce({})
       .mockResolvedValueOnce({});
 
-    render(
-      <MemoryRouter>
-        <InvoicesPage />
-      </MemoryRouter>
-    );
+    renderInvoicesPage();
 
     expect(await screen.findByText('INV-100')).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'View PDF' })[0]);
-    await waitFor(() => {
-      expect(fetch).toHaveBeenCalledWith('/api/invoices/inv-1/pdf', expect.any(Object));
-    });
-    expect(window.open).toHaveBeenCalledWith('blob:invoice-pdf', '_blank', 'noopener,noreferrer');
+    fireEvent.click(screen.getAllByRole('button', { name: 'View / Edit' })[0]);
+    expect(await screen.findByRole('heading', { name: 'INV-100' })).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Send Reminder' })[0]);
-    await waitFor(() => {
-      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/invoices/inv-1/remind', 'POST');
-    });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.change(screen.getByDisplayValue('125'), { target: { value: '150' } });
+    fireEvent.change(screen.getByDisplayValue('2026-04-15'), { target: { value: '2026-04-20' } });
+    const statusSelect = screen.getAllByRole('combobox')[screen.getAllByRole('combobox').length - 1] as HTMLSelectElement;
+    fireEvent.change(statusSelect, { target: { value: 'paid' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }));
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Mark Paid' })[0]);
     await waitFor(() => {
-      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/invoices/inv-1', 'PATCH', { status: 'paid' });
+      expect(sendWithAuthMock).toHaveBeenCalledWith(
+        '/api/invoices/inv-1',
+        'PATCH',
+        expect.objectContaining({
+          amount: '150',
+          dueDate: '2026-04-20',
+          status: 'paid',
+        }),
+      );
     });
-    expect(await screen.findByText('Invoice INV-100 marked as paid.')).toBeInTheDocument();
+    expect(await screen.findByText('Invoice INV-100 saved.')).toBeInTheDocument();
 
-    fireEvent.click(screen.getAllByRole('button', { name: 'Void Invoice' })[0]);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Yes' }));
     await waitFor(() => {
-      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/invoices/inv-1', 'PATCH', { status: 'void' });
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/invoices/inv-1', 'DELETE');
     });
+    expect(await screen.findByText('Invoice INV-100 deleted.')).toBeInTheDocument();
+  });
+
+  it('blocks printing while final weights are still pending', async () => {
+    renderInvoicesPage();
+
+    expect(await screen.findByText('INV-100')).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'View / Edit' })[0]);
+    expect(await screen.findByRole('heading', { name: 'INV-100' })).toBeInTheDocument();
+    expect(screen.getByText('Waiting on final weights')).toBeInTheDocument();
+    expect(screen.getByText(/Print is locked for this invoice/i)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Print / Save PDF' })).toBeDisabled();
   });
 });

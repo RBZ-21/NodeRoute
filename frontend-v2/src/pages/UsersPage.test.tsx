@@ -1,6 +1,7 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { UsersPage } from './UsersPage';
+import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
 const { fetchWithAuthMock, getUserRoleMock, sendWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
@@ -59,7 +60,7 @@ describe('UsersPage', () => {
       .mockResolvedValueOnce({})
       .mockResolvedValueOnce({ inviteUrl: 'https://invite.test/token', emailSent: false });
 
-    render(<UsersPage />);
+    renderWithQueryClient(<UsersPage />);
 
     expect(await screen.findByText('Jamie Driver')).toBeInTheDocument();
 
@@ -101,7 +102,7 @@ describe('UsersPage', () => {
   it('filters the directory and supports role updates and removal', async () => {
     sendWithAuthMock.mockResolvedValue({});
 
-    render(<UsersPage />);
+    renderWithQueryClient(<UsersPage />);
 
     expect(await screen.findByText('Jamie Driver')).toBeInTheDocument();
     fireEvent.change(screen.getByDisplayValue('All Roles'), { target: { value: 'driver' } });

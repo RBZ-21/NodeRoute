@@ -15,9 +15,10 @@ type ComboboxProps = {
   options: ComboboxOption[];
   placeholder?: string;
   maxResults?: number;
+  disabled?: boolean;
 };
 
-export function Combobox({ value, onChange, onSelect, options, placeholder, maxResults = 8 }: ComboboxProps) {
+export function Combobox({ value, onChange, onSelect, options, placeholder, maxResults = 8, disabled = false }: ComboboxProps) {
   const [open, setOpen] = useState(false);
   const [highlighted, setHighlighted] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
@@ -95,11 +96,13 @@ export function Combobox({ value, onChange, onSelect, options, placeholder, maxR
     <div ref={containerRef} className="relative">
       <Input
         value={value}
+        disabled={disabled}
         onChange={(e) => {
+          if (disabled) return;
           onChange(e.target.value);
           setOpen(true);
         }}
-        onFocus={() => setOpen(true)}
+        onFocus={() => { if (!disabled) setOpen(true); }}
         onKeyDown={handleKeyDown}
         placeholder={placeholder}
       />

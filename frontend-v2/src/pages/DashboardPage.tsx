@@ -4,123 +4,40 @@ import {
   ArrowRight,
   Clock3,
   MapPinned,
+  Package,
   RefreshCw,
   Scale,
   ShoppingCart,
   Truck,
   Users,
 } from 'lucide-react';
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth, getUserRole } from '../lib/api';
+import { WeightEntryModal } from '../components/dashboard/WeightEntryModal';
+import { getUserRole, sendWithAuth } from '../lib/api';
 import { cn } from '../lib/utils';
+import {
+  type Delivery,
+  type DriverSummary,
+  type OrderRecord,
+  type RouteRecord,
+  dashboardKeys,
+  useAnalyticsQuery,
+  useDashboardOrdersQuery,
+  useDeliveriesQuery,
+  useDriversQuery,
+  usePurchaseOrdersQuery,
+  useRoutesQuery,
+  useStatsQuery,
+} from '../hooks/useDashboard';
+import { useLowStockQuery } from '../hooks/useInventory';
 
 type Role = 'admin' | 'manager' | 'driver' | 'unknown';
-
-type DashboardStats = {
-  totalDeliveries: number;
-  completedToday: number;
-  onTimeRate: number;
-  activeDrivers: number;
-  totalDrivers: number;
-  failed: number;
-  pendingCount: number;
-  inTransitCount: number;
-  yesterday: {
-    totalDeliveries: number;
-    completedToday: number;
-    onTimeRate: number;
-    activeDrivers: number;
-    totalDrivers: number;
-    failed: number;
-    pendingCount: number;
-    inTransitCount: number;
-  };
-};
-
-type DriverRanking = {
-  name: string;
-  stopsPerHour: number;
-  avgStopMinutes: number;
-  avgSpeedMph: number;
-  onTimeRate: number;
-  milesToday: number;
-};
-
-type DashboardAnalytics = {
-  avgStopTime: string;
-  onTimeRate: string;
-  avgSpeed: string;
-  driverRankings: DriverRanking[];
-  doorBreakdown?: Record<string, number>;
-};
-
-type Delivery = {
-  id: number;
-  orderDbId?: string;
-  orderId: string;
-  restaurantName: string;
-  driverName: string;
-  status: string;
-  deliveryDoor?: string;
-  onTime?: boolean | null;
-  address?: string;
-  distanceMiles?: number;
-  stopDurationMinutes?: number | null;
-  routeId?: string | null;
-  createdAt?: string;
-};
-
-type DriverSummary = {
-  id: string;
-  name: string;
-  status?: string;
-  onTimeRate?: number;
-  totalStopsToday?: number;
-  milesToday?: number;
-  avgStopMinutes?: number;
-  avgSpeedMph?: number;
-  updatedAt?: string | null;
-};
-
-type RouteRecord = {
-  id: string;
-  name?: string;
-  driver?: string;
-  notes?: string;
-  stop_ids?: string[];
-  active_stop_ids?: string[];
-  created_at?: string;
-};
-
-type OrderRecord = {
-  id: string;
-  customer_id?: string;
-  customerId?: string;
-  order_number?: string;
-  customer_name?: string;
-  customer_email?: string;
-  customer_address?: string;
-  status?: string;
-  created_at?: string;
-  items?: Array<{ is_catch_weight?: boolean; actual_weight?: number | string; unit?: string; requested_weight?: number | string }>;
-};
-
-type VendorPurchaseOrder = {
-  id: string;
-  po_number?: string;
-  vendor_name?: string;
-  vendor?: string;
-  status?: string;
-  total_ordered_cost?: number | string;
-  total_backordered_qty?: number | string;
-  line_count?: number | string;
-  created_at?: string;
-};
 
 function asNumber(value: unknown, fallback = 0): number {
   const parsed = Number(value);
@@ -140,10 +57,7 @@ function activeStopsForRoute(route: RouteRecord): string[] {
 
 function trendText(current: number, previous: number, higherIsBetter = true) {
   const diff = current - previous;
-  if (diff === 0) {
-    return { label: 'No change vs yesterday', tone: 'neutral' as const };
-  }
-
+  if (diff === 0) return { label: 'No change vs yesterday', tone: 'neutral' as const };
   const positive = (diff > 0) === higherIsBetter;
   return {
     label: `${diff > 0 ? '+' : '-'}${Math.abs(diff)} vs yesterday`,
@@ -162,7 +76,7 @@ function deliveryBadgeVariant(status: string): 'warning' | 'secondary' | 'succes
 function orderHasPendingWeights(order: OrderRecord): boolean {
   return (order.items || []).some((item) => {
     const isWeightManaged = item.is_catch_weight || String(item.unit || '').toLowerCase() === 'lb' || item.requested_weight !== undefined;
-    return isWeightManaged && !(Number(item.actual_weight) > 0);
+    return isWeightManaged && !(asNumber(item.actual_weight) > 0);
   });
 }
 
@@ -170,7 +84,7 @@ function orderHasCapturedWeights(order: OrderRecord): boolean {
   const weightManaged = (order.items || []).filter((item) =>
     item.is_catch_weight || String(item.unit || '').toLowerCase() === 'lb' || item.requested_weight !== undefined
   );
-  return weightManaged.length > 0 && weightManaged.every((item) => Number(item.actual_weight) > 0);
+  return weightManaged.length > 0 && weightManaged.every((item) => asNumber(item.actual_weight) > 0);
 }
 
 function isOpenOrder(order: OrderRecord): boolean {
@@ -178,107 +92,112 @@ function isOpenOrder(order: OrderRecord): boolean {
   return normalized === 'pending' || normalized === 'in_process' || normalized === 'processed';
 }
 
-function driverBadgeVariant(status: string | undefined): 'success' | 'neutral' {
-  return String(status || '').toLowerCase() === 'on-duty' ? 'success' : 'neutral';
-}
+type ReceivingExceptionEntry = {
+  id: string;
+  poNumber: string;
+  vendor: string;
+  receivedAt: string;
+  lineLabel: string;
+  varianceLabel: string;
+  quantityVariance: number;
+  overReceiptQty: number;
+};
 
 export function DashboardPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const role = getUserRole() as Role;
+  const active = role !== 'driver';
 
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [stats, setStats] = useState<DashboardStats | null>(null);
-  const [analytics, setAnalytics] = useState<DashboardAnalytics | null>(null);
-  const [deliveries, setDeliveries] = useState<Delivery[]>([]);
-  const [drivers, setDrivers] = useState<DriverSummary[]>([]);
-  const [routes, setRoutes] = useState<RouteRecord[]>([]);
-  const [orders, setOrders] = useState<OrderRecord[]>([]);
-  const [vendorPurchaseOrders, setVendorPurchaseOrders] = useState<VendorPurchaseOrder[]>([]);
+  // ── Queries ───────────────────────────────────────────────────────────────
+  const statsQuery         = useStatsQuery(active);
+  const analyticsQuery     = useAnalyticsQuery(active);
+  const deliveriesQuery    = useDeliveriesQuery(active);
+  const driversQuery       = useDriversQuery(active);
+  const routesQuery        = useRoutesQuery(active);
+  const ordersQuery        = useDashboardOrdersQuery(active);
+  const purchaseOrdersQuery = usePurchaseOrdersQuery(active && role === 'admin');
+  const lowStockQuery       = useLowStockQuery(active && (role === 'admin' || role === 'manager'));
 
-  async function loadDashboard() {
-    if (role === 'driver') {
-      setLoading(false);
-      setError('');
-      return;
+  const stats     = statsQuery.data     ?? null;
+  const analytics = analyticsQuery.data ?? null;
+  const deliveries: Delivery[]     = deliveriesQuery.data    ?? [];
+  const drivers:   DriverSummary[] = driversQuery.data       ?? [];
+  const routes:    RouteRecord[]   = routesQuery.data        ?? [];
+  const orders:    OrderRecord[]   = ordersQuery.data        ?? [];
+  const vendorPurchaseOrders       = purchaseOrdersQuery.data ?? [];
+  const lowStockItems              = lowStockQuery.data ?? [];
+
+  const isLoading = active && (
+    statsQuery.isPending || deliveriesQuery.isPending || driversQuery.isPending ||
+    routesQuery.isPending || ordersQuery.isPending
+  );
+
+  // First error across all queries — mirrors the original Promise.allSettled behaviour.
+  const fetchError = [statsQuery, analyticsQuery, deliveriesQuery, driversQuery, routesQuery, ordersQuery]
+    .map((q) => (q.error ? String((q.error as Error).message || '') : ''))
+    .find(Boolean) || '';
+
+  // ── Local UI state ────────────────────────────────────────────────────────
+  const [weightModalOpen, setWeightModalOpen] = useState(false);
+
+  // AI: Anomaly detection — not server state, kept as direct sendWithAuth
+  type Anomaly = { type: string; severity: string; description: string; affected_entity: string; recommended_action: string };
+  const [anomalies, setAnomalies] = useState<Anomaly[] | null>(null);
+  const [anomalyLoading, setAnomalyLoading] = useState(false);
+  const [anomalySummary, setAnomalySummary] = useState('');
+  const [anomalyError, setAnomalyError] = useState('');
+
+  async function runAnomalyDetection() {
+    setAnomalyLoading(true);
+    setAnomalyError('');
+    try {
+      type AnomalyResult = { anomalies: Anomaly[]; analysis_period: string; summary: string };
+      const result = await sendWithAuth<AnomalyResult>('/api/ai/anomalies', 'POST', {});
+      setAnomalies(result.anomalies || []);
+      setAnomalySummary(result.summary || '');
+    } catch (err) {
+      setAnomalyError(String((err as Error).message || 'Anomaly detection failed'));
+    } finally {
+      setAnomalyLoading(false);
     }
-
-    setLoading(true);
-    setError('');
-
-    // Only fetch vendor POs when the user is actually an admin.
-    // Previously this fetch fired for all roles; managers received either
-    // unauthorised data or a 403 error displayed on the dashboard.
-    const requests = await Promise.allSettled([
-      fetchWithAuth<DashboardStats>('/api/stats'),
-      fetchWithAuth<DashboardAnalytics>('/api/analytics'),
-      fetchWithAuth<Delivery[]>('/api/deliveries'),
-      fetchWithAuth<DriverSummary[]>('/api/drivers'),
-      fetchWithAuth<RouteRecord[]>('/api/routes'),
-      fetchWithAuth<OrderRecord[]>('/api/orders'),
-      role === 'admin'
-        ? fetchWithAuth<VendorPurchaseOrder[]>('/api/ops/vendor-purchase-orders')
-        : Promise.resolve([] as VendorPurchaseOrder[]),
-    ]);
-
-    const nextErrors: string[] = [];
-
-    if (requests[0].status === 'fulfilled') setStats(requests[0].value);
-    else nextErrors.push(String(requests[0].reason?.message || 'Could not load delivery stats.'));
-
-    if (requests[1].status === 'fulfilled') setAnalytics(requests[1].value);
-    else nextErrors.push(String(requests[1].reason?.message || 'Could not load dashboard analytics.'));
-
-    if (requests[2].status === 'fulfilled') setDeliveries(Array.isArray(requests[2].value) ? requests[2].value : []);
-    else nextErrors.push(String(requests[2].reason?.message || 'Could not load deliveries.'));
-
-    if (requests[3].status === 'fulfilled') setDrivers(Array.isArray(requests[3].value) ? requests[3].value : []);
-    else nextErrors.push(String(requests[3].reason?.message || 'Could not load drivers.'));
-
-    if (requests[4].status === 'fulfilled') setRoutes(Array.isArray(requests[4].value) ? requests[4].value : []);
-    else nextErrors.push(String(requests[4].reason?.message || 'Could not load routes.'));
-
-    if (requests[5].status === 'fulfilled') setOrders(Array.isArray(requests[5].value) ? requests[5].value : []);
-    else nextErrors.push(String(requests[5].reason?.message || 'Could not load orders.'));
-
-    if (requests[6].status === 'fulfilled') setVendorPurchaseOrders(Array.isArray(requests[6].value) ? requests[6].value : []);
-    else if (role === 'admin') nextErrors.push(String(requests[6].reason?.message || 'Could not load purchasing snapshot.'));
-
-    setError(nextErrors[0] || '');
-    setLoading(false);
   }
 
-  useEffect(() => {
-    void loadDashboard();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [role]);
+  function refreshDashboard() {
+    void queryClient.invalidateQueries({ queryKey: dashboardKeys.stats });
+    void queryClient.invalidateQueries({ queryKey: dashboardKeys.analytics });
+    void queryClient.invalidateQueries({ queryKey: dashboardKeys.deliveries });
+    void queryClient.invalidateQueries({ queryKey: dashboardKeys.drivers });
+    void queryClient.invalidateQueries({ queryKey: dashboardKeys.routes });
+    void queryClient.invalidateQueries({ queryKey: dashboardKeys.orders });
+    if (role === 'admin') void queryClient.invalidateQueries({ queryKey: dashboardKeys.purchaseOrders });
+  }
 
+  // Patches the dashboard orders cache after the weight modal saves an order.
+  function handleOrderUpdated(updated: OrderRecord) {
+    queryClient.setQueryData<OrderRecord[]>(dashboardKeys.orders, (prev) =>
+      prev?.map((o) => (o.id === updated.id ? { ...o, ...updated } : o)) ?? prev,
+    );
+  }
+
+  // ── Derived values ────────────────────────────────────────────────────────
   const deliverySummary = stats ?? {
     totalDeliveries: deliveries.length,
-    completedToday: deliveries.filter((delivery) => delivery.status === 'delivered').length,
+    completedToday: deliveries.filter((d) => d.status === 'delivered').length,
     onTimeRate: asNumber(analytics?.onTimeRate, 0),
-    activeDrivers: drivers.filter((driver) => String(driver.status || '').toLowerCase() === 'on-duty').length,
+    activeDrivers: drivers.filter((d) => String(d.status || '').toLowerCase() === 'on-duty').length,
     totalDrivers: drivers.length,
-    failed: deliveries.filter((delivery) => delivery.status === 'failed').length,
-    pendingCount: deliveries.filter((delivery) => delivery.status === 'pending').length,
-    inTransitCount: deliveries.filter((delivery) => delivery.status === 'in-transit').length,
-    yesterday: {
-      totalDeliveries: 0,
-      completedToday: 0,
-      onTimeRate: 0,
-      activeDrivers: 0,
-      totalDrivers: drivers.length,
-      failed: 0,
-      pendingCount: 0,
-      inTransitCount: 0,
-    },
+    failed: deliveries.filter((d) => d.status === 'failed').length,
+    pendingCount: deliveries.filter((d) => d.status === 'pending').length,
+    inTransitCount: deliveries.filter((d) => d.status === 'in-transit').length,
+    yesterday: { totalDeliveries: 0, completedToday: 0, onTimeRate: 0, activeDrivers: 0, totalDrivers: drivers.length, failed: 0, pendingCount: 0, inTransitCount: 0 },
   };
 
   const weightQueueSummary = useMemo(() => {
-    const openOrders = orders.filter((order) => isOpenOrder(order));
+    const openOrders = orders.filter((o) => isOpenOrder(o));
     return {
-      needsWeights: openOrders.filter((order) => orderHasPendingWeights(order)),
-      weightsEntered: openOrders.filter((order) => orderHasCapturedWeights(order)),
+      needsWeights: openOrders.filter((o) => orderHasPendingWeights(o)),
+      weightsEntered: openOrders.filter((o) => orderHasCapturedWeights(o)),
     };
   }, [orders]);
 
@@ -289,53 +208,92 @@ export function DashboardPage() {
           ...route,
           activeStopCount: activeStopsForRoute(route).length,
           savedStopCount: Array.isArray(route.stop_ids) ? route.stop_ids.length : 0,
-          relatedDeliveries: deliveries.filter((delivery) => String(delivery.routeId || '') === String(route.id)),
+          relatedDeliveries: deliveries.filter((d) => String(d.routeId || '') === String(route.id)),
         }))
-        .filter((route) => route.activeStopCount > 0 || route.savedStopCount > 0)
+        .filter((r) => r.activeStopCount > 0 || r.savedStopCount > 0)
         .sort((a, b) => b.activeStopCount - a.activeStopCount || new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
         .slice(0, 6),
-    [routes, deliveries]
+    [routes, deliveries],
   );
 
   const activeDeliveries = useMemo(
     () =>
       deliveries
-        .filter((delivery) => delivery.status === 'pending' || delivery.status === 'in-transit')
+        .filter((d) => d.status === 'pending' || d.status === 'in-transit')
         .sort((a, b) => new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime())
         .slice(0, 8),
-    [deliveries]
+    [deliveries],
   );
 
   const topDrivers = useMemo(() => {
     const ranked = analytics?.driverRankings?.length
       ? analytics.driverRankings
-      : drivers.map((driver) => ({
-          name: driver.name,
-          stopsPerHour: Number((asNumber(driver.totalStopsToday, 0) / 8).toFixed(1)),
-          avgStopMinutes: asNumber(driver.avgStopMinutes, 0),
-          avgSpeedMph: asNumber(driver.avgSpeedMph, 0),
-          onTimeRate: asNumber(driver.onTimeRate, 0),
-          milesToday: asNumber(driver.milesToday, 0),
+      : drivers.map((d) => ({
+          name: d.name,
+          stopsPerHour: Number((asNumber(d.totalStopsToday, 0) / 8).toFixed(1)),
+          avgStopMinutes: asNumber(d.avgStopMinutes, 0),
+          avgSpeedMph: asNumber(d.avgSpeedMph, 0),
+          onTimeRate: asNumber(d.onTimeRate, 0),
+          milesToday: asNumber(d.milesToday, 0),
         }));
-    return [...ranked]
-      .sort((a, b) => b.onTimeRate - a.onTimeRate || b.stopsPerHour - a.stopsPerHour)
-      .slice(0, 5);
+    return [...ranked].sort((a, b) => b.onTimeRate - a.onTimeRate || b.stopsPerHour - a.stopsPerHour).slice(0, 5);
   }, [analytics, drivers]);
 
-  const fleetSummary = useMemo(() => {
-    const totalMiles = drivers.reduce((sum, driver) => sum + asNumber(driver.milesToday, 0), 0);
-    const totalStops = drivers.reduce((sum, driver) => sum + asNumber(driver.totalStopsToday, 0), 0);
-    const activeVehicles = drivers.filter((driver) => String(driver.status || '').toLowerCase() === 'on-duty').length;
-    const openDeliveries = activeDeliveries.length;
-    const routesRunning = activeRoutes.filter((route) => route.relatedDeliveries.some((delivery) => delivery.status === 'pending' || delivery.status === 'in-transit')).length;
-    return { totalMiles, totalStops, activeVehicles, openDeliveries, routesRunning };
-  }, [drivers, activeDeliveries, activeRoutes]);
+  const fleetSummary = useMemo(() => ({
+    totalMiles: drivers.reduce((sum, d) => sum + asNumber(d.milesToday, 0), 0),
+    totalStops: drivers.reduce((sum, d) => sum + asNumber(d.totalStopsToday, 0), 0),
+    activeVehicles: drivers.filter((d) => String(d.status || '').toLowerCase() === 'on-duty').length,
+    openDeliveries: activeDeliveries.length,
+    routesRunning: activeRoutes.filter((r) => r.relatedDeliveries.some((d) => d.status === 'pending' || d.status === 'in-transit')).length,
+  }), [drivers, activeDeliveries, activeRoutes]);
 
-  const purchasingSnapshot = useMemo(() => {
-    const open = vendorPurchaseOrders.filter((po) => String(po.status || '').toLowerCase() === 'open').length;
-    const backordered = vendorPurchaseOrders.filter((po) => String(po.status || '').toLowerCase() === 'backordered').length;
-    const spend = vendorPurchaseOrders.reduce((sum, po) => sum + asNumber(po.total_ordered_cost, 0), 0);
-    return { open, backordered, spend };
+  const purchasingSnapshot = useMemo(() => ({
+    open: vendorPurchaseOrders.filter((po) => String(po.status || '').toLowerCase() === 'open').length,
+    backordered: vendorPurchaseOrders.filter((po) => String(po.status || '').toLowerCase() === 'backordered').length,
+    spend: vendorPurchaseOrders.reduce((sum, po) => sum + asNumber(po.total_ordered_cost, 0), 0),
+  }), [vendorPurchaseOrders]);
+  const receivingExceptions = useMemo(() => {
+    const entries: ReceivingExceptionEntry[] = [];
+    let receiptsWithVariance = 0;
+    let shortQty = 0;
+    let overQty = 0;
+
+    for (const po of vendorPurchaseOrders) {
+      for (const receipt of po.receipts || []) {
+        const lines = (receipt.lines || []).filter((line) => {
+          const varianceType = String(line.variance_type || '').trim().toLowerCase();
+          return (varianceType && varianceType !== 'exact_receipt')
+            || asNumber(line.over_receipt_qty) > 0
+            || asNumber(line.quantity_variance_qty) !== 0;
+        });
+        if (!lines.length) continue;
+        receiptsWithVariance += 1;
+        for (const line of lines) {
+          const quantityVariance = asNumber(line.quantity_variance_qty);
+          const overReceiptQty = asNumber(line.over_receipt_qty);
+          if (quantityVariance < 0) shortQty += Math.abs(quantityVariance);
+          if (overReceiptQty > 0) overQty += overReceiptQty;
+          entries.push({
+            id: `${po.id}:${receipt.id}:${line.line_no}`,
+            poNumber: po.po_number || po.id.slice(0, 8),
+            vendor: String(po.vendor || po.vendor_name || 'Unassigned Vendor'),
+            receivedAt: receipt.received_at || '',
+            lineLabel: line.product_name || line.item_number || `Line ${line.line_no}`,
+            varianceLabel: String(line.variance_type || 'variance').replace(/_/g, ' '),
+            quantityVariance,
+            overReceiptQty,
+          });
+        }
+      }
+    }
+
+    entries.sort((left, right) => String(right.receivedAt || '').localeCompare(String(left.receivedAt || '')));
+    return {
+      entries,
+      receiptsWithVariance,
+      shortQty,
+      overQty,
+    };
   }, [vendorPurchaseOrders]);
 
   if (role === 'driver') {
@@ -343,70 +301,81 @@ export function DashboardPage() {
       <Card>
         <CardHeader>
           <CardTitle>Driver Workspace Lives Separately</CardTitle>
-          <CardDescription>
-            The V2 admin dashboard is intended for admin and manager workflows. Driver operations still run through the dedicated driver experience.
-          </CardDescription>
+          <CardDescription>The V2 admin dashboard is intended for admin and manager workflows. Driver operations still run through the dedicated driver experience.</CardDescription>
         </CardHeader>
         <CardContent>
-          <a href="/driver" className="inline-flex">
-            <Button>Open Driver Workspace</Button>
-          </a>
+          <a href="/driver" className="inline-flex"><Button>Open Driver Workspace</Button></a>
         </CardContent>
       </Card>
     );
   }
 
+  const displayError = anomalyError || fetchError;
+
   return (
     <div className="space-y-5">
-      {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading dashboard...</div> : null}
-      {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
+      {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading dashboard...</div> : null}
+      {displayError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{displayError}</div> : null}
+
+      {/* Weight Entry Modal */}
+      {weightModalOpen && (
+        <WeightEntryModal
+          orders={weightQueueSummary.needsWeights}
+          onClose={() => setWeightModalOpen(false)}
+          onOrderUpdated={handleOrderUpdated}
+        />
+      )}
 
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" onClick={loadDashboard}>
-          <RefreshCw className="mr-2 h-4 w-4" />
-          Refresh Dashboard
-        </Button>
-        <Button variant="outline" onClick={() => navigate('/orders')}>
-          Orders Queue
-        </Button>
-        <Button variant="outline" onClick={() => navigate('/routes')}>
-          Route Workspace
-        </Button>
-        {role === 'admin' ? (
-          <Button variant="outline" onClick={() => navigate('/purchasing')}>
-            Purchasing
-          </Button>
-        ) : null}
+        <Button variant="outline" onClick={refreshDashboard}><RefreshCw className="mr-2 h-4 w-4" />Refresh Dashboard</Button>
+        <Button variant="outline" onClick={() => navigate('/orders')}>Orders Queue</Button>
+        <Button variant="outline" onClick={() => navigate('/routes')}>Route Workspace</Button>
+        {role === 'admin' ? <Button variant="outline" onClick={() => navigate('/purchasing')}>Purchasing</Button> : null}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard
-          icon={Truck}
-          label="Total Deliveries"
-          value={deliverySummary.totalDeliveries.toLocaleString()}
-          trend={trendText(deliverySummary.totalDeliveries, deliverySummary.yesterday.totalDeliveries)}
-        />
-        <MetricCard
-          icon={Activity}
-          label="On-Time Rate"
-          value={`${deliverySummary.onTimeRate}%`}
-          valueTone={deliverySummary.onTimeRate >= 90 ? 'emerald' : deliverySummary.onTimeRate >= 75 ? 'amber' : 'rose'}
-          trend={trendText(deliverySummary.onTimeRate, deliverySummary.yesterday.onTimeRate)}
-        />
-        <MetricCard
-          icon={Users}
-          label="Active Drivers"
-          value={`${deliverySummary.activeDrivers} / ${deliverySummary.totalDrivers}`}
-          trend={trendText(deliverySummary.activeDrivers, deliverySummary.yesterday.activeDrivers)}
-        />
-        <MetricCard
-          icon={AlertTriangle}
-          label="Failed Deliveries"
-          value={deliverySummary.failed.toLocaleString()}
-          valueTone={deliverySummary.failed > 0 ? 'rose' : 'emerald'}
-          trend={trendText(deliverySummary.failed, deliverySummary.yesterday.failed, false)}
-        />
+        <MetricCard icon={Truck}          label="Total Deliveries" value={deliverySummary.totalDeliveries.toLocaleString()} trend={trendText(deliverySummary.totalDeliveries, deliverySummary.yesterday.totalDeliveries)} />
+        <MetricCard icon={Activity}       label="On-Time Rate"     value={`${deliverySummary.onTimeRate}%`} valueTone={deliverySummary.onTimeRate >= 90 ? 'emerald' : deliverySummary.onTimeRate >= 75 ? 'amber' : 'rose'} trend={trendText(deliverySummary.onTimeRate, deliverySummary.yesterday.onTimeRate)} />
+        <MetricCard icon={Users}          label="Active Drivers"   value={`${deliverySummary.activeDrivers} / ${deliverySummary.totalDrivers}`} trend={trendText(deliverySummary.activeDrivers, deliverySummary.yesterday.activeDrivers)} />
+        <MetricCard icon={AlertTriangle}  label="Failed Deliveries" value={deliverySummary.failed.toLocaleString()} valueTone={deliverySummary.failed > 0 ? 'rose' : 'emerald'} trend={trendText(deliverySummary.failed, deliverySummary.yesterday.failed, false)} />
       </div>
+
+      {/* ── AI Anomaly Detection ── */}
+      {(role === 'admin' || role === 'manager') && (
+        <Card className={anomalies && anomalies.some((a) => a.severity === 'high') ? 'border-red-300 ring-1 ring-red-200' : ''}>
+          <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between py-3">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base">✦ AI Anomaly Detection</CardTitle>
+              {anomalySummary && <CardDescription>{anomalySummary}</CardDescription>}
+            </div>
+            <Button size="sm" variant="outline" onClick={() => void runAnomalyDetection()} disabled={anomalyLoading}>
+              {anomalyLoading ? 'Scanning…' : anomalies ? 'Re-scan' : 'Scan for Anomalies'}
+            </Button>
+          </CardHeader>
+          {anomalies && (
+            <CardContent>
+              {anomalies.length === 0 ? (
+                <p className="text-sm text-emerald-600">No anomalies detected in the last 7 days.</p>
+              ) : (
+                <div className="space-y-2">
+                  {anomalies.map((a, i) => (
+                    <div key={i} className={`rounded-lg border px-4 py-3 text-sm ${a.severity === 'high' ? 'border-red-200 bg-red-50' : a.severity === 'medium' ? 'border-yellow-200 bg-yellow-50' : 'border-border bg-muted/30'}`}>
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <span className={`mr-2 rounded-full px-2 py-0.5 text-xs font-semibold ${a.severity === 'high' ? 'bg-red-100 text-red-700' : a.severity === 'medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-muted text-muted-foreground'}`}>{a.severity}</span>
+                          <span className="font-medium">{a.affected_entity}</span>
+                          <p className="mt-1 text-muted-foreground">{a.description}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">→ {a.recommended_action}</p>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </CardContent>
+          )}
+        </Card>
+      )}
 
       <div className="grid gap-4 xl:grid-cols-[1.3fr_1fr_1fr]">
         <Card>
@@ -433,11 +402,7 @@ export function DashboardPage() {
             <div className="grid gap-2 sm:grid-cols-2">
               <InsightPill label="Pending" value={deliverySummary.pendingCount.toLocaleString()} tone="amber" />
               <InsightPill label="In Transit" value={deliverySummary.inTransitCount.toLocaleString()} tone="blue" />
-              <InsightPill
-                label="Door Codes On File"
-                value={String(analytics?.doorBreakdown?.['Door code on file'] || 0)}
-                tone="emerald"
-              />
+              <InsightPill label="Door Codes On File" value={String(analytics?.doorBreakdown?.['Door code on file'] || 0)} tone="emerald" />
               <InsightPill label="No Door Code" value={String(analytics?.doorBreakdown?.['No code'] || 0)} tone="slate" />
             </div>
           </CardContent>
@@ -454,25 +419,13 @@ export function DashboardPage() {
                 <div key={driver.name} className="rounded-lg border border-border bg-muted/20 p-3">
                   <div className="flex items-start justify-between gap-3">
                     <div>
-                      <div className="text-sm font-semibold text-foreground">
-                        #{index + 1} {driver.name}
-                      </div>
-                      <div className="mt-1 text-xs text-muted-foreground">
-                        {driver.stopsPerHour.toFixed(1)} stops/hr · {driver.avgSpeedMph.toFixed(1)} mph · {driver.avgStopMinutes.toFixed(1)} min avg stop
-                      </div>
+                      <div className="text-sm font-semibold text-foreground">#{index + 1} {driver.name}</div>
+                      <div className="mt-1 text-xs text-muted-foreground">{driver.stopsPerHour.toFixed(1)} stops/hr · {driver.avgSpeedMph.toFixed(1)} mph · {driver.avgStopMinutes.toFixed(1)} min avg stop</div>
                     </div>
-                    <Badge variant={driver.onTimeRate >= 90 ? 'success' : driver.onTimeRate >= 75 ? 'warning' : 'neutral'}>
-                      {driver.onTimeRate.toFixed(1)}%
-                    </Badge>
+                    <Badge variant={driver.onTimeRate >= 90 ? 'success' : driver.onTimeRate >= 75 ? 'warning' : 'neutral'}>{driver.onTimeRate.toFixed(1)}%</Badge>
                   </div>
                   <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-                    <div
-                      className={cn(
-                        'h-full rounded-full',
-                        driver.onTimeRate >= 90 ? 'bg-emerald-500' : driver.onTimeRate >= 75 ? 'bg-amber-500' : 'bg-rose-500'
-                      )}
-                      style={{ width: `${Math.max(6, Math.min(100, driver.onTimeRate))}%` }}
-                    />
+                    <div className={cn('h-full rounded-full', driver.onTimeRate >= 90 ? 'bg-emerald-500' : driver.onTimeRate >= 75 ? 'bg-amber-500' : 'bg-rose-500')} style={{ width: `${Math.max(6, Math.min(100, driver.onTimeRate))}%` }} />
                   </div>
                 </div>
               ))
@@ -485,7 +438,7 @@ export function DashboardPage() {
         <Card>
           <CardHeader>
             <CardTitle>Weight Entry Queue</CardTitle>
-            <CardDescription>Open orders split between weights still needed and weights already captured.</CardDescription>
+            <CardDescription>Click a block to open the inline weight entry list — enter all weights and print invoices without leaving this screen.</CardDescription>
           </CardHeader>
           <CardContent className="space-y-3">
             {weightQueueSummary.needsWeights.length || weightQueueSummary.weightsEntered.length ? (
@@ -494,15 +447,15 @@ export function DashboardPage() {
                   icon={Scale}
                   title="Orders Needing Weights"
                   count={weightQueueSummary.needsWeights.length}
-                  description="Open the fast-entry list for customers still waiting on actual weights."
+                  description="Click to open the weight entry list. Enter weights and print invoices right here."
                   tone="amber"
-                  onClick={() => navigate('/orders?action=weights')}
+                  onClick={() => setWeightModalOpen(true)}
                 />
                 <QueueCard
                   icon={Scale}
                   title="Weights Entered"
                   count={weightQueueSummary.weightsEntered.length}
-                  description="Review open orders whose weight-managed items already have actual weights entered."
+                  description="Open orders whose weight-managed items already have actual weights entered."
                   tone="emerald"
                   onClick={() => navigate('/orders?action=weights-entered')}
                 />
@@ -521,21 +474,13 @@ export function DashboardPage() {
               <CardTitle>Active Deliveries</CardTitle>
               <CardDescription>Live delivery work that still needs attention from dispatch or drivers.</CardDescription>
             </div>
-            <Button variant="outline" onClick={() => navigate('/deliveries')}>
-              Open Deliveries
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
+            <Button variant="outline" onClick={() => navigate('/deliveries')}>Open Deliveries<ArrowRight className="ml-2 h-4 w-4" /></Button>
           </CardHeader>
           <CardContent className="rounded-lg border border-border bg-card p-2">
             <Table>
               <TableHeader>
                 <TableRow>
-                  <TableHead>Order</TableHead>
-                  <TableHead>Customer</TableHead>
-                  <TableHead>Driver</TableHead>
-                  <TableHead>Status</TableHead>
-                  <TableHead>Door</TableHead>
-                  <TableHead>Distance</TableHead>
+                  <TableHead>Order</TableHead><TableHead>Customer</TableHead><TableHead>Driver</TableHead><TableHead>Status</TableHead><TableHead>Door</TableHead><TableHead>Distance</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
@@ -545,19 +490,13 @@ export function DashboardPage() {
                       <TableCell className="font-medium">{delivery.orderId}</TableCell>
                       <TableCell>{delivery.restaurantName}</TableCell>
                       <TableCell>{delivery.driverName || 'Unassigned'}</TableCell>
-                      <TableCell>
-                        <Badge variant={deliveryBadgeVariant(delivery.status)}>{delivery.status}</Badge>
-                      </TableCell>
+                      <TableCell><Badge variant={deliveryBadgeVariant(delivery.status)}>{delivery.status}</Badge></TableCell>
                       <TableCell>{delivery.deliveryDoor || 'No code'}</TableCell>
                       <TableCell>{delivery.distanceMiles != null ? `${delivery.distanceMiles.toFixed(1)} mi` : '—'}</TableCell>
                     </TableRow>
                   ))
                 ) : (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-muted-foreground">
-                      No active deliveries right now. Once dispatch starts assigning work, live delivery activity will show up here.
-                    </TableCell>
-                  </TableRow>
+                  <TableRow><TableCell colSpan={6} className="text-muted-foreground">No active deliveries right now. Once dispatch starts assigning work, live delivery activity will show up here.</TableCell></TableRow>
                 )}
               </TableBody>
             </Table>
@@ -570,23 +509,18 @@ export function DashboardPage() {
               <CardTitle>Active Routes</CardTitle>
               <CardDescription>Saved templates with today's active stop selections and assigned drivers.</CardDescription>
             </div>
-            <Button variant="outline" onClick={() => navigate('/routes')}>
-              Open Routes
-              <ArrowRight className="ml-2 h-4 w-4" />
-            </Button>
+            <Button variant="outline" onClick={() => navigate('/routes')}>Open Routes<ArrowRight className="ml-2 h-4 w-4" /></Button>
           </CardHeader>
           <CardContent className="space-y-3">
             {activeRoutes.length ? (
               activeRoutes.map((route) => {
-                const inMotion = route.relatedDeliveries.filter((delivery) => delivery.status === 'pending' || delivery.status === 'in-transit').length;
+                const inMotion = route.relatedDeliveries.filter((d) => d.status === 'pending' || d.status === 'in-transit').length;
                 return (
                   <div key={route.id} className="rounded-lg border border-border bg-muted/20 p-3">
                     <div className="flex items-start justify-between gap-3">
                       <div>
                         <div className="text-sm font-semibold text-foreground">{route.name || `Route ${route.id.slice(0, 8)}`}</div>
-                        <div className="mt-1 text-xs text-muted-foreground">
-                          Driver: {route.driver || 'Unassigned'} · {route.activeStopCount} active today · {route.savedStopCount} saved stops
-                        </div>
+                        <div className="mt-1 text-xs text-muted-foreground">Driver: {route.driver || 'Unassigned'} · {route.activeStopCount} active today · {route.savedStopCount} saved stops</div>
                         {route.notes ? <div className="mt-2 text-xs text-muted-foreground">{route.notes}</div> : null}
                       </div>
                       <Badge variant={inMotion > 0 ? 'secondary' : 'neutral'}>{inMotion > 0 ? `${inMotion} open` : 'Staged'}</Badge>
@@ -608,43 +542,144 @@ export function DashboardPage() {
               <CardTitle>Purchasing Command Center</CardTitle>
               <CardDescription>Jump directly into vendor PO creation, receiving, backorders, and procurement oversight.</CardDescription>
             </div>
-            <Button onClick={() => navigate('/purchasing')}>
-              <ShoppingCart className="mr-2 h-4 w-4" />
-              Open Purchasing Workspace
-            </Button>
+            <Button onClick={() => navigate('/purchasing')}><ShoppingCart className="mr-2 h-4 w-4" />Open Purchasing Workspace</Button>
           </CardHeader>
-          <CardContent className="grid gap-3 md:grid-cols-3">
-            <MiniMetric label="Open Vendor POs" value={purchasingSnapshot.open.toLocaleString()} />
-            <MiniMetric label="Backordered POs" value={purchasingSnapshot.backordered.toLocaleString()} />
-            <MiniMetric label="Tracked PO Spend" value={money(purchasingSnapshot.spend)} />
+          <CardContent className="space-y-4">
+            <div className="grid gap-3 md:grid-cols-3">
+              <MiniMetric label="Open Vendor POs" value={purchasingSnapshot.open.toLocaleString()} />
+              <MiniMetric label="Backordered POs" value={purchasingSnapshot.backordered.toLocaleString()} />
+              <MiniMetric label="Tracked PO Spend" value={money(purchasingSnapshot.spend)} />
+            </div>
+            <div className="grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)]">
+              <div className="rounded-xl border border-border bg-muted/10 p-4">
+                <div className="text-sm font-semibold text-foreground">Receiving Exceptions</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Dedicated dashboard view of vendor short receipts and overages without leaving the admin home screen.
+                </div>
+                <div className="mt-3 grid gap-2">
+                  <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                    Receipts w/ variance: <strong>{receivingExceptions.receiptsWithVariance}</strong>
+                  </div>
+                  <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                    Short qty flagged: <strong>{receivingExceptions.shortQty.toFixed(2)}</strong>
+                  </div>
+                  <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                    Over qty flagged: <strong>{receivingExceptions.overQty.toFixed(2)}</strong>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-xl border border-border bg-muted/10 p-4">
+                <div className="text-sm font-semibold text-foreground">Recent Receiving Exceptions</div>
+                <div className="mt-1 text-xs text-muted-foreground">
+                  Latest receipt lines that posted outside the exact ordered quantity.
+                </div>
+                {receivingExceptions.entries.length ? (
+                  <div className="mt-3 space-y-2">
+                    {receivingExceptions.entries.slice(0, 4).map((entry) => (
+                      <div key={entry.id} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div>
+                            <strong>{entry.poNumber}</strong> · {entry.vendor}
+                          </div>
+                          <div className="text-xs text-muted-foreground">
+                            {entry.receivedAt ? new Date(entry.receivedAt).toLocaleString() : 'Receipt logged'}
+                          </div>
+                        </div>
+                        <div className="mt-1">
+                          {entry.lineLabel}: <span className="capitalize">{entry.varianceLabel}</span>
+                          {entry.quantityVariance !== 0 ? ` (${entry.quantityVariance.toFixed(2)})` : ''}
+                          {entry.overReceiptQty > 0 ? ` · over by ${entry.overReceiptQty.toFixed(2)}` : ''}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="mt-3 rounded-lg border border-dashed border-border bg-background px-4 py-6 text-sm text-muted-foreground">
+                    No receiving exceptions have been logged yet. Once vendors short or over-ship receipts, the latest variance activity will appear here.
+                  </div>
+                )}
+              </div>
+            </div>
           </CardContent>
         </Card>
       ) : null}
+
+      {/* ── Inventory Health ── */}
+      {(role === 'admin' || role === 'manager') && (
+        <Card>
+          <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between py-3">
+            <div>
+              <CardTitle className="flex items-center gap-2 text-base"><Package className="h-4 w-4" /> Inventory Health</CardTitle>
+              <CardDescription>Live stock levels, low-stock alerts, and open purchase order status.</CardDescription>
+            </div>
+            <div className="flex gap-2">
+              <Button size="sm" variant="outline" onClick={() => navigate('/inventory')}>View Inventory <ArrowRight className="ml-1 h-3 w-3" /></Button>
+              <Button size="sm" variant="outline" onClick={() => navigate('/purchasing')}>Open POs <ArrowRight className="ml-1 h-3 w-3" /></Button>
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 sm:grid-cols-3 mb-4">
+              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Low-Stock Items</div>
+                <div className={cn('mt-1 text-2xl font-semibold', lowStockItems.length > 0 ? 'text-rose-600' : 'text-emerald-600')}>{lowStockItems.length}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">{lowStockItems.length === 0 ? 'All items above reorder points' : 'Items at or below reorder threshold'}</div>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Open POs</div>
+                <div className={cn('mt-1 text-2xl font-semibold', purchasingSnapshot.open > 0 ? 'text-amber-600' : 'text-foreground')}>{purchasingSnapshot.open}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">Awaiting receipt from vendors</div>
+              </div>
+              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
+                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Open PO Value</div>
+                <div className="mt-1 text-2xl font-semibold">{money(purchasingSnapshot.spend)}</div>
+                <div className="text-xs text-muted-foreground mt-0.5">Total committed spend</div>
+              </div>
+            </div>
+
+            {lowStockItems.length > 0 && (
+              <div className="space-y-2">
+                <div className="text-sm font-semibold text-foreground">Items Needing Reorder</div>
+                <div className="grid gap-2 sm:grid-cols-2">
+                  {lowStockItems.slice(0, 6).map((item) => (
+                    <div key={item.item_number} className="flex items-center justify-between rounded-lg border border-rose-200 bg-rose-50 px-3 py-2">
+                      <div>
+                        <div className="text-sm font-medium text-foreground">{item.description || item.name || item.item_number}</div>
+                        <div className="text-xs text-muted-foreground">
+                          On hand: <strong>{asNumber(item.on_hand_qty, 0).toFixed(1)}</strong> {item.unit || ''} · Reorder at: {asNumber(item.reorder_point, 0).toFixed(1)} · Short by: <strong className="text-rose-600">{item.deficit.toFixed(1)}</strong>
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="ml-2 shrink-0 text-xs"
+                        onClick={() => navigate(`/purchasing?item=${encodeURIComponent(item.item_number || '')}&qty=${Math.ceil(item.deficit)}`)}
+                      >
+                        Order
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+                {lowStockItems.length > 6 && (
+                  <Button variant="ghost" size="sm" className="text-xs" onClick={() => navigate('/inventory')}>
+                    + {lowStockItems.length - 6} more low-stock items
+                  </Button>
+                )}
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }
 
-function MetricCard({
-  icon: Icon,
-  label,
-  value,
-  trend,
-  valueTone = 'slate',
-}: {
-  icon: typeof Truck;
-  label: string;
-  value: string;
-  trend: { label: string; tone: 'positive' | 'negative' | 'neutral' };
-  valueTone?: 'slate' | 'emerald' | 'amber' | 'rose';
-}) {
+function MetricCard({ icon: Icon, label, value, trend, valueTone = 'slate' }: { icon: typeof Truck; label: string; value: string; trend: { label: string; tone: 'positive' | 'negative' | 'neutral' }; valueTone?: 'slate' | 'emerald' | 'amber' | 'rose' }) {
   return (
     <Card>
       <CardHeader className="space-y-3">
         <div className="flex items-center justify-between gap-3">
           <CardDescription className="text-xs font-semibold uppercase tracking-wide">{label}</CardDescription>
-          <div className="rounded-full bg-secondary p-2 text-muted-foreground">
-            <Icon className="h-4 w-4" />
-          </div>
+          <div className="rounded-full bg-secondary p-2 text-muted-foreground"><Icon className="h-4 w-4" /></div>
         </div>
         <div className={cn('text-3xl font-semibold', valueToneClass(valueTone))}>{value}</div>
         <div className={cn('text-xs font-medium', trendToneClass(trend.tone))}>{trend.label}</div>
@@ -671,15 +706,7 @@ function SummaryLine({ label, value }: { label: string; value: string }) {
   );
 }
 
-function InsightPill({
-  label,
-  value,
-  tone,
-}: {
-  label: string;
-  value: string;
-  tone: 'emerald' | 'amber' | 'blue' | 'slate';
-}) {
+function InsightPill({ label, value, tone }: { label: string; value: string; tone: 'emerald' | 'amber' | 'blue' | 'slate' }) {
   return (
     <div className={cn('rounded-lg border px-3 py-2', insightToneClass(tone))}>
       <div className="text-xs font-semibold uppercase tracking-wide">{label}</div>
@@ -697,27 +724,9 @@ function EmptyBlock({ title, description }: { title: string; description: string
   );
 }
 
-function QueueCard({
-  icon: Icon,
-  title,
-  count,
-  description,
-  tone,
-  onClick,
-}: {
-  icon: typeof Scale;
-  title: string;
-  count: number;
-  description: string;
-  tone: 'emerald' | 'amber';
-  onClick: () => void;
-}) {
+function QueueCard({ icon: Icon, title, count, description, tone, onClick }: { icon: typeof Scale; title: string; count: number; description: string; tone: 'emerald' | 'amber'; onClick: () => void }) {
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="w-full rounded-lg border border-border bg-muted/20 p-4 text-left transition-colors hover:bg-muted/35"
-    >
+    <button type="button" onClick={onClick} className="w-full rounded-lg border border-border bg-muted/20 p-4 text-left transition-colors hover:bg-muted/35">
       <div className="flex items-start justify-between gap-3">
         <div className="flex items-start gap-3">
           <div className={cn('rounded-md border p-2', tone === 'emerald' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700')}>

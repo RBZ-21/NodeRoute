@@ -5,6 +5,7 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const { buildInvoicePDF } = require('../services/pdf');
 const { loadDriverInvoiceScope } = require('../services/driver-invoice-access');
 const { sendInvoiceEmail } = require('../services/invoice-email');
+const { normalizeInvoiceLots } = require('../services/invoice-lots');
 const { validate } = require('../lib/zodValidate');
 const { invoiceImportSchema, invoiceSignSchema } = require('../lib/schemas');
 const { validateBody } = require('../lib/zod-validate');
@@ -38,11 +39,9 @@ const invoiceBodySchema = z.object({
   if (!customerName || !String(customerName).trim()) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'customer_name is required' });
   }
-
   if (body.subtotal !== undefined && !Number.isFinite(Number(body.subtotal))) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'subtotal must be a number' });
   }
-
   if (body.total !== undefined && !Number.isFinite(Number(body.total))) {
     ctx.addIssue({ code: z.ZodIssueCode.custom, message: 'total must be a number' });
   }
@@ -83,6 +82,14 @@ function isMissingProofOfDeliveryColumns(error) {
   return /proof_of_delivery_(image_data|uploaded_at).*does not exist|schema cache/i.test(message);
 }
 
+function enrichInvoiceResponse(invoice) {
+  if (!invoice) return invoice;
+  return {
+    ...invoice,
+    lot_numbers: normalizeInvoiceLots(invoice),
+  };
+}
+
 async function canDriverAccessInvoice(req, invoice) {
   if (!req.user || req.user.role !== 'driver') return true;
   if (!invoice?.id) return false;
@@ -106,8 +113,6 @@ router.get('/', authenticateToken, async (req, res) => {
   }
 
   let query = supabase.from('invoices').select('*').order('created_at', { ascending: false });
-
-  // Optional filter by customer_id (numeric FK on invoices table)
   const customerId = req.query.customer_id;
   if (customerId) {
     const parsedId = parseInt(customerId, 10);
@@ -117,7 +122,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
   const data = await dbQuery(query, res);
   if (!data) return;
-  res.json(filterRowsByContext(data, req.context));
+  res.json(filterRowsByContext(data, req.context).map(enrichInvoiceResponse));
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBody(invoiceBodySchema), async (req, res) => {
@@ -158,10 +163,10 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
   if (!data) return;
-  res.json(data);
+  res.json(enrichInvoiceResponse(data));
 });
 
-// Entree import — accepts one or many invoices in Entree's export format
+// Entree import
 router.post('/import', validate(invoiceImportSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   if (!Array.isArray(req.body) && (typeof req.body !== 'object' || req.body === null)) {
     return res.status(400).json({ error: 'Request body must be an invoice object or an array of invoices' });
@@ -195,18 +200,21 @@ router.post('/import', validate(invoiceImportSchema), authenticateToken, require
     ...buildScopeFields(req.context),
   }))).select(), res);
   if (!data) return;
-  res.json({ imported: data.length, invoices: data });
+  res.json({ imported: data.length, invoices: data.map(enrichInvoiceResponse) });
 });
 
+// Update invoice status — fires completion email when status is set to 'paid'
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   if (!rowMatchesContext(inv, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
   const updates = {};
+  const prevStatus = inv.status;
+
   if (req.body.status !== undefined) {
     const nextStatus = String(req.body.status || '').trim().toLowerCase();
-    if (!['pending', 'paid', 'overdue', 'void', 'signed', 'sent'].includes(nextStatus)) {
+    if (!['pending', 'paid', 'overdue', 'void', 'signed', 'sent', 'delivered'].includes(nextStatus)) {
       return res.status(400).json({ error: 'Invalid invoice status' });
     }
     updates.status = nextStatus;
@@ -224,23 +232,31 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
     res
   );
   if (!data) return;
-  res.json(data);
+
+  // Send completion email with PDF when invoice is marked paid for the first time
+  const beingMarkedPaid = updates.status === 'paid' && prevStatus !== 'paid';
+  const recipient = data.billing_email || data.customer_email;
+  if (beingMarkedPaid && recipient) {
+    sendInvoiceEmail(data, 'Your Completed Invoice').catch((err) =>
+      console.error('[invoices] completion email failed:', err.message)
+    );
+  }
+
+  res.json(enrichInvoiceResponse(data));
 });
 
 // Save signature → generate PDF → email customer
 router.post('/:id/sign', validate(invoiceSignSchema), authenticateToken, async (req, res) => {
-  const signature_data = req.body?.signature_data || req.body?.signature; // base64 PNG from canvas
+  const signature_data = req.body?.signature_data || req.body?.signature;
   if (!signature_data) return res.status(400).json({ error: 'Signature data required' });
 
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   if (!(await canAccessInvoice(req, inv))) return res.status(403).json({ error: 'Forbidden' });
 
-  // Update invoice as signed
   const updated = await dbQuery(supabase.from('invoices').update({ signature_data, status: 'signed', signed_at: new Date().toISOString() }).eq('id', req.params.id).select().single(), res);
   if (!updated) return;
 
-  // Generate PDF
   let emailSent = false;
   if (inv.billing_email || inv.customer_email) {
     try {
@@ -254,7 +270,7 @@ router.post('/:id/sign', validate(invoiceSignSchema), authenticateToken, async (
     }
   }
 
-  res.json({ ...updated, status: emailSent ? 'sent' : 'signed', emailSent });
+  res.json({ ...enrichInvoiceResponse(updated), status: emailSent ? 'sent' : 'signed', emailSent });
 });
 
 router.post('/:id/proof-of-delivery', authenticateToken, requireRole('driver', 'admin', 'manager'), async (req, res) => {
@@ -291,7 +307,7 @@ router.post('/:id/proof-of-delivery', authenticateToken, requireRole('driver', '
   }
 
   res.json({
-    ...data,
+    ...enrichInvoiceResponse(data),
     proof_of_delivery_uploaded_at: data?.proof_of_delivery_uploaded_at || proofUploadedAt,
     invoice_has_proof_of_delivery: !!data?.proof_of_delivery_image_data,
   });
@@ -313,7 +329,6 @@ router.post('/:id/email', authenticateToken, requireRole('admin', 'manager'), as
   }
 });
 
-// Resend email for an already-signed invoice
 router.post('/:id/resend', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
@@ -330,7 +345,16 @@ router.post('/:id/resend', authenticateToken, requireRole('admin', 'manager'), a
   }
 });
 
-// Download PDF for any invoice
+router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const inv = await dbQuery(supabase.from('invoices').select('id').eq('id', req.params.id).single(), res);
+  if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!rowMatchesContext(inv, req.context)) return res.status(403).json({ error: 'Forbidden' });
+
+  const { error } = await supabase.from('invoices').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ deleted: true, id: req.params.id });
+});
+
 router.get('/:id/pdf', authenticateToken, async (req, res) => {
   const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });

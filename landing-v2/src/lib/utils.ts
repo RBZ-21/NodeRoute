@@ -11,4 +11,5 @@ export const CTA = {
   founder:
     'mailto:ryan@noderoutesystems.com?subject=NodeRoute%20-%20Talk%20to%20the%20Founder',
   login: '/login',
+  signup: '/login',
 } as const;
