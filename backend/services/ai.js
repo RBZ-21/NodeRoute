@@ -1264,7 +1264,7 @@ async function parsePurchaseOrderImage(base64Image, mimeType = 'image/jpeg') {
     const client = getClient();
     const response = await client.chat.completions.create({
       model: DEFAULT_VISION_MODEL,
-      max_tokens: 1800,
+      max_tokens: 4096,
       response_format: {
         type: 'json_schema',
         json_schema: {
@@ -1289,7 +1289,11 @@ async function parsePurchaseOrderImage(base64Image, mimeType = 'image/jpeg') {
     const raw = extractMessageContent(choice && choice.message && choice.message.content);
     const parsed = safeJsonParse(raw);
     if (!parsed || typeof parsed !== 'object') throw new Error('PO scan returned invalid structured JSON');
-    return normalizePOScan(parsed);
+    const result = normalizePOScan(parsed);
+    if (result.items.length === 0) {
+      console.warn('[po-scan] model returned valid JSON but zero items - likely low-quality image or token limit');
+    }
+    return result;
   } catch (err) {
     if (isAiConfigError(err)) throw createAiConfigError();
     console.warn('PO scan AI failed:', err.message);

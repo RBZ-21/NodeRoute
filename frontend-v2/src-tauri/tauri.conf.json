@@ -4,14 +4,24 @@
   "version": "0.1.0",
   "identifier": "com.noderoute.app",
   "build": {
-    "beforeDevCommand": "npm run dev",
+    "beforeDevCommand": "npm run dev -- --mode tauri",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "npm run build",
+    "beforeBuildCommand": "npm run build -- --mode tauri",
     "frontendDist": "../dist"
   },
   "app": {
     "windows": [
       {
+        "label": "splashscreen",
+        "url": "splashscreen.html",
+        "width": 720,
+        "height": 405,
+        "decorations": false,
+        "alwaysOnTop": true,
+        "center": true
+      },
+      {
+        "label": "main",
         "title": "NodeRoute",
         "width": 1400,
         "height": 900,
@@ -20,7 +30,8 @@
         "resizable": true,
         "fullscreen": false,
         "decorations": true,
-        "center": true
+        "center": true,
+        "visible": false
       }
     ],
     "security": {
@@ -31,10 +42,6 @@
     "active": true,
     "targets": ["msi", "nsis"],
     "icon": [
-      "icons/32x32.png",
-      "icons/128x128.png",
-      "icons/128x128@2x.png",
-      "icons/icon.icns",
       "icons/icon.ico"
     ],
     "windows": {
