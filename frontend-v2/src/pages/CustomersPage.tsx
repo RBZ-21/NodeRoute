@@ -1,51 +1,20 @@
 // NOTE: This file retains all existing logic. The only addition is an
 // "Invoices" tab inside the customer detail slide-over panel.
 // The tab fetches /api/invoices?customer_id=<id> and renders a small table.
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
-
-type Customer = {
-  id?: number | string;
-  customer_number?: string;
-  company_name?: string;
-  email?: string;
-  phone?: string;
-  phone_number?: string;
-  status?: string;
-  contact_name?: string;
-  payment_terms?: string;
-  address?: string;
-  billing_name?: string;
-  billing_contact?: string;
-  billing_email?: string;
-  billing_phone?: string;
-  billing_address?: string;
-  tax_enabled?: boolean;
-  credit_hold?: boolean;
-  credit_hold_reason?: string;
-  credit_hold_placed_at?: string;
-  fax_number?: string;
-  delivery_notes?: string;
-  preferred_delivery_window?: string;
-  preferred_door?: string;
-};
-
-type Invoice = {
-  id?: number | string;
-  invoice_number?: string;
-  invoiceNumber?: string;
-  status?: string;
-  total?: number | string;
-  created_at?: string;
-  createdAt?: string;
-  due_date?: string;
-  dueDate?: string;
-};
+import {
+  type Customer,
+  type CustomerInvoice,
+  useCustomerInvoicesQuery,
+  useCustomersQuery,
+  useSaveCustomerMutation,
+} from '../hooks/useCustomers';
 
 type DetailTab = 'info' | 'delivery' | 'billing' | 'invoices';
 
@@ -59,12 +28,21 @@ function customerStatus(customer: Customer): string {
 }
 
 export function CustomersPage() {
-  const [customers, setCustomers] = useState<Customer[]>([]);
-  const [loading, setLoading] = useState(true);
+  const customersQuery = useCustomersQuery();
+  const saveCustomerMutation = useSaveCustomerMutation();
+
+  const customers = customersQuery.data ?? [];
+
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | string>('all');
+  const [showCreateForm, setShowCreateForm] = useState(false);
+  const [creatingCustomer, setCreatingCustomer] = useState(false);
+  const [newCustomer, setNewCustomer] = useState<Customer>({ status: 'active' });
+  const [holdTarget, setHoldTarget] = useState<Customer | null>(null);
+  const [holdReason, setHoldReason] = useState('');
+  const [holdSaving, setHoldSaving] = useState(false);
 
   // Detail panel
   const [selected, setSelected] = useState<Customer | null>(null);
@@ -73,51 +51,57 @@ export function CustomersPage() {
   const [draft, setDraft] = useState<Customer>({});
   const [saving, setSaving] = useState(false);
 
-  // Invoices tab state
-  const [invoices, setInvoices] = useState<Invoice[]>([]);
-  const [invoicesLoading, setInvoicesLoading] = useState(false);
+  // Invoices: enabled only while the invoices tab is open for the selected customer.
+  const invoicesQuery = useCustomerInvoicesQuery(
+    detailTab === 'invoices' ? (selected?.id ?? null) : null,
+  );
+  const invoices: CustomerInvoice[] = invoicesQuery.data ?? [];
+
+  // Address lookup state
+  const [lookingUpAddress, setLookingUpAddress] = useState(false);
+  const [addressLookupError, setAddressLookupError] = useState('');
+
+  // AI: Risk scoring — keyed by customer id (primary key)
+  type RiskResult = { risk_level: string; risk_score: number; risk_factors: string[]; recommended_action: string; summary: string };
+  const [riskScores, setRiskScores] = useState<Record<string, RiskResult>>({});
+  const [riskLoading, setRiskLoading] = useState<Record<string, boolean>>({});
+
+  async function scoreRisk(customerId: string) {
+    setRiskLoading((r) => ({ ...r, [customerId]: true }));
+    try {
+      const result = await sendWithAuth<RiskResult & { customer_id: string }>('/api/ai/customer-risk', 'POST', { customer_id: customerId });
+      setRiskScores((prev) => ({ ...prev, [customerId]: result }));
+    } catch (err) {
+      setError(String((err as Error).message || 'Risk scoring failed'));
+    } finally {
+      setRiskLoading((r) => ({ ...r, [customerId]: false }));
+    }
+  }
 
   const panelRef = useRef<HTMLDivElement>(null);
 
-  async function load() {
-    setLoading(true);
-    setError('');
+  async function lookupAddress(targetField: 'address' | 'billing_address') {
+    const name = draft.company_name?.trim();
+    if (!name) {
+      setAddressLookupError('Company name is required to look up an address.');
+      return;
+    }
+    setLookingUpAddress(true);
+    setAddressLookupError('');
     try {
-      const data = await fetchWithAuth<Customer[]>('/api/customers');
-      setCustomers(Array.isArray(data) ? data : []);
+      const result = await fetchWithAuth<{ address: string; place_name?: string; place_id?: string }>(
+        `/api/customers/address-lookup?name=${encodeURIComponent(name)}`
+      );
+      if (result?.address) {
+        setDraft((d) => ({ ...d, [targetField]: result.address }));
+        setNotice(`Address found: ${result.address}`);
+      } else {
+        setAddressLookupError(`No address found for "${name}". Try editing the company name and searching again.`);
+      }
     } catch (err) {
-      setError(String((err as Error).message || 'Could not load customers'));
+      setAddressLookupError(String((err as Error).message || 'Address lookup failed'));
     } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => { load(); }, []);
-
-  async function loadInvoices(customerId: number | string) {
-    setInvoicesLoading(true);
-    try {
-      const data = await fetchWithAuth<Invoice[]>(`/api/invoices?customer_id=${customerId}`);
-      setInvoices(Array.isArray(data) ? data : []);
-    } catch {
-      setInvoices([]);
-    } finally {
-      setInvoicesLoading(false);
-    }
-  }
-
-  function openCustomer(customer: Customer) {
-    setSelected(customer);
-    setDraft({ ...customer });
-    setEditing(false);
-    setDetailTab('info');
-    setInvoices([]);
-  }
-
-  function onTabChange(tab: DetailTab) {
-    setDetailTab(tab);
-    if (tab === 'invoices' && selected?.id != null) {
-      loadInvoices(selected.id);
+      setLookingUpAddress(false);
     }
   }
 
@@ -126,8 +110,7 @@ export function CustomersPage() {
     setSaving(true);
     setError('');
     try {
-      const updated = await sendWithAuth<Customer>(`/api/customers/${selected.id}`, 'PATCH', draft);
-      setCustomers((prev) => prev.map((c) => (c.id === selected.id ? { ...c, ...updated } : c)));
+      const updated = await saveCustomerMutation.mutateAsync({ id: selected.id, draft });
       setSelected({ ...selected, ...updated });
       setEditing(false);
       setNotice(`${draft.company_name || 'Customer'} saved.`);
@@ -135,6 +118,84 @@ export function CustomersPage() {
       setError(String((err as Error).message || 'Save failed'));
     } finally {
       setSaving(false);
+    }
+  }
+
+  function openCustomer(customer: Customer) {
+    setSelected(customer);
+    setDraft({ ...customer });
+    setEditing(false);
+    setDetailTab('info');
+    setAddressLookupError('');
+  }
+
+  function onTabChange(tab: DetailTab) {
+    setDetailTab(tab);
+    setAddressLookupError('');
+  }
+
+  function resetCreateForm() {
+    setNewCustomer({ status: 'active' });
+    setShowCreateForm(false);
+  }
+
+  async function createCustomer() {
+    const companyName = String(newCustomer.company_name || '').trim();
+    if (!companyName) {
+      setError('Company name is required to create a customer.');
+      return;
+    }
+
+    setCreatingCustomer(true);
+    setError('');
+    try {
+      await sendWithAuth('/api/customers', 'POST', {
+        company_name: companyName,
+        contact_name: newCustomer.contact_name?.trim() || null,
+        email: newCustomer.email?.trim() || null,
+        phone: newCustomer.phone_number?.trim() || newCustomer.phone?.trim() || null,
+        address: newCustomer.address?.trim() || null,
+        payment_terms: newCustomer.payment_terms?.trim() || null,
+        status: newCustomer.status || 'active',
+      });
+      await customersQuery.refetch();
+      setNotice(`Customer ${companyName} added.`);
+      resetCreateForm();
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not create customer.'));
+    } finally {
+      setCreatingCustomer(false);
+    }
+  }
+
+  async function placeCreditHold() {
+    if (!holdTarget?.id) return;
+    setHoldSaving(true);
+    setError('');
+    try {
+      await sendWithAuth(`/api/customers/${holdTarget.id}/hold`, 'POST', {
+        reason: holdReason.trim() || null,
+      });
+      await customersQuery.refetch();
+      setNotice(`Credit hold placed on ${holdTarget.company_name || 'customer'}.`);
+      setHoldTarget(null);
+      setHoldReason('');
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not place credit hold.'));
+    } finally {
+      setHoldSaving(false);
+    }
+  }
+
+  async function liftCreditHold(customer: Customer) {
+    if (!customer.id) return;
+    setError('');
+    try {
+      await sendWithAuth(`/api/customers/${customer.id}/hold`, 'DELETE');
+      await customersQuery.refetch();
+      setNotice(`Credit hold lifted for ${customer.company_name || 'customer'}.`);
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not lift credit hold.'));
     }
   }
 
@@ -160,10 +221,15 @@ export function CustomersPage() {
     inactive: customers.filter((c) => customerStatus(c) === 'inactive').length,
   }), [customers]);
 
+  const fetchError = customersQuery.error
+    ? String((customersQuery.error as Error)?.message || 'Could not load customers')
+    : '';
+  const displayError = error || fetchError;
+
   return (
     <div className="space-y-5">
-      {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading customers...</div> : null}
-      {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
+      {customersQuery.isPending ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading customers...</div> : null}
+      {displayError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{displayError}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -193,9 +259,68 @@ export function CustomersPage() {
                 <option value="credit-hold">Credit Hold</option>
               </select>
             </label>
-            <Button variant="outline" onClick={load}>Refresh</Button>
+            <Button variant="outline" onClick={() => setShowCreateForm((current) => !current)}>
+              {showCreateForm ? 'Close' : 'Add Customer'}
+            </Button>
+            <Button variant="outline" onClick={() => void customersQuery.refetch()}>Refresh</Button>
           </div>
         </CardHeader>
+        {showCreateForm ? (
+          <CardContent className="border-t border-border bg-muted/10">
+            <div className="space-y-3">
+              <div className="space-y-1">
+                <div className="text-base font-semibold text-foreground">Create a new customer directly from the customer dashboard.</div>
+                <div className="text-sm text-muted-foreground">Set up the account details now and fine-tune delivery, billing, and tax settings later.</div>
+              </div>
+              <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+                <Input
+                  placeholder="Blue Fin Seafood"
+                  value={newCustomer.company_name || ''}
+                  onChange={(e) => setNewCustomer((current) => ({ ...current, company_name: e.target.value }))}
+                  disabled={creatingCustomer}
+                />
+                <Input
+                  placeholder="Receiving Manager"
+                  value={newCustomer.contact_name || ''}
+                  onChange={(e) => setNewCustomer((current) => ({ ...current, contact_name: e.target.value }))}
+                  disabled={creatingCustomer}
+                />
+                <Input
+                  placeholder="ops@example.com"
+                  value={newCustomer.email || ''}
+                  onChange={(e) => setNewCustomer((current) => ({ ...current, email: e.target.value }))}
+                  disabled={creatingCustomer}
+                />
+                <Input
+                  placeholder="(555) 010-0103"
+                  value={newCustomer.phone_number || newCustomer.phone || ''}
+                  onChange={(e) => setNewCustomer((current) => ({ ...current, phone_number: e.target.value, phone: e.target.value }))}
+                  disabled={creatingCustomer}
+                />
+                <Input
+                  placeholder="123 Dock Street"
+                  value={newCustomer.address || ''}
+                  onChange={(e) => setNewCustomer((current) => ({ ...current, address: e.target.value }))}
+                  disabled={creatingCustomer}
+                />
+                <Input
+                  placeholder="Net 30"
+                  value={newCustomer.payment_terms || ''}
+                  onChange={(e) => setNewCustomer((current) => ({ ...current, payment_terms: e.target.value }))}
+                  disabled={creatingCustomer}
+                />
+              </div>
+              <div className="flex flex-wrap gap-2">
+                <Button onClick={() => void createCustomer()} disabled={creatingCustomer}>
+                  {creatingCustomer ? 'Adding Customer...' : 'Add Customer'}
+                </Button>
+                <Button variant="outline" onClick={resetCreateForm} disabled={creatingCustomer}>
+                  Cancel
+                </Button>
+              </div>
+            </div>
+          </CardContent>
+        ) : null}
         <CardContent className="rounded-lg border border-border bg-card p-2">
           <Table>
             <TableHeader>
@@ -219,13 +344,52 @@ export function CustomersPage() {
                   <TableCell>{phone(c)}</TableCell>
                   <TableCell>{c.email || '-'}</TableCell>
                   <TableCell>
-                    <Badge variant={c.credit_hold ? 'warning' : customerStatus(c) === 'active' ? 'success' : 'secondary'}>
-                      {c.credit_hold ? 'Credit Hold' : c.status || 'Active'}
-                    </Badge>
+                    <div className="space-y-1">
+                      <Badge variant={c.credit_hold ? 'warning' : customerStatus(c) === 'active' ? 'success' : 'secondary'}>
+                        {c.credit_hold ? 'Credit Hold' : c.status || 'Active'}
+                      </Badge>
+                      {c.credit_hold_reason ? (
+                        <div className="text-xs text-muted-foreground">{c.credit_hold_reason}</div>
+                      ) : null}
+                    </div>
                   </TableCell>
                   <TableCell>{c.payment_terms || '-'}</TableCell>
                   <TableCell>
-                    <Button size="sm" onClick={() => openCustomer(c)}>View / Edit</Button>
+                    <div className="flex flex-wrap items-center gap-1">
+                      <Button size="sm" onClick={() => openCustomer(c)}>View / Edit</Button>
+                      {c.credit_hold ? (
+                        <Button size="sm" variant="outline" onClick={() => void liftCreditHold(c)}>
+                          Lift Hold
+                        </Button>
+                      ) : (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          onClick={() => {
+                            setHoldTarget(c);
+                            setHoldReason(c.credit_hold_reason || '');
+                          }}
+                        >
+                          Place Hold
+                        </Button>
+                      )}
+                      {c.id && (
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          onClick={() => void scoreRisk(String(c.id))}
+                          disabled={riskLoading[String(c.id)]}
+                          title="AI risk score"
+                        >
+                          {riskLoading[String(c.id)] ? '…' : '✦ Risk'}
+                        </Button>
+                      )}
+                      {c.id && riskScores[String(c.id)] && (
+                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${riskScores[String(c.id)].risk_level === 'high' ? 'bg-red-100 text-red-700' : riskScores[String(c.id)].risk_level === 'medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                          {riskScores[String(c.id)].risk_level} {riskScores[String(c.id)].risk_score}/100
+                        </span>
+                      )}
+                    </div>
                   </TableCell>
                 </TableRow>
               )) : (
@@ -237,6 +401,39 @@ export function CustomersPage() {
       </Card>
 
       {/* ── Detail Slide-Over ── */}
+      {holdTarget ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center">
+          <div className="absolute inset-0 bg-black/30" onClick={() => !holdSaving && setHoldTarget(null)} />
+          <div role="dialog" aria-modal="true" aria-labelledby="customer-hold-title" className="relative z-10 w-full max-w-md rounded-xl bg-background p-6 shadow-xl">
+            <div className="space-y-1">
+              <h2 id="customer-hold-title" className="text-lg font-semibold">Place Credit Hold</h2>
+              <p className="text-sm text-muted-foreground">
+                Prevent new deliveries for {holdTarget.company_name || 'this customer'} until the hold is lifted.
+              </p>
+            </div>
+            <div className="mt-4 space-y-2">
+              <label className="space-y-1 text-sm">
+                <span className="font-medium text-foreground">Reason</span>
+                <Input
+                  placeholder="Overdue balance"
+                  value={holdReason}
+                  onChange={(e) => setHoldReason(e.target.value)}
+                  disabled={holdSaving}
+                />
+              </label>
+            </div>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="outline" onClick={() => setHoldTarget(null)} disabled={holdSaving}>
+                Cancel
+              </Button>
+              <Button onClick={() => void placeCreditHold()} disabled={holdSaving}>
+                {holdSaving ? 'Placing Hold...' : 'Place Hold'}
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
+
       {selected ? (
         <div className="fixed inset-0 z-50 flex justify-end">
           <div className="absolute inset-0 bg-black/30" onClick={() => setSelected(null)} />
@@ -251,7 +448,7 @@ export function CustomersPage() {
                   <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
                 ) : (
                   <>
-                    <Button size="sm" variant="outline" onClick={() => { setEditing(false); setDraft({ ...selected }); }}>Cancel</Button>
+                    <Button size="sm" variant="outline" onClick={() => { setEditing(false); setDraft({ ...selected }); setAddressLookupError(''); }}>Cancel</Button>
                     <Button size="sm" disabled={saving} onClick={saveCustomer}>{saving ? 'Saving...' : 'Save'}</Button>
                   </>
                 )}
@@ -281,7 +478,7 @@ export function CustomersPage() {
                   <Field label="Company Name" value={draft.company_name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, company_name: v }))} />
                   <Field label="Contact Name" value={draft.contact_name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, contact_name: v }))} />
                   <Field label="Email" value={draft.email} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
-                  <Field label="Phone" value={draft.phone_number || draft.phone} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, phone_number: v }))} />
+                  <Field label="Phone" value={draft.phone_number || draft.phone} editing={editing} placeholder="(555) 010-0103" onChange={(v) => setDraft((d) => ({ ...d, phone_number: v }))} />
                   <Field label="Fax" value={draft.fax_number} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, fax_number: v }))} />
                   <Field label="Payment Terms" value={draft.payment_terms} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, payment_terms: v }))} />
                   <Field label="Status" value={draft.status} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, status: v }))} />
@@ -299,7 +496,36 @@ export function CustomersPage() {
               {/* Delivery Tab */}
               {detailTab === 'delivery' && (
                 <div className="space-y-3">
-                  <Field label="Address" value={draft.address} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, address: v }))} />
+                  <div className="flex items-start gap-3">
+                    <span className="w-36 shrink-0 pt-1 text-sm text-muted-foreground">Address</span>
+                    {editing ? (
+                      <div className="flex flex-1 flex-col gap-1">
+                        <div className="flex gap-2">
+                          <Input
+                            className="flex-1"
+                            value={draft.address || ''}
+                            onChange={(e) => setDraft((d) => ({ ...d, address: e.target.value }))}
+                            placeholder="Street address..."
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={lookingUpAddress}
+                            onClick={() => lookupAddress('address')}
+                            title={`Look up address for ${draft.company_name || 'this business'}`}
+                          >
+                            {lookingUpAddress ? '...' : '🔍'}
+                          </Button>
+                        </div>
+                        {addressLookupError && (
+                          <p className="text-xs text-destructive">{addressLookupError}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-sm">{selected.address || '-'}</span>
+                    )}
+                  </div>
                   <Field label="Delivery Notes" value={draft.delivery_notes} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, delivery_notes: v }))} multiline />
                   <Field label="Preferred Window" value={draft.preferred_delivery_window} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, preferred_delivery_window: v }))} />
                   <Field label="Preferred Door" value={draft.preferred_door} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, preferred_door: v }))} />
@@ -312,15 +538,44 @@ export function CustomersPage() {
                   <Field label="Billing Name" value={draft.billing_name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, billing_name: v }))} />
                   <Field label="Billing Contact" value={draft.billing_contact} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, billing_contact: v }))} />
                   <Field label="Billing Email" value={draft.billing_email} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, billing_email: v }))} />
-                  <Field label="Billing Phone" value={draft.billing_phone} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, billing_phone: v }))} />
-                  <Field label="Billing Address" value={draft.billing_address} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, billing_address: v }))} />
+                  <Field label="Billing Phone" value={draft.billing_phone} editing={editing} placeholder="(555) 010-0103" onChange={(v) => setDraft((d) => ({ ...d, billing_phone: v }))} />
+                  <div className="flex items-start gap-3">
+                    <span className="w-36 shrink-0 pt-1 text-sm text-muted-foreground">Billing Address</span>
+                    {editing ? (
+                      <div className="flex flex-1 flex-col gap-1">
+                        <div className="flex gap-2">
+                          <Input
+                            className="flex-1"
+                            value={draft.billing_address || ''}
+                            onChange={(e) => setDraft((d) => ({ ...d, billing_address: e.target.value }))}
+                            placeholder="Billing address..."
+                          />
+                          <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            disabled={lookingUpAddress}
+                            onClick={() => lookupAddress('billing_address')}
+                            title={`Look up address for ${draft.company_name || 'this business'}`}
+                          >
+                            {lookingUpAddress ? '...' : '🔍'}
+                          </Button>
+                        </div>
+                        {addressLookupError && (
+                          <p className="text-xs text-destructive">{addressLookupError}</p>
+                        )}
+                      </div>
+                    ) : (
+                      <span className="text-sm">{selected.billing_address || '-'}</span>
+                    )}
+                  </div>
                 </div>
               )}
 
               {/* Invoices Tab */}
               {detailTab === 'invoices' && (
                 <div className="space-y-3">
-                  {invoicesLoading ? (
+                  {invoicesQuery.isPending ? (
                     <p className="text-sm text-muted-foreground">Loading invoices...</p>
                   ) : invoices.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No invoices found for this customer.</p>
@@ -358,12 +613,13 @@ export function CustomersPage() {
   );
 }
 
-function Field({ label, value, editing, onChange, multiline }: {
+function Field({ label, value, editing, onChange, multiline, placeholder }: {
   label: string;
   value?: string | null;
   editing: boolean;
   onChange: (v: string) => void;
   multiline?: boolean;
+  placeholder?: string;
 }) {
   return (
     <div className="flex items-start gap-3">
@@ -375,9 +631,10 @@ function Field({ label, value, editing, onChange, multiline }: {
             rows={3}
             value={value || ''}
             onChange={(e) => onChange(e.target.value)}
+            placeholder={placeholder}
           />
         ) : (
-          <Input className="flex-1" value={value || ''} onChange={(e) => onChange(e.target.value)} />
+          <Input className="flex-1" value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
         )
       ) : (
         <span className="text-sm">{value || '-'}</span>

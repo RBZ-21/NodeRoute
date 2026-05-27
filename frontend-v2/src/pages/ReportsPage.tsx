@@ -1,44 +1,9 @@
-import { useEffect, useState } from 'react';
+import { useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth } from '../lib/api';
-
-type ReportPreset = 'daily' | 'weekly' | 'monthly' | 'yearly' | 'range';
-
-type SalesReportItem = {
-  key: string;
-  label: string;
-  item_number?: string | null;
-  qty: number;
-  revenue: number;
-  invoice_count: number;
-  delivery_revenue: number;
-  pickup_revenue: number;
-};
-
-type SalesReportSummary = {
-  generated_at?: string;
-  filters?: {
-    preset?: string;
-    start?: string | null;
-    end?: string | null;
-    item?: string | null;
-  };
-  overview: {
-    total_sales: number;
-    delivery_sales: number;
-    pickup_sales: number;
-    unknown_sales: number;
-    invoice_count: number;
-    order_count: number;
-    average_invoice: number;
-    item_count: number;
-  };
-  items: SalesReportItem[];
-  available_items: Array<{ key: string; label: string; item_number?: string | null }>;
-};
+import { type ReportPreset, useSalesReport } from '../hooks/useReports';
 
 function money(value: number): string {
   return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -60,85 +25,48 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
+function syncRangeDefaults(preset: ReportPreset): { start: string; end: string } {
+  const now = new Date();
+  const end = localDateKey(now);
+  if (preset === 'daily') return { start: end, end };
+  if (preset === 'weekly') {
+    const start = new Date(now);
+    start.setDate(start.getDate() - ((start.getDay() + 6) % 7));
+    return { start: localDateKey(start), end };
+  }
+  if (preset === 'monthly') {
+    return { start: localDateKey(new Date(now.getFullYear(), now.getMonth(), 1)), end };
+  }
+  if (preset === 'yearly') {
+    return { start: localDateKey(new Date(now.getFullYear(), 0, 1)), end };
+  }
+  return { start: end, end };
+}
+
+const todayKey = localDateKey(new Date());
+
 export function ReportsPage() {
   const [reportPreset, setReportPreset] = useState<ReportPreset>('daily');
-  const [reportStartDate, setReportStartDate] = useState('');
-  const [reportEndDate, setReportEndDate] = useState('');
+  const [reportStartDate, setReportStartDate] = useState(todayKey);
+  const [reportEndDate, setReportEndDate] = useState(todayKey);
   const [reportItemFilter, setReportItemFilter] = useState('all');
-  const [salesReport, setSalesReport] = useState<SalesReportSummary | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
 
-  function syncRangeDefaults(preset: ReportPreset) {
-    const now = new Date();
-    const end = localDateKey(now);
-    if (preset === 'daily') {
-      setReportStartDate(end);
-      setReportEndDate(end);
-      return;
-    }
-    if (preset === 'weekly') {
-      const start = new Date(now);
-      const diff = (start.getDay() + 6) % 7;
-      start.setDate(start.getDate() - diff);
-      setReportStartDate(localDateKey(start));
-      setReportEndDate(end);
-      return;
-    }
-    if (preset === 'monthly') {
-      setReportStartDate(localDateKey(new Date(now.getFullYear(), now.getMonth(), 1)));
-      setReportEndDate(end);
-      return;
-    }
-    if (preset === 'yearly') {
-      setReportStartDate(localDateKey(new Date(now.getFullYear(), 0, 1)));
-      setReportEndDate(end);
-    }
-  }
+  const { data: salesReport, isLoading, isError, error } = useSalesReport(
+    reportPreset,
+    reportStartDate,
+    reportEndDate,
+    reportItemFilter
+  );
 
-  async function loadSalesReport() {
-    setLoading(true);
-    setError('');
-    try {
-      const params = new URLSearchParams();
-      params.set('preset', reportPreset);
-      if (reportPreset === 'range') {
-        if (reportStartDate) params.set('start', reportStartDate);
-        if (reportEndDate) params.set('end', reportEndDate);
-      }
-      if (reportItemFilter !== 'all') params.set('item', reportItemFilter);
-      const data = await fetchWithAuth<SalesReportSummary>(`/api/reporting/sales-summary?${params.toString()}`);
-      setSalesReport(data);
-    } catch (err) {
-      setError(String((err as Error).message || 'Could not load sales report'));
-    } finally {
-      setLoading(false);
-    }
-  }
-
-  useEffect(() => {
-    syncRangeDefaults('daily');
-  }, []);
-
-  useEffect(() => {
-    void loadSalesReport();
-  }, [reportPreset, reportStartDate, reportEndDate, reportItemFilter]);
-
-  const reportOverview = salesReport?.overview || {
-    total_sales: 0,
-    delivery_sales: 0,
-    pickup_sales: 0,
-    unknown_sales: 0,
-    invoice_count: 0,
-    order_count: 0,
-    average_invoice: 0,
-    item_count: 0,
+  const reportOverview = salesReport?.overview ?? {
+    total_sales: 0, delivery_sales: 0, pickup_sales: 0, unknown_sales: 0,
+    invoice_count: 0, order_count: 0, average_invoice: 0, item_count: 0,
   };
 
   return (
     <div className="space-y-5">
-      {loading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading sales report...</div> : null}
-      {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
+      {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading sales report...</div> : null}
+      {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load sales report')}</div> : null}
 
       <Card>
         <CardHeader className="space-y-1">
@@ -153,7 +81,11 @@ export function ReportsPage() {
                 variant={reportPreset === preset ? 'default' : 'outline'}
                 onClick={() => {
                   setReportPreset(preset);
-                  if (preset !== 'range') syncRangeDefaults(preset);
+                  if (preset !== 'range') {
+                    const { start, end } = syncRangeDefaults(preset);
+                    setReportStartDate(start);
+                    setReportEndDate(end);
+                  }
                 }}
               >
                 {preset.charAt(0).toUpperCase() + preset.slice(1)}
@@ -166,11 +98,11 @@ export function ReportsPage() {
               <span className="font-semibold text-muted-foreground">Item Filter</span>
               <select
                 value={reportItemFilter}
-                onChange={(event) => setReportItemFilter(event.target.value)}
+                onChange={(e) => setReportItemFilter(e.target.value)}
                 className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
               >
                 <option value="all">All Items</option>
-                {(salesReport?.available_items || []).map((item) => (
+                {(salesReport?.available_items ?? []).map((item) => (
                   <option key={item.key} value={item.item_number || item.label}>
                     {item.label}{item.item_number ? ` (#${item.item_number})` : ''}
                   </option>
@@ -181,11 +113,11 @@ export function ReportsPage() {
               <>
                 <label className="space-y-1 text-sm">
                   <span className="font-semibold text-muted-foreground">Start Date</span>
-                  <Input type="date" value={reportStartDate} onChange={(event) => setReportStartDate(event.target.value)} />
+                  <Input type="date" value={reportStartDate} onChange={(e) => setReportStartDate(e.target.value)} />
                 </label>
                 <label className="space-y-1 text-sm">
                   <span className="font-semibold text-muted-foreground">End Date</span>
-                  <Input type="date" value={reportEndDate} onChange={(event) => setReportEndDate(event.target.value)} />
+                  <Input type="date" value={reportEndDate} onChange={(e) => setReportEndDate(e.target.value)} />
                 </label>
               </>
             ) : (
@@ -194,11 +126,6 @@ export function ReportsPage() {
                 <MiniMetric label="Range End" value={reportEndDate || '—'} />
               </>
             )}
-            <div className="flex items-end">
-              <Button variant="outline" onClick={() => void loadSalesReport()}>
-                Refresh Report
-              </Button>
-            </div>
           </div>
         </CardContent>
       </Card>
@@ -235,8 +162,8 @@ export function ReportsPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(salesReport?.items || []).length ? (
-                (salesReport?.items || []).map((item) => (
+              {(salesReport?.items ?? []).length ? (
+                (salesReport?.items ?? []).map((item) => (
                   <TableRow key={item.key}>
                     <TableCell className="font-medium">
                       {item.label}
@@ -251,9 +178,7 @@ export function ReportsPage() {
                 ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-muted-foreground">
-                    No sales rows found for the selected report filters.
-                  </TableCell>
+                  <TableCell colSpan={6} className="text-muted-foreground">No sales rows found for the selected report filters.</TableCell>
                 </TableRow>
               )}
             </TableBody>

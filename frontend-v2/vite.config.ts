@@ -5,7 +5,9 @@ import { loadEnv } from 'vite';
 import { defineConfig } from 'vitest/config';
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, process.cwd(), '');
+  const frontendEnv = loadEnv(mode, __dirname, '');
+  const rootEnv = loadEnv(mode, resolve(__dirname, '..'), '');
+  const env = { ...rootEnv, ...frontendEnv };
   const hasSentryReleaseConfig = !!(env.SENTRY_AUTH_TOKEN && env.SENTRY_ORG && env.SENTRY_PROJECT);
 
   return {
@@ -31,6 +33,7 @@ export default defineConfig(({ mode }) => {
       environment: 'jsdom',
       globals: true,
       setupFiles: './src/setupTests.ts',
+      exclude: ['**/node_modules/**', 'e2e/**', 'tests/**'],
     },
     build: {
       outDir: 'dist',

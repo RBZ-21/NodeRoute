@@ -1,10 +1,11 @@
 // Shared types and pure helpers for the Orders feature.
 
-export type OrderStatus = 'pending' | 'in_process' | 'invoiced' | 'cancelled' | 'unknown';
+export type OrderStatus = 'pending' | 'in_process' | 'processed' | 'invoiced' | 'cancelled' | 'unknown';
 
 export type OrderItem = {
   name?: string;
   description?: string;
+  product_id?: string;
   item_number?: string;
   unit?: string;
   requested_qty?: number | string;
@@ -13,7 +14,7 @@ export type OrderItem = {
   quantity?: number | string;
   unit_price?: number | string;
   notes?: string;
-  lot_id?: number | string;
+  lot_id?: string;
   lot_number?: string;
   quantity_from_lot?: number | string;
   is_catch_weight?: boolean;
@@ -49,6 +50,7 @@ export type Order = {
   created_at?: string;
   items?: OrderItem[];
   charges?: OrderCharge[];
+  route_id?: string | null;
 };
 
 export type Customer = {
@@ -65,17 +67,20 @@ export type Customer = {
 };
 
 export type InventoryProduct = {
-  item_number: string;
+  id?: string;
+  item_number?: string | null;
   description: string;
   is_ftl_product?: boolean;
   is_catch_weight?: boolean;
+  is_active?: boolean;
   default_price_per_lb?: number | string;
   unit?: string;
   cost?: number | string;
+  on_hand_qty?: number | string;
 };
 
 export type LotCode = {
-  id: number;
+  id: string;
   lot_number: string;
   product_id?: string;
   quantity_received?: number;
@@ -84,6 +89,7 @@ export type LotCode = {
 };
 
 export type OrderLineDraft = {
+  productId: string;
   name: string;
   itemNumber: string;
   unit: 'lb' | 'each';
@@ -100,7 +106,19 @@ export type OrderLineDraft = {
 // ── Pure helpers ──────────────────────────────────────────────────────────────
 
 export function emptyLine(): OrderLineDraft {
-  return { name: '', itemNumber: '', unit: 'lb', quantity: '', requestedWeight: '', unitPrice: '', notes: '', lotId: '', isCatchWeight: false, estimatedWeight: '', pricePerLb: '' };
+  return { productId: '', name: '', itemNumber: '', unit: 'lb', quantity: '', requestedWeight: '', unitPrice: '', notes: '', lotId: '', isCatchWeight: false, estimatedWeight: '', pricePerLb: '' };
+}
+
+export function normalizeText(value: unknown): string {
+  return String(value ?? '').trim();
+}
+
+export function productSelectionKey(product: Pick<InventoryProduct, 'id' | 'item_number' | 'description'>): string {
+  const id = normalizeText(product.id);
+  if (id) return id;
+  const itemNumber = normalizeText(product.item_number);
+  if (itemNumber) return `item:${itemNumber}`;
+  return `desc:${normalizeText(product.description).toLowerCase()}`;
 }
 
 export function asNumber(value: unknown): number {
@@ -162,13 +180,14 @@ export function calcOrderTotal(order: Order): number {
 
 export function normalizedStatus(value: string | undefined): OrderStatus {
   const status = String(value || '').toLowerCase();
-  if (status === 'pending' || status === 'in_process' || status === 'invoiced' || status === 'cancelled') return status;
+  if (status === 'pending' || status === 'in_process' || status === 'processed' || status === 'invoiced' || status === 'cancelled') return status;
   return 'unknown';
 }
 
 export function statusVariant(status: OrderStatus): 'warning' | 'secondary' | 'success' | 'neutral' {
   if (status === 'pending')    return 'warning';
   if (status === 'in_process') return 'secondary';
+  if (status === 'processed')  return 'secondary';
   if (status === 'invoiced')   return 'success';
   return 'neutral';
 }

@@ -10,11 +10,19 @@ const {
   parseSetupPasswordBody,
   parseChangePasswordBody,
 } = require('../lib/auth-schemas');
+const {
+  loginLimiter,
+  setupPasswordLimiter,
+  changePasswordLimiter,
+} = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
-const JWT_SECRET = process.env.JWT_SECRET || 'noderoute-dev-secret-change-in-production';
+const { JWT_SECRET } = require('../lib/config');
 const JWT_EXPIRY = '24h';
+const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 h in ms
+
+const IS_PROD = process.env.NODE_ENV === 'production';
 
 function hashPassword(pw) { return bcrypt.hashSync(pw, 10); }
 
@@ -47,14 +55,42 @@ function signJWT(user) {
   );
 }
 
-router.post('/login', async (req, res) => {
+/**
+ * Sets the HttpOnly auth cookie and a readable CSRF token cookie.
+ * The CSRF cookie is NOT HttpOnly so the frontend JS can read it
+ * and send it back as the X-CSRF-Token header on mutations.
+ */
+function setAuthCookies(res, token) {
+  res.cookie('token', token, {
+    httpOnly: true,
+    secure: IS_PROD,
+    sameSite: 'strict',
+    maxAge: COOKIE_MAX_AGE,
+    path: '/',
+  });
+  // Readable CSRF token — same session, different cookie
+  const csrfToken = crypto.randomBytes(32).toString('hex');
+  res.cookie('csrf-token', csrfToken, {
+    httpOnly: false,
+    secure: IS_PROD,
+    sameSite: 'strict',
+    maxAge: COOKIE_MAX_AGE,
+    path: '/',
+  });
+}
+
+function clearAuthCookies(res) {
+  res.clearCookie('token', { httpOnly: true, secure: IS_PROD, sameSite: 'strict', path: '/' });
+  res.clearCookie('csrf-token', { httpOnly: false, secure: IS_PROD, sameSite: 'strict', path: '/' });
+}
+
+// POST /auth/login — 5 attempts / 15 min
+router.post('/login', loginLimiter, async (req, res) => {
   const parsed = parseLoginBody(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error });
   const { email, password } = parsed.data;
 
   const normalizedEmail = email.toLowerCase();
-  // Avoid .ilike() here; some client adapters don't expose it on this query path.
-  // Perform a deterministic case-insensitive lookup in memory.
   const users = await dbQuery(supabase.from('users').select('*'), res);
   if (!users) return;
 
@@ -69,10 +105,12 @@ router.post('/login', async (req, res) => {
     await supabase.from('users').update({ password_hash: bcrypt.hashSync(password, 10) }).eq('id', u.id);
   }
   const token = signJWT(u);
-  res.json({ token, user: userResponseWithContext(u) });
+  setAuthCookies(res, token);
+  res.json({ user: userResponseWithContext(u) });
 });
 
-router.post('/setup-password', async (req, res) => {
+// POST /auth/setup-password — 10 attempts / hour
+router.post('/setup-password', setupPasswordLimiter, async (req, res) => {
   const parsed = parseSetupPasswordBody(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error });
   const { token, password } = parsed.data;
@@ -88,7 +126,8 @@ router.post('/setup-password', async (req, res) => {
     invite_expires: null
   }).eq('id', u.id);
   const sessionToken = signJWT(u);
-  res.json({ token: sessionToken, user: userResponseWithContext(u) });
+  setAuthCookies(res, sessionToken);
+  res.json({ user: userResponseWithContext(u) });
 });
 
 router.get('/me', authenticateToken, (req, res) => {
@@ -96,11 +135,12 @@ router.get('/me', authenticateToken, (req, res) => {
 });
 
 router.post('/logout', authenticateToken, (req, res) => {
-  // JWTs are stateless; logout is handled client-side by discarding the token
+  clearAuthCookies(res);
   res.json({ message: 'Logged out' });
 });
 
-router.post('/change-password', authenticateToken, async (req, res) => {
+// POST /auth/change-password — 5 attempts / 15 min
+router.post('/change-password', authenticateToken, changePasswordLimiter, async (req, res) => {
   const parsed = parseChangePasswordBody(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error });
   const { currentPassword, newPassword } = parsed.data;

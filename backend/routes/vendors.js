@@ -17,16 +17,37 @@ const VENDOR_FIELDS = [
   'email',
   'phone',
   'category',
+  'catalog_item_numbers',
   'status',
   'address',
   'notes',
   'payment_terms',
 ];
 
+function normalizeCatalogItemNumbers(value) {
+  const rawValues = Array.isArray(value)
+    ? value
+    : typeof value === 'string'
+      ? value.split(',')
+      : [];
+  return Array.from(
+    new Set(
+      rawValues
+        .map((entry) => String(entry || '').trim())
+        .filter(Boolean)
+    )
+  );
+}
+
 function vendorPayload(source) {
   const payload = {};
   VENDOR_FIELDS.forEach(field => {
-    if (source[field] !== undefined) payload[field] = source[field] ?? null;
+    if (source[field] === undefined) return;
+    if (field === 'catalog_item_numbers') {
+      payload[field] = normalizeCatalogItemNumbers(source[field]);
+      return;
+    }
+    payload[field] = source[field] ?? null;
   });
   return payload;
 }
@@ -44,11 +65,14 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
   // Enrich with active PO count
   const { data: pos } = await supabase
     .from('purchase_orders')
-    .select('vendor_id, status')
-    .in('status', ['pending', 'approved', 'ordered', 'partial']);
+    .select('vendor_id, status, workflow_kind');
   const scopedPos = filterRowsByContext(pos || [], req.context);
   const poCountMap = {};
   scopedPos.forEach(po => {
+    const workflowKind = String(po.workflow_kind || '').trim().toLowerCase();
+    const status = String(po.status || '').trim().toLowerCase();
+    if (workflowKind && workflowKind !== 'vendor_order') return;
+    if (!['open', 'partial_received', 'backordered', 'pending', 'approved', 'ordered', 'partial'].includes(status)) return;
     const vid = String(po.vendor_id || '');
     if (vid) poCountMap[vid] = (poCountMap[vid] || 0) + 1;
   });

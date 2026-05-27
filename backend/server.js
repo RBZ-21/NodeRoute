@@ -6,11 +6,10 @@ const logger = require('./services/logger');
 const config = require('./lib/config');
 config.validate(logger);
 const express = require('express');
+const cookieParser = require('cookie-parser');
 const pinoHttp = require('pino-http');
 const fs = require('fs');
 const path = require('path');
-const bcrypt = require('bcryptjs');
-const { supabase } = require('./services/supabase');
 const { globalLimiter, authLimiter, aiLimiter } = require('./middleware/rateLimiter');
 
 // Route modules
@@ -38,24 +37,82 @@ const reportingRouter     = require('./routes/reporting').router;
 const lotsRouter          = require('./routes/lots');
 const integrationsRouter  = require('./routes/integrations');
 const warehouseRouter     = require('./routes/warehouse');
-const superadminRouter    = require('./routes/superadmin');          // ← NEW
+const superadminRouter    = require('./routes/superadmin');
+const companyConfigRouter = require('./routes/company-config');
+const onboardingRouter    = require('./routes/onboarding');
+const waitlistRouter      = require('./routes/waitlist');
+const dwellRouter         = require('./routes/dwell');
+const salesRepsRouter     = require('./routes/sales-reps');
+const arHubRouter         = require('./routes/ar-hub');
+const vendorBillsRouter   = require('./routes/vendor-bills');
 const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
 
-const app = express();
+const helmet = require('helmet');
+
+const app  = express();
 const PORT = config.PORT;
 
 app.set('trust proxy', 1);
 
 app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhookHandler);
 app.use(express.json({ limit: config.JSON_BODY_LIMIT }));
+app.use(cookieParser());
 app.disable('x-powered-by');
+
+// Helmet supplies headers not covered by the custom security middleware below:
+// dnsPrefetchControl, ieNoOpen, originAgentCluster, permittedCrossDomainPolicies,
+// crossOriginEmbedderPolicy, crossOriginResourcePolicy.
+// Headers already set explicitly below (CSP, HSTS, frameguard, noSniff,
+// referrerPolicy, crossOriginOpenerPolicy) are disabled here to avoid conflicts.
+app.use(helmet({
+  contentSecurityPolicy:        false,
+  crossOriginOpenerPolicy:      false,
+  frameguard:                   false,
+  hsts:                         false,
+  noSniff:                      false,
+  referrerPolicy:               false,
+  hidePoweredBy:                false, // already done with app.disable('x-powered-by')
+}));
+
+// Warn at startup if body limit is unusually large (potential DoS risk).
+(function warnBodyLimit() {
+  const raw = String(config.JSON_BODY_LIMIT || '1mb').toLowerCase();
+  const mb = raw.endsWith('mb') ? parseFloat(raw) : raw.endsWith('kb') ? parseFloat(raw) / 1024 : NaN;
+  if (!isNaN(mb) && mb > 1) {
+    logger.warn({ JSON_BODY_LIMIT: config.JSON_BODY_LIMIT }, 'JSON_BODY_LIMIT exceeds 1mb — verify this is intentional to avoid DoS risk');
+  }
+})();
+
+// ── Security headers ─────────────────────────────────────────────────────────
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
-  res.setHeader('Referrer-Policy', 'same-origin');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+  res.setHeader(
+    'Permissions-Policy',
+    'camera=(self), microphone=(), geolocation=(self), payment=()'
+  );
+  res.setHeader(
+    'Content-Security-Policy',
+    [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://maps.googleapis.com",
+      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+      "font-src 'self' https://fonts.gstatic.com",
+      "img-src 'self' data: blob: https:",
+      "connect-src 'self' https://*.supabase.co https://api.openai.com https://api.stripe.com https://api.resend.com https://maps.googleapis.com https://*.googleapis.com https://maps.gstatic.com https://*.gstatic.com wss://*.supabase.co",
+      "frame-src https://js.stripe.com",
+      "object-src 'none'",
+      "base-uri 'self'",
+    ].join('; ')
+  );
+  if (config.NODE_ENV === 'production') {
+    res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
+  }
   next();
 });
 
-// Structured request logging — skips health checks to avoid log noise
 app.use(pinoHttp({
   logger,
   autoLogging: { ignore: (req) => req.url === '/healthz' },
@@ -66,32 +123,29 @@ app.use(pinoHttp({
   },
 }));
 
-// Global rate limiter
 app.use(globalLimiter);
 
 // CORS
 app.use((req, res, next) => {
-  const origin = req.headers.origin || '';
+  const origin         = req.headers.origin || '';
   const allowedOrigins = config.CORS_ORIGINS;
-
-  if (allowedOrigins.length > 0) {
-    if (allowedOrigins.includes(origin)) {
-      res.setHeader('Access-Control-Allow-Origin', origin);
-      res.setHeader('Vary', 'Origin');
-    }
-  } else {
-    res.setHeader('Access-Control-Allow-Origin', '*');
+  if (allowedOrigins.length > 0 && allowedOrigins.includes(origin)) {
+    res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
   }
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,sentry-trace,baggage');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 });
 
 const frontendV2DistDir = path.join(__dirname, '../frontend-v2/dist');
 const landingV2DistDir  = path.join(__dirname, '../landing-v2/dist');
+const driverAppDistDir  = path.join(__dirname, '../driver-app/dist');
 const frontendV2Entry   = path.join(frontendV2DistDir, 'index.html');
 const landingV2Entry    = path.join(landingV2DistDir, 'index.html');
+const driverAppEntry    = path.join(driverAppDistDir, 'index.html');
 
 function requireBuildArtifact(buildName, entryPath, buildCommand) {
   if (!fs.existsSync(entryPath)) {
@@ -105,45 +159,11 @@ function requireBuildArtifact(buildName, entryPath, buildCommand) {
 
 requireBuildArtifact('frontend-v2', frontendV2Entry, 'npm --prefix frontend-v2 run build');
 requireBuildArtifact('landing-v2',  landingV2Entry,  'npm --prefix landing-v2 run build');
+requireBuildArtifact('driver-app',  driverAppEntry,   'npm --prefix driver-app run build');
 
 app.use('/dashboard-v2', express.static(frontendV2DistDir, { index: false }));
+app.use('/driver-app', express.static(driverAppDistDir, { index: false }));
 app.use(express.static(landingV2DistDir, { index: false }));
-
-const ADMIN_EMAIL    = config.ADMIN_EMAIL;
-const ADMIN_PASSWORD = config.ADMIN_PASSWORD;
-
-function extractRows(result) {
-  if (Array.isArray(result)) return result;
-  if (Array.isArray(result?.data)) return result.data;
-  return [];
-}
-
-// Auto-create admin on first run if no users exist
-async function ensureAdminExists() {
-  const result = await supabase.from('users').select('*');
-  const users = extractRows(result);
-  const error = result?.error || null;
-  if (error) { logger.error({ err: error }, 'Could not check users table'); return; }
-  if (users.length === 0) {
-    const passwordHash = bcrypt.hashSync(ADMIN_PASSWORD, 10);
-    const insertResult = await supabase.from('users').insert([{
-      id:             'admin-001',
-      name:           'Admin',
-      email:          ADMIN_EMAIL,
-      password_hash:  passwordHash,
-      role:           'admin',
-      status:         'active',
-      invite_token:   null,
-      invite_expires: null,
-      created_at:     new Date().toISOString(),
-    }]);
-    const insertErr = insertResult?.error || null;
-    if (insertErr) logger.error({ err: insertErr }, 'Failed to create admin user');
-    else logger.info({ email: ADMIN_EMAIL }, 'Admin user created');
-  }
-}
-
-ensureAdminExists().catch(err => logger.error({ err }, 'ensureAdminExists failed'));
 
 // Mount routers
 app.use('/auth', authLimiter, authRouter);
@@ -170,16 +190,28 @@ app.use('/api/reporting', reportingRouter);
 app.use('/api/lots', lotsRouter);
 app.use('/api/integrations', integrationsRouter);
 app.use('/api/warehouse', warehouseRouter);
-app.use('/api/superadmin', superadminRouter);                        // ← NEW
+// restore-session must be reachable while holding an impersonation token
+// (role=admin), so it runs with only authenticateToken — before the guarded router.
+const { authenticateToken: _authenticateToken } = require('./middleware/auth');
+app.post('/api/superadmin/restore-session', _authenticateToken, superadminRouter.restoreSessionHandler);
+
+app.use('/api/superadmin', superadminRouter);
+app.use('/api/company-config', companyConfigRouter);
+app.use('/api/onboarding', onboardingRouter);
+app.use('/api/waitlist', waitlistRouter);
+app.use('/api/dwell', dwellRouter);
+app.use('/api/sales-reps', salesRepsRouter);
+app.use('/api/ar', arHubRouter);
+app.use('/api/vendor-bills', vendorBillsRouter);
 
 const { authenticateToken, requireRole } = require('./middleware/auth');
-app.get('/api/config/maps-key', authenticateToken, (req, res) => {
+
+// Issue #6 fix: Maps key restricted to admin+ roles — drivers no longer have access.
+app.get('/api/config/maps-key', authenticateToken, requireRole('admin', 'manager'), (req, res) => {
   res.json({ key: config.GOOGLE_MAPS_KEY });
 });
 
-app.get('/healthz', (req, res) => {
-  res.json({ ok: true });
-});
+app.get('/healthz', (req, res) => res.json({ ok: true }));
 
 if (config.NODE_ENV !== 'production') {
   app.get('/debug-sentry', function mainHandler(_req, _res) {
@@ -187,30 +219,18 @@ if (config.NODE_ENV !== 'production') {
   });
 }
 
-// Dwell records
-app.get('/api/dwell', authenticateToken, async (req, res) => {
-  try {
-    let query = supabase.from('dwell_records').select('*');
-    if (req.user.role === 'driver') query = query.eq('driver_id', req.user.id);
-    const { data, error } = await query;
-    if (error) return res.status(500).json({ error: error.message });
-    res.json(data || []);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// Legacy alias
 app.post('/api/drivers/invite', authenticateToken, requireRole('admin', 'manager'), (req, res, next) => {
   req.body.role = req.body.role || 'driver'; next();
 }, (req, res) => res.redirect(307, '/api/users/invite'));
 
-// ── PAGES ─────────────────────────────────────────────────────────────────────
+// ── Pages ─────────────────────────────────────────────────────────────────────
 app.get('/', (req, res) => res.sendFile(landingV2Entry));
 app.get('/login', (req, res) => res.sendFile(frontendV2Entry));
 app.get('/dashboard', (req, res) => res.redirect('/dashboard-v2'));
 app.get('/dashboard-v2', (req, res) => res.sendFile(frontendV2Entry));
 app.get(/^\/dashboard-v2\/.*/, (req, res) => res.sendFile(frontendV2Entry));
+app.get('/driver-app', (req, res) => res.sendFile(driverAppEntry));
+app.get(/^\/driver-app\/.*/, (req, res) => res.sendFile(driverAppEntry));
 
 const frontendV2Routes = [
   '/orders', '/deliveries', '/map', '/drivers', '/routes', '/stops',
@@ -218,31 +238,35 @@ const frontendV2Routes = [
   '/forecast', '/financials', '/purchasing', '/vendors', '/warehouse',
   '/planning', '/integrations', '/aihelp', '/settings', '/reports',
   '/admin/traceability',
-  '/superadmin/companies',   // ← NEW: direct nav to companies page
+  '/superadmin/companies',
+  '/superadmin/waitlist',
+  '/sales-rep',
+  '/ar-hub',
 ];
 app.get(frontendV2Routes, (req, res) => res.sendFile(frontendV2Entry));
 
-app.get('/landing',          (req, res) => res.sendFile(landingV2Entry));
-app.get('/driver',           (req, res) => res.sendFile(frontendV2Entry));
-app.get('/portal',           (req, res) => res.sendFile(frontendV2Entry));
-app.get('/customer-portal',  (req, res) => res.sendFile(frontendV2Entry));
-app.get('/track',            (req, res) => res.sendFile(frontendV2Entry));
-app.get('/track/:token',     (req, res) => res.redirect(`/track?t=${encodeURIComponent(req.params.token)}`));
-app.get('/setup-password',   (req, res) => res.sendFile(frontendV2Entry));
+app.get('/landing',         (req, res) => res.sendFile(landingV2Entry));
+app.get('/driver',          (req, res) => res.sendFile(frontendV2Entry));
+app.get('/portal',          (req, res) => res.sendFile(frontendV2Entry));
+app.get('/customer-portal', (req, res) => res.sendFile(frontendV2Entry));
+app.get('/track',           (req, res) => res.sendFile(frontendV2Entry));
+app.get('/track/:token',    (req, res) => res.redirect(`/track?t=${encodeURIComponent(req.params.token)}`));
+app.get('/setup-password',  (req, res) => res.sendFile(frontendV2Entry));
 
-// 404 for unknown API routes
 app.use('/api', (req, res) => {
   res.status(404).json({ error: `API route not found: ${req.method} ${req.path}` });
 });
 
 Sentry.setupExpressErrorHandler(app);
 
-// Global error handler
 // eslint-disable-next-line no-unused-vars
 app.use((err, req, res, next) => {
   logger.error({ err, method: req.method, url: req.url }, 'Unhandled server error');
+  const message = config.NODE_ENV === 'production'
+    ? 'Internal server error'
+    : err.message;
   res.status(err.status || 500).json({
-    error: err.message || 'Internal server error',
+    error: message || 'Internal server error',
     sentry: res.sentry || undefined,
   });
 });

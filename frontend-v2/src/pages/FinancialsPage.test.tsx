@@ -1,6 +1,7 @@
-import { render, screen } from '@testing-library/react';
+import { screen } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { FinancialsPage } from './FinancialsPage';
+import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
 const { fetchWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
@@ -46,6 +47,14 @@ describe('FinancialsPage', () => {
             created_at: '2026-05-02T10:00:00Z',
           },
           {
+            id: 'inv-5',
+            invoice_number: 'INV-1005',
+            customer_name: 'Harbor Cafe',
+            total: 20,
+            status: 'delivered',
+            created_at: '2026-05-04T10:00:00Z',
+          },
+          {
             id: 'inv-4',
             invoice_number: 'INV-1004',
             customer_name: 'Paid Account',
@@ -59,14 +68,14 @@ describe('FinancialsPage', () => {
       return [];
     });
 
-    render(<FinancialsPage />);
+    renderWithQueryClient(<FinancialsPage />);
 
     expect(await screen.findByText('Accounts Receivable')).toBeInTheDocument();
-    expect(screen.getByText('$205.00')).toBeInTheDocument();
-    expect(screen.getByText('Blue Fin')).toBeInTheDocument();
+    expect(await screen.findByText('Blue Fin')).toBeInTheDocument();
+    expect(screen.getAllByText('$225.00').length).toBeGreaterThan(0);
     expect(screen.getByText('Harbor Cafe')).toBeInTheDocument();
     expect(screen.getByText('$125.00')).toBeInTheDocument();
-    expect(screen.getByText('$80.00')).toBeInTheDocument();
+    expect(screen.getByText('$100.00')).toBeInTheDocument();
     expect(screen.queryByText('Paid Account')).not.toBeInTheDocument();
   });
 });

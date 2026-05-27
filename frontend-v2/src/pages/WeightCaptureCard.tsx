@@ -41,7 +41,7 @@ export function WeightCaptureCard({
             const actual = asNumber(item.actual_weight);
             const requested = asNumber(item.requested_weight ?? orderItemQty(item));
             return (
-              <div key={key} className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-muted/20 p-3">
+              <div key={key} className="flex flex-wrap items-center gap-3 rounded-lg border border-border bg-slate-100/70 p-3 dark:bg-slate-950/35">
                 <div className="flex-1 min-w-0">
                   <div className="text-sm font-semibold text-foreground truncate">
                     {item.name || item.description || item.item_number || `Item ${idx + 1}`}
@@ -57,7 +57,7 @@ export function WeightCaptureCard({
                     min="0"
                     step="0.01"
                     placeholder="lbs"
-                    className="w-24 rounded border border-input bg-background px-2 py-1 text-sm"
+                    className="w-24 rounded border border-input bg-background px-2 py-1 text-sm text-foreground shadow-sm"
                     value={weightInputs[key] ?? ''}
                     onChange={(e) => onWeightInputChange(key, e.target.value)}
                     onKeyDown={(e) => {

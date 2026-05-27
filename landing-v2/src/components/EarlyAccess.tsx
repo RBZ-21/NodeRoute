@@ -1,6 +1,5 @@
-import { ArrowRight } from 'lucide-react';
-import { CTA } from '../lib/utils';
 import { Section, SectionEyebrow, SectionHeading, SectionLede } from './Section';
+import { WaitlistForm } from './WaitlistForm';
 
 export function EarlyAccess() {
   return (
@@ -16,22 +15,18 @@ export function EarlyAccess() {
         If you’re looking for something simpler, more practical, and built around real
         operational pain, I’d love to talk.
       </p>
-
-      <div className="mt-8 flex flex-wrap gap-3">
-        <a
-          href={CTA.earlyAccess}
-          className="group inline-flex items-center gap-1.5 rounded-lg bg-teal px-4 py-2.5 text-[14px] font-semibold text-black hover:bg-teal-light transition-colors"
-        >
-          Request Early Access
-          <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
-        </a>
-        <a
-          href={CTA.founder}
-          className="inline-flex items-center rounded-lg border border-line-strong bg-ink-100 px-4 py-2.5 text-[14px] font-semibold text-white hover:border-white/30 transition-colors"
-        >
-          Talk to the Founder
-        </a>
+      <div className="mt-8">
+        <WaitlistForm source="early-access" />
       </div>
+      <p className="mt-4 text-[13px] text-white/35">
+        Prefer email?{' '}
+        <a
+          href="mailto:ryan@noderoutesystems.com?subject=NodeRoute%20-%20Talk%20to%20the%20Founder"
+          className="underline hover:text-white/60 transition-colors"
+        >
+          Talk directly to the founder.
+        </a>
+      </p>
     </Section>
   );
 }

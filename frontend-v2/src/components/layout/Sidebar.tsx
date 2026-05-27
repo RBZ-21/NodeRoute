@@ -30,7 +30,8 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
     return () => { document.body.style.overflow = ''; };
   }, [mobileOpen]);
 
-  const visibleGroups = navGroups
+  // Split groups: bottom-pinned vs normal
+  const allVisible = navGroups
     .filter((g) => canAccessGroup(g, role))
     .map((g) => ({
       ...g,
@@ -38,8 +39,13 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
     }))
     .filter((g) => g.items.length > 0);
 
+  const topGroups    = allVisible.filter((g) => g.id !== 'bottom');
+  const bottomGroups = allVisible.filter((g) => g.id === 'bottom');
+
+  const activeId = currentItem?.id ?? 'dashboard';
+
   const sidebarContent = (
-    <aside className="flex h-full w-56 shrink-0 flex-col gap-1 overflow-y-auto border-r border-border bg-card px-2 py-4">
+    <aside className="flex h-full w-56 shrink-0 flex-col overflow-y-auto border-r border-border bg-card px-2 py-4">
       {/* Mobile close button */}
       <div className="flex items-center justify-between px-3 pb-2 md:hidden">
         <span className="text-xs font-bold uppercase tracking-widest text-primary">Menu</span>
@@ -52,14 +58,41 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
         </button>
       </div>
 
-      {visibleGroups.map((group) => (
-        <SidebarGroup
-          key={group.id}
-          group={group}
-          activeId={currentItem?.id ?? 'dashboard'}
-          onNavigate={navigate}
-        />
-      ))}
+      {/* Scrollable top section */}
+      <div className="flex-1 space-y-1 overflow-y-auto">
+        {topGroups.map((group) =>
+          group.label === '' ? (
+            // Flat items — no collapsible header
+            <FlatItems
+              key={group.id}
+              group={group}
+              activeId={activeId}
+              onNavigate={navigate}
+            />
+          ) : (
+            <SidebarGroup
+              key={group.id}
+              group={group}
+              activeId={activeId}
+              onNavigate={navigate}
+            />
+          )
+        )}
+      </div>
+
+      {/* Settings pinned to bottom */}
+      {bottomGroups.length > 0 && (
+        <div className="mt-2 border-t border-border pt-2">
+          {bottomGroups.map((group) => (
+            <FlatItems
+              key={group.id}
+              group={group}
+              activeId={activeId}
+              onNavigate={navigate}
+            />
+          ))}
+        </div>
+      )}
     </aside>
   );
 
@@ -83,6 +116,49 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
   );
 }
 
+/** Renders items directly without a collapsible group header */
+function FlatItems({
+  group,
+  activeId,
+  onNavigate,
+}: {
+  group: NavGroup;
+  activeId: string;
+  onNavigate: (path: string) => void;
+}) {
+  return (
+    <ul className="mb-1 space-y-0.5">
+      {group.items.map((item) => {
+        const Icon     = item.icon;
+        const isActive = item.id === activeId;
+        return (
+          <li key={item.id}>
+            <button
+              onClick={() => onNavigate(item.path)}
+              aria-current={isActive ? 'page' : undefined}
+              className={cn(
+                'group flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-sm transition-colors',
+                isActive
+                  ? 'bg-primary/10 font-semibold text-primary'
+                  : 'text-foreground hover:bg-muted/60',
+              )}
+            >
+              <Icon
+                className={cn(
+                  'h-4 w-4 shrink-0 transition-colors',
+                  isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground',
+                )}
+                aria-hidden="true"
+              />
+              {item.label}
+            </button>
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
 function SidebarGroup({
   group,
   activeId,
@@ -93,7 +169,7 @@ function SidebarGroup({
   onNavigate: (path: string) => void;
 }) {
   const hasActive = group.items.some((i) => i.id === activeId);
-  const [open, setOpen] = useState(hasActive || group.id === 'core');
+  const [open, setOpen] = useState(hasActive);
 
   return (
     <div className="mb-1">

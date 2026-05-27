@@ -1,64 +1,16 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth } from '../lib/api';
-
-// ── Types ─────────────────────────────────────────────────────────────────────
-
-type LotTrace = {
-  lot: {
-    lot_number: string;
-    product_id?: string;
-    product?: string;
-    vendor?: string;
-    received_date?: string;
-    received_by?: string;
-    quantity_received?: number;
-    unit_of_measure?: string;
-    expiration_date?: string;
-    notes?: string;
-  };
-  orders: {
-    order_id: string;
-    order_number?: string;
-    customer?: string;
-    customer_email?: string;
-    status?: string;
-    quantity?: number;
-    delivery_date?: string;
-  }[];
-  stops: {
-    stop_id: string;
-    stop_name?: string;
-    address?: string;
-    quantity?: number;
-    delivered_at?: string;
-  }[];
-};
-
-type ReportRow = {
-  lot_number: string;
-  product_id?: string;
-  vendor?: string;
-  received_date?: string;
-  received_by?: string;
-  qty_received?: number;
-  unit_of_measure?: string;
-  qty_shipped?: number;
-  qty_remaining?: number;
-  expiration_date?: string;
-  notes?: string;
-};
-
-type ReportResponse = {
-  page: number;
-  page_size: number;
-  total: number;
-  rows: ReportRow[];
-};
+import { sendWithAuth } from '../lib/api';
+import {
+  type ReportParams,
+  type ReportRow,
+  useLotTraceQuery,
+  useTraceabilityReportQuery,
+} from '../hooks/useTraceability';
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -69,11 +21,8 @@ function fmt(value: unknown): string {
 
 function fmtDate(value: unknown): string {
   if (!value) return '—';
-  try {
-    return new Date(String(value)).toLocaleDateString();
-  } catch {
-    return String(value);
-  }
+  try { return new Date(String(value)).toLocaleDateString(); }
+  catch { return String(value); }
 }
 
 function fmtQty(value: unknown): string {
@@ -83,97 +32,119 @@ function fmtQty(value: unknown): string {
 }
 
 function exportCsv(rows: ReportRow[], filename: string) {
-  const headers = [
-    'Lot #', 'Product', 'Vendor', 'Received Date', 'Received By',
-    'Qty Received', 'Unit', 'Qty Shipped', 'Qty Remaining', 'Expiration',
-  ];
-  const lines = rows.map((r) => [
-    r.lot_number,
-    r.product_id ?? '',
-    r.vendor ?? '',
-    r.received_date ?? '',
-    r.received_by ?? '',
-    r.qty_received ?? '',
-    r.unit_of_measure ?? '',
-    r.qty_shipped ?? '',
-    r.qty_remaining ?? '',
-    r.expiration_date ?? '',
-  ].map((cell) => `"${String(cell).replace(/"/g, '""')}"`).join(','));
-
+  const headers = ['Lot #', 'Product', 'Vendor', 'Received Date', 'Received By', 'Qty Received', 'Unit', 'Qty Shipped', 'Qty Remaining', 'Expiration'];
+  const lines = rows.map((r) =>
+    [r.lot_number, r.product_id ?? '', r.vendor ?? '', r.received_date ?? '', r.received_by ?? '', r.qty_received ?? '', r.unit_of_measure ?? '', r.qty_shipped ?? '', r.qty_remaining ?? '', r.expiration_date ?? '']
+      .map((cell) => `"${String(cell).replace(/"/g, '""')}"`)
+      .join(','),
+  );
   const csv = [headers.join(','), ...lines].join('\n');
   const blob = new Blob([csv], { type: 'text/csv' });
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  a.href = url; a.download = filename; a.click(); URL.revokeObjectURL(url);
 }
 
 // ── Component ─────────────────────────────────────────────────────────────────
 
 export function TraceabilityPage() {
-  // Trace-by-lot-number panel
+  // Trace-by-lot-number panel — committed lot drives the query key.
   const [traceInput, setTraceInput] = useState('');
-  const [traceResult, setTraceResult] = useState<LotTrace | null>(null);
-  const [tracing, setTracing] = useState(false);
-  const [traceError, setTraceError] = useState('');
+  const [committedLot, setCommittedLot] = useState<string | null>(null);
+  const traceQuery = useLotTraceQuery(committedLot);
 
-  // Report panel
-  const [reportLot, setReportLot] = useState('');
-  const [reportProduct, setReportProduct] = useState('');
+  // Report panel — committed params drive the query key (including page).
+  const [reportLot, setReportLot]           = useState('');
+  const [reportProduct, setReportProduct]   = useState('');
+  const [reportVendor, setReportVendor]     = useState('');
   const [reportDateFrom, setReportDateFrom] = useState('');
-  const [reportDateTo, setReportDateTo] = useState('');
-  const [report, setReport] = useState<ReportResponse | null>(null);
-  const [reportPage, setReportPage] = useState(1);
-  const [reportLoading, setReportLoading] = useState(false);
-  const [reportError, setReportError] = useState('');
+  const [reportDateTo, setReportDateTo]     = useState('');
+  const [reportParams, setReportParams] = useState<ReportParams>({
+    lot: '', product: '', vendor: '', dateFrom: '', dateTo: '', page: 1,
+  });
+  const reportQuery = useTraceabilityReportQuery(reportParams);
+  const [noticeError, setNoticeError] = useState('');
+  const [noticeSuccess, setNoticeSuccess] = useState('');
+  const [noticeSending, setNoticeSending] = useState(false);
 
-  // ── Trace lookup ────────────────────────────────────────────────────────────
-  async function runTrace() {
-    const lot = traceInput.trim();
-    if (!lot) return;
-    setTracing(true);
-    setTraceError('');
-    setTraceResult(null);
-    try {
-      const data = await fetchWithAuth<LotTrace>(`/api/lots/${encodeURIComponent(lot)}/trace`);
-      setTraceResult(data);
-    } catch (err) {
-      setTraceError(String((err as Error).message || 'Trace failed'));
-    } finally {
-      setTracing(false);
-    }
-  }
-
-  // ── Report ──────────────────────────────────────────────────────────────────
-  async function runReport(page = 1) {
-    setReportLoading(true);
-    setReportError('');
-    try {
-      const params = new URLSearchParams({ page: String(page), limit: '50' });
-      if (reportLot)     params.set('lot',        reportLot);
-      if (reportProduct) params.set('product_id', reportProduct);
-      if (reportDateFrom) params.set('date_from', reportDateFrom);
-      if (reportDateTo)   params.set('date_to',   reportDateTo);
-      const data = await fetchWithAuth<ReportResponse>(`/api/lots/traceability/report?${params}`);
-      setReport(data);
-      setReportPage(page);
-    } catch (err) {
-      setReportError(String((err as Error).message || 'Report failed'));
-    } finally {
-      setReportLoading(false);
-    }
-  }
-
-  useEffect(() => { runReport(1); }, []); // load first page on mount
-
+  const report     = reportQuery.data ?? null;
+  const reportPage = reportParams.page;
   const totalPages = useMemo(() => {
     if (!report) return 1;
     return Math.max(1, Math.ceil(report.total / report.page_size));
   }, [report]);
 
-  // ── Render ──────────────────────────────────────────────────────────────────
+  function runTrace() {
+    const lot = traceInput.trim();
+    if (!lot) return;
+    setNoticeError('');
+    setNoticeSuccess('');
+    setCommittedLot(lot);
+  }
+
+  function runReport(page = 1) {
+    const nextParams = {
+      lot: reportLot,
+      product: reportProduct,
+      vendor: reportVendor,
+      dateFrom: reportDateFrom,
+      dateTo: reportDateTo,
+      page,
+    };
+    const sameParams =
+      reportParams.lot === nextParams.lot &&
+      reportParams.product === nextParams.product &&
+      reportParams.vendor === nextParams.vendor &&
+      reportParams.dateFrom === nextParams.dateFrom &&
+      reportParams.dateTo === nextParams.dateTo &&
+      reportParams.page === nextParams.page;
+
+    if (sameParams) {
+      void reportQuery.refetch();
+      return;
+    }
+
+    setReportParams(nextParams);
+  }
+
+  const traceResult = traceQuery.data ?? null;
+  const tracing     = traceQuery.isFetching;
+  const traceError  = traceQuery.error ? String((traceQuery.error as Error).message || 'Trace failed') : '';
+  const reportLoading = reportQuery.isFetching;
+  const reportError   = reportQuery.error ? String((reportQuery.error as Error).message || 'Report failed') : '';
+  const traceNoticeRecipients = useMemo(() => {
+    if (!traceResult) return 0;
+    return new Set(
+      traceResult.orders
+        .map((order) => String(order.customer_email || '').trim().toLowerCase())
+        .filter(Boolean),
+    ).size;
+  }, [traceResult]);
+
+  async function sendLotNotice() {
+    if (!traceResult) return;
+    setNoticeSending(true);
+    setNoticeError('');
+    setNoticeSuccess('');
+    try {
+      const result = await sendWithAuth<{ recipient_count?: number }>(
+        `/api/lots/${encodeURIComponent(traceResult.lot.lot_number)}/notice`,
+        'POST',
+        {},
+      );
+      const recipientCount = Number(result?.recipient_count || 0);
+      setNoticeSuccess(
+        recipientCount > 0
+          ? `Sent traceability notice to ${recipientCount} customer${recipientCount === 1 ? '' : 's'}.`
+          : 'Traceability notice sent.',
+      );
+    } catch (err) {
+      setNoticeError(String((err as Error).message || 'Could not send traceability notice'));
+    } finally {
+      setNoticeSending(false);
+    }
+  }
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-1">
@@ -187,9 +158,7 @@ export function TraceabilityPage() {
       <Card>
         <CardHeader>
           <CardTitle>Trace a Lot</CardTitle>
-          <CardDescription>
-            Enter a lot number to retrieve the full supply chain: receiving → orders → deliveries.
-          </CardDescription>
+          <CardDescription>Enter a lot number to retrieve the full supply chain: receiving → orders → deliveries.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex gap-2">
@@ -206,43 +175,33 @@ export function TraceabilityPage() {
           </div>
 
           {traceError && (
-            <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">
-              {traceError}
-            </div>
+            <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{traceError}</div>
           )}
 
           {traceResult && (
             <div className="space-y-4">
-              {/* Lot info */}
               <div className="rounded-lg border border-border bg-muted/20 p-4">
                 <h3 className="mb-3 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Lot Record</h3>
                 <dl className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4 text-sm">
-                  <Kv label="Lot Number"    value={traceResult.lot.lot_number} highlight />
-                  <Kv label="Product"       value={traceResult.lot.product || traceResult.lot.product_id} />
-                  <Kv label="Vendor"        value={traceResult.lot.vendor} />
-                  <Kv label="Received"      value={fmtDate(traceResult.lot.received_date)} />
-                  <Kv label="Received By"   value={traceResult.lot.received_by} />
-                  <Kv label="Qty Received"  value={`${fmtQty(traceResult.lot.quantity_received)} ${traceResult.lot.unit_of_measure || ''}`} />
-                  <Kv label="Expiration"    value={fmtDate(traceResult.lot.expiration_date)} />
-                  <Kv label="Notes"         value={traceResult.lot.notes} />
+                  <Kv label="Lot Number"   value={traceResult.lot.lot_number} highlight />
+                  <Kv label="Product"      value={traceResult.lot.product || traceResult.lot.product_id} />
+                  <Kv label="Vendor"       value={traceResult.lot.vendor} />
+                  <Kv label="Received"     value={fmtDate(traceResult.lot.received_date)} />
+                  <Kv label="Received By"  value={traceResult.lot.received_by} />
+                  <Kv label="Qty Received" value={`${fmtQty(traceResult.lot.quantity_received)} ${traceResult.lot.unit_of_measure || ''}`} />
+                  <Kv label="Expiration"   value={fmtDate(traceResult.lot.expiration_date)} />
+                  <Kv label="Notes"        value={traceResult.lot.notes} />
                 </dl>
               </div>
 
-              {/* Orders */}
               <div>
-                <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  Orders ({traceResult.orders.length})
-                </h3>
+                <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Orders ({traceResult.orders.length})</h3>
                 {traceResult.orders.length ? (
                   <div className="rounded-lg border border-border">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Order #</TableHead>
-                          <TableHead>Customer</TableHead>
-                          <TableHead>Status</TableHead>
-                          <TableHead>Qty from Lot</TableHead>
-                          <TableHead>Date</TableHead>
+                          <TableHead>Order #</TableHead><TableHead>Customer</TableHead><TableHead>Status</TableHead><TableHead>Qty from Lot</TableHead><TableHead>Date</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -262,25 +221,17 @@ export function TraceabilityPage() {
                       </TableBody>
                     </Table>
                   </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No orders found for this lot.</p>
-                )}
+                ) : <p className="text-sm text-muted-foreground">No orders found for this lot.</p>}
               </div>
 
-              {/* Stops */}
               <div>
-                <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">
-                  Delivery Stops ({traceResult.stops.length})
-                </h3>
+                <h3 className="mb-2 text-sm font-semibold uppercase tracking-wide text-muted-foreground">Delivery Stops ({traceResult.stops.length})</h3>
                 {traceResult.stops.length ? (
                   <div className="rounded-lg border border-border">
                     <Table>
                       <TableHeader>
                         <TableRow>
-                          <TableHead>Stop</TableHead>
-                          <TableHead>Address</TableHead>
-                          <TableHead>Qty</TableHead>
-                          <TableHead>Dispatched</TableHead>
+                          <TableHead>Stop</TableHead><TableHead>Address</TableHead><TableHead>Qty</TableHead><TableHead>Dispatched</TableHead>
                         </TableRow>
                       </TableHeader>
                       <TableBody>
@@ -295,31 +246,49 @@ export function TraceabilityPage() {
                       </TableBody>
                     </Table>
                   </div>
-                ) : (
-                  <p className="text-sm text-muted-foreground">No delivery stops found for this lot.</p>
-                )}
+                ) : <p className="text-sm text-muted-foreground">No delivery stops found for this lot.</p>}
               </div>
 
-              <Button
-                variant="outline"
-                onClick={() => {
-                  if (!traceResult) return;
-                  const rows: ReportRow[] = [{
-                    lot_number:      traceResult.lot.lot_number,
-                    product_id:      traceResult.lot.product_id,
-                    vendor:          traceResult.lot.vendor,
-                    received_date:   traceResult.lot.received_date,
-                    received_by:     traceResult.lot.received_by,
-                    qty_received:    traceResult.lot.quantity_received,
-                    unit_of_measure: traceResult.lot.unit_of_measure,
-                    qty_shipped:     traceResult.orders.reduce((s, o) => s + (o.quantity || 0), 0),
-                    expiration_date: traceResult.lot.expiration_date,
-                  }];
-                  exportCsv(rows, `trace-${traceResult.lot.lot_number}.csv`);
-                }}
-              >
-                Export CSV
-              </Button>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="secondary"
+                  onClick={() => void sendLotNotice()}
+                  disabled={noticeSending || traceNoticeRecipients === 0}
+                >
+                  {noticeSending ? 'Sending Notice…' : `Send Customer Notice${traceNoticeRecipients ? ` (${traceNoticeRecipients})` : ''}`}
+                </Button>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    if (!traceResult) return;
+                    exportCsv([{
+                      lot_number:      traceResult.lot.lot_number,
+                      product_id:      traceResult.lot.product_id,
+                      vendor:          traceResult.lot.vendor,
+                      received_date:   traceResult.lot.received_date,
+                      received_by:     traceResult.lot.received_by,
+                      qty_received:    traceResult.lot.quantity_received,
+                      unit_of_measure: traceResult.lot.unit_of_measure,
+                      qty_shipped:     traceResult.orders.reduce((s, o) => s + (o.quantity || 0), 0),
+                      expiration_date: traceResult.lot.expiration_date,
+                    }], `trace-${traceResult.lot.lot_number}.csv`);
+                  }}
+                >
+                  Export CSV
+                </Button>
+                <span className="text-sm text-muted-foreground">
+                  {traceNoticeRecipients
+                    ? `Email notice can go to ${traceNoticeRecipients} affected customer${traceNoticeRecipients === 1 ? '' : 's'}.`
+                    : 'No customer email addresses are linked to this lot yet.'}
+                </span>
+              </div>
+
+              {noticeError && (
+                <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{noticeError}</div>
+              )}
+              {noticeSuccess && (
+                <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{noticeSuccess}</div>
+              )}
             </div>
           )}
         </CardContent>
@@ -329,10 +298,10 @@ export function TraceabilityPage() {
       <Card>
         <CardHeader>
           <CardTitle>Lot Movements Report</CardTitle>
-          <CardDescription>Filter by lot, product, and date range. Export-ready CSV.</CardDescription>
+          <CardDescription>Filter by lot, product, vendor, and date range. Export-ready CSV.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          <div className="grid gap-3 md:grid-cols-4">
+          <div className="grid gap-3 md:grid-cols-5">
             <label className="space-y-1 text-sm">
               <span className="font-semibold text-muted-foreground">Lot #</span>
               <Input value={reportLot} onChange={(e) => setReportLot(e.target.value)} placeholder="SALMON-2026" />
@@ -340,6 +309,10 @@ export function TraceabilityPage() {
             <label className="space-y-1 text-sm">
               <span className="font-semibold text-muted-foreground">Product ID</span>
               <Input value={reportProduct} onChange={(e) => setReportProduct(e.target.value)} placeholder="SAL-01" />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="font-semibold text-muted-foreground">Vendor</span>
+              <Input value={reportVendor} onChange={(e) => setReportVendor(e.target.value)} placeholder="North Sea" />
             </label>
             <label className="space-y-1 text-sm">
               <span className="font-semibold text-muted-foreground">From</span>
@@ -352,9 +325,12 @@ export function TraceabilityPage() {
           </div>
 
           <div className="flex flex-wrap gap-2">
-            <Button onClick={() => runReport(1)} disabled={reportLoading}>
-              {reportLoading ? 'Loading…' : 'Run Report'}
+            <Button onClick={() => runReport(1)} aria-busy={reportLoading}>
+              Run Report
             </Button>
+            {reportLoading ? (
+              <span className="inline-flex items-center text-sm text-muted-foreground">Loading…</span>
+            ) : null}
             {report && report.rows.length > 0 && (
               <Button variant="outline" onClick={() => exportCsv(report.rows, 'lot-movements.csv')}>
                 Export CSV ({report.rows.length} rows)
@@ -363,9 +339,7 @@ export function TraceabilityPage() {
           </div>
 
           {reportError && (
-            <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">
-              {reportError}
-            </div>
+            <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{reportError}</div>
           )}
 
           {report && (
@@ -377,14 +351,7 @@ export function TraceabilityPage() {
                 <Table>
                   <TableHeader>
                     <TableRow>
-                      <TableHead>Lot #</TableHead>
-                      <TableHead>Product</TableHead>
-                      <TableHead>Vendor</TableHead>
-                      <TableHead>Received</TableHead>
-                      <TableHead>Qty Received</TableHead>
-                      <TableHead>Qty Shipped</TableHead>
-                      <TableHead>Remaining</TableHead>
-                      <TableHead>Expiration</TableHead>
+                      <TableHead>Lot #</TableHead><TableHead>Product</TableHead><TableHead>Vendor</TableHead><TableHead>Received</TableHead><TableHead>Qty Received</TableHead><TableHead>Qty Shipped</TableHead><TableHead>Remaining</TableHead><TableHead>Expiration</TableHead>
                     </TableRow>
                   </TableHeader>
                   <TableBody>
@@ -398,21 +365,13 @@ export function TraceabilityPage() {
                           <TableCell>{fmtQty(row.qty_received)} {row.unit_of_measure || ''}</TableCell>
                           <TableCell>{fmtQty(row.qty_shipped)}</TableCell>
                           <TableCell>
-                            <span className={Number(row.qty_remaining) === 0 ? 'text-muted-foreground' : ''}>
-                              {fmtQty(row.qty_remaining)}
-                            </span>
+                            <span className={Number(row.qty_remaining) === 0 ? 'text-muted-foreground' : ''}>{fmtQty(row.qty_remaining)}</span>
                           </TableCell>
-                          <TableCell>
-                            <ExpiryBadge date={row.expiration_date} />
-                          </TableCell>
+                          <TableCell><ExpiryBadge date={row.expiration_date} /></TableCell>
                         </TableRow>
                       ))
                     ) : (
-                      <TableRow>
-                        <TableCell colSpan={8} className="text-muted-foreground">
-                          No lots match the current filters.
-                        </TableCell>
-                      </TableRow>
+                      <TableRow><TableCell colSpan={8} className="text-muted-foreground">No lots match the current filters.</TableCell></TableRow>
                     )}
                   </TableBody>
                 </Table>
@@ -423,7 +382,7 @@ export function TraceabilityPage() {
                   <Button
                     variant="outline" size="sm"
                     disabled={reportPage <= 1 || reportLoading}
-                    onClick={() => runReport(reportPage - 1)}
+                    onClick={() => setReportParams((p) => ({ ...p, page: p.page - 1 }))}
                   >
                     Previous
                   </Button>
@@ -431,7 +390,7 @@ export function TraceabilityPage() {
                   <Button
                     variant="outline" size="sm"
                     disabled={reportPage >= totalPages || reportLoading}
-                    onClick={() => runReport(reportPage + 1)}
+                    onClick={() => setReportParams((p) => ({ ...p, page: p.page + 1 }))}
                   >
                     Next
                   </Button>
@@ -444,8 +403,6 @@ export function TraceabilityPage() {
     </div>
   );
 }
-
-// ── Small sub-components ──────────────────────────────────────────────────────
 
 function Kv({ label, value, highlight }: { label: string; value: unknown; highlight?: boolean }) {
   return (

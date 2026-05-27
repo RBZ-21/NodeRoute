@@ -8,7 +8,12 @@ const { computeRollups, computeSalesSummary, computeRecentSoldItems } = require(
 const repoRoot = path.resolve(__dirname, '..', '..');
 const reportingRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'reporting.js'), 'utf8');
 const serverSource = fs.readFileSync(path.join(repoRoot, 'backend', 'server.js'), 'utf8');
-const frontendSource = fs.readFileSync(path.join(repoRoot, 'frontend', 'index.html'), 'utf8');
+const reactSrcDir = path.join(repoRoot, 'frontend-v2', 'src');
+const frontendSource = [
+  path.join(reactSrcDir, 'hooks', 'useAnalytics.ts'),
+  path.join(reactSrcDir, 'hooks', 'useDSR.ts'),
+  path.join(reactSrcDir, 'pages', 'ReportsPage.tsx'),
+].map((f) => fs.readFileSync(f, 'utf8')).join('\n');
 
 function byLabel(rows, label) {
   return (rows || []).find((row) => row.label === label);
@@ -19,20 +24,16 @@ test('reporting route is mounted with auth + manager/admin role guard', () => {
   assert.ok(reportingRouteSource.includes("router.get('/sales-summary', authenticateToken, requireRole('admin', 'manager')"));
   assert.ok(reportingRouteSource.includes("router.get('/recent-sold-items', authenticateToken, requireRole('admin', 'manager')"));
   assert.ok(reportingRouteSource.includes("const limit = Math.max(1, Math.min(parseInt(req.query.limit || '100', 10), 500));"));
-  assert.ok(serverSource.includes("const reportingRouter = require('./routes/reporting').router;"));
+  assert.ok(serverSource.includes("require('./routes/reporting').router;"), 'reporting router should be required in server.js');
   assert.ok(serverSource.includes("app.use('/api/reporting', reportingRouter);"));
 });
 
 test('analytics UI integrates reporting rollups controls and API call', () => {
   for (const marker of [
-    'id="reportStartDate"',
-    'id="reportEndDate"',
-    'id="reportRowLimit"',
-    'id="reportingOverview"',
-    'id="reportingRollupGrid"',
-    "fetch(`${API}/reporting/rollups?${params.toString()}`, authHeaders)",
-    'function renderReportingRollups()',
-    'function fetchReportingRollups()',
+    '/api/reporting/rollups',
+    '/api/reporting/sales-summary',
+    'reportStartDate',
+    'reportEndDate',
   ]) {
     assert.ok(frontendSource.includes(marker), `missing reporting UI marker ${marker}`);
   }

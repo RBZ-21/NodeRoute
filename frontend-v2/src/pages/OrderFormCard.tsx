@@ -1,10 +1,12 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Combobox } from '../components/ui/combobox';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { asMoney, asNumber, fmtDate } from './orders.types';
+import { fetchWithAuth } from '../lib/api';
+import { useRoutes } from '../hooks/useRoutes';
+import { asMoney, asNumber, fmtDate, normalizeText, productSelectionKey } from './orders.types';
 import type { Customer, InventoryProduct, LotCode, OrderCharge, OrderLineDraft } from './orders.types';
 
 type Props = {
@@ -13,6 +15,7 @@ type Props = {
   customerEmail: string; setCustomerEmail: (v: string) => void;
   customerAddress: string; setCustomerAddress: (v: string) => void;
   fulfillmentType: 'delivery' | 'pickup'; setFulfillmentType: (v: 'delivery' | 'pickup') => void;
+  routeId: string; setRouteId: (v: string) => void;
   customers: Customer[];
   notes: string; setNotes: (v: string) => void;
   taxEnabled: boolean; setTaxEnabled: (v: boolean) => void;
@@ -35,6 +38,7 @@ type Props = {
   onSubmit: (sendToProcessing: boolean) => void;
   onCancel: () => void;
   submitting: boolean;
+  productsLoading?: boolean;
 };
 
 export function OrderFormCard({
@@ -43,6 +47,7 @@ export function OrderFormCard({
   customerEmail, setCustomerEmail,
   customerAddress, setCustomerAddress,
   fulfillmentType, setFulfillmentType,
+  routeId, setRouteId,
   customers,
   notes, setNotes,
   taxEnabled, setTaxEnabled,
@@ -53,8 +58,27 @@ export function OrderFormCard({
   lines, products, lotsCache, ftlSet, catchWeightSet,
   subtotal, charges, draftTotal,
   updateLine, toggleLineCatchWeight, addLine, removeLine,
-  onSubmit, onCancel, submitting,
+  onSubmit, onCancel, submitting, productsLoading = false,
 }: Props) {
+  const { data: routes = [] } = useRoutes();
+
+  const lookupInFlightRef = useRef<string | null>(null);
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [addressLookupLoading, setAddressLookupLoading] = useState(false);
+  const [customerPhone, setCustomerPhone] = useState('');
+  const [browseLineIndex, setBrowseLineIndex] = useState<number | null>(null);
+  const [browseSearch, setBrowseSearch] = useState('');
+
+  useEffect(() => () => {
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, []);
+
+  useEffect(() => {
+    if (!customerName.trim()) return;
+    if (customerEmail.trim() || customerAddress.trim() || customerPhone.trim()) return;
+    hydrateCustomerByName(customerName);
+  }, [customerName, customerEmail, customerAddress, customerPhone, customers]);
+
   function normalizedCustomerName(value: string) {
     return value.trim().toLowerCase();
   }
@@ -71,10 +95,34 @@ export function OrderFormCard({
     ).trim();
   }
 
+  async function maybeLookupAddress(name: string) {
+    const trimmed = name.trim();
+    if (!trimmed) return;
+    if (lookupInFlightRef.current === trimmed) return;
+    lookupInFlightRef.current = trimmed;
+    setAddressLookupLoading(true);
+    try {
+      const result = await fetchWithAuth<{ address?: string }>(
+        `/api/customers/address-lookup?name=${encodeURIComponent(trimmed)}`
+      );
+      if (result?.address) setCustomerAddress(result.address);
+    } catch {
+      // Silently ignore
+    } finally {
+      lookupInFlightRef.current = null;
+      setAddressLookupLoading(false);
+    }
+  }
+
   function hydrateCustomerDetails(customer: Customer) {
     setCustomerName(customer.company_name || '');
     setCustomerEmail(customer.billing_email || '');
-    setCustomerAddress(customerAddressValue(customer));
+    setCustomerPhone(customer.phone_number || '');
+    const addr = customerAddressValue(customer);
+    setCustomerAddress(addr);
+    if (!addr && customer.company_name) {
+      void maybeLookupAddress(customer.company_name);
+    }
   }
 
   function hydrateCustomerByName(nextName: string) {
@@ -98,11 +146,37 @@ export function OrderFormCard({
   const productOptions = useMemo(
     () => products.map((p) => ({
       label: p.description,
-      sublabel: `#${p.item_number}${p.unit ? ' · ' + p.unit : ''}${asNumber(p.cost) > 0 ? ' · $' + asNumber(p.cost).toFixed(2) : ''}`,
-      value: p.item_number,
+      sublabel: `${normalizeText(p.item_number) ? '#' + normalizeText(p.item_number) : 'No item #'}${p.unit ? ' · ' + p.unit : ''}${asNumber(p.cost) > 0 ? ' · $' + asNumber(p.cost).toFixed(2) : ''}`,
+      value: productSelectionKey(p),
     })),
     [products],
   );
+
+  const browsableProducts = useMemo(() => {
+    const needle = normalizeText(browseSearch).toLowerCase();
+    return products
+      .filter((product) => {
+        if (!needle) return true;
+        return [
+          product.description,
+          product.item_number,
+          product.unit,
+        ]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(needle));
+      })
+      .sort((a, b) => {
+        const stockDelta = asNumber(b.on_hand_qty) - asNumber(a.on_hand_qty);
+        if (stockDelta !== 0) return stockDelta;
+        return String(a.description || '').localeCompare(String(b.description || ''));
+      });
+  }, [browseSearch, products]);
+
+  function applyProductSelection(index: number, product: InventoryProduct) {
+    updateLine(index, 'productId', productSelectionKey(product));
+    setBrowseLineIndex(null);
+    setBrowseSearch('');
+  }
 
   return (
     <Card>
@@ -120,7 +194,15 @@ export function OrderFormCard({
               value={customerName}
               onChange={(nextValue) => {
                 setCustomerName(nextValue);
-                hydrateCustomerByName(nextValue);
+                const matched = hydrateCustomerByName(nextValue);
+                if (!matched) {
+                  if (debounceRef.current) clearTimeout(debounceRef.current);
+                  if (nextValue.trim()) {
+                    debounceRef.current = setTimeout(() => {
+                      void maybeLookupAddress(nextValue);
+                    }, 800);
+                  }
+                }
               }}
               onSelect={(opt) => {
                 const c = customers.find((x) => x.id === opt.value);
@@ -142,12 +224,35 @@ export function OrderFormCard({
               <option value="pickup">Pickup</option>
             </select>
           </label>
+          {fulfillmentType === 'delivery' && (
+            <label className="space-y-1 text-sm">
+              <span className="font-semibold text-muted-foreground">Assign to Route</span>
+              <select
+                value={routeId}
+                onChange={(e) => setRouteId(e.target.value)}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              >
+                <option value="">— No route —</option>
+                {routes.map((r) => (
+                  <option key={r.id} value={r.id}>
+                    {r.name || r.id}{r.driver ? ` · ${r.driver}` : ''}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <label className="space-y-1 text-sm">
             <span className="font-semibold text-muted-foreground">Customer Email</span>
             <Input value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="buyer@customer.com" />
+            {customerPhone && <p className="text-xs text-muted-foreground pt-0.5">📞 {customerPhone}</p>}
           </label>
           <label className="space-y-1 text-sm">
-            <span className="font-semibold text-muted-foreground">Customer Address</span>
+            <span className="font-semibold text-muted-foreground">
+              Customer Address
+              {addressLookupLoading && (
+                <span className="ml-1.5 text-xs font-normal text-muted-foreground animate-pulse">Looking up…</span>
+              )}
+            </span>
             <Input
               value={customerAddress}
               onChange={(e) => setCustomerAddress(e.target.value)}
@@ -162,6 +267,7 @@ export function OrderFormCard({
         ) : (
           <p className="text-xs text-muted-foreground">Pickup orders do not create route stops.</p>
         )}
+        <p className="text-xs text-muted-foreground">Out-of-stock items can still be added while the order is being built. Use <strong>Browse Inventory</strong> if the customer wants to see the current catalog.</p>
 
         <label className="space-y-1 text-sm">
           <span className="font-semibold text-muted-foreground">Notes</span>
@@ -194,7 +300,6 @@ export function OrderFormCard({
           </label>
         </div>
 
-        {/* table-scroll-container gives mobile users the right-edge fade hint */}
         <div className="table-scroll-container overflow-x-auto rounded-lg border border-border">
           <Table>
             <TableHeader>
@@ -216,8 +321,9 @@ export function OrderFormCard({
             </TableHeader>
             <TableBody>
               {lines.map((line, index) => {
-                const isFtl    = ftlSet.has(line.itemNumber.trim());
-                const isCw     = line.isCatchWeight || catchWeightSet.has(line.itemNumber.trim());
+                const productLookupKey = normalizeText(line.productId) || line.itemNumber.trim();
+                const isFtl    = ftlSet.has(productLookupKey);
+                const isCw     = line.isCatchWeight || catchWeightSet.has(productLookupKey);
                 const lots     = lotsCache[line.itemNumber.trim()] || [];
                 const needsLot = isFtl && !line.lotId;
                 const lineTotal = isCw
@@ -226,32 +332,31 @@ export function OrderFormCard({
                 return (
                   <TableRow key={index} className={needsLot ? 'bg-amber-50/50' : ''}>
                     <TableCell>
-                      <Combobox
-                        value={line.name}
-                        onChange={(v) => updateLine(index, 'name', v)}
-                        onSelect={(opt) => {
-                          const p = products.find((x) => x.item_number === opt.value);
-                          if (!p) return;
-                          const isCatchWeight = !!p.is_catch_weight;
-                          updateLine(index, 'name', p.description);
-                          updateLine(index, 'itemNumber', p.item_number);
-                          updateLine(index, 'lotId', '');
-                          if (isCatchWeight) {
-                            updateLine(index, 'isCatchWeight', 'true');
-                            if (p.default_price_per_lb != null) updateLine(index, 'pricePerLb', String(asNumber(p.default_price_per_lb)));
-                          } else {
-                            updateLine(index, 'unit', String(p.unit ?? 'lb').toLowerCase() === 'lb' ? 'lb' : 'each');
-                            if (asNumber(p.cost) > 0) updateLine(index, 'unitPrice', String(asNumber(p.cost)));
-                            updateLine(index, 'estimatedWeight', '');
-                            updateLine(index, 'pricePerLb', '');
-                          }
-                        }}
-                        options={productOptions}
-                        placeholder="Atlantic Salmon"
-                      />
+                      <div className="min-w-[240px] space-y-2">
+                        <Combobox
+                          value={line.name}
+                          onChange={(v) => updateLine(index, 'name', v)}
+                          onSelect={(opt) => {
+                            const matched = products.find((product) => productSelectionKey(product) === opt.value);
+                            if (matched) {
+                              applyProductSelection(index, matched);
+                              return;
+                            }
+                            updateLine(index, 'name', opt.label);
+                            updateLine(index, 'itemNumber', '');
+                            updateLine(index, 'productId', '');
+                          }}
+                          options={productOptions}
+                          disabled={productsLoading}
+                          placeholder={productsLoading ? 'Loading products…' : 'Atlantic Salmon'}
+                        />
+                        <Button type="button" variant="outline" size="sm" onClick={() => setBrowseLineIndex(index)}>
+                          Browse Inventory
+                        </Button>
+                      </div>
                     </TableCell>
                     <TableCell>
-                      <Input value={line.itemNumber} onChange={(e) => updateLine(index, 'itemNumber', e.target.value)} placeholder="SAL-01" />
+                      <Input value={line.itemNumber} onChange={(e) => updateLine(index, 'itemNumber', e.target.value)} placeholder="Optional item #" />
                     </TableCell>
                     <TableCell>
                       {isCw ? (
@@ -337,10 +442,10 @@ export function OrderFormCard({
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={addLine}>Add Item</Button>
           <Button onClick={() => onSubmit(false)} disabled={submitting}>
-            {editingOrderId ? 'Update Order' : 'Create Order'}
+            {editingOrderId ? 'Update Draft Order' : 'Create Draft Order'}
           </Button>
           <Button variant="secondary" onClick={() => onSubmit(true)} disabled={submitting}>
-            {editingOrderId ? 'Update + Send' : 'Create + Send'}
+            {editingOrderId ? 'Update + Send to Processing' : 'Create + Send to Processing'}
           </Button>
           {editingOrderId ? <Button variant="ghost" onClick={onCancel}>Cancel Edit</Button> : null}
           <div className="ml-auto rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
@@ -349,6 +454,73 @@ export function OrderFormCard({
           </div>
         </div>
       </CardContent>
+
+      {browseLineIndex !== null ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
+          <div className="absolute inset-0 bg-black/35" onClick={() => { setBrowseLineIndex(null); setBrowseSearch(''); }} />
+          <div className="relative z-10 w-full max-w-5xl rounded-2xl border border-border bg-background shadow-2xl">
+            <div className="flex flex-col gap-3 border-b border-border px-5 py-4 md:flex-row md:items-center md:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold">Browse Inventory</h2>
+                <p className="text-sm text-muted-foreground">Choose a product for line {browseLineIndex + 1}. Out-of-stock items stay selectable so the order can be built before the truck arrives.</p>
+              </div>
+              <div className="flex gap-2">
+                <Input value={browseSearch} onChange={(e) => setBrowseSearch(e.target.value)} placeholder="Search item #, description, or unit" className="w-72" />
+                <Button type="button" variant="ghost" onClick={() => { setBrowseLineIndex(null); setBrowseSearch(''); }}>Close</Button>
+              </div>
+            </div>
+            <div className="max-h-[70vh] overflow-auto p-5">
+              <div className="rounded-lg border border-border">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Item #</TableHead>
+                      <TableHead>Description</TableHead>
+                      <TableHead>Unit</TableHead>
+                      <TableHead>On Hand</TableHead>
+                      <TableHead>Default Price</TableHead>
+                      <TableHead>Status</TableHead>
+                      <TableHead className="text-right">Select</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {browsableProducts.length ? browsableProducts.map((product) => {
+                      const onHand = asNumber(product.on_hand_qty);
+                      const statusLabel = onHand <= 0 ? 'Out of stock' : onHand <= 10 ? 'Low stock' : 'In stock';
+                      const statusClassName = onHand <= 0
+                        ? 'text-amber-700'
+                        : onHand <= 10
+                          ? 'text-orange-700'
+                          : 'text-emerald-700';
+                      return (
+                        <TableRow key={productSelectionKey(product)}>
+                          <TableCell className="font-mono text-xs">{normalizeText(product.item_number) || '—'}</TableCell>
+                          <TableCell className="font-medium">{product.description}</TableCell>
+                          <TableCell>{product.unit || '-'}</TableCell>
+                          <TableCell>{onHand.toLocaleString()}</TableCell>
+                          <TableCell>{asNumber(product.cost) > 0 ? asMoney(asNumber(product.cost)) : '-'}</TableCell>
+                          <TableCell className={statusClassName}>{statusLabel}</TableCell>
+                          <TableCell className="text-right">
+                            <Button type="button" size="sm" onClick={() => applyProductSelection(browseLineIndex, product)}>
+                              Use Item
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    }) : (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-sm text-muted-foreground">
+                          No inventory items matched that search.
+                        </TableCell>
+                      </TableRow>
+                    )}
+                  </TableBody>
+                </Table>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </Card>
   );
 }

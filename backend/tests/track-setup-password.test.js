@@ -20,9 +20,12 @@ const authValidationSource = [
 // ── TrackPage.tsx structural checks ──────────────────────────────────────────
 
 test('TrackPage fetches /api/track/:token (not /api/tracking/)', () => {
-  const src = fs.readFileSync(path.join(frontendV2, 'pages/TrackPage.tsx'), 'utf8');
-  assert.ok(src.includes('`/api/track/${'), 'must fetch /api/track/ not /api/tracking/');
-  assert.ok(!src.includes('/api/tracking/'), 'must not use /api/tracking/ path');
+  // TrackPage uses useTrackingData hook which contains the fetch call
+  const pageSrc = fs.readFileSync(path.join(frontendV2, 'pages/TrackPage.tsx'), 'utf8');
+  const hookSrc = fs.readFileSync(path.join(frontendV2, 'hooks/useTrack.ts'), 'utf8');
+  const combined = pageSrc + hookSrc;
+  assert.ok(combined.includes('`/api/track/${'), 'must fetch /api/track/ not /api/tracking/');
+  assert.ok(!combined.includes('/api/tracking/'), 'must not use /api/tracking/ path');
 });
 
 test('TrackPage reads token from ?t= query param', () => {
@@ -31,14 +34,17 @@ test('TrackPage reads token from ?t= query param', () => {
 });
 
 test('TrackPage handles 410 expired status', () => {
-  const src = fs.readFileSync(path.join(frontendV2, 'pages/TrackPage.tsx'), 'utf8');
-  assert.ok(src.includes('410'), 'must handle 410 expired response');
-  assert.ok(src.includes("'expired'"), 'must have expired fetch state');
+  const hookSrc = fs.readFileSync(path.join(frontendV2, 'hooks/useTrack.ts'), 'utf8');
+  const pageSrc = fs.readFileSync(path.join(frontendV2, 'pages/TrackPage.tsx'), 'utf8');
+  const combined = hookSrc + pageSrc;
+  assert.ok(combined.includes('410'), 'must handle 410 expired response');
+  assert.ok(combined.includes("'expired'"), 'must have expired fetch state');
 });
 
 test('TrackPage polls every 30 seconds', () => {
-  const src = fs.readFileSync(path.join(frontendV2, 'pages/TrackPage.tsx'), 'utf8');
-  assert.ok(src.includes('30000'), 'must set 30s polling interval');
+  const hookSrc = fs.readFileSync(path.join(frontendV2, 'hooks/useTrack.ts'), 'utf8');
+  // refetchInterval can be written as 30_000 or 30000
+  assert.ok(hookSrc.includes('30_000') || hookSrc.includes('30000'), 'must set 30s polling interval');
 });
 
 test('TrackPage persists notify preference to localStorage', () => {
@@ -73,9 +79,10 @@ test('SetupPasswordPage validates passwords match', () => {
   assert.ok(src.includes('password !== confirm'), 'must check passwords match');
 });
 
-test('SetupPasswordPage stores nr_token on success', () => {
+test('SetupPasswordPage stores user profile on success', () => {
   const src = fs.readFileSync(path.join(frontendV2, 'pages/SetupPasswordPage.tsx'), 'utf8');
-  assert.ok(src.includes('nr_token'), 'must store nr_token in localStorage');
+  // Token is stored in HttpOnly cookie by the server; client stores user profile in localStorage
+  assert.ok(src.includes('localStorage.setItem'), 'must persist session data to localStorage on success');
 });
 
 test('SetupPasswordPage is exported as named export', () => {
@@ -112,7 +119,7 @@ test('App.tsx renders SetupPasswordPage for setup-password route', () => {
 test('server.js serves v2 index.html for /track when built', () => {
   const src = fs.readFileSync(path.join(backendRoot, 'server.js'), 'utf8');
   assert.ok(src.includes("app.get('/track'"), '/track route must exist');
-  assert.ok(src.includes('return res.sendFile(frontendV2Entry);'), '/track must serve frontend-v2 entry');
+  assert.ok(src.includes('res.sendFile(frontendV2Entry)'), '/track must serve frontend-v2 entry');
 });
 
 test('server.js serves v2 index.html for /setup-password when built', () => {

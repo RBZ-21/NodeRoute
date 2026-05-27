@@ -106,11 +106,11 @@ router.get('/locations', authenticateToken, requireRole(...WAREHOUSE_ROLES), asy
 // POST /api/warehouse/locations
 router.post('/locations', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const { name, type, capacity, notes } = req.body;
+    const { name, type, notes } = req.body;
     if (!name || !type) return res.status(400).json({ error: 'name and type are required' });
     const { data, error } = await supabase
       .from('warehouse_locations')
-      .insert([{ name, type, capacity: capacity || null, notes: notes || null }])
+      .insert([{ name, type, notes: notes || null }])
       .select()
       .single();
     if (error) return res.status(500).json({ error: error.message });
@@ -123,7 +123,7 @@ router.post('/locations', authenticateToken, requireRole('admin', 'manager'), as
 // PATCH /api/warehouse/locations/:id
 router.patch('/locations/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const ALLOWED = ['name', 'type', 'capacity', 'notes', 'status'];
+    const ALLOWED = ['name', 'type', 'notes', 'status'];
     const update = {};
     for (const key of ALLOWED) {
       if (req.body[key] !== undefined) update[key] = req.body[key];
