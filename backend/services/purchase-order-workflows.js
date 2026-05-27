@@ -5,6 +5,7 @@ const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
 } = require('./operating-context');
+
 const {
   normalizePoLine,
   normalizeReceiptRules,
@@ -435,4 +436,5 @@ module.exports = {
   loadVendorPurchaseOrdersFromDb,
   persistVendorPurchaseOrderSnapshot,
   recordPoInvoiceScan,
+  replaceReceiptAuditRows,
 };

@@ -639,6 +639,11 @@ async function recalcAllUsage(context = null) {
 
 async function updateLeadTimesFromPurchaseOrder(po) {
   if (!po?.created_at || !po?.received_at || !Array.isArray(po.items)) return { updated_products: 0 };
+  const elapsedMs = new Date(po.received_at).getTime() - new Date(po.created_at).getTime();
+  if (elapsedMs < 3_600_000) {
+    console.warn('[reorder] skipping lead time update - elapsed time < 1 hour, likely a same-request race condition');
+    return { updated_products: 0 };
+  }
   const actualDays = Math.max(1, Math.round((new Date(po.received_at).getTime() - new Date(po.created_at).getTime()) / DAY_MS));
   let updated = 0;
   for (const item of po.items) {
