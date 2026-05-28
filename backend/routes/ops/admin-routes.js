@@ -7,6 +7,7 @@ const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
+  scopeQueryByContext,
 } = require('../../services/operating-context');
 const { toNumber } = require('./store');
 
@@ -30,9 +31,9 @@ module.exports = function buildOpsAdminRouter() {
 
   // ── UOM rules ────────────────────────────────────────────────────────────────
   router.get('/uom-rules', authenticateToken, async (req, res) => {
-    const { data, error } = await supabase
+    const { data, error } = await scopeQueryByContext(supabase
       .from('op_uom_rules')
-      .select('*')
+      .select('*'), req.context)
       .order('created_at', { ascending: false });
     if (error) return res.status(500).json({ error: error.message });
     res.json(filterRowsByContext(data || [], req.context));
@@ -60,12 +61,12 @@ module.exports = function buildOpsAdminRouter() {
   });
 
   router.delete('/uom-rules/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-    const { data: existing, error: fetchErr } = await supabase
-      .from('op_uom_rules').select('*').eq('id', req.params.id).single();
+    const { data: existing, error: fetchErr } = await scopeQueryByContext(supabase
+      .from('op_uom_rules').select('*'), req.context).eq('id', req.params.id).single();
     if (fetchErr) return res.status(404).json({ error: 'Rule not found' });
     if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
-    const { error } = await supabase.from('op_uom_rules').delete().eq('id', req.params.id);
+    const { error } = await scopeQueryByContext(supabase.from('op_uom_rules').delete(), req.context).eq('id', req.params.id);
     if (error) return res.status(500).json({ error: error.message });
     res.json({ message: 'Rule deleted' });
   });
@@ -140,7 +141,7 @@ module.exports = function buildOpsAdminRouter() {
       return res.status(400).json({ error: 'countedItems is required' });
     }
 
-    const { data: inventory, error: invErr } = await supabase.from('products').select('*');
+    const { data: inventory, error: invErr } = await scopeQueryByContext(supabase.from('products').select('*'), req.context);
     if (invErr) return res.status(500).json({ error: invErr.message });
 
     const scopedInventory = filterRowsByContext(inventory || [], req.context);
