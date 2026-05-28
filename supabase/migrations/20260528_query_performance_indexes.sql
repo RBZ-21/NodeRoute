@@ -58,4 +58,4 @@ select public.create_index_if_columns_exist('idx_purchase_orders_company_status_
 select public.create_index_if_columns_exist('idx_vendor_bills_company_status_created', 'vendor_bills', 'company_id, status, created_at desc', array['company_id','status','created_at']);
 select public.create_index_if_columns_exist('idx_audit_log_company_created', 'audit_log', 'company_id, created_at desc', array['company_id','created_at']);
 
--- Keep helper available for future conditional index migrations.
+comment on function public.create_index_if_columns_exist(text, text, text, text[]) is 'Creates an index only when the target table and columns exist.';
