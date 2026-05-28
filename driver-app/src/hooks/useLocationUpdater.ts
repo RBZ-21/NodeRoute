@@ -1,11 +1,17 @@
 import { useEffect, useRef } from 'react';
 import { pingDriverLocation } from '@/lib/api';
 
+const LOCATION_UPDATE_MIN_INTERVAL_MS = 5000;
+
 export function useLocationUpdater(enabled: boolean, onSuccess?: () => void) {
   const hasWarnedRef = useRef(false);
+  const lastSentAtRef = useRef(0);
 
   async function sendLocation() {
     if (!enabled || !window.navigator.geolocation) return;
+    const now = Date.now();
+    if (now - lastSentAtRef.current < LOCATION_UPDATE_MIN_INTERVAL_MS) return;
+    lastSentAtRef.current = now;
 
     return new Promise<void>((resolve) => {
       window.navigator.geolocation.getCurrentPosition(
