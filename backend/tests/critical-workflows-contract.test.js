@@ -3,6 +3,8 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 
+const { wrapAsyncHandler } = require('../lib/async-route-handler');
+
 const {
   enforceDeliveryLimit,
   enforceDriverLimit,
@@ -87,4 +89,26 @@ test('critical route integration contract: private order API is mounted behind a
   const privateIndex = source.indexOf("app.use('/api/orders', requireApiAuth, ordersRouter)");
   assert.ok(privateIndex > 0, 'orders API must be mounted with requireApiAuth');
   assert.ok(publicIndex > 0 && publicIndex < source.indexOf("app.use('/api', requireApiAuth, deliveriesRouter)"), 'public tracking route must stay before broad protected /api mount');
+});
+test('async route wrapper forwards rejected handlers to Express next', async () => {
+  const expected = new Error('boom');
+  let received = null;
+  const wrapped = wrapAsyncHandler(async () => {
+    throw expected;
+  });
+
+  await wrapped({}, {}, (error) => {
+    received = error;
+  });
+
+  assert.equal(received, expected);
+});
+
+test('server installs async route wrapper before loading route modules', () => {
+  const serverPath = path.join(__dirname, '..', 'server.js');
+  const source = fs.readFileSync(serverPath, 'utf8');
+  const installIndex = source.indexOf('installAsyncRouteHandlerWrapping(express);');
+  const routeIndex = source.indexOf("const authRouter          = require('./routes/auth');");
+  assert.ok(installIndex > 0, 'server must install async route wrapping');
+  assert.ok(routeIndex > installIndex, 'async route wrapping must be installed before route modules register handlers');
 });
