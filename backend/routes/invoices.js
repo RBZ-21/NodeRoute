@@ -13,6 +13,7 @@ const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
+  scopeQueryByContext,
 } = require('../services/operating-context');
 const creditEngine = require('../services/creditEngine');
 
@@ -143,7 +144,7 @@ router.get('/', authenticateToken, async (req, res) => {
     }
   }
 
-  let query = supabase.from('invoices').select('*').order('created_at', { ascending: false });
+  let query = scopeQueryByContext(supabase.from('invoices').select('*'), req.context).order('created_at', { ascending: false });
   const customerId = req.query.customer_id;
   if (customerId) {
     const parsedId = parseInt(customerId, 10);
@@ -162,7 +163,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
   const orderId = invoiceBodyValue(body, 'order_id', 'orderId');
   let linkedOrder = null;
   if (orderId) {
-    linkedOrder = await dbQuery(supabase.from('orders').select('*').eq('id', orderId).single(), res);
+    linkedOrder = await dbQuery(scopeQueryByContext(supabase.from('orders').select('*'), req.context).eq('id', orderId).single(), res);
     if (!linkedOrder) return res.status(404).json({ error: 'Order not found' });
     if (!rowMatchesContext(linkedOrder, req.context)) return res.status(403).json({ error: 'Forbidden' });
     const catchWeightBlock = catchWeightInvoiceBlock(linkedOrder.items || []);
@@ -252,7 +253,7 @@ router.post('/import', validateBody(invoiceImportSchema), authenticateToken, req
 
 // Update invoice status — fires completion email when status is set to 'paid'
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
+  const inv = await dbQuery(scopeQueryByContext(supabase.from('invoices').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   if (!rowMatchesContext(inv, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
@@ -277,7 +278,7 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   }
 
   const data = await dbQuery(
-    supabase.from('invoices').update(updates).eq('id', req.params.id).select().single(),
+    scopeQueryByContext(supabase.from('invoices').update(updates), req.context).eq('id', req.params.id).select().single(),
     res
   );
   if (!data) return;
@@ -311,11 +312,11 @@ router.post('/:id/sign', validateBody(invoiceSignSchema), authenticateToken, asy
   const signature_data = req.body?.signature_data || req.body?.signature;
   if (!signature_data) return res.status(400).json({ error: 'Signature data required' });
 
-  const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
+  const inv = await dbQuery(scopeQueryByContext(supabase.from('invoices').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   if (!(await canAccessInvoice(req, inv))) return res.status(403).json({ error: 'Forbidden' });
 
-  const updated = await dbQuery(supabase.from('invoices').update({ signature_data, status: 'signed', signed_at: new Date().toISOString() }).eq('id', req.params.id).select().single(), res);
+  const updated = await dbQuery(scopeQueryByContext(supabase.from('invoices').update({ signature_data, status: 'signed', signed_at: new Date().toISOString() }), req.context).eq('id', req.params.id).select().single(), res);
   if (!updated) return;
 
   let emailSent = false;
@@ -324,7 +325,7 @@ router.post('/:id/sign', validateBody(invoiceSignSchema), authenticateToken, asy
       const emailResult = await sendInvoiceEmail({ ...updated, billing_email: inv.billing_email, customer_email: inv.customer_email }, 'Your Signed Invoice');
       emailSent = emailResult.sent;
       if (emailSent) {
-        await supabase.from('invoices').update({ status: 'sent', sent_at: new Date().toISOString() }).eq('id', req.params.id);
+        await scopeQueryByContext(supabase.from('invoices').update({ status: 'sent', sent_at: new Date().toISOString() }), req.context).eq('id', req.params.id);
       }
     } catch (e) {
       console.error('Email error:', e.message);
@@ -345,17 +346,17 @@ router.post('/:id/proof-of-delivery', authenticateToken, requireRole('driver', '
     return res.status(400).json({ error: 'Proof of delivery image is too large' });
   }
 
-  const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
+  const inv = await dbQuery(scopeQueryByContext(supabase.from('invoices').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   if (!(await canAccessInvoice(req, inv))) return res.status(403).json({ error: 'Forbidden' });
 
   const proofUploadedAt = new Date().toISOString();
-  const { data, error } = await supabase
+  const { data, error } = await scopeQueryByContext(supabase
     .from('invoices')
     .update({
       proof_of_delivery_image_data: normalizedProofImageData,
       proof_of_delivery_uploaded_at: proofUploadedAt,
-    })
+    }), req.context)
     .eq('id', req.params.id)
     .select()
     .single();
@@ -375,7 +376,7 @@ router.post('/:id/proof-of-delivery', authenticateToken, requireRole('driver', '
 });
 
 router.post('/:id/email', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
+  const inv = await dbQuery(scopeQueryByContext(supabase.from('invoices').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   if (!rowMatchesContext(inv, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
@@ -391,7 +392,7 @@ router.post('/:id/email', authenticateToken, requireRole('admin', 'manager'), as
 });
 
 router.post('/:id/resend', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
+  const inv = await dbQuery(scopeQueryByContext(supabase.from('invoices').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   if (!rowMatchesContext(inv, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
@@ -407,17 +408,17 @@ router.post('/:id/resend', authenticateToken, requireRole('admin', 'manager'), a
 });
 
 router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const inv = await dbQuery(supabase.from('invoices').select('id').eq('id', req.params.id).single(), res);
+  const inv = await dbQuery(scopeQueryByContext(supabase.from('invoices').select('id, company_id, location_id'), req.context).eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   if (!rowMatchesContext(inv, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
-  const { error } = await supabase.from('invoices').delete().eq('id', req.params.id);
+  const { error } = await scopeQueryByContext(supabase.from('invoices').delete(), req.context).eq('id', req.params.id);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ deleted: true, id: req.params.id });
 });
 
 router.get('/:id/pdf', authenticateToken, async (req, res) => {
-  const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
+  const inv = await dbQuery(scopeQueryByContext(supabase.from('invoices').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!inv) return res.status(404).json({ error: 'Invoice not found' });
   if (!(await canAccessInvoice(req, inv))) return res.status(403).json({ error: 'Forbidden' });
   const pdfBuffer = await buildInvoicePDF(inv);
