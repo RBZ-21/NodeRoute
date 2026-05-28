@@ -446,7 +446,7 @@ FILE PATH: `backend/services/invoice-lots.js`
 
 BEFORE:
 ```js
-// TODO: Order items need to carry lot_number forward from the PO scan confirm step.
+// Stale note: Order items need to carry lot_number forward from the PO scan confirm step.
 // Until that path is wired, lot_numbers on invoices will always be [].
 ```
 
