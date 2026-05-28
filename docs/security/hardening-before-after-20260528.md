@@ -476,6 +476,26 @@ test('critical route integration contract: private order API is mounted behind a
 
 Explanation: Added three unit tests and one integration-style contract test for critical workflows.
 
+
+## 20. Expanded Operational Route Query Scoping
+
+FILE PATH: `backend/routes/orders.js`, `backend/routes/invoices.js`, `backend/routes/inventory.js`, `backend/routes/stops.js`, `backend/routes/routes.js`, `backend/routes/customers.js`, `backend/routes/vendors.js`
+
+BEFORE:
+```js
+const order = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
+const inv = await dbQuery(supabase.from('invoices').select('*').eq('id', req.params.id).single(), res);
+let query = supabase.from('stops').select('*');
+```
+
+AFTER:
+```js
+const order = await dbQuery(scopeQueryByContext(supabase.from('orders').select('*'), req.context).eq('id', req.params.id).single(), res);
+const inv = await dbQuery(scopeQueryByContext(supabase.from('invoices').select('*'), req.context).eq('id', req.params.id).single(), res);
+let query = scopeQueryByContext(supabase.from('stops').select('*'), req.context);
+```
+
+Explanation: High-risk operational reads, updates, and deletes now apply company scoping before filtering by IDs or returning rows.
 ## Summary Table
 
 | # | Priority | File | Issue Fixed | Status |
