@@ -728,7 +728,7 @@ async function markOrderDelivered(order, req, res) {
 }
 
 async function createOrUpdateProcessingInvoice(order, fulfilledItems, overrides, req, res) {
-  const existingInvoice = await findInvoiceForOrder(order);
+  const existingInvoice = await findInvoiceForOrder(order, req);
   const invoiceOrder = { ...order };
   if (existingInvoice?.id && invoiceOrder.tax_enabled === undefined) {
     invoiceOrder.tax_enabled = existingInvoice.tax_enabled ?? (parseFloat(existingInvoice.tax || 0) > 0);
