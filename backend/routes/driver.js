@@ -14,6 +14,7 @@ const { validateBody } = require('../lib/zod-validate');
 
 const router = express.Router();
 const STALE_THRESHOLD_SECONDS = 120;
+const LOCATION_UPDATE_MIN_INTERVAL_MS = 5000;
 
 const driverLocationBodySchema = z.object({
   lat: z.coerce.number(),
@@ -230,6 +231,11 @@ router.patch('/location', authenticateToken, requireRole('driver', 'manager', 'a
   if (existingError) return res.status(500).json({ error: existingError.message });
 
   const scopedExisting = filterRowsByContext(existingRows || [], req.context);
+  const lastUpdatedAt = scopedExisting[0]?.updated_at ? new Date(scopedExisting[0].updated_at).getTime() : 0;
+  if (lastUpdatedAt && Date.now() - lastUpdatedAt < LOCATION_UPDATE_MIN_INTERVAL_MS) {
+    res.setHeader('Retry-After', '5');
+    return res.status(429).json({ error: 'Driver location updates are limited to once every 5 seconds' });
+  }
 
   let result;
   if (scopedExisting[0]?.id) {
@@ -279,3 +285,4 @@ router.get('/summary', authenticateToken, requireRole('driver'), async (req, res
 module.exports = router;
 module.exports.routeStopIdsForToday = routeStopIdsForToday;
 module.exports.STALE_THRESHOLD_SECONDS = STALE_THRESHOLD_SECONDS;
+module.exports.LOCATION_UPDATE_MIN_INTERVAL_MS = LOCATION_UPDATE_MIN_INTERVAL_MS;
