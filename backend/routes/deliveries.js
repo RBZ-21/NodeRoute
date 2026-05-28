@@ -54,33 +54,53 @@ function deliveryItemQuantity(item) {
   return toNumber(item?.actual_weight ?? item?.requested_weight ?? item?.estimated_weight ?? item?.requested_qty ?? item?.quantity ?? item?.qty, 0);
 }
 
-async function findProductForDeliveryItem(item) {
-  if (item?.item_number || item?.product_item_number) {
-    const itemNumber = String(item.item_number || item.product_item_number).trim();
-    const byNumber = await supabase
-      .from('products')
-      .select('id,item_number,name,description,on_hand_qty')
-      .eq('item_number', itemNumber)
-      .limit(1);
-    if (byNumber.data?.[0]) return byNumber.data[0];
+async function loadProductsForDeliveryItems(items, context) {
+  const productIds = [...new Set(items.map((item) => String(item?.product_id || '').trim()).filter(Boolean))];
+  const itemNumbers = [...new Set(items.map((item) => String(item?.item_number || item?.product_item_number || '').trim()).filter(Boolean))];
+  const products = [];
+
+  if (productIds.length) {
+    const { data, error } = await scopeQueryByContext(
+      supabase.from('products').select('id,item_number,name,description,on_hand_qty,company_id,location_id'),
+      context
+    ).in('id', productIds);
+    if (error) throw error;
+    products.push(...(data || []));
   }
-  if (item?.product_id) {
-    const byId = await supabase
-      .from('products')
-      .select('id,item_number,name,description,on_hand_qty')
-      .eq('id', item.product_id)
-      .limit(1);
-    if (byId.data?.[0]) return byId.data[0];
+
+  if (itemNumbers.length) {
+    const { data, error } = await scopeQueryByContext(
+      supabase.from('products').select('id,item_number,name,description,on_hand_qty,company_id,location_id'),
+      context
+    ).in('item_number', itemNumbers);
+    if (error) throw error;
+    products.push(...(data || []));
   }
-  return null;
+
+  const byId = new Map();
+  const byItemNumber = new Map();
+  for (const product of products) {
+    if (product.id) byId.set(String(product.id), product);
+    if (product.item_number) byItemNumber.set(String(product.item_number), product);
+  }
+  return { byId, byItemNumber };
+}
+
+function productForDeliveryItem(item, productMaps) {
+  const productId = String(item?.product_id || '').trim();
+  const itemNumber = String(item?.item_number || item?.product_item_number || '').trim();
+  return productMaps.byId.get(productId) || productMaps.byItemNumber.get(itemNumber) || null;
 }
 
 async function deductDeliveryInventoryAndRunReorder(order, req) {
+  const items = Array.isArray(order.items) ? order.items : [];
+  const productMaps = await loadProductsForDeliveryItems(items, req.context);
   const affectedProductIds = new Set();
-  for (const item of Array.isArray(order.items) ? order.items : []) {
+
+  for (const item of items) {
     const qty = deliveryItemQuantity(item);
     if (!(qty > 0)) continue;
-    const product = await findProductForDeliveryItem(item);
+    const product = productForDeliveryItem(item, productMaps);
     if (!product?.item_number) continue;
     await applyInventoryLedgerEntry({
       itemNumber: product.item_number,
