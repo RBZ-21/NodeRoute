@@ -1,7 +1,7 @@
 const express = require('express');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { supabase } = require('../services/supabase');
-const { filterRowsByContext, rowMatchesContext } = require('../services/operating-context');
+const { filterRowsByContext, rowMatchesContext, scopeQueryByContext } = require('../services/operating-context');
 const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 const reorderEngine = require('../services/reorderEngine');
 const deliveryNotifications = require('../services/delivery-notifications');
@@ -168,16 +168,16 @@ async function loadDashboardContext(context) {
     contactsResult,
     dwellResult,
   ] = await Promise.all([
-    supabase
-      .from('orders')
-      .select('id, order_number, customer_name, customer_address, customer_email, customer_phone, items, status, notes, created_at, driver_name, route_id, stop_id, customer_lat, customer_lng')
-      .order('created_at', { ascending: false }),
-    supabase.from('routes').select('id, name, stop_ids, driver, driver_id, notes, created_at'),
-    supabase.from('stops').select('id, name, address, lat, lng, notes, door_code, scheduled_date, scheduled_time, created_at'),
-    supabase.from('driver_locations').select('user_id, driver_name, lat, lng, heading, speed_mph, updated_at'),
-    supabase.from('users').select('id, name, email, role, status, phone, vehicle_id, created_at').order('created_at', { ascending: true }),
-    supabase.from('portal_contacts').select('name, email, door_code, phone'),
-    supabase.from('dwell_records').select('id, stop_id, route_id, driver_id, arrived_at, departed_at, dwell_ms'),
+    scopeQueryByContext(
+      supabase.from('orders').select('id, order_number, customer_name, customer_address, customer_email, customer_phone, items, status, notes, created_at, driver_name, route_id, stop_id, customer_lat, customer_lng, company_id, location_id'),
+      context
+    ).order('created_at', { ascending: false }),
+    scopeQueryByContext(supabase.from('routes').select('id, name, stop_ids, driver, driver_id, notes, created_at, company_id, location_id'), context),
+    scopeQueryByContext(supabase.from('stops').select('id, name, address, lat, lng, notes, door_code, scheduled_date, scheduled_time, created_at, company_id, location_id'), context),
+    scopeQueryByContext(supabase.from('driver_locations').select('user_id, driver_name, lat, lng, heading, speed_mph, updated_at, company_id, location_id'), context),
+    scopeQueryByContext(supabase.from('users').select('id, name, email, role, status, phone, vehicle_id, created_at, company_id, location_id'), context).order('created_at', { ascending: true }),
+    scopeQueryByContext(supabase.from('portal_contacts').select('name, email, door_code, phone, company_id, location_id'), context),
+    scopeQueryByContext(supabase.from('dwell_records').select('id, stop_id, route_id, driver_id, arrived_at, departed_at, dwell_ms, company_id, location_id'), context),
   ]);
 
   const errors = [
