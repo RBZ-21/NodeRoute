@@ -18,6 +18,7 @@ const {
 } = require('../services/inventory-ledger');
 const { depleteLotsFefo } = require('../services/lot-depletion');
 const {
+  buildScopeFields,
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
@@ -408,6 +409,7 @@ router.post('/lots', authenticateToken, requireRole('admin', 'manager'), validat
     status:             status             || 'active',
     notes:              notes              || null,
     created_by:         req.user.name      || req.user.email,
+    ...buildScopeFields(req.context),
   }]).select().single();
   if (error) return res.status(500).json({ error: error.message });
 
@@ -748,9 +750,10 @@ router.get('/ledger', authenticateToken, async (req, res) => {
 // GET /api/inventory/:id/history — stock movement log
 router.get('/:id/history', authenticateToken, async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
-  const { data, error } = await supabase
-    .from('inventory_stock_history')
-    .select('*')
+  const { data, error } = await scopeQueryByContext(
+    supabase.from('inventory_stock_history').select('*'),
+    req.context
+  )
     .eq('item_number', req.params.id)
     .order('created_at', { ascending: false })
     .limit(limit);
@@ -772,12 +775,13 @@ router.post('/:id/yield', authenticateToken, validateBody(inventoryYieldBodySche
     yield_pct,
     notes: notes || null,
     logged_by: req.user.name || req.user.email,
+    ...buildScopeFields(req.context),
   }]);
 
-  const { data: item, error: fetchErr } = await supabase
-    .from('products')
-    .select('avg_yield,yield_count')
-    .eq('item_number', req.params.id).single();
+  const { data: item, error: fetchErr } = await scopeQueryByContext(
+    supabase.from('products').select('avg_yield,yield_count'),
+    req.context
+  ).eq('item_number', req.params.id).single();
   if (fetchErr) return res.status(404).json({ error: 'Product not found' });
 
   const n      = (item?.yield_count || 0) + 1;
