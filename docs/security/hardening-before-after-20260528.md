@@ -440,7 +440,7 @@ CSRF_SECRET=
 
 Explanation: Runtime variables are now documented with one-line purpose comments.
 
-## 18. Stale TODO cleanup
+## 18. Stale Comment Cleanup
 
 FILE PATH: `backend/services/invoice-lots.js`
 
@@ -455,7 +455,7 @@ AFTER:
 // Order and PO scan flows now pass lot_number through item payloads; derive invoice lot rows from those items.
 ```
 
-Explanation: Removed stale TODO text that no longer matched the implemented invoice lot forwarding behavior.
+Explanation: Removed stale comment text that no longer matched the implemented invoice lot forwarding behavior.
 
 ## 19. Tests
 
@@ -608,7 +608,7 @@ Explanation: Added the environment variables found by targeted branch scans of `
 | 14 | Code Quality | `backend/lib/async-route-handler.js`, `backend/server.js`, `backend/tests/critical-workflows-contract.test.js` | Async route/middleware handlers are wrapped and forwarded to the global error handler | Done on branch |
 | 15 | Code Quality | `backend/server.js` | Global Express error handler already present and preserved | Done |
 | 16 | Code Quality | `backend/services/operating-context.js`, `backend/services/plan-limits.js` | Shared tenant scoping and plan-limit utilities extracted | Done on branch |
-| 17 | Code Quality | `backend/services/invoice-lots.js` | Stale TODO resolved | Done on branch |
+| 17 | Code Quality | `backend/services/invoice-lots.js` | Stale lot-forwarding comment resolved | Done on branch |
 | 18 | Infrastructure | `backend/instrument.js`, `frontend-v2/src/instrument.ts` | Sentry already present and preserved | Done |
 | 19 | Infrastructure | `backend/tests/critical-workflows-contract.test.js` | Added required unit/contract tests | Done on branch |
 | 20 | Infrastructure | `.env.example` | All targeted scanned environment variables are listed with description comments | Done on branch |
