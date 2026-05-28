@@ -536,6 +536,33 @@ const { data } = await scopeQueryByContext(supabase.from('orders').select('*'), 
 ```
 
 Explanation: Added tenant or portal-context scoping to remaining operational, print, tracking, lot traceability, portal payment, and purchasing planning data paths; auth, portal challenge bookkeeping, and superadmin remain intentionally scoped by credential/token/platform semantics instead of `company_id`.
+
+## 23. Async Route Error Handling
+
+FILE PATH: `backend/lib/async-route-handler.js`, `backend/server.js`, `backend/tests/critical-workflows-contract.test.js`
+
+BEFORE:
+```js
+router.get('/uom-rules', authenticateToken, async (req, res) => {
+  const { data, error } = await supabase.from('op_uom_rules').select('*');
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data || []);
+});
+```
+
+AFTER:
+```js
+const { installAsyncRouteHandlerWrapping } = require('./lib/async-route-handler');
+installAsyncRouteHandlerWrapping(express);
+
+function wrapAsyncHandler(handler) {
+  return function asyncRouteHandler(req, res, next) {
+    return Promise.resolve(handler.call(this, req, res, next)).catch(next);
+  };
+}
+```
+
+Explanation: Async route and middleware handlers registered after server bootstrap are wrapped so rejected promises flow to Sentry and the global Express error handler instead of relying on each handler to duplicate try/catch code.
 ## Summary Table
 
 | # | Priority | File | Issue Fixed | Status |
@@ -553,7 +580,7 @@ Explanation: Added tenant or portal-context scoping to remaining operational, pr
 | 11 | Performance | `supabase/migrations/20260528_query_performance_indexes.sql` | Conditional indexes for common filters/joins/sorts | Done on branch |
 | 12 | Performance | Repo search | No socket/realtime subscriptions found to clean up | Verified by search |
 | 13 | Performance | `backend/routes/driver.js`, `driver-app/src/hooks/useLocationUpdater.ts` | Location updates throttled to 5 seconds | Done on branch |
-| 14 | Code Quality | Existing Express 5/global handler plus syntax checks | Async thrown/rejected errors flow to global handler; exhaustive wrapping still needs deeper audit | Partial |
+| 14 | Code Quality | `backend/lib/async-route-handler.js`, `backend/server.js`, `backend/tests/critical-workflows-contract.test.js` | Async route/middleware handlers are wrapped and forwarded to the global error handler | Done on branch |
 | 15 | Code Quality | `backend/server.js` | Global Express error handler already present and preserved | Done |
 | 16 | Code Quality | `backend/services/operating-context.js`, `backend/services/plan-limits.js` | Shared tenant scoping and plan-limit utilities extracted | Done on branch |
 | 17 | Code Quality | `backend/services/invoice-lots.js` | Stale TODO resolved | Done on branch |
