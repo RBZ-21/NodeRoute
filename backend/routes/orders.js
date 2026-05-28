@@ -11,13 +11,13 @@ const {
 } = require('../lib/schemas');
 // Driver-invoices endpoint (Step 14) - best placed here to avoid extra mounting.
 // This endpoint serves both drivers (restricted to their route) and admins/managers.
-async function fetchInvoicesForRoute(routeId, user) {
+async function fetchInvoicesForRoute(routeId, user, context) {
   if (!routeId) return { invoices: [], orders: [] };
   const role = String(user?.role || '').toLowerCase();
   if (role === 'driver') {
     // Enforce route ownership when possible
     try {
-      const { data: route, error: routeErr } = await supabase.from('routes').select('id, driver_id').eq('id', routeId).single();
+      const { data: route, error: routeErr } = await scopeQueryByContext(supabase.from('routes').select('id, driver_id, company_id, location_id'), context).eq('id', routeId).single();
       if (routeErr) throw routeErr;
       if (route?.driver_id && String(route.driver_id) !== String(user?.id)) {
         return { invoices: [], orders: [], error: 'Not authorized for this route' };
@@ -26,12 +26,12 @@ async function fetchInvoicesForRoute(routeId, user) {
       return { invoices: [], orders: [], error: (e && e.message) || 'Authorization failed' };
     }
   }
-  const { data: orders, error: oErr } = await supabase.from('orders').select('id, order_number, invoice_id, route_id').eq('route_id', routeId);
+  const { data: orders, error: oErr } = await scopeQueryByContext(supabase.from('orders').select('id, order_number, invoice_id, route_id, company_id, location_id'), context).eq('route_id', routeId);
   if (oErr) throw oErr;
   const invoiceIds = (orders || []).map((o) => o.invoice_id).filter((id) => id);
   let invoices = [];
   if (invoiceIds.length) {
-    const { data: invs, error: iErr } = await supabase.from('invoices').select('*').in('id', invoiceIds);
+    const { data: invs, error: iErr } = await scopeQueryByContext(supabase.from('invoices').select('*'), context).in('id', invoiceIds);
     if (iErr) throw iErr;
     invoices = invs;
   }
@@ -49,6 +49,7 @@ const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
+  scopeQueryByContext,
 } = require('../services/operating-context');
 const { statusAfterDeliveryCompletion } = require('../services/invoice-delivery');
 const creditEngine = require('../services/creditEngine');
@@ -623,7 +624,7 @@ async function syncOrderStop(order, req, removeOnly = false) {
 
   if (removeOnly || fulfillmentType === 'pickup' || !name || !address) {
     if (existingStop?.id) {
-      await supabase.from('stops').delete().eq('id', existingStop.id);
+      await scopeQueryByContext(supabase.from('stops').delete(), req.context).eq('id', existingStop.id);
     }
     return null;
   }
@@ -639,12 +640,12 @@ async function syncOrderStop(order, req, removeOnly = false) {
 
   if (existingStop?.id) {
     await executeWithOptionalScope(
-      (candidate) => supabase.from('stops').update(candidate).eq('id', existingStop.id).select().single(),
+      (candidate) => scopeQueryByContext(supabase.from('stops').update(candidate), req.context).eq('id', existingStop.id).select().single(),
       payload
     );
     if (order?.id && !order.stop_id) {
       await executeWithOptionalScope(
-        (candidate) => supabase.from('orders').update(candidate).eq('id', order.id),
+        (candidate) => scopeQueryByContext(supabase.from('orders').update(candidate), req.context).eq('id', order.id),
         { stop_id: existingStop.id }
       );
     }
@@ -655,7 +656,7 @@ async function syncOrderStop(order, req, removeOnly = false) {
   if (insertResult.error) throw insertResult.error;
   if (order?.id && insertResult.data?.id) {
     await executeWithOptionalScope(
-      (candidate) => supabase.from('orders').update(candidate).eq('id', order.id),
+      (candidate) => scopeQueryByContext(supabase.from('orders').update(candidate), req.context).eq('id', order.id),
       { stop_id: insertResult.data.id }
     );
   }
@@ -664,11 +665,11 @@ async function syncOrderStop(order, req, removeOnly = false) {
 
 async function findInvoiceForOrder(order) {
   if (order.invoice_id) {
-    const byId = await supabase.from('invoices').select('*').eq('id', order.invoice_id).single();
+    const byId = await scopeQueryByContext(supabase.from('invoices').select('*'), req.context).eq('id', order.invoice_id).single();
     if (!byId.error && byId.data) return byId.data;
   }
 
-  const byOrderId = await supabase.from('invoices').select('*').eq('order_id', order.id).limit(1);
+  const byOrderId = await scopeQueryByContext(supabase.from('invoices').select('*'), req.context).eq('order_id', order.id).limit(1);
   if (!byOrderId.error && Array.isArray(byOrderId.data) && byOrderId.data.length) {
     return byOrderId.data[0];
   }
@@ -688,7 +689,7 @@ async function markOrderDelivered(order, req, res) {
       departed_at: stop.departed_at || deliveredAt,
     };
     const stopResult = await executeWithOptionalScope(
-      (candidate) => supabase.from('stops').update(candidate).eq('id', stop.id).select().single(),
+      (candidate) => scopeQueryByContext(supabase.from('stops').update(candidate), req.context).eq('id', stop.id).select().single(),
       stopUpdate
     );
     if (stopResult.error) {
@@ -701,7 +702,7 @@ async function markOrderDelivered(order, req, res) {
   if (invoice?.id) {
     invoiceId = invoice.id;
     const invoiceResult = await executeWithOptionalScope(
-      (candidate) => supabase.from('invoices').update(candidate).eq('id', invoice.id).select().single(),
+      (candidate) => scopeQueryByContext(supabase.from('invoices').update(candidate), req.context).eq('id', invoice.id).select().single(),
       { status: statusAfterDeliveryCompletion(invoice.status) }
     );
     if (invoiceResult.error) {
@@ -751,18 +752,18 @@ async function createOrUpdateProcessingInvoice(order, fulfilledItems, overrides,
 
   if (existingInvoice?.id) {
     let updateResult = await executeWithOptionalScope(
-      (candidate) => supabase.from('invoices').update(candidate).eq('id', existingInvoice.id).select().single(),
+      (candidate) => scopeQueryByContext(supabase.from('invoices').update(candidate), req.context).eq('id', existingInvoice.id).select().single(),
       payload
     );
     if (isMissingEstimatedWeightPendingError(updateResult.error)) {
       updateResult = await executeWithOptionalScope(
-        (candidate) => supabase.from('invoices').update(candidate).eq('id', existingInvoice.id).select().single(),
+        (candidate) => scopeQueryByContext(supabase.from('invoices').update(candidate), req.context).eq('id', existingInvoice.id).select().single(),
         withoutOptionalInvoiceFields(payload, { stripEstimatedWeightPending: true })
       );
     }
     if (isMissingLotNumbersError(updateResult.error)) {
       updateResult = await executeWithOptionalScope(
-        (candidate) => supabase.from('invoices').update(candidate).eq('id', existingInvoice.id).select().single(),
+        (candidate) => scopeQueryByContext(supabase.from('invoices').update(candidate), req.context).eq('id', existingInvoice.id).select().single(),
         withoutOptionalInvoiceFields(payload, {
           stripEstimatedWeightPending: isMissingEstimatedWeightPendingError(updateResult.error),
           stripLotNumbers: true,
@@ -821,7 +822,7 @@ async function sendFulfillmentInvoiceIfPossible(invoice) {
 
 // ── ORDERS ────────────────────────────────────────────────────────────────────
 router.get('/', authenticateToken, async (req, res) => {
-  const data = await dbQuery(supabase.from('orders').select('*').order('created_at', { ascending: false }), res);
+  const data = await dbQuery(scopeQueryByContext(supabase.from('orders').select('*'), req.context).order('created_at', { ascending: false }), res);
   if (!data) return;
   res.json(filterRowsByContext(data || [], req.context));
 });
@@ -831,7 +832,7 @@ router.get('/driver-invoices', authenticateToken, async (req, res) => {
   const routeId = req.query.routeId;
   if (!routeId) return res.status(400).json({ error: 'routeId is required' });
   const user = req.user || {};
-  const { invoices, orders, error } = await fetchInvoicesForRoute(routeId, user)
+  const { invoices, orders, error } = await fetchInvoicesForRoute(routeId, user, req.context)
     .catch((err) => ({ invoices: [], orders: [], error: err?.message || 'Failed to fetch invoices' }));
   if (error) return res.status(403).json({ error });
   res.json({ invoices, orders });
@@ -963,7 +964,7 @@ router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole
 });
 
 router.get('/:id', authenticateToken, async (req, res) => {
-  const order = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
+  const order = await dbQuery(scopeQueryByContext(supabase.from('orders').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!order) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
   res.json(enrichOrderResponse(order));
@@ -972,7 +973,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
 // Capture actual weight for a single catch-weight line item.
 // Recalculates line total and returns the updated order.
 router.patch('/:id/items/:itemIndex/actual-weight', validateBody(orderActualWeightSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const order = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
+  const order = await dbQuery(scopeQueryByContext(supabase.from('orders').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!order) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
@@ -1032,7 +1033,7 @@ router.patch('/:id/items/:itemIndex/actual-weight', validateBody(orderActualWeig
 
 router.patch('/:id', validateBody(orderUpdateSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
 
-  const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
+  const existing = await dbQuery(scopeQueryByContext(supabase.from('orders').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const fulfillmentType = normalizeFulfillmentType(req.body.fulfillmentType ?? req.body.fulfillment_type ?? existing.fulfillment_type);
@@ -1151,18 +1152,18 @@ router.patch('/:id', validateBody(orderUpdateSchema), authenticateToken, require
 });
 
 router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
+  const existing = await dbQuery(scopeQueryByContext(supabase.from('orders').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   await syncOrderStop(existing, req, true);
-  const data = await dbQuery(supabase.from('orders').delete().eq('id', req.params.id), res);
+  const data = await dbQuery(scopeQueryByContext(supabase.from('orders').delete(), req.context).eq('id', req.params.id), res);
   if (data === null) return;
   res.json({ message: 'Order deleted' });
 });
 
 // Send order to processing: creates/updates the pending invoice draft and marks the order ready for weights.
 router.post('/:id/send', validateBody(orderSendSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const existing = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
+  const existing = await dbQuery(scopeQueryByContext(supabase.from('orders').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
@@ -1194,7 +1195,7 @@ router.post('/:id/send', validateBody(orderSendSchema), authenticateToken, requi
 // Fulfill order: enter actual weights → generate invoice
 router.post('/:id/fulfill', validateBody(orderFulfillSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { items, driverName, routeId } = req.body;
-  const order = await dbQuery(supabase.from('orders').select('*').eq('id', req.params.id).single(), res);
+  const order = await dbQuery(scopeQueryByContext(supabase.from('orders').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!order) return;
   if (!rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const fulfilledItems = Array.isArray(items) ? items : (order.items || []);
@@ -1246,7 +1247,7 @@ router.post('/:id/fulfill', validateBody(orderFulfillSchema), authenticateToken,
   }
   await triggerReorderForOrderItems(fulfilledItems, req.context);
 
-  const orderUpdate = await executeWithOptionalScope((candidate) => supabase.from('orders').update(candidate).eq('id', req.params.id), {
+  const orderUpdate = await executeWithOptionalScope((candidate) => scopeQueryByContext(supabase.from('orders').update(candidate), req.context).eq('id', req.params.id), {
     status: 'invoiced',
     items: fulfilledItems,
     driver_name: driverName || null,
