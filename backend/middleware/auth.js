@@ -13,7 +13,7 @@ const { JWT_SECRET, SUPERADMIN_EMAIL } = require('../lib/config');
 const CSRF_METHODS = new Set(['POST', 'PATCH', 'DELETE', 'PUT']);
 
 // Routes that are exempt from CSRF (they set or refresh non-cookie credentials).
-const CSRF_EXEMPT = new Set(['/login', '/setup-password', '/driver/login', '/driver/refresh']);
+const CSRF_EXEMPT = new Set(['/login', '/signup', '/setup-password', '/refresh', '/logout', '/driver/login', '/driver/refresh']);
 
 function normalizeId(value) {
   if (value === null || value === undefined) return '';
@@ -114,6 +114,10 @@ async function authenticateToken(req, res, next) {
     payload = jwt.verify(token, JWT_SECRET);
   } catch {
     return res.status(401).json({ error: 'Invalid or expired session' });
+  }
+
+  if (payload?.tokenType === 'refresh' || payload?.tokenType === 'driver_refresh') {
+    return res.status(401).json({ error: 'Access token required' });
   }
 
   const { user, dbError, notFound } = await findUserFromTokenPayload(payload);
