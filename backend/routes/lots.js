@@ -15,8 +15,8 @@ const router = express.Router();
 
 async function loadLotTraceData(lotNumber, context = null) {
   const { data: lotRows, error: lotErr } = await scopeQueryByContext(supabase
-    .from('lot_codes'), context)
-    .select('id, lot_number, product_id, vendor_id, quantity_received, unit_of_measure, received_date, received_by, expiration_date, notes, created_at')
+    .from('lot_codes')
+    .select('id, lot_number, product_id, vendor_id, quantity_received, unit_of_measure, received_date, received_by, expiration_date, notes, created_at'), context)
     .eq('lot_number', lotNumber)
     .limit(1);
   const lot = lotRows?.[0] || null;
@@ -108,8 +108,8 @@ router.get('/', authenticateToken, async (req, res) => {
   const { product_id, active_only } = req.query;
 
   let query = scopeQueryByContext(supabase
-    .from('lot_codes'), req.context)
-    .select('id, lot_number, product_id, vendor_id, quantity_received, unit_of_measure, received_date, expiration_date, notes, created_at')
+    .from('lot_codes')
+    .select('id, lot_number, product_id, vendor_id, quantity_received, unit_of_measure, received_date, expiration_date, notes, created_at'), req.context)
     .order('expiration_date', { ascending: true, nullsFirst: false });
 
   if (product_id) {
