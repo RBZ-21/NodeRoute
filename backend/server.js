@@ -11,6 +11,7 @@ const pinoHttp = require('pino-http');
 const fs = require('fs');
 const path = require('path');
 const { globalLimiter, authLimiter, aiLimiter } = require('./middleware/rateLimiter');
+const { validateJsonMutationBody } = require('./lib/zod-validate');
 
 // Route modules
 const authRouter          = require('./routes/auth');
@@ -131,6 +132,7 @@ app.use(pinoHttp({
 }));
 
 app.use(globalLimiter);
+app.use(validateJsonMutationBody());
 
 // CORS
 app.use((req, res, next) => {
