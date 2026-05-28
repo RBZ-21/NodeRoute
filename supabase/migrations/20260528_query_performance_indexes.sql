@@ -3,10 +3,10 @@
 -- when the referenced table and columns exist.
 
 create or replace function public.create_index_if_columns_exist(
-  index_name text,
-  table_name text,
-  index_columns_sql text,
-  required_columns text[]
+  p_index_name text,
+  p_table_name text,
+  p_index_columns_sql text,
+  p_required_columns text[]
 )
 returns void
 language plpgsql
@@ -15,24 +15,24 @@ declare
   required_column text;
 begin
   if not exists (
-    select 1 from information_schema.tables
-    where table_schema = 'public' and table_name = create_index_if_columns_exist.table_name
+    select 1 from information_schema.tables t
+    where t.table_schema = 'public' and t.table_name = p_table_name
   ) then
     return;
   end if;
 
-  foreach required_column in array required_columns loop
+  foreach required_column in array p_required_columns loop
     if not exists (
-      select 1 from information_schema.columns
-      where table_schema = 'public'
-        and table_name = create_index_if_columns_exist.table_name
-        and column_name = required_column
+      select 1 from information_schema.columns c
+      where c.table_schema = 'public'
+        and c.table_name = p_table_name
+        and c.column_name = required_column
     ) then
       return;
     end if;
   end loop;
 
-  execute format('create index if not exists %I on public.%I (%s)', index_name, table_name, index_columns_sql);
+  execute format('create index if not exists %I on public.%I (%s)', p_index_name, p_table_name, p_index_columns_sql);
 end $$;
 
 select public.create_index_if_columns_exist('idx_orders_company_status_created', 'orders', 'company_id, status, created_at desc', array['company_id','status','created_at']);
