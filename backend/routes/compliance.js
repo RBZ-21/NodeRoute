@@ -1,7 +1,7 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
-const { filterRowsByContext } = require('../services/operating-context');
+const { filterRowsByContext, scopeQueryByContext } = require('../services/operating-context');
 
 const router = express.Router();
 router.use(authenticateToken, requireRole('admin', 'manager'));
@@ -44,8 +44,8 @@ function daysOpen(lot) {
 
 async function loadComplianceRows() {
   const [lotCodesResult, inventoryLotsResult] = await Promise.all([
-    supabase.from('lot_codes').select('*'),
-    supabase.from('inventory_lots').select('*'),
+    scopeQueryByContext(supabase.from('lot_codes').select('*'), req.context),
+    scopeQueryByContext(supabase.from('inventory_lots').select('*'), req.context),
   ]);
 
   if (lotCodesResult.error) throw lotCodesResult.error;
