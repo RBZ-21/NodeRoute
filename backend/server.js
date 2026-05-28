@@ -138,11 +138,14 @@ app.use(validateJsonMutationBody());
 app.use((req, res, next) => {
   const origin         = req.headers.origin || '';
   const allowedOrigins = config.CORS_ORIGINS;
-  if (allowedOrigins.length > 0 && allowedOrigins.includes(origin)) {
+  if (origin) {
+    if (!allowedOrigins.includes(origin)) {
+      return res.status(403).json({ error: 'CORS origin not allowed' });
+    }
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
   }
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,sentry-trace,baggage');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
