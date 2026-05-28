@@ -516,6 +516,26 @@ const { data: route } = await scopeQueryByContext(supabase.from('routes').select
 ```
 
 Explanation: Moved tenant restrictions into Supabase query builders across reporting, credit, AR, audit, AI, driver roster, catch-weight, temperature, compliance, sales-rep, and vendor-bill routes so broad result sets are not fetched before filtering.
+
+## 22. Portal, Lots, Ops Planning, Dwell, Tracking, Print, and Integration Scoping
+
+FILE PATH: `backend/routes/portal-customer.js`, `backend/routes/portal/payment-method-routes.js`, `backend/routes/portal-autopay.js`, `backend/routes/portal-invoice-payments.js`, `backend/routes/portal-payment-methods.js`, `backend/routes/lots.js`, `backend/routes/dwell.js`, `backend/routes/tracking.js`, `backend/routes/print.js`, `backend/routes/integrations.js`, `backend/routes/ops-utils.js`, `backend/routes/ops/purchasing-shared.js`, `backend/routes/ops-po-drafts.js`, `backend/routes/ops-projections.js`, `backend/routes/ops/admin-routes.js`, `backend/routes/ops/purchasing-order-routes.js`, `backend/routes/ops/purchasing-planning-routes.js`, `backend/routes/purchase-orders.js`
+
+BEFORE:
+```js
+let query = supabase.from('dwell_records').select('*');
+await supabase.from('invoices').update({ status: 'paid' }).eq('id', invoice.id);
+const { data } = await supabase.from('orders').select('*').eq('id', orderId).single();
+```
+
+AFTER:
+```js
+let query = scopeQueryByContext(supabase.from('dwell_records').select('*'), req.context);
+await scopeQueryByContext(supabase.from('invoices').update({ status: 'paid' }), req.portalContext).eq('id', invoice.id);
+const { data } = await scopeQueryByContext(supabase.from('orders').select('*'), req.context).eq('id', orderId).single();
+```
+
+Explanation: Added tenant or portal-context scoping to remaining operational, print, tracking, lot traceability, portal payment, and purchasing planning data paths; auth, portal challenge bookkeeping, and superadmin remain intentionally scoped by credential/token/platform semantics instead of `company_id`.
 ## Summary Table
 
 | # | Priority | File | Issue Fixed | Status |
@@ -526,7 +546,7 @@ Explanation: Moved tenant restrictions into Supabase query builders across repor
 | 4 | Security | `backend/lib/zod-validate.js`, `backend/server.js` | Global Zod validation for JSON mutations | Done on branch |
 | 5 | Security | `.env.example` | Environment variables documented; secret hardcoding search found no live key hits | Done on branch |
 | 6 | Security | `backend/server.js`, `backend/lib/config.js` | Strict CORS allow-list enforcement | Done on branch |
-| 7 | Multi-tenant | `backend/services/operating-context.js`, `backend/routes/driver.js`, `backend/routes/deliveries.js`, `backend/routes/reporting.js`, `backend/routes/credit-hold.js`, `backend/routes/ar-hub.js`, `backend/routes/audit-log.js`, `backend/routes/users.js`, `backend/routes/drivers.js`, `backend/routes/catch-weight.js`, `backend/routes/temperature-logs.js`, `backend/routes/compliance.js`, `backend/routes/sales-reps.js`, `backend/routes/vendor-bills.js`, `backend/routes/ai.js` | Tenant filters added before high-risk DB queries | Substantially expanded; portal/ops/shared edge routes still need focused review |
+| 7 | Multi-tenant | `backend/services/operating-context.js`, `backend/routes/driver.js`, `backend/routes/deliveries.js`, `backend/routes/reporting.js`, `backend/routes/credit-hold.js`, `backend/routes/ar-hub.js`, `backend/routes/audit-log.js`, `backend/routes/users.js`, `backend/routes/drivers.js`, `backend/routes/catch-weight.js`, `backend/routes/temperature-logs.js`, `backend/routes/compliance.js`, `backend/routes/sales-reps.js`, `backend/routes/vendor-bills.js`, `backend/routes/ai.js` | Tenant filters added before high-risk DB queries | Done for tenant-sensitive API routes; auth/portal challenge/superadmin use separate credential, token, or platform scope |
 | 8 | Multi-tenant | `backend/routes/driver.js`, `backend/routes/deliveries.js` | Driver delivery reads scoped by company | Done for driver/delivery surfaces |
 | 9 | Multi-tenant | `backend/services/plan-limits.js`, `backend/routes/users.js`, `backend/routes/orders.js` | API-level driver and delivery plan limits | Done on branch |
 | 10 | Performance | `backend/routes/deliveries.js` | Replaced delivery product N+1 lookup with batched queries | Done for identified N+1 path |
