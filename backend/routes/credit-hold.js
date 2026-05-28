@@ -236,11 +236,10 @@ router.patch('/customer/:id/settings', authenticateToken, requireRole('admin', '
   updates.credit_reviewed_by = req.user.id;
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await scopeQueryByContext(supabase
       .from('Customers')
-      .update(updates)
+      .update(updates), req.context)
       .eq('id', customer.id)
-      .eq('company_id', req.context?.activeCompanyId || req.context?.companyId)
       .select()
       .single();
     if (error) return res.status(500).json({ error: error.message });
@@ -272,9 +271,9 @@ router.get('/customer/:id/history', authenticateToken, async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit, 10) || 50, 200);
   const offset = Math.max(parseInt(req.query.offset, 10) || 0, 0);
 
-  const { data, error } = await supabase
+  const { data, error } = await scopeQueryByContext(supabase
     .from('credit_hold_log')
-    .select('*')
+    .select('*'), req.context)
     .eq('customer_id', customer.id)
     .order('created_at', { ascending: false })
     .limit(limit + offset);
