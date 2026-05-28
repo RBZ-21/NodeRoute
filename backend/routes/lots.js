@@ -9,12 +9,13 @@ const {
 } = require('../services/lot-traceability-notice');
 const { validateBody } = require('../lib/zod-validate');
 const { lotCreateBodySchema, lotFtlPatchBodySchema } = require('../lib/lots-schemas');
+const { buildScopeFields, scopeQueryByContext } = require('../services/operating-context');
 
 const router = express.Router();
 
-async function loadLotTraceData(lotNumber) {
-  const { data: lotRows, error: lotErr } = await supabase
-    .from('lot_codes')
+async function loadLotTraceData(lotNumber, context = null) {
+  const { data: lotRows, error: lotErr } = await scopeQueryByContext(supabase
+    .from('lot_codes'), context)
     .select('id, lot_number, product_id, vendor_id, quantity_received, unit_of_measure, received_date, received_by, expiration_date, notes, created_at')
     .eq('lot_number', lotNumber)
     .limit(1);
@@ -28,18 +29,18 @@ async function loadLotTraceData(lotNumber) {
   }
 
   const [ordersResult, stopsResult, productResult] = await Promise.all([
-    supabase
+    scopeQueryByContext(supabase
       .from('orders')
-      .select('id, order_number, customer_name, customer_email, customer_address, status, items, created_at')
+      .select('id, order_number, customer_name, customer_email, customer_address, status, items, created_at, company_id, location_id'), context)
       .contains('items', JSON.stringify([{ lot_number: lotNumber }])),
 
-    supabase
+    scopeQueryByContext(supabase
       .from('stops')
-      .select('id, name, address, notes, shipped_lots, created_at')
+      .select('id, name, address, notes, shipped_lots, created_at, company_id, location_id'), context)
       .contains('shipped_lots', JSON.stringify([{ lot_number: lotNumber }])),
 
     lot.product_id
-      ? supabase.from('products').select('item_number, description, category, unit').eq('item_number', lot.product_id).limit(1)
+      ? scopeQueryByContext(supabase.from('products').select('item_number, description, category, unit'), context).eq('item_number', lot.product_id).limit(1)
       : Promise.resolve({ data: null, error: null }),
   ]);
 
@@ -106,8 +107,8 @@ async function loadLotTraceData(lotNumber) {
 router.get('/', authenticateToken, async (req, res) => {
   const { product_id, active_only } = req.query;
 
-  let query = supabase
-    .from('lot_codes')
+  let query = scopeQueryByContext(supabase
+    .from('lot_codes'), req.context)
     .select('id, lot_number, product_id, vendor_id, quantity_received, unit_of_measure, received_date, expiration_date, notes, created_at')
     .order('expiration_date', { ascending: true, nullsFirst: false });
 
@@ -141,6 +142,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
     received_by:       req.user?.name    || req.user?.email || null,
     expiration_date:   expiration_date   || null,
     notes:             notes             || null,
+    ...buildScopeFields(req.context),
   }]).select().single();
 
   if (error) {
@@ -156,7 +158,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
 // Admin only. Must be fast — single DB query set.
 router.get('/:lotNumber/trace', authenticateToken, requireRole('admin'), async (req, res) => {
   const lotNumber = req.params.lotNumber;
-  const traceData = await loadLotTraceData(lotNumber);
+  const traceData = await loadLotTraceData(lotNumber, req.context);
   if (traceData.error) return res.status(traceData.status).json({ error: traceData.error });
   res.json(traceData.data);
 });
@@ -172,8 +174,8 @@ router.get('/traceability/report', authenticateToken, requireRole('admin'), asyn
   const pageSize = Math.min(200, parseInt(limitParam, 10) || 50);
   const offset   = (pageNum - 1) * pageSize;
 
-  let query = supabase
-    .from('lot_codes')
+  let query = scopeQueryByContext(supabase
+    .from('lot_codes'), req.context)
     .select('id, lot_number, product_id, vendor_id, quantity_received, unit_of_measure, received_date, received_by, expiration_date, notes, created_at', { count: 'exact' })
     .order('received_date', { ascending: false });
 
@@ -194,9 +196,9 @@ router.get('/traceability/report', authenticateToken, requireRole('admin'), asyn
   let orderRows = [];
   if (lotNumbers.length) {
     // Query orders containing any of these lot numbers using JSONB path operator
-    const { data: matchedOrders } = await supabase
+    const { data: matchedOrders } = await scopeQueryByContext(supabase
       .from('orders')
-      .select('id, order_number, items, status');
+      .select('id, order_number, items, status, company_id, location_id'), req.context);
 
     // Filter in JS (Supabase doesn't support OR jsonb containment across array of values)
     orderRows = (matchedOrders || []).filter((o) =>
@@ -247,7 +249,7 @@ router.post('/:lotNumber/notice', authenticateToken, requireRole('admin'), async
   const mailer = createMailer();
   if (!mailer) return res.status(503).json({ error: 'Email not configured on server' });
 
-  const traceData = await loadLotTraceData(lotNumber);
+  const traceData = await loadLotTraceData(lotNumber, req.context);
   if (traceData.error) return res.status(traceData.status).json({ error: traceData.error });
 
   const recipients = groupLotNoticeRecipients(traceData.data.orders);
