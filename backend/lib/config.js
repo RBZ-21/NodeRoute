@@ -160,7 +160,9 @@ function validate(logger) {
     warns.push('OPENAI_API_KEY not set — AI features will use fallbacks or be unavailable.');
 
   if (isProduction && CORS_ORIGINS.length === 0)
-    warns.push('CORS_ORIGINS is not set — all browser cross-origin requests will be blocked in production.');
+    errors.push('CORS_ORIGINS is not set — production must explicitly list allowed frontend origins.');
+  if (CORS_ORIGINS.some((origin) => origin === '*' || origin.toLowerCase() === 'null'))
+    errors.push('CORS_ORIGINS must contain explicit trusted origins only; wildcards and null origins are not allowed.');
 
   if (process.env.PORTAL_PAYMENT_ENABLED &&
       !['true','false'].includes(_rawPaymentEnabled.toLowerCase()))
