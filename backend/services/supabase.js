@@ -372,6 +372,9 @@ function createDemoSupabaseClient(options = {}) {
     from(tableName) {
       return new DemoQuery(tableName, options);
     },
+    rpc(_funcName, _args) {
+      return Promise.resolve({ data: null, error: null });
+    },
   };
 }
 
@@ -636,6 +639,15 @@ function createResilientSupabaseClient(cloudClient) {
   return {
     from(tableName) {
       return new ResilientQuery(tableName, cloudClient, localClient);
+    },
+    async rpc(funcName, args) {
+      try {
+        const result = await cloudClient.rpc(funcName, args);
+        return result ?? { data: null, error: null };
+      } catch (error) {
+        if (isConnectionError(error)) return { data: null, error: null };
+        return { data: null, error };
+      }
     },
   };
 }
