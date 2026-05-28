@@ -25,7 +25,7 @@ const {
 } = require('../services/ai');
 const { recordPoInvoiceScan } = require('../services/purchase-order-workflows');
 const { getAiScanErrorResponse } = require('../services/ai-errors');
-const { filterRowsByContext } = require('../services/operating-context');
+const { filterRowsByContext, scopeQueryByContext } = require('../services/operating-context');
 
 const router = express.Router();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -86,14 +86,14 @@ function extractChatSearchTerms(message) {
 }
 
 async function runScopedQuery(query, context) {
-  const { data, error } = await query;
+  const { data, error } = await scopeQueryByContext(query, context);
   if (error) throw error;
   return filterRowsByContext(data || [], context);
 }
 
 async function runOptionalScopedQuery(query, context) {
   try {
-    const { data, error } = await query;
+    const { data, error } = await scopeQueryByContext(query, context);
     if (error) return [];
     return filterRowsByContext(data || [], context);
   } catch {
@@ -538,23 +538,23 @@ router.post('/optimize-route', authenticateToken, requireRole('admin', 'manager'
   if (!routeId) return res.status(400).json({ error: 'route_id is required' });
 
   try {
-    const { data: route, error: rErr } = await supabase.from('routes').select('*').eq('id', routeId).single();
+    const { data: route, error: rErr } = await scopeQueryByContext(supabase.from('routes').select('*'), req.context).eq('id', routeId).single();
     if (rErr || !route) return res.status(404).json({ error: 'Route not found' });
 
     const stopIds = (route.active_stop_ids || route.stop_ids || []);
     if (!stopIds.length) return res.json({ optimized_stop_ids: [], key_changes: [], estimated_efficiency_gain: 'N/A', reasoning: 'No stops on this route.' });
 
-    const { data: stops } = await supabase
+    const { data: stops } = await scopeQueryByContext(supabase
       .from('stops')
-      .select('id,address,customer_id,status,lat,lng')
+      .select('id,address,customer_id,status,lat,lng,company_id,location_id'), req.context)
       .in('id', stopIds);
 
     const customerIds = (stops || []).map((s) => s.customer_id).filter(Boolean);
     let customerMap = {};
     if (customerIds.length) {
-      const { data: customers } = await supabase
+      const { data: customers } = await scopeQueryByContext(supabase
         .from('customers')
-        .select('customer_number,company_name,preferred_delivery_window')
+        .select('customer_number,company_name,preferred_delivery_window,company_id,location_id'), req.context)
         .in('customer_number', customerIds);
       (customers || []).forEach((customer) => {
         customerMap[customer.customer_number] = customer;
@@ -580,13 +580,13 @@ router.post('/customer-risk', authenticateToken, requireRole('admin', 'manager')
   if (!customerId) return res.status(400).json({ error: 'customer_id is required' });
 
   try {
-    const { data: customer, error: cErr } = await supabase.from('customers').select('*').eq('customer_number', customerId).single();
+    const { data: customer, error: cErr } = await scopeQueryByContext(supabase.from('customers').select('*'), req.context).eq('customer_number', customerId).single();
     if (cErr || !customer) return res.status(404).json({ error: 'Customer not found' });
 
     const since = new Date(Date.now() - 90 * 86400000).toISOString();
     const [{ data: invoices }, { data: orders }] = await Promise.all([
-      supabase.from('invoices').select('total,status,due_date,created_at').eq('customer_name', customer.company_name).gte('created_at', since),
-      supabase.from('orders').select('status,created_at,date').eq('customer', customerId).gte('created_at', since).order('created_at', { ascending: false }),
+      scopeQueryByContext(supabase.from('invoices').select('total,status,due_date,created_at,company_id,location_id'), req.context).eq('customer_name', customer.company_name).gte('created_at', since),
+      scopeQueryByContext(supabase.from('orders').select('status,created_at,date,company_id,location_id'), req.context).eq('customer', customerId).gte('created_at', since).order('created_at', { ascending: false }),
     ]);
 
     const result = await scoreCustomerRisk(customer, invoices || [], orders || []);
@@ -602,8 +602,8 @@ router.post('/anomalies', authenticateToken, requireRole('admin', 'manager'), ai
   try {
     const since = new Date(Date.now() - 7 * 86400000).toISOString();
     const [{ data: deliveries }, { data: orders }] = await Promise.all([
-      supabase.from('stops').select('id,status,created_at,driver_id').gte('created_at', since),
-      supabase.from('orders').select('id,status,customer_name,created_at').gte('created_at', since),
+      scopeQueryByContext(supabase.from('stops').select('id,status,created_at,driver_id,company_id,location_id'), req.context).gte('created_at', since),
+      scopeQueryByContext(supabase.from('orders').select('id,status,customer_name,created_at,company_id,location_id'), req.context).gte('created_at', since),
     ]);
 
     const result = await detectAnomalies(deliveries || [], orders || []);
@@ -620,13 +620,13 @@ router.post('/vendor-score', authenticateToken, requireRole('admin', 'manager'),
   if (!vendorId) return res.status(400).json({ error: 'vendor_id is required' });
 
   try {
-    const { data: vendor, error: vErr } = await supabase.from('vendors').select('*').eq('id', vendorId).single();
+    const { data: vendor, error: vErr } = await scopeQueryByContext(supabase.from('vendors').select('*'), req.context).eq('id', vendorId).single();
     if (vErr || !vendor) return res.status(404).json({ error: 'Vendor not found' });
 
     const since = new Date(Date.now() - 90 * 86400000).toISOString();
-    const { data: pos } = await supabase
+    const { data: pos } = await scopeQueryByContext(supabase
       .from('purchase_orders')
-      .select('id,status,created_at,total_cost,workflow_kind')
+      .select('id,status,created_at,total_cost,workflow_kind,company_id,location_id'), req.context)
       .eq('vendor_id', vendorId)
       .gte('created_at', since);
 
@@ -647,13 +647,13 @@ router.post('/vendor-score', authenticateToken, requireRole('admin', 'manager'),
 router.post('/driver-assignments', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('driver-assignments'), async (req, res) => {
   try {
     const [{ data: drivers }, { data: routes }] = await Promise.all([
-      supabase.from('users').select('id,name,email').eq('role', 'driver'),
-      supabase.from('routes').select('id,name,stop_ids,active_stop_ids,driver,driver_id').order('created_at', { ascending: false }).limit(20),
+      scopeQueryByContext(supabase.from('users').select('id,name,email,company_id,location_id'), req.context).eq('role', 'driver'),
+      scopeQueryByContext(supabase.from('routes').select('id,name,stop_ids,active_stop_ids,driver,driver_id,company_id,location_id'), req.context).order('created_at', { ascending: false }).limit(20),
     ]);
 
     const enrichedDrivers = await Promise.all((drivers || []).map(async (d) => {
-      const { count: completedCount } = await supabase.from('deliveries').select('id', { count: 'exact', head: true }).eq('driver_id', d.id).eq('status', 'delivered');
-      const { count: activeCount } = await supabase.from('routes').select('id', { count: 'exact', head: true }).eq('driver_id', d.id);
+      const { count: completedCount } = await scopeQueryByContext(supabase.from('deliveries').select('id', { count: 'exact', head: true }), req.context).eq('driver_id', d.id).eq('status', 'delivered');
+      const { count: activeCount } = await scopeQueryByContext(supabase.from('routes').select('id', { count: 'exact', head: true }), req.context).eq('driver_id', d.id);
       return { ...d, completed_count: completedCount || 0, active_count: activeCount || 0 };
     }));
 
@@ -677,9 +677,9 @@ router.post('/markdown-recommendations', authenticateToken, requireRole('admin',
     const expiryWindow = new Date(Date.now() + windowDays * 86400000).toISOString().split('T')[0];
     const today = new Date().toISOString().split('T')[0];
 
-    const { data: expiringLots, error: lErr } = await supabase
+    const { data: expiringLots, error: lErr } = await scopeQueryByContext(supabase
       .from('lot_codes')
-      .select('item_number,lot_number,expiry_date')
+      .select('item_number,lot_number,expiry_date,company_id,location_id'), req.context)
       .lte('expiry_date', expiryWindow)
       .gte('expiry_date', today);
     if (lErr) return res.status(500).json({ error: lErr.message });
@@ -689,9 +689,9 @@ router.post('/markdown-recommendations', authenticateToken, requireRole('admin',
     }
 
     const itemNumbers = [...new Set(expiringLots.map((l) => l.item_number))];
-    const { data: products } = await supabase
+    const { data: products } = await scopeQueryByContext(supabase
       .from('products')
-      .select('item_number,description,on_hand_qty,unit,cost')
+      .select('item_number,description,on_hand_qty,unit,cost,company_id,location_id'), req.context)
       .in('item_number', itemNumbers);
 
     const productMap = {};
@@ -726,7 +726,7 @@ router.post('/invoice-followup', authenticateToken, requireRole('admin', 'manage
   if (!invoiceId) return res.status(400).json({ error: 'invoice_id is required' });
 
   try {
-    const { data: invoice, error: iErr } = await supabase.from('invoices').select('*').eq('id', invoiceId).single();
+    const { data: invoice, error: iErr } = await scopeQueryByContext(supabase.from('invoices').select('*'), req.context).eq('id', invoiceId).single();
     if (iErr || !invoice) return res.status(404).json({ error: 'Invoice not found' });
 
     const dueDate = invoice.due_date ? new Date(invoice.due_date) : null;
@@ -734,11 +734,11 @@ router.post('/invoice-followup', authenticateToken, requireRole('admin', 'manage
 
     let customer = {};
     if (invoice.customer_name) {
-      const { data: cust } = await supabase.from('customers').select('company_name,email,payment_terms,credit_hold_reason').ilike('company_name', invoice.customer_name).limit(1).single();
+      const { data: cust } = await scopeQueryByContext(supabase.from('customers').select('company_name,email,payment_terms,credit_hold_reason,company_id,location_id'), req.context).ilike('company_name', invoice.customer_name).limit(1).single();
       customer = cust || {};
     }
 
-    const { count: priorCount } = await supabase.from('invoices').select('id', { count: 'exact', head: true }).ilike('customer_name', invoice.customer_name || '');
+    const { count: priorCount } = await scopeQueryByContext(supabase.from('invoices').select('id', { count: 'exact', head: true }), req.context).ilike('customer_name', invoice.customer_name || '');
     const result = await generateInvoiceFollowUp({ ...invoice, prior_invoice_count: priorCount || 0 }, customer, daysOverdue);
     res.json({ invoice_id: invoiceId, days_overdue: daysOverdue, ...result });
   } catch (err) {
@@ -750,16 +750,16 @@ router.post('/invoice-followup', authenticateToken, requireRole('admin', 'manage
 // ── SMART REORDER ALERTS ───────────────────────────────────────────────────────
 router.get('/reorder-alerts', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('reorder-alerts'), async (req, res) => {
   try {
-    const { data: products, error: pErr } = await supabase
+    const { data: products, error: pErr } = await scopeQueryByContext(supabase
       .from('products')
-      .select('item_number,description,on_hand_qty,unit,cost')
+      .select('item_number,description,on_hand_qty,unit,cost,company_id,location_id'), req.context)
       .order('description');
     if (pErr) return res.status(500).json({ error: pErr.message });
 
     const since = new Date(Date.now() - 28 * 86400000).toISOString();
-    const { data: history } = await supabase
+    const { data: history } = await scopeQueryByContext(supabase
       .from('inventory_stock_history')
-      .select('item_number,change_qty,change_type,created_at')
+      .select('item_number,change_qty,change_type,created_at,company_id,location_id'), req.context)
       .gte('created_at', since)
       .in('change_type', ['pick', 'sale', 'depletion', 'adjustment']);
 
@@ -789,9 +789,9 @@ router.get('/reorder-alerts', authenticateToken, requireRole('admin', 'manager')
 // ── LATE PAYMENT RISK ──────────────────────────────────────────────────────────
 router.get('/late-payment-risk', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('late-payment-risk'), async (req, res) => {
   try {
-    const { data: invoices, error: iErr } = await supabase
+    const { data: invoices, error: iErr } = await scopeQueryByContext(supabase
       .from('invoices')
-      .select('id,customer_name,total,status,due_date,created_at')
+      .select('id,customer_name,total,status,due_date,created_at,company_id,location_id'), req.context)
       .in('status', ['sent', 'overdue', 'draft'])
       .order('due_date', { ascending: true });
     if (iErr) return res.status(500).json({ error: iErr.message });
@@ -825,9 +825,9 @@ router.post('/pricing-anomalies', authenticateToken, requireRole('admin', 'manag
   try {
     const days = Math.min(90, Math.max(7, parseInt(req.body.days || '30', 10)));
     const since = new Date(Date.now() - days * 86400000).toISOString();
-    const { data: orders, error: oErr } = await supabase
+    const { data: orders, error: oErr } = await scopeQueryByContext(supabase
       .from('orders')
-      .select('id,order_number,customer_name,items,created_at')
+      .select('id,order_number,customer_name,items,created_at,company_id,location_id'), req.context)
       .gte('created_at', since)
       .not('items', 'is', null);
     if (oErr) return res.status(500).json({ error: oErr.message });
@@ -843,9 +843,9 @@ router.post('/pricing-anomalies', authenticateToken, requireRole('admin', 'manag
 // ── VENDOR PERFORMANCE (BULK) ──────────────────────────────────────────────────
 router.get('/vendor-performance', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('vendor-performance'), async (req, res) => {
   try {
-    const { data: pos, error: pErr } = await supabase
+    const { data: pos, error: pErr } = await scopeQueryByContext(supabase
       .from('purchase_orders')
-      .select('id,vendor,status,total_cost,items,created_at')
+      .select('id,vendor,status,total_cost,items,created_at,company_id,location_id'), req.context)
       .order('created_at', { ascending: false })
       .limit(200);
     if (pErr) return res.status(500).json({ error: pErr.message });
