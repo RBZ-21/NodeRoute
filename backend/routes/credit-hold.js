@@ -6,6 +6,7 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const {
   filterRowsByContext,
   rowMatchesContext,
+  scopeQueryByContext,
 } = require('../services/operating-context');
 const creditEngine = require('../services/creditEngine');
 const logger = require('../services/logger');
@@ -31,7 +32,7 @@ async function loadCustomerOr403(req, res) {
     res.status(400).json({ error: 'Invalid customer id' });
     return null;
   }
-  const { data, error } = await supabase.from('Customers').select('*').eq('id', id).single();
+  const { data, error } = await scopeQueryByContext(supabase.from('Customers').select('*'), req.context).eq('id', id).single();
   if (error || !data) {
     res.status(404).json({ error: 'Customer not found' });
     return null;
@@ -51,7 +52,7 @@ router.get('/customer/:id/status', authenticateToken, async (req, res) => {
   try {
     await creditEngine.calculateCustomerBalance(customer.id);
     const status = await creditEngine.checkCreditStatus(customer.id);
-    const refreshed = (await supabase.from('Customers').select('*').eq('id', customer.id).single()).data || customer;
+    const refreshed = (await scopeQueryByContext(supabase.from('Customers').select('*'), req.context).eq('id', customer.id).single()).data || customer;
 
     const limit = refreshed.credit_limit == null ? null : creditEngine.toMoney(refreshed.credit_limit);
     const balance = creditEngine.toMoney(refreshed.current_balance || 0);
@@ -239,6 +240,7 @@ router.patch('/customer/:id/settings', authenticateToken, requireRole('admin', '
       .from('Customers')
       .update(updates)
       .eq('id', customer.id)
+      .eq('company_id', req.context?.activeCompanyId || req.context?.companyId)
       .select()
       .single();
     if (error) return res.status(500).json({ error: error.message });
@@ -284,7 +286,7 @@ router.get('/customer/:id/history', authenticateToken, async (req, res) => {
   const userIds = [...new Set(rows.map((r) => r.performed_by).filter(Boolean))];
   let usersById = {};
   if (userIds.length) {
-    const { data: users } = await supabase.from('users').select('id,email,name').in('id', userIds);
+    const { data: users } = await scopeQueryByContext(supabase.from('users').select('id,email,name,company_id,location_id'), req.context).in('id', userIds);
     (users || []).forEach((u) => { usersById[u.id] = u; });
   }
 
@@ -302,9 +304,9 @@ router.get('/customer/:id/history', authenticateToken, async (req, res) => {
 
 // ── 3G. GET /api/credit/holds/active ───────────────────────────────────────
 router.get('/holds/active', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { data, error } = await supabase
+  const { data, error } = await scopeQueryByContext(supabase
     .from('Customers')
-    .select('*')
+    .select('*'), req.context)
     .eq('credit_hold', true);
   if (error) return res.status(500).json({ error: error.message });
 
@@ -338,9 +340,9 @@ router.get('/holds/active', authenticateToken, requireRole('admin', 'manager'), 
 // ── 3H. GET /api/credit/dashboard ──────────────────────────────────────────
 router.get('/dashboard', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const { data: customers, error } = await supabase
+    const { data: customers, error } = await scopeQueryByContext(supabase
       .from('Customers')
-      .select('id, credit_status, credit_hold, current_balance, credit_limit, oldest_unpaid_invoice_date, company_id, location_id');
+      .select('id, credit_status, credit_hold, current_balance, credit_limit, oldest_unpaid_invoice_date, company_id, location_id'), req.context);
     if (error) return res.status(500).json({ error: error.message });
     const scoped = filterRowsByContext(customers || [], req.context);
 
@@ -353,16 +355,16 @@ router.get('/dashboard', authenticateToken, requireRole('admin', 'manager'), asy
 
     // Orders blocked today.
     const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
-    const { data: blocks } = await supabase
+    const { data: blocks } = await scopeQueryByContext(supabase
       .from('credit_hold_log')
-      .select('id')
+      .select('id'), req.context)
       .eq('event_type', 'order_blocked')
       .gte('created_at', startOfDay.toISOString());
 
     // Active overrides + stale flags.
-    const { data: overrides } = await supabase
+    const { data: overrides } = await scopeQueryByContext(supabase
       .from('credit_hold_overrides')
-      .select('id, created_at, consumed_at, expires_at')
+      .select('id, created_at, consumed_at, expires_at'), req.context)
       .is('consumed_at', null);
     const activeOverrides = (overrides || []).filter((o) => !o.expires_at || new Date(o.expires_at) > new Date());
     const staleCutoff = Date.now() - 7 * 86_400_000;
@@ -370,9 +372,9 @@ router.get('/dashboard', authenticateToken, requireRole('admin', 'manager'), asy
 
     // Auto-releases in last 7 days.
     const weekAgo = new Date(Date.now() - 7 * 86_400_000).toISOString();
-    const { data: autoReleases } = await supabase
+    const { data: autoReleases } = await scopeQueryByContext(supabase
       .from('credit_hold_log')
-      .select('id')
+      .select('id'), req.context)
       .eq('event_type', 'auto_released')
       .gte('created_at', weekAgo);
 
@@ -393,9 +395,9 @@ router.get('/dashboard', authenticateToken, requireRole('admin', 'manager'), asy
 
 // ── 3I. GET /api/credit/overrides ──────────────────────────────────────────
 router.get('/overrides', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { data, error } = await supabase
+  const { data, error } = await scopeQueryByContext(supabase
     .from('credit_hold_overrides')
-    .select('*')
+    .select('*'), req.context)
     .order('created_at', { ascending: false })
     .limit(500);
   if (error) return res.status(500).json({ error: error.message });
@@ -405,8 +407,8 @@ router.get('/overrides', authenticateToken, requireRole('admin', 'manager'), asy
   const userIds = [...new Set(scoped.map((o) => o.overridden_by))];
 
   const [customersRes, usersRes] = await Promise.all([
-    customerIds.length ? supabase.from('Customers').select('id,company_name').in('id', customerIds) : { data: [] },
-    userIds.length ? supabase.from('users').select('id,email,name').in('id', userIds) : { data: [] },
+    customerIds.length ? scopeQueryByContext(supabase.from('Customers').select('id,company_name,company_id,location_id'), req.context).in('id', customerIds) : { data: [] },
+    userIds.length ? scopeQueryByContext(supabase.from('users').select('id,email,name,company_id,location_id'), req.context).in('id', userIds) : { data: [] },
   ]);
   const customersById = {};
   (customersRes.data || []).forEach((c) => { customersById[c.id] = c; });
