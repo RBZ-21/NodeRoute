@@ -496,6 +496,26 @@ let query = scopeQueryByContext(supabase.from('stops').select('*'), req.context)
 ```
 
 Explanation: High-risk operational reads, updates, and deletes now apply company scoping before filtering by IDs or returning rows.
+
+## 21. Reporting, AI, Credit, AR, Audit, Driver, and Back-Office Query Scoping
+
+FILE PATH: `backend/routes/reporting.js`, `backend/routes/credit-hold.js`, `backend/routes/ar-hub.js`, `backend/routes/audit-log.js`, `backend/routes/users.js`, `backend/routes/drivers.js`, `backend/routes/catch-weight.js`, `backend/routes/temperature-logs.js`, `backend/routes/compliance.js`, `backend/routes/sales-reps.js`, `backend/routes/vendor-bills.js`, `backend/routes/ai.js`
+
+BEFORE:
+```js
+const { data } = await supabase.from('invoices').select('*').in('status', OPEN_STATUSES);
+const user = await dbQuery(supabase.from('users').select('*').eq('id', req.params.id).single(), res);
+const { data: route } = await supabase.from('routes').select('*').eq('id', routeId).single();
+```
+
+AFTER:
+```js
+const { data } = await scopeQueryByContext(supabase.from('invoices').select('*'), req.context).in('status', OPEN_STATUSES);
+const user = await dbQuery(scopeQueryByContext(supabase.from('users').select('*'), req.context).eq('id', req.params.id).single(), res);
+const { data: route } = await scopeQueryByContext(supabase.from('routes').select('*'), req.context).eq('id', routeId).single();
+```
+
+Explanation: Moved tenant restrictions into Supabase query builders across reporting, credit, AR, audit, AI, driver roster, catch-weight, temperature, compliance, sales-rep, and vendor-bill routes so broad result sets are not fetched before filtering.
 ## Summary Table
 
 | # | Priority | File | Issue Fixed | Status |
@@ -506,7 +526,7 @@ Explanation: High-risk operational reads, updates, and deletes now apply company
 | 4 | Security | `backend/lib/zod-validate.js`, `backend/server.js` | Global Zod validation for JSON mutations | Done on branch |
 | 5 | Security | `.env.example` | Environment variables documented; secret hardcoding search found no live key hits | Done on branch |
 | 6 | Security | `backend/server.js`, `backend/lib/config.js` | Strict CORS allow-list enforcement | Done on branch |
-| 7 | Multi-tenant | `backend/services/operating-context.js`, `backend/routes/driver.js`, `backend/routes/deliveries.js` | Tenant filters added before high-risk DB queries | Partial; broader route audit still needed |
+| 7 | Multi-tenant | `backend/services/operating-context.js`, `backend/routes/driver.js`, `backend/routes/deliveries.js`, `backend/routes/reporting.js`, `backend/routes/credit-hold.js`, `backend/routes/ar-hub.js`, `backend/routes/audit-log.js`, `backend/routes/users.js`, `backend/routes/drivers.js`, `backend/routes/catch-weight.js`, `backend/routes/temperature-logs.js`, `backend/routes/compliance.js`, `backend/routes/sales-reps.js`, `backend/routes/vendor-bills.js`, `backend/routes/ai.js` | Tenant filters added before high-risk DB queries | Substantially expanded; portal/ops/shared edge routes still need focused review |
 | 8 | Multi-tenant | `backend/routes/driver.js`, `backend/routes/deliveries.js` | Driver delivery reads scoped by company | Done for driver/delivery surfaces |
 | 9 | Multi-tenant | `backend/services/plan-limits.js`, `backend/routes/users.js`, `backend/routes/orders.js` | API-level driver and delivery plan limits | Done on branch |
 | 10 | Performance | `backend/routes/deliveries.js` | Replaced delivery product N+1 lookup with batched queries | Done for identified N+1 path |
