@@ -183,7 +183,7 @@ async function createCatchWeightEntry(input, req) {
     throw error;
   }
 
-  const product = await fetchProduct(resolved.item);
+  const product = await fetchProduct(resolved.item, req.context);
   const orderedQuantity = asNumber(input.ordered_quantity ?? resolved.orderItemRow?.ordered_quantity ?? orderedQuantityForItem(resolved.item), 0);
   const actualWeight = asNumber(input.actual_weight, NaN);
   const pricePerWeightUnit = asNumber(input.price_per_weight_unit ?? resolved.item.price_per_weight_unit ?? resolved.item.price_per_lb ?? resolved.item.unit_price, NaN);
@@ -317,7 +317,7 @@ router.get('/order/:order_id', authenticateToken, async (req, res) => {
   if (!order) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
-  const { data, error } = await supabase.from('catch_weight_entries').select('*').eq('order_id', req.params.order_id);
+  const { data, error } = await scopeQueryByContext(supabase.from('catch_weight_entries').select('*'), req.context).eq('order_id', req.params.order_id);
   if (error) return res.status(500).json({ error: error.message });
   const entries = (data || []).map(withCalculatedFields);
   const summary = entries.reduce((acc, entry) => {
