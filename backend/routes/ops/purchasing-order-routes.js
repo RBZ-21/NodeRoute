@@ -5,6 +5,7 @@ const {
   executeWithOptionalScope,
   filterRowsByContext,
   rowMatchesContext,
+  scopeQueryByContext,
 } = require('../../services/operating-context');
 const {
   applyInventoryLedgerEntry,
@@ -54,9 +55,9 @@ async function ensureReceiptLotRecord({ lotNumber, itemNumber, poLine, acceptedQ
   let existingLot = null;
 
   if (scopedLotError) {
-    const fallbackLookup = await supabase.from('lot_codes').select('*').eq('lot_number', trimmedLotNumber).limit(5);
+    const fallbackLookup = await scopeQueryByContext(supabase.from('lot_codes').select('*'), req.context).eq('lot_number', trimmedLotNumber).limit(5);
     if (fallbackLookup.error) throw new Error(fallbackLookup.error.message);
-    existingLot = filterRowsByContext(fallbackLookup.data || [], req.context)[0] || fallbackLookup.data?.[0] || null;
+    existingLot = filterRowsByContext(fallbackLookup.data || [], req.context)[0] || null;
   } else {
     existingLot = scopedLots?.[0] || null;
   }
@@ -88,7 +89,7 @@ async function ensureReceiptLotRecord({ lotNumber, itemNumber, poLine, acceptedQ
     );
   }
   if (lotInsert.error && lotInsert.error.code === '23505') {
-    const lookup = await supabase.from('lot_codes').select('id').eq('lot_number', trimmedLotNumber).limit(1);
+    const lookup = await scopeQueryByContext(supabase.from('lot_codes').select('id'), req.context).eq('lot_number', trimmedLotNumber).limit(1);
     if (lookup.error) throw new Error(lookup.error.message);
     return { lotId: lookup.data?.[0]?.id || null, created: false };
   }
@@ -283,7 +284,7 @@ module.exports = function buildOpsPurchasingOrderRouter() {
       }
     }
 
-    const { data: inventory, error: invErr } = await supabase.from('products').select('*');
+    const { data: inventory, error: invErr } = await scopeQueryByContext(supabase.from('products').select('*'), req.context);
     if (invErr) return res.status(500).json({ error: invErr.message });
     const inventoryRows = inventory || [];
     const receiptLines = [];
