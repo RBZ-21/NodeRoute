@@ -6,15 +6,16 @@ const {
   filterRowsByContext,
   rowMatchesContext,
   buildScopeFields,
+  scopeQueryByContext,
 } = require('../services/operating-context');
 
 const router = express.Router();
 
 // GET /api/vendor-bills — list all vendor bills, newest first
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { data, error } = await supabase
+  const { data, error } = await scopeQueryByContext(supabase
     .from('vendor_bills')
-    .select('id, bill_number, purchase_order_id, vendor, vendor_id, amount, status, due_date, paid_at, paid_by, notes, auto_generated, created_by, company_id, location_id, created_at, updated_at')
+    .select('id, bill_number, purchase_order_id, vendor, vendor_id, amount, status, due_date, paid_at, paid_by, notes, auto_generated, created_by, company_id, location_id, created_at, updated_at'), req.context)
     .order('created_at', { ascending: false })
     .limit(200);
   if (error) return res.status(500).json({ error: error.message });
@@ -24,7 +25,7 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
 // GET /api/vendor-bills/:id — single bill
 router.get('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const bill = await dbQuery(
-    supabase.from('vendor_bills').select('*').eq('id', req.params.id).single(),
+    scopeQueryByContext(supabase.from('vendor_bills').select('*'), req.context).eq('id', req.params.id).single(),
     res
   );
   if (!bill) return;
@@ -35,7 +36,7 @@ router.get('/:id', authenticateToken, requireRole('admin', 'manager'), async (re
 // PATCH /api/vendor-bills/:id — update status, due_date, notes, paid_by
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const existing = await dbQuery(
-    supabase.from('vendor_bills').select('*').eq('id', req.params.id).single(),
+    scopeQueryByContext(supabase.from('vendor_bills').select('*'), req.context).eq('id', req.params.id).single(),
     res
   );
   if (!existing) return;
@@ -60,7 +61,7 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
 
   fields.updated_at = new Date().toISOString();
   const data = await dbQuery(
-    supabase.from('vendor_bills').update(fields).eq('id', req.params.id).select().single(),
+    scopeQueryByContext(supabase.from('vendor_bills').update(fields), req.context).eq('id', req.params.id).select().single(),
     res
   );
   if (!data) return;
