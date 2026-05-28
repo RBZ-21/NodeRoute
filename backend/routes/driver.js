@@ -8,6 +8,7 @@ const {
   executeWithOptionalScope,
   filterRowsByContext,
   insertRecordWithOptionalScope,
+  scopeQueryByContext,
 } = require('../services/operating-context');
 const { validateBody } = require('../lib/zod-validate');
 
@@ -49,10 +50,10 @@ function isRouteAssignedToUser(route, user) {
 
 // GET /api/driver/routes — this driver's routes with hydrated stops (incl. door_code)
 router.get('/routes', authenticateToken, requireRole('driver'), async (req, res) => {
-  const { data: routes, error: rErr } = await supabase
-    .from('routes')
-    .select('*')
-    .order('created_at', { ascending: false });
+  const { data: routes, error: rErr } = await scopeQueryByContext(
+    supabase.from('routes').select('*'),
+    req.context
+  ).order('created_at', { ascending: false });
 
   if (rErr) return res.status(500).json({ error: rErr.message });
   const assignedRoutes = filterRowsByContext(routes || [], req.context)
@@ -62,10 +63,10 @@ router.get('/routes', authenticateToken, requireRole('driver'), async (req, res)
   const allIds = [...new Set(assignedRoutes.flatMap(routeStopIdsForToday))];
   if (!allIds.length) return res.json(assignedRoutes.map(r => ({ ...r, stops: [] })));
 
-  const { data: stops, error: sErr } = await supabase
-    .from('stops')
-    .select('*')
-    .in('id', allIds);
+  const { data: stops, error: sErr } = await scopeQueryByContext(
+    supabase.from('stops').select('*'),
+    req.context
+  ).in('id', allIds);
 
   if (sErr) return res.status(500).json({ error: sErr.message });
   const scopedStops = filterRowsByContext(stops || [], req.context);
@@ -85,10 +86,10 @@ router.get('/routes', authenticateToken, requireRole('driver'), async (req, res)
 
   let contactCodeMap = {};
   if (namesToLookup.length) {
-    const { data: contacts, error: cErr } = await supabase
-      .from('portal_contacts')
-      .select('*')
-      .not('door_code', 'is', null);
+    const { data: contacts, error: cErr } = await scopeQueryByContext(
+      supabase.from('portal_contacts').select('*'),
+      req.context
+    ).not('door_code', 'is', null);
     if (cErr) return res.status(500).json({ error: cErr.message });
     const scopedContacts = filterRowsByContext(contacts || [], req.context);
     scopedContacts.forEach(c => {
@@ -122,9 +123,12 @@ router.get('/routes', authenticateToken, requireRole('driver'), async (req, res)
 });
 
 router.get('/location', authenticateToken, async (req, res) => {
-  const lookupQuery = req.user.id
-    ? supabase.from('driver_locations').select('*').eq('user_id', req.user.id)
-    : supabase.from('driver_locations').select('*').ilike('driver_name', req.user.name);
+  const lookupQuery = scopeQueryByContext(
+    req.user.id
+      ? supabase.from('driver_locations').select('*').eq('user_id', req.user.id)
+      : supabase.from('driver_locations').select('*').ilike('driver_name', req.user.name),
+    req.context
+  );
   const { data, error } = await lookupQuery
     .order('updated_at', { ascending: false })
     .limit(10);
@@ -136,11 +140,10 @@ router.get('/location', authenticateToken, async (req, res) => {
 
 async function loadCurrentDriverLocation(req) {
   if (!req.user.id) return null;
-  const { data, error } = await supabase
-    .from('driver_locations')
-    .select('*')
-    .eq('user_id', req.user.id)
-    .order('updated_at', { ascending: false })
+  const { data, error } = await scopeQueryByContext(
+    supabase.from('driver_locations').select('*').eq('user_id', req.user.id),
+    req.context
+  ).order('updated_at', { ascending: false })
     .limit(10);
   if (error) throw error;
   const scopedLocations = filterRowsByContext(data || [], req.context);
@@ -214,9 +217,12 @@ router.patch('/location', authenticateToken, requireRole('driver', 'manager', 'a
   };
 
   // Prefer user_id lookup; fall back to driver_name for legacy records
-  const lookupQuery = req.user.id
-    ? supabase.from('driver_locations').select('*').eq('user_id', req.user.id)
-    : supabase.from('driver_locations').select('*').ilike('driver_name', req.user.name);
+  const lookupQuery = scopeQueryByContext(
+    req.user.id
+      ? supabase.from('driver_locations').select('*').eq('user_id', req.user.id)
+      : supabase.from('driver_locations').select('*').ilike('driver_name', req.user.name),
+    req.context
+  );
   const { data: existingRows, error: existingError } = await lookupQuery
     .order('updated_at', { ascending: false })
     .limit(10);
@@ -245,10 +251,10 @@ router.patch('/location', authenticateToken, requireRole('driver', 'manager', 'a
 });
 
 router.get('/summary', authenticateToken, requireRole('driver'), async (req, res) => {
-  const { data: routes, error: routesErr } = await supabase
-    .from('routes')
-    .select('*')
-    .order('created_at', { ascending: false });
+  const { data: routes, error: routesErr } = await scopeQueryByContext(
+    supabase.from('routes').select('*'),
+    req.context
+  ).order('created_at', { ascending: false });
   if (routesErr) return res.status(500).json({ error: routesErr.message });
 
   const assignedRoutes = filterRowsByContext(routes || [], req.context)
