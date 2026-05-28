@@ -563,6 +563,31 @@ function wrapAsyncHandler(handler) {
 ```
 
 Explanation: Async route and middleware handlers registered after server bootstrap are wrapped so rejected promises flow to Sentry and the global Express error handler instead of relying on each handler to duplicate try/catch code.
+
+## 24. Complete Environment Variable Documentation
+
+FILE PATH: `.env.example`
+
+BEFORE:
+```env
+OPENAI_API_KEY=
+VITE_GOOGLE_MAPS_KEY=
+PORTAL_PAYMENT_PROVIDER=manual
+```
+
+AFTER:
+```env
+# AI: OpenAI text model override for chat, scoring, and recommendations.
+OPENAI_MODEL=gpt-4o-mini
+# Portal auth: one-time code lifetime in milliseconds.
+PORTAL_CODE_TTL_MS=600000
+# Scheduler: cron schedule for credit checks.
+CREDIT_CHECK_CRON=0 4 * * *
+# Frontend: optional Statuspage embed script URL.
+VITE_STATUSPAGE_EMBED_SCRIPT_URL=
+```
+
+Explanation: Added the environment variables found by targeted branch scans of `process.env.*`, `process.env['...']`, and `import.meta.env.*`, and verified every assignment has a description comment.
 ## Summary Table
 
 | # | Priority | File | Issue Fixed | Status |
@@ -586,4 +611,4 @@ Explanation: Async route and middleware handlers registered after server bootstr
 | 17 | Code Quality | `backend/services/invoice-lots.js` | Stale TODO resolved | Done on branch |
 | 18 | Infrastructure | `backend/instrument.js`, `frontend-v2/src/instrument.ts` | Sentry already present and preserved | Done |
 | 19 | Infrastructure | `backend/tests/critical-workflows-contract.test.js` | Added required unit/contract tests | Done on branch |
-| 20 | Infrastructure | `.env.example` | Environment variable descriptions added | Done on branch |
+| 20 | Infrastructure | `.env.example` | All targeted scanned environment variables are listed with description comments | Done on branch |
