@@ -102,6 +102,18 @@ begin
   end loop;
 end $$;
 
+
+-- companies is the tenant root table and may not carry company_id.
+-- Authenticated users can access only their own company row; platform admins
+-- use either this policy or the backend service role.
+alter table if exists public.companies enable row level security;
+drop policy if exists "companies: own company or platform admin" on public.companies;
+create policy "companies: own company or platform admin"
+  on public.companies
+  for all
+  to authenticated
+  using (public.is_platform_admin() or id::text = public.auth_company_id_text())
+  with check (public.is_platform_admin() or id::text = public.auth_company_id_text());
 -- Reinstall explicit self-service policies for users after the generic tenant sweep.
 drop policy if exists "users: own tenant users" on public.users;
 create policy "users: own tenant users"
