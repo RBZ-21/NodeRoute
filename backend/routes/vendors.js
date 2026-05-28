@@ -10,6 +10,7 @@ const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
+  scopeQueryByContext,
 } = require('../services/operating-context');
 
 const router = express.Router();
@@ -95,7 +96,7 @@ function lineTotal(item) {
 // GET /api/vendors
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const data = await dbQuery(
-    supabase.from('vendors').select('*').order('name', { ascending: true }),
+    scopeQueryByContext(supabase.from('vendors').select('*'), req.context).order('name', { ascending: true }),
     res
   );
   if (!data) return;
@@ -139,7 +140,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
 // POST /api/vendors/:id/bills — record a vendor bill against a vendor/optional PO.
 router.post('/:id/bills', authenticateToken, requireRole('admin', 'manager'), validateBody(vendorBillBodySchema), async (req, res) => {
   const vendor = await dbQuery(
-    supabase.from('vendors').select('*').eq('id', req.params.id).single(),
+    scopeQueryByContext(supabase.from('vendors').select('*'), req.context).eq('id', req.params.id).single(),
     res
   );
   if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
@@ -156,7 +157,7 @@ router.post('/:id/bills', authenticateToken, requireRole('admin', 'manager'), va
 
   if (purchaseOrderId) {
     const po = await dbQuery(
-      supabase.from('purchase_orders').select('*').eq('id', purchaseOrderId).single(),
+      scopeQueryByContext(supabase.from('purchase_orders').select('*'), req.context).eq('id', purchaseOrderId).single(),
       res
     );
     if (!po) return res.status(404).json({ error: 'Purchase order not found' });
@@ -187,7 +188,7 @@ router.post('/:id/bills', authenticateToken, requireRole('admin', 'manager'), va
 // PATCH /api/vendors/:id
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const existing = await dbQuery(
-    supabase.from('vendors').select('*').eq('id', req.params.id).single(),
+    scopeQueryByContext(supabase.from('vendors').select('*'), req.context).eq('id', req.params.id).single(),
     res
   );
   if (!existing) return res.status(404).json({ error: 'Vendor not found' });
@@ -197,7 +198,7 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   if (!Object.keys(payload).length) return res.status(400).json({ error: 'No valid fields provided' });
 
   const data = await dbQuery(
-    supabase.from('vendors').update(payload).eq('id', req.params.id).select().single(),
+    scopeQueryByContext(supabase.from('vendors').update(payload), req.context).eq('id', req.params.id).select().single(),
     res
   );
   if (!data) return;
@@ -207,14 +208,14 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
 // DELETE /api/vendors/:id
 router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const existing = await dbQuery(
-    supabase.from('vendors').select('*').eq('id', req.params.id).single(),
+    scopeQueryByContext(supabase.from('vendors').select('*'), req.context).eq('id', req.params.id).single(),
     res
   );
   if (!existing) return res.status(404).json({ error: 'Vendor not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
   const data = await dbQuery(
-    supabase.from('vendors').delete().eq('id', req.params.id),
+    scopeQueryByContext(supabase.from('vendors').delete(), req.context).eq('id', req.params.id),
     res
   );
   if (data === null) return;
