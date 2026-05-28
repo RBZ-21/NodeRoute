@@ -21,6 +21,7 @@ const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
+  scopeQueryByContext,
 } = require('../services/operating-context');
 
 function isMissingLotSourcePoColumnError(error) {
@@ -260,8 +261,8 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
 
       if (existingLotErr) {
         // Fallback: query without scope if column missing
-        const { data: fallbackLots, error: fallbackErr } = await supabase
-          .from('lot_codes').select('id').eq('lot_number', lotNumber).limit(1);
+        const { data: fallbackLots, error: fallbackErr } = await scopeQueryByContext(supabase
+          .from('lot_codes').select('id'), req.context).eq('lot_number', lotNumber).limit(1);
         if (fallbackErr) throw new Error(fallbackErr.message);
         const existingLot = fallbackLots?.[0] || null;
         if (existingLot) {
@@ -459,18 +460,18 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   // Tenant-scope marker: 'id, po_number, vendor, total_cost, items, confirmed_by, created_at, company_id, location_id'
   let result = await executeWithOptionalScope(
-    (candidate) => supabase
+    (candidate) => scopeQueryByContext(supabase
       .from('purchase_orders')
-      .select(candidate.select)
+      .select(candidate.select), req.context)
       .order('created_at', { ascending: false })
       .limit(100),
     { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, created_at, company_id, location_id, workflow_kind' }
   );
   if (result.error && String(result.error.message || '').includes('purchase_orders.company_id')) {
     result = await executeWithOptionalScope(
-      (candidate) => supabase
+      (candidate) => scopeQueryByContext(supabase
         .from('purchase_orders')
-        .select(candidate.select)
+        .select(candidate.select), req.context)
         .order('created_at', { ascending: false })
         .limit(100),
       { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, created_at, location_id, workflow_kind' }
@@ -484,18 +485,18 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
 
 router.get('/:id/pdf', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   let result = await executeWithOptionalScope(
-    (candidate) => supabase
+    (candidate) => scopeQueryByContext(supabase
       .from('purchase_orders')
-      .select(candidate.select)
+      .select(candidate.select), req.context)
       .eq('id', req.params.id)
       .single(),
     { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, created_at, company_id, location_id' }
   );
   if (result.error && String(result.error.message || '').includes('purchase_orders.company_id')) {
     result = await executeWithOptionalScope(
-      (candidate) => supabase
+      (candidate) => scopeQueryByContext(supabase
         .from('purchase_orders')
-        .select(candidate.select)
+        .select(candidate.select), req.context)
         .eq('id', req.params.id)
         .single(),
       { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, created_at, location_id' }
