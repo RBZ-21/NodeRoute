@@ -52,6 +52,7 @@ const {
 } = require('../services/operating-context');
 const { statusAfterDeliveryCompletion } = require('../services/invoice-delivery');
 const creditEngine = require('../services/creditEngine');
+const { enforceDeliveryLimit, sendPlanLimitError } = require('../services/plan-limits');
 
 // Estimate the dollar value of a draft order for the credit check. Mirrors
 // totalsForItems but tolerates partially-priced items (returns 0 contributions
@@ -841,6 +842,12 @@ router.use('/print', printRouter);
 
 router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { customerName, customerEmail, customerAddress, items, charges, notes } = req.body;
+  try {
+    await enforceDeliveryLimit(supabase, req.context);
+  } catch (error) {
+    if (sendPlanLimitError(res, error)) return;
+    return res.status(500).json({ error: error.message || 'Could not verify subscription limits' });
+  }
   const customerPhone = req.body.customerPhone ?? req.body.customer_phone ?? null;
   const fulfillmentType = normalizeFulfillmentType(req.body.fulfillmentType ?? req.body.fulfillment_type);
 
