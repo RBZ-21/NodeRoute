@@ -7,8 +7,10 @@ const deliveryNotifications = require('../services/delivery-notifications');
 const { invalidateDashboardCache } = require('./deliveries');
 const {
   buildScopeFields,
+  executeWithOptionalScope,
   insertRecordWithOptionalScope,
   rowMatchesContext,
+  scopeQueryByContext,
 } = require('../services/operating-context');
 const {
   extractOrderNumberFromStopNotes,
@@ -46,17 +48,17 @@ async function loadLinkedInvoiceForStop(stop, context) {
   if (!stop) return null;
 
   if (stop.invoice_id) {
-    const { data: invoice } = await supabase
-      .from('invoices').select('*').eq('id', stop.invoice_id).single();
+    const { data: invoice } = await scopeQueryByContext(supabase.from('invoices').select('*'), context).eq('id', stop.invoice_id).single();
     if (invoice && rowMatchesContext(invoice, context)) return invoice;
   }
 
   const orderNumber = extractOrderNumberFromStopNotes(stop.notes);
   if (!orderNumber) return null;
 
-  const { data: orders, error: orderError } = await supabase
-    .from('orders')
-    .select('id, invoice_id, order_number, company_id, location_id')
+  const { data: orders, error: orderError } = await scopeQueryByContext(
+    supabase.from('orders').select('id, invoice_id, order_number, company_id, location_id'),
+    context
+  )
     .eq('order_number', orderNumber)
     .limit(1);
   if (orderError || !Array.isArray(orders) || !orders.length) return null;
@@ -65,14 +67,14 @@ async function loadLinkedInvoiceForStop(stop, context) {
   if (!order) return null;
 
   if (order.invoice_id) {
-    const { data: invoice } = await supabase
-      .from('invoices').select('*').eq('id', order.invoice_id).single();
+    const { data: invoice } = await scopeQueryByContext(supabase.from('invoices').select('*'), context).eq('id', order.invoice_id).single();
     if (invoice && rowMatchesContext(invoice, context)) return invoice;
   }
 
-  const { data: invoices, error: invoiceError } = await supabase
-    .from('invoices')
-    .select('*')
+  const { data: invoices, error: invoiceError } = await scopeQueryByContext(
+    supabase.from('invoices').select('*'),
+    context
+  )
     .eq('order_id', order.id)
     .limit(1);
   if (invoiceError || !Array.isArray(invoices) || !invoices.length) return null;
@@ -101,9 +103,10 @@ async function syncLinkedInvoiceForStop(stop, context, { markDelivered = false, 
 
   if (!Object.keys(updates).length) return linkedInvoice;
 
-  const { data, error } = await supabase
-    .from('invoices')
-    .update(updates)
+  const { data, error } = await scopeQueryByContext(
+    supabase.from('invoices').update(updates),
+    context
+  )
     .eq('id', linkedInvoice.id)
     .select()
     .single();
@@ -117,7 +120,7 @@ async function linkOrderToStop(stop, body = {}, context = {}) {
   if (!stop?.id || (!orderId && !orderNumber)) return;
 
   const result = await executeWithOptionalScope((candidate) => {
-    let scopedQuery = supabase.from('orders').update(candidate);
+    let scopedQuery = scopeQueryByContext(supabase.from('orders').update(candidate), context);
     scopedQuery = orderId ? scopedQuery.eq('id', orderId) : scopedQuery.eq('order_number', orderNumber);
     return scopedQuery;
   }, { stop_id: stop.id });
@@ -126,8 +129,7 @@ async function linkOrderToStop(stop, body = {}, context = {}) {
 }
 
 async function authorizeDwellEvent(req, res, stopId) {
-  const { data: stop, error: stopErr } = await supabase
-    .from('stops').select('*').eq('id', stopId).single();
+  const { data: stop, error: stopErr } = await scopeQueryByContext(supabase.from('stops').select('*'), req.context).eq('id', stopId).single();
   if (stopErr || !stop) {
     res.status(404).json({ error: 'Stop not found' });
     return { ok: false };
@@ -164,7 +166,7 @@ async function authorizeDwellEvent(req, res, stopId) {
 // GET /api/stops
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    let query = supabase.from('stops').select('*');
+    let query = scopeQueryByContext(supabase.from('stops').select('*'), req.context);
     if (req.query.route_id) query = query.eq('route_id', req.query.route_id);
     if (req.query.driver_id) query = query.eq('driver_id', req.query.driver_id);
     if (req.query.status)   query = query.eq('status', req.query.status);
@@ -311,7 +313,7 @@ router.post('/:id/arrive', authenticateToken, async (req, res) => {
       .limit(1);
     if (existing && existing[0]) return res.json(existing[0]);
 
-    await supabase.from('stops').update({ status: 'arrived', arrived_at: new Date().toISOString() }).eq('id', req.params.id);
+    await scopeQueryByContext(supabase.from('stops').update({ status: 'arrived', arrived_at: new Date().toISOString() }), req.context).eq('id', req.params.id);
 
     const arrivedAt = new Date().toISOString();
     const { data: record, error: insertErr } = await supabase
@@ -371,10 +373,10 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
       .single();
     if (updateErr) return res.status(500).json({ error: updateErr.message });
 
-    await supabase.from('stops').update({
+    await scopeQueryByContext(supabase.from('stops').update({
       status: 'completed',
       ...(driverNotes ? { driver_notes: driverNotes } : {}),
-    }).eq('id', req.params.id);
+    }), req.context).eq('id', req.params.id);
     invalidateDashboardCache(req.context);
     deliveryNotifications.notifyDeliveryCompleted(supabase, req.params.id, stop.invoice_id || null).catch(() => {});
     deliveryNotifications.notifyUpcomingStops(supabase, route.id, req.params.id, req.context).catch(() => {});
@@ -405,10 +407,10 @@ router.post('/:id/move-to-end', authenticateToken, requireRole('admin', 'manager
     const user = req.user || {};
     const isDriver = String(user?.role || '').toLowerCase() === 'driver';
     if (isDriver) {
-      const { data: stopRec } = await supabase.from('stops').select('queue_id').eq('id', stopId).single();
+      const { data: stopRec } = await scopeQueryByContext(supabase.from('stops').select('queue_id, company_id, location_id'), req.context).eq('id', stopId).single();
       const targetQueue = queueIdOverride ?? stopRec?.queue_id ?? null;
       if (targetQueue) {
-        const { data: route } = await supabase.from('routes').select('driver_id').eq('id', targetQueue).single();
+        const { data: route } = await scopeQueryByContext(supabase.from('routes').select('driver_id, company_id, location_id'), req.context).eq('id', targetQueue).single();
         const assignedDriver = route?.driver_id;
         if (assignedDriver && String(assignedDriver) !== String(user?.id)) {
           return res.status(403).json({ ok: false, error: 'Not authorized for this route' });
@@ -606,7 +608,7 @@ router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async 
     if (!rowMatchesContext(existing, req.context)) {
       return res.status(403).json({ error: 'Forbidden' });
     }
-    const { error } = await supabase.from('stops').delete().eq('id', req.params.id);
+    const { error } = await scopeQueryByContext(supabase.from('stops').delete(), req.context).eq('id', req.params.id);
     if (error) return res.status(500).json({ error: error.message });
     res.json({ ok: true });
   } catch (err) {
@@ -622,7 +624,7 @@ router.post('/:id/notes', authenticateToken, requireRole('admin', 'manager', 'dr
     return res.status(400).json({ ok: false, error: 'notes must be a string' });
   }
   try {
-    const { data: updated, error } = await supabase.from('stops').update({ notes }).eq('id', stopId).select('*').single();
+    const { data: updated, error } = await scopeQueryByContext(supabase.from('stops').update({ notes }).eq('id', stopId).select('*').single();
     if (error) return res.status(500).json({ ok: false, error: error.message });
     res.json({ ok: true, stop: updated });
   } catch (err) {
