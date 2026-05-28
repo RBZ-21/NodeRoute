@@ -594,12 +594,12 @@ async function updateRecord(table, id, payload, res) {
   return updateResult.data;
 }
 
-async function findOrderStop(order) {
+async function findOrderStop(order, context) {
   if (order?.stop_id) {
-    const { data, error } = await supabase
-      .from('stops')
-      .select('*')
-      .eq('id', order.stop_id)
+    const { data, error } = await scopeQueryByContext(
+      supabase.from('stops').select('*'),
+      context
+    ).eq('id', order.stop_id)
       .limit(1);
     if (!error && Array.isArray(data) && data[0]) return data[0];
   }
@@ -620,7 +620,7 @@ async function syncOrderStop(order, req, removeOnly = false) {
   const name = String(order?.customer_name || '').trim();
   const address = String(order?.customer_address || '').trim();
   const stopNotes = `Order ${order.order_number || order.id}`;
-  const existingStop = await findOrderStop(order);
+  const existingStop = await findOrderStop(order, req.context);
 
   if (removeOnly || fulfillmentType === 'pickup' || !name || !address) {
     if (existingStop?.id) {
@@ -663,7 +663,7 @@ async function syncOrderStop(order, req, removeOnly = false) {
   return insertResult.data?.id || null;
 }
 
-async function findInvoiceForOrder(order) {
+async function findInvoiceForOrder(order, req) {
   if (order.invoice_id) {
     const byId = await scopeQueryByContext(supabase.from('invoices').select('*'), req.context).eq('id', order.invoice_id).single();
     if (!byId.error && byId.data) return byId.data;
@@ -678,7 +678,7 @@ async function findInvoiceForOrder(order) {
 
 async function markOrderDelivered(order, req, res) {
   const deliveredAt = new Date().toISOString();
-  const stop = await findOrderStop(order);
+  const stop = await findOrderStop(order, req.context);
   let invoiceId = null;
   let emailSent = false;
   let emailError = '';
@@ -698,7 +698,7 @@ async function markOrderDelivered(order, req, res) {
     }
   }
 
-  const invoice = await findInvoiceForOrder(order);
+  const invoice = await findInvoiceForOrder(order, req);
   if (invoice?.id) {
     invoiceId = invoice.id;
     const invoiceResult = await executeWithOptionalScope(
