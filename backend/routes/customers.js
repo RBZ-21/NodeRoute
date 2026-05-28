@@ -7,6 +7,7 @@ const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
+  scopeQueryByContext,
 } = require('../services/operating-context');
 const creditEngine = require('../services/creditEngine');
 
@@ -192,7 +193,7 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
   const data = await fetchAllCustomers(res);
   if (!data) return;
   const scopedCustomers = filterRowsByContext(data, req.context);
-  const stopsResult = await supabase.from('stops').select('name,address');
+  const stopsResult = await scopeQueryByContext(supabase.from('stops').select('name,address,company_id,location_id'), req.context);
   const scopedStops = stopsResult.error ? [] : filterRowsByContext(stopsResult.data || [], req.context);
   res.json(enrichCustomersWithStopAddresses(scopedCustomers, scopedStops));
 });
@@ -208,11 +209,11 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
 });
 
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const existing = await dbQuery(supabase.from('Customers').select('*').eq('id', req.params.id).single(), res);
+  const existing = await dbQuery(scopeQueryByContext(supabase.from('Customers').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Customer not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const updateResult = await executeWithOptionalScope(
-    (candidate) => supabase.from('Customers').update(candidate).eq('id', req.params.id).select().single(),
+    (candidate) => scopeQueryByContext(supabase.from('Customers').update(candidate), req.context).eq('id', req.params.id).select().single(),
     customerPayload(req.body)
   );
   if (updateResult.error) return res.status(500).json({ error: updateResult.error.message });
@@ -222,10 +223,10 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
 });
 
 router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const existing = await dbQuery(supabase.from('Customers').select('*').eq('id', req.params.id).single(), res);
+  const existing = await dbQuery(scopeQueryByContext(supabase.from('Customers').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Customer not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
-  const data = await dbQuery(supabase.from('Customers').delete().eq('id', req.params.id), res);
+  const data = await dbQuery(scopeQueryByContext(supabase.from('Customers').delete(), req.context).eq('id', req.params.id), res);
   if (data === null) return;
   res.json({ message: 'Deleted' });
 });
@@ -238,7 +239,7 @@ router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async 
 const VALID_HOLD_REASONS_LEGACY = ['over_limit', 'past_due', 'manual', 'new_account', 'bounced_check', 'disputed_invoice'];
 
 router.post('/:id/hold', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const existing = await dbQuery(supabase.from('Customers').select('*').eq('id', req.params.id).single(), res);
+  const existing = await dbQuery(scopeQueryByContext(supabase.from('Customers').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Customer not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
@@ -255,7 +256,7 @@ router.post('/:id/hold', authenticateToken, requireRole('admin', 'manager'), asy
 });
 
 router.delete('/:id/hold', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const existing = await dbQuery(supabase.from('Customers').select('*').eq('id', req.params.id).single(), res);
+  const existing = await dbQuery(scopeQueryByContext(supabase.from('Customers').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Customer not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
