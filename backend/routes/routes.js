@@ -6,6 +6,7 @@ const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
+  scopeQueryByContext,
 } = require('../services/operating-context');
 const {
   logRouteMutation,
@@ -96,13 +97,13 @@ async function geoSortStopIds(stopIds, origin = { lat: 0, lng: 0 }) {
 
 // ── ROUTES (Supabase) ───────────────────────────────────
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const data = await dbQuery(supabase.from('routes').select('*').order('created_at', { ascending: true }), res);
+  const data = await dbQuery(scopeQueryByContext(supabase.from('routes').select('*'), req.context).order('created_at', { ascending: true }), res);
   if (!data) return;
   res.json(filterRowsByContext(data, req.context));
 });
 
 router.get('/:id', authenticateToken, async (req, res) => {
-  const route = await dbQuery(supabase.from('routes').select('*').eq('id', req.params.id).single(), res);
+  const route = await dbQuery(scopeQueryByContext(supabase.from('routes').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!route) return res.status(404).json({ error: 'Route not found' });
 
   if (req.user.role === 'driver') {
@@ -165,7 +166,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
 });
 
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const existing = await dbQuery(supabase.from('routes').select('*').eq('id', req.params.id).single(), res);
+  const existing = await dbQuery(scopeQueryByContext(supabase.from('routes').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Route not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const payload = {};
@@ -205,7 +206,7 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   const updateResult = await executeWithOptionalScope(
     (candidate) => {
       if (!Object.keys(candidate).length) return Promise.resolve({ data: [], error: null });
-      return supabase.from('routes').update(candidate).eq('id', req.params.id).select();
+      return scopeQueryByContext(supabase.from('routes').update(candidate), req.context).eq('id', req.params.id).select();
     },
     payload
   );
@@ -264,7 +265,7 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
 });
 
 router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const existing = await dbQuery(supabase.from('routes').select('*').eq('id', req.params.id).single(), res);
+  const existing = await dbQuery(scopeQueryByContext(supabase.from('routes').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Route not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const syncResult = await syncRouteMutation(supabase, {
@@ -280,7 +281,7 @@ router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async 
     },
   });
   if (syncResult.error) return res.status(500).json({ error: syncResult.error.message });
-  const { error: deleteError } = await supabase.from('routes').delete().eq('id', req.params.id);
+  const { error: deleteError } = await scopeQueryByContext(supabase.from('routes').delete(), req.context).eq('id', req.params.id);
   if (deleteError) return res.status(500).json({ error: deleteError.message });
   res.json({ message: 'Deleted' });
 });
