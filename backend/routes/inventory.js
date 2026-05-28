@@ -21,6 +21,7 @@ const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
+  scopeQueryByContext,
 } = require('../services/operating-context');
 const reorderEngine = require('../services/reorderEngine');
 
@@ -270,7 +271,7 @@ router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), 
   const mailer = createMailer();
   if (!mailer) return res.status(503).json({ error: 'Email not configured (RESEND_API_KEY missing)' });
 
-  const { data: products, error } = await supabase.from('products').select('*');
+  const { data: products, error } = await scopeQueryByContext(supabase.from('products'), req.context).select('*');
   if (error) return res.status(500).json({ error: error.message });
 
   const LOW_THRESHOLD = 10;
@@ -306,7 +307,7 @@ router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), 
       html,
     });
     const affectedIds = [...outOfStock, ...lowStock].map(i => i.id);
-    await supabase.from('products')
+    await scopeQueryByContext(supabase.from('products'), req.context)
       .update({ alert_sent_at: new Date().toISOString() })
       .in('id', affectedIds);
     res.json({ sent: true, to, out_of_stock: outOfStock.length, low_stock: lowStock.length });
@@ -363,7 +364,7 @@ router.get('/ai-analysis', authenticateToken, requireRole('admin', 'manager'), a
 // GET /api/inventory/lots — all lots, enriched with product description
 router.get('/lots', authenticateToken, async (req, res) => {
   const { active_only } = req.query;
-  let query = supabase.from('inventory_lots').select('*').order('created_at', { ascending: false });
+  let query = scopeQueryByContext(supabase.from('inventory_lots').select('*'), req.context).order('created_at', { ascending: false });
   if (active_only === 'true') query = query.eq('status', 'active');
   const { data: lots, error } = await query;
   if (error) return res.status(500).json({ error: error.message });
@@ -411,7 +412,7 @@ router.post('/lots', authenticateToken, requireRole('admin', 'manager'), validat
   if (error) return res.status(500).json({ error: error.message });
 
   // Bump master product stock through unified ledger posting.
-  const { data: prod } = await supabase.from('products').select('*').eq('item_number', item_number).single();
+  const { data: prod } = await scopeQueryByContext(supabase.from('products'), req.context).select('*').eq('item_number', item_number).single();
   if (prod) {
     try {
       await applyInventoryLedgerEntry({
@@ -452,9 +453,9 @@ router.get('/lots/expiring', authenticateToken, async (req, res) => {
 // PATCH /api/inventory/lots/:lotId — update lot fields
 router.patch('/lots/:lotId', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryLotPatchBodySchema), async (req, res) => {
   const fields = req.validated.body;
-  const { data, error } = await supabase.from('inventory_lots').update(fields).eq('id', req.params.lotId).select().single();
+  const { data, error } = await scopeQueryByContext(supabase.from('inventory_lots').update(fields), req.context).eq('id', req.params.lotId).select().single();
   if (error) return res.status(500).json({ error: error.message });
-  const { data: prod } = await supabase.from('products').select('description').eq('item_number', data.item_number).single();
+  const { data: prod } = await scopeQueryByContext(supabase.from('products'), req.context).select('description').eq('item_number', data.item_number).single();
   res.json({ ...data, item_description: prod?.description || null });
 });
 
@@ -462,7 +463,7 @@ router.patch('/lots/:lotId', authenticateToken, requireRole('admin', 'manager'),
 router.post('/lots/:lotId/deplete', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryLotDepleteBodySchema), async (req, res) => {
   const { qty: removeQty, change_type, notes } = req.validated.body;
 
-  const { data: lot, error: lotErr } = await supabase.from('inventory_lots').select('*').eq('id', req.params.lotId).single();
+  const { data: lot, error: lotErr } = await scopeQueryByContext(supabase.from('inventory_lots').select('*'), req.context).eq('id', req.params.lotId).single();
   if (lotErr || !lot) return res.status(404).json({ error: 'Lot not found' });
   if (removeQty > (parseFloat(lot.qty_on_hand) || 0))
     return res.status(400).json({ error: `Cannot deplete more than qty on hand (${lot.qty_on_hand})` });
@@ -503,7 +504,7 @@ router.post('/lots/:lotId/deplete', authenticateToken, requireRole('admin', 'man
 
 // DELETE /api/inventory/lots/:lotId
 router.delete('/lots/:lotId', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { error } = await supabase.from('inventory_lots').delete().eq('id', req.params.lotId);
+  const { error } = await scopeQueryByContext(supabase.from('inventory_lots').delete(), req.context).eq('id', req.params.lotId);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ message: 'Lot deleted' });
 });
@@ -868,7 +869,7 @@ router.post('/:id/reorder-alert', authenticateToken, requireRole('admin', 'manag
 const COST_FIELDS = ['cost', 'base_cost', 'landed_cost', 'lot_cost', 'market_cost', 'real_cost'];
 
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryProductPatchBodySchema), async (req, res) => {
-  const existing = await dbQuery(supabase.from('products').select('*').eq('item_number', req.params.id).single(), res);
+  const existing = await dbQuery(scopeQueryByContext(supabase.from('products').select('*'), req.context).eq('item_number', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Product not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const fields = { ...req.validated.body };
@@ -892,7 +893,7 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), validat
     if (before !== after) costChanges[key] = { from: before, to: after };
   }
 
-  const data = await dbQuery(supabase.from('products').update(fields).eq('item_number', req.params.id).select().single(), res);
+  const data = await dbQuery(scopeQueryByContext(supabase.from('products').update(fields), req.context).eq('item_number', req.params.id).select().single(), res);
   if (!data) return;
 
   if (Object.keys(costChanges).length) {
@@ -919,10 +920,10 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), validat
 });
 
 router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const existing = await dbQuery(supabase.from('products').select('*').eq('item_number', req.params.id).single(), res);
+  const existing = await dbQuery(scopeQueryByContext(supabase.from('products').select('*'), req.context).eq('item_number', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Product not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
-  const data = await dbQuery(supabase.from('products').delete().eq('item_number', req.params.id), res);
+  const data = await dbQuery(scopeQueryByContext(supabase.from('products').delete(), req.context).eq('item_number', req.params.id), res);
   if (data === null) return;
   res.json({ message: 'Deleted' });
 });
