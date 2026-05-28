@@ -6,6 +6,7 @@ const {
   executeWithOptionalScope,
   filterRowsByContext,
   insertRecordWithOptionalScope,
+  scopeQueryByContext,
 } = require('../services/operating-context');
 
 module.exports = function buildCustomerRouter({ authenticatePortalToken }) {
@@ -146,7 +147,7 @@ module.exports = function buildCustomerRouter({ authenticatePortalToken }) {
 
     const result = scopedExisting[0]?.id
       ? await executeWithOptionalScope(
-          (candidate) => supabase.from('portal_contacts').update(candidate).eq('id', scopedExisting[0].id).select('*').single(),
+          (candidate) => scopeQueryByContext(supabase.from('portal_contacts').update(candidate), req.portalContext).eq('id', scopedExisting[0].id).select('*').single(),
           payload
         )
       : await insertRecordWithOptionalScope(supabase, 'portal_contacts', payload, req.portalContext);
@@ -173,7 +174,7 @@ module.exports = function buildCustomerRouter({ authenticatePortalToken }) {
     let contactWrite;
     if (existing) {
       contactWrite = await executeWithOptionalScope(
-        (candidate) => supabase.from('portal_contacts').update(candidate).eq('id', existing.id).select('*').single(),
+        (candidate) => scopeQueryByContext(supabase.from('portal_contacts').update(candidate), req.portalContext).eq('id', existing.id).select('*').single(),
         {
           ...buildScopeFields(req.portalContext),
           door_code: code,
@@ -197,13 +198,13 @@ module.exports = function buildCustomerRouter({ authenticatePortalToken }) {
 
     const lookupName = (existing && existing.name) || req.customerName;
     if (lookupName) {
-      const { data: candidateStops } = await supabase
+      const { data: candidateStops } = await scopeQueryByContext(supabase
         .from('stops')
-        .select('*')
+        .select('*'), req.portalContext)
         .ilike('name', lookupName);
       const scopedStops = filterRowsByContext(candidateStops || [], req.portalContext);
       for (const stop of scopedStops) {
-        await supabase.from('stops').update({ door_code: code }).eq('id', stop.id);
+        await scopeQueryByContext(supabase.from('stops').update({ door_code: code }), req.portalContext).eq('id', stop.id);
       }
     }
 
