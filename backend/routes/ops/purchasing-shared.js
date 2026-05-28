@@ -1,4 +1,5 @@
 const { supabase } = require('../../services/supabase');
+const { scopeQueryByContext } = require('../../services/operating-context');
 const { applyInventoryLedgerEntry } = require('../../services/inventory-ledger');
 const { genId, readOpsData, toNumber, writeOpsData } = require('./store');
 
@@ -412,11 +413,11 @@ function summarizeVendorPo(po) {
   };
 }
 
-async function loadInventoryAndUsage(lookbackDays) {
+async function loadInventoryAndUsage(lookbackDays, context = null) {
   const lookbackStart = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
   const [{ data: inventory, error: invErr }, { data: orders, error: ordErr }] = await Promise.all([
-    supabase.from('products').select('*'),
-    supabase.from('orders').select('items, created_at').gte('created_at', lookbackStart),
+    scopeQueryByContext(supabase.from('products').select('*'), context),
+    scopeQueryByContext(supabase.from('orders').select('items, created_at, company_id, location_id'), context).gte('created_at', lookbackStart),
   ]);
   if (invErr) throw new Error(invErr.message);
 
