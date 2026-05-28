@@ -9,6 +9,7 @@ const {
   executeWithOptionalScope,
   filterRowsByContext,
   insertRecordWithOptionalScope,
+  scopeQueryByContext,
   isMissingPortalPaymentTables,
   isStripeProviderEnabled,
   loadPortalPaymentState,
@@ -131,7 +132,7 @@ module.exports = function buildPortalPaymentMethodRouter({ authenticatePortalTok
       }
 
       const archiveResult = await executeWithOptionalScope(
-        (candidate) => supabase.from('portal_payment_methods').update(candidate).eq('id', methodId).select('*').single(),
+        (candidate) => scopeQueryByContext(supabase.from('portal_payment_methods').update(candidate), req.portalContext).eq('id', methodId).select('*').single(),
         { status: 'archived', is_default: false, updated_at: new Date().toISOString() }
       );
       if (archiveResult.error) throw archiveResult.error;
@@ -204,7 +205,7 @@ module.exports = function buildPortalPaymentMethodRouter({ authenticatePortalTok
 
       const writeResult = existing?.id
         ? await executeWithOptionalScope(
-            (candidate) => supabase.from('portal_payment_settings').update(candidate).eq('id', existing.id).select('*').single(),
+            (candidate) => scopeQueryByContext(supabase.from('portal_payment_settings').update(candidate), req.portalContext).eq('id', existing.id).select('*').single(),
             payload
           )
         : await insertRecordWithOptionalScope(supabase, 'portal_payment_settings', payload, req.portalContext);
