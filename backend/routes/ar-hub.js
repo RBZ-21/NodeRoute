@@ -80,9 +80,9 @@ router.post('/remind/:customerId', authenticateToken, requireRole('admin', 'mana
       .in('status', OPEN_STATUSES);
     if (error) return res.status(500).json({ error: error.message });
     if (!invoices?.length) {
-      const { data: byName } = await supabase
+      const { data: byName } = await scopeQueryByContext(supabase
         .from('invoices')
-        .select('*')
+        .select('*'), req.context)
         .ilike('customer_name', `%${id}%`)
         .in('status', OPEN_STATUSES);
       invoices = byName || [];
