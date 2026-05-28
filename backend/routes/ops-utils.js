@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { supabase } = require('../services/supabase');
+const { scopeQueryByContext } = require('../services/operating-context');
 
 const dataDir = path.join(__dirname, '../data');
 const opsFile = path.join(dataDir, 'ops.json');
@@ -134,11 +135,11 @@ function summarizeVendorPo(po) {
   };
 }
 
-async function loadInventoryAndUsage(lookbackDays) {
+async function loadInventoryAndUsage(lookbackDays, context = null) {
   const lookbackStart = new Date(Date.now() - lookbackDays * 24 * 60 * 60 * 1000).toISOString();
   const [{ data: inventory, error: invErr }, { data: orders, error: ordErr }] = await Promise.all([
-    supabase.from('products').select('*'),
-    supabase.from('orders').select('items, created_at').gte('created_at', lookbackStart)
+    scopeQueryByContext(supabase.from('products').select('*'), context),
+    scopeQueryByContext(supabase.from('orders').select('items, created_at, company_id, location_id'), context).gte('created_at', lookbackStart)
   ]);
   if (invErr) throw new Error(invErr.message);
   const missingOrdersTable = ordErr && /public\.orders|relation ["']?orders["']? does not exist|schema cache/i.test(String(ordErr.message || ''));
