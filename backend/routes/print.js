@@ -1,6 +1,7 @@
 const express = require('express');
 const { authenticateToken } = require('../middleware/auth');
 const { supabase } = require('../services/supabase');
+const { scopeQueryByContext } = require('../services/operating-context');
 const { renderOrderSlip } = require('../services/print-template');
 
 const router = express.Router();
@@ -9,7 +10,7 @@ const router = express.Router();
 router.get('/order-slip/:orderId', authenticateToken, async (req, res) => {
   const { orderId } = req.params;
   if (!orderId) return res.status(400).json({ error: 'orderId required' });
-  const { data, error } = await supabase.from('orders').select('*').eq('id', orderId).single();
+  const { data, error } = await scopeQueryByContext(supabase.from('orders').select('*'), req.context).eq('id', orderId).single();
   if (error || !data) return res.status(404).json({ error: 'Order not found' });
   const html = `<pre>${renderOrderSlip({ ...data, items: data.items || [] })}</pre>`;
   res.setHeader('Content-Type', 'text/html');
