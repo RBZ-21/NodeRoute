@@ -176,6 +176,15 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), valid
     return res.status(403).json({ error: 'Cannot invite users outside your location scope' });
   }
 
+  if (role === 'driver') {
+    try {
+      await enforceDriverLimit(supabase, { ...req.context, activeCompanyId: targetCompanyId });
+    } catch (error) {
+      if (sendPlanLimitError(res, error)) return;
+      return res.status(500).json({ error: error.message || 'Could not verify subscription limits' });
+    }
+  }
+
   const { data: existing } = await supabase
     .from('users')
     .select('id')
