@@ -37,7 +37,7 @@ async function ensureRows(orgId) {
 // GET /api/integrations — list all integrations for this org
 router.get('/', authenticateToken, async (req, res) => {
   try {
-    const orgId = req.user.org_id || req.user.id;
+    const orgId = req.user.org_id || req.context?.activeCompanyId || req.context?.companyId || req.user.id;
     await ensureRows(orgId);
     const { data, error } = await supabase
       .from('integrations')
@@ -61,7 +61,7 @@ router.get('/', authenticateToken, async (req, res) => {
 // POST /api/integrations/:slug/connect
 router.post('/:slug/connect', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const orgId = req.user.org_id || req.user.id;
+    const orgId = req.user.org_id || req.context?.activeCompanyId || req.context?.companyId || req.user.id;
     const { error } = await supabase
       .from('integrations')
       .update({ status: 'connected', last_sync: new Date().toISOString() })
@@ -77,7 +77,7 @@ router.post('/:slug/connect', authenticateToken, requireRole('admin', 'manager')
 // POST /api/integrations/:slug/disconnect
 router.post('/:slug/disconnect', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const orgId = req.user.org_id || req.user.id;
+    const orgId = req.user.org_id || req.context?.activeCompanyId || req.context?.companyId || req.user.id;
     const { error } = await supabase
       .from('integrations')
       .update({ status: 'disconnected' })
@@ -93,7 +93,7 @@ router.post('/:slug/disconnect', authenticateToken, requireRole('admin', 'manage
 // POST /api/integrations/:slug/sync
 router.post('/:slug/sync', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const orgId = req.user.org_id || req.user.id;
+    const orgId = req.user.org_id || req.context?.activeCompanyId || req.context?.companyId || req.user.id;
     const { error } = await supabase
       .from('integrations')
       .update({ last_sync: new Date().toISOString() })
@@ -109,7 +109,7 @@ router.post('/:slug/sync', authenticateToken, requireRole('admin', 'manager'), a
 // GET /api/integrations/:slug/logs — returns a log_url if stored
 router.get('/:slug/logs', authenticateToken, async (req, res) => {
   try {
-    const orgId = req.user.org_id || req.user.id;
+    const orgId = req.user.org_id || req.context?.activeCompanyId || req.context?.companyId || req.user.id;
     const { data, error } = await supabase
       .from('integrations')
       .select('log_url')
