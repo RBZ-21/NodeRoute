@@ -576,11 +576,11 @@ router.get('/rollups', authenticateToken, requireRole('admin', 'manager'), async
 
   try {
     const [ordersResult, invoicesResult, routesResult, inventoryResult] = await Promise.all([
-      supabase.from('orders').select('*')
+      scopeQueryByContext(supabase.from('orders').select('*'), req.context)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
         .limit(5000),
-      supabase.from('invoices').select('*')
+      scopeQueryByContext(supabase.from('invoices').select('*'), req.context)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
         .limit(5000),
@@ -639,11 +639,11 @@ router.get('/sales-summary', authenticateToken, requireRole('admin', 'manager'),
 
   try {
     const [ordersResult, invoicesResult] = await Promise.all([
-      supabase.from('orders').select('*')
+      scopeQueryByContext(supabase.from('orders').select('*'), req.context)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
         .limit(5000),
-      supabase.from('invoices').select('*')
+      scopeQueryByContext(supabase.from('invoices').select('*'), req.context)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
         .limit(5000),
@@ -682,9 +682,9 @@ router.get('/recent-sold-items', authenticateToken, requireRole('admin', 'manage
   const startDate = startOfDay(new Date(endDate.getTime() - (days - 1) * 86400000));
 
   try {
-    const invoicesResult = await supabase
+    const invoicesResult = await scopeQueryByContext(supabase
       .from('invoices')
-      .select('*')
+      .select('*'), req.context)
       .gte('created_at', startDate.toISOString())
       .lte('created_at', endDate.toISOString())
       .limit(5000);
@@ -718,11 +718,11 @@ router.get('/daily-ops', authenticateToken, requireRole('admin', 'manager'), asy
 
   try {
     const [ordersResult, invoicesResult, routesResult, inventoryResult] = await Promise.all([
-      supabase.from('orders').select('*')
+      scopeQueryByContext(supabase.from('orders').select('*'), req.context)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
         .limit(5000),
-      supabase.from('invoices').select('*')
+      scopeQueryByContext(supabase.from('invoices').select('*'), req.context)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
         .limit(5000),
@@ -796,9 +796,9 @@ function toCsv(headers, rows) {
 router.get('/ar-aging', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
     const format = String(req.query.format || 'json').toLowerCase();
-    const { data: invoices, error } = await supabase
+    const { data: invoices, error } = await scopeQueryByContext(supabase
       .from('invoices')
-      .select('id, invoice_number, customer_id, customer_name, customer_email, total, due_date, created_at, status')
+      .select('id, invoice_number, customer_id, customer_name, customer_email, total, due_date, created_at, status, company_id, location_id'), req.context)
       .in('status', creditEngine.OPEN_INVOICE_STATUSES);
     if (error) return res.status(500).json({ error: error.message });
 
@@ -963,9 +963,9 @@ router.get('/credit-override-audit', authenticateToken, requireRole('admin', 'ma
 // 9D. GET /api/reporting/bad-debt-risk
 router.get('/bad-debt-risk', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const { data: invoices, error } = await supabase
+    const { data: invoices, error } = await scopeQueryByContext(supabase
       .from('invoices')
-      .select('id, customer_id, customer_name, total, due_date, created_at, status')
+      .select('id, customer_id, customer_name, total, due_date, created_at, status, company_id, location_id'), req.context)
       .in('status', creditEngine.OPEN_INVOICE_STATUSES);
     if (error) return res.status(500).json({ error: error.message });
 
@@ -1015,9 +1015,9 @@ router.get('/reorder-performance', authenticateToken, requireRole('admin', 'mana
   const { startDate, endDate } = range;
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await scopeQueryByContext(supabase
       .from('reorder_suggestions')
-      .select('*')
+      .select('*'), req.context)
       .gte('created_at', startDate.toISOString())
       .lte('created_at', endDate.toISOString())
       .limit(5000);
@@ -1063,9 +1063,9 @@ router.get('/reorder-performance', authenticateToken, requireRole('admin', 'mana
 router.get('/stockout-risk', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const horizon = Math.max(1, Math.min(parseInt(req.query.days || '14', 10), 30));
   try {
-    const { data, error } = await supabase
+    const { data, error } = await scopeQueryByContext(supabase
       .from('products')
-      .select('id,item_number,name,description,category,unit,on_hand_qty,avg_daily_usage,reorder_point,safety_stock,lead_time_days,company_id,location_id')
+      .select('id,item_number,name,description,category,unit,on_hand_qty,avg_daily_usage,reorder_point,safety_stock,lead_time_days,company_id,location_id'), req.context)
       .eq('reorder_enabled', true);
     if (error) return res.status(500).json({ error: error.message });
     const rows = filterRowsByContext(data || [], req.context)
