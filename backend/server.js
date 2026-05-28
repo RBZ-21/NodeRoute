@@ -6,6 +6,8 @@ const logger = require('./services/logger');
 const config = require('./lib/config');
 config.validate(logger);
 const express = require('express');
+const { installAsyncRouteHandlerWrapping } = require('./lib/async-route-handler');
+installAsyncRouteHandlerWrapping(express);
 const cookieParser = require('cookie-parser');
 const pinoHttp = require('pino-http');
 const fs = require('fs');
