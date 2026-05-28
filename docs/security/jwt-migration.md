@@ -2,8 +2,9 @@
 
 ## Current State
 
-JWTs are stored in `localStorage`. This is functional but exposes tokens to
-XSS attacks — any injected script on the page can read and exfiltrate them.
+Browser JWT access tokens are stored only in HttpOnly cookies with a 15-minute lifetime. A separate HttpOnly refresh cookie lasts 7 days and is rotated through the uth_refresh_sessions table on /auth/refresh; reused, revoked, expired, or mismatched refresh tokens are rejected and cookies are cleared. localStorage stores only the non-authoritative user profile used for role-aware UI rendering.
+
+Driver native/API clients still use bearer access and refresh tokens because they are not browser-cookie clients; those access tokens are also 15 minutes and refresh tokens are 7 days.
 
 ## Headers Shipped (this PR)
 
@@ -19,23 +20,9 @@ The following headers reduce XSS surface area in the meantime:
 | `X-Content-Type-Options` | `nosniff` |
 | `Referrer-Policy` | `same-origin` |
 
-## Migration Path (future)
+## Migration Path
 
-### Step 1 — Dual-write
-Issue JWTs as both `Authorization: Bearer` (existing) and `Set-Cookie: token=...; HttpOnly; Secure; SameSite=Strict`.
-Frontend continues using localStorage; cookie is ignored by the server for now.
-
-### Step 2 — Server reads cookie first
-Server middleware checks for the HttpOnly cookie before falling back to the
-`Authorization` header. Both paths stay active.
-
-### Step 3 — Frontend stops writing to localStorage
-Remove `localStorage.setItem('token', ...)` from `api.ts`. All auth is now
-cookie-based. Add CSRF token (double-submit cookie or synchronizer token pattern).
-
-### Step 4 — Remove header fallback
-Drop the `Authorization` header read path from `authenticateToken` middleware.
-Cookie + CSRF is the only auth mechanism.
+Steps 1-3 are complete for the browser app: the server issues HttpOnly cookies, reads cookie credentials, the frontend no longer stores JWTs in localStorage, and the frontend refreshes sessions through /auth/refresh before redirecting to login. Step 4 remains intentionally deferred for mobile/driver bearer-token compatibility.
 
 ## CSRF Considerations
 
