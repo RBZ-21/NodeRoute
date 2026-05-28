@@ -280,8 +280,8 @@ router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async 
     },
   });
   if (syncResult.error) return res.status(500).json({ error: syncResult.error.message });
-  const data = await dbQuery(supabase.from('routes').delete().eq('id', req.params.id), res);
-  if (data === null) return;
+  const { error: deleteError } = await supabase.from('routes').delete().eq('id', req.params.id);
+  if (deleteError) return res.status(500).json({ error: deleteError.message });
   res.json({ message: 'Deleted' });
 });
 
