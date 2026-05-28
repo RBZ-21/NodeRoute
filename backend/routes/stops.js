@@ -219,8 +219,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
 router.patch('/:id', authenticateToken, async (req, res) => {
   try {
     if (req.user.role === 'driver') {
-      const { data: existing, error: fetchErr } = await supabase
-        .from('stops').select('driver_id').eq('id', req.params.id).single();
+      const { data: existing, error: fetchErr } = await scopeQueryByContext(supabase.from('stops').select('driver_id, company_id, location_id'), req.context).eq('id', req.params.id).single();
       if (fetchErr) return res.status(404).json({ error: 'Stop not found' });
       if (String(existing.driver_id) !== String(req.user.id)) {
         return res.status(403).json({ error: 'Access denied' });
@@ -245,8 +244,7 @@ router.patch('/:id', authenticateToken, async (req, res) => {
       return res.json(data);
     }
 
-    const { data: existing, error: fetchErr } = await supabase
-      .from('stops').select('*').eq('id', req.params.id).single();
+    const { data: existing, error: fetchErr } = await scopeQueryByContext(supabase.from('stops').select('*'), req.context).eq('id', req.params.id).single();
     if (fetchErr) return res.status(404).json({ error: 'Stop not found' });
     if (!rowMatchesContext(existing, req.context)) {
       return res.status(403).json({ error: 'Forbidden' });
@@ -423,8 +421,7 @@ router.post('/:id/move-to-end', authenticateToken, requireRole('admin', 'manager
     console.error('[stops] driver-authorization-fallback', authErr?.message || authErr);
   }
   try {
-    const { data: stop, error: stopErr } = await supabase
-      .from('stops').select('route_id, driver_id, status').eq('id', req.params.id).single();
+    const { data: stop, error: stopErr } = await scopeQueryByContext(supabase.from('stops').select('route_id, driver_id, status, company_id, location_id'), req.context).eq('id', req.params.id).single();
     if (stopErr || !stop) return res.status(404).json({ error: 'Stop not found' });
     if (req.user.role === 'driver' && String(stop.driver_id) !== String(req.user.id)) {
       return res.status(403).json({ error: 'Access denied' });
@@ -432,15 +429,13 @@ router.post('/:id/move-to-end', authenticateToken, requireRole('admin', 'manager
     if (stop.status === 'completed') return res.status(400).json({ error: 'Cannot skip a completed stop' });
     if (!stop.route_id) return res.status(400).json({ error: 'Stop is not assigned to a route' });
 
-    const { data: route, error: routeErr } = await supabase
-      .from('routes').select('stop_ids, active_stop_ids').eq('id', stop.route_id).single();
+    const { data: route, error: routeErr } = await scopeQueryByContext(supabase.from('routes').select('stop_ids, active_stop_ids, company_id, location_id'), req.context).eq('id', stop.route_id).single();
     if (routeErr || !route) return res.status(404).json({ error: 'Route not found' });
 
     const current = Array.isArray(route.active_stop_ids) ? route.active_stop_ids : [];
     const reordered = [...current.filter((id) => id !== req.params.id), req.params.id];
 
-    const { error: updateErr } = await supabase
-      .from('routes').update({ active_stop_ids: reordered }).eq('id', stop.route_id);
+    const { error: updateErr } = await scopeQueryByContext(supabase.from('routes').update({ active_stop_ids: reordered }), req.context).eq('id', stop.route_id);
     if (updateErr) return res.status(500).json({ error: updateErr.message });
 
     const syncResult = await syncRouteMutation(supabase, {
@@ -466,13 +461,11 @@ router.post('/:id/move-to-end', authenticateToken, requireRole('admin', 'manager
 // POST /api/stops/:id/defer — move stop to end of active queue (with idempotency check)
 router.post('/:id/defer', authenticateToken, async (req, res) => {
   try {
-    const { data: stop, error: stopErr } = await supabase
-      .from('stops').select('*').eq('id', req.params.id).single();
+    const { data: stop, error: stopErr } = await scopeQueryByContext(supabase.from('stops').select('*'), req.context).eq('id', req.params.id).single();
     if (stopErr || !stop) return res.status(404).json({ error: 'Stop not found' });
     if (!stop.route_id) return res.status(400).json({ error: 'Stop is not assigned to a route' });
 
-    const { data: route, error: routeErr } = await supabase
-      .from('routes').select('*').eq('id', stop.route_id).single();
+    const { data: route, error: routeErr } = await scopeQueryByContext(supabase.from('routes').select('*'), req.context).eq('id', stop.route_id).single();
     if (routeErr || !route) return res.status(404).json({ error: 'Route not found' });
 
     if (req.user.role === 'driver') {
@@ -506,10 +499,7 @@ router.post('/:id/defer', authenticateToken, async (req, res) => {
     activeIds.splice(currentIndex, 1);
     activeIds.push(stopId);
 
-    const { error: updateErr } = await supabase
-      .from('routes')
-      .update({ active_stop_ids: activeIds })
-      .eq('id', route.id);
+    const { error: updateErr } = await scopeQueryByContext(supabase.from('routes').update({ active_stop_ids: activeIds }), req.context).eq('id', route.id);
     if (updateErr) return res.status(500).json({ error: updateErr.message });
 
     const syncResult = await syncRouteMutation(supabase, {
@@ -541,8 +531,7 @@ router.post('/:id/defer', authenticateToken, async (req, res) => {
 router.post('/:id/signature', authenticateToken, async (req, res) => {
   try {
     if (req.user.role === 'driver') {
-      const { data: existing, error: fetchErr } = await supabase
-        .from('stops').select('driver_id').eq('id', req.params.id).single();
+      const { data: existing, error: fetchErr } = await scopeQueryByContext(supabase.from('stops').select('driver_id, company_id, location_id'), req.context).eq('id', req.params.id).single();
       if (fetchErr) return res.status(404).json({ error: 'Stop not found' });
       if (String(existing.driver_id) !== String(req.user.id)) {
         return res.status(403).json({ error: 'Access denied' });
@@ -550,13 +539,11 @@ router.post('/:id/signature', authenticateToken, async (req, res) => {
     }
     const { signature_data, signer_name } = req.body;
     if (!signature_data) return res.status(400).json({ error: 'signature_data is required' });
-    const { data, error } = await supabase
-      .from('stops')
-      .update({
+    const { data, error } = await scopeQueryByContext(supabase.from('stops').update({
         signature_data,
         signature_captured_at: new Date().toISOString(),
         signature_captured_by: signer_name || req.user.name || req.user.email,
-      })
+      }), req.context)
       .eq('id', req.params.id)
       .select()
       .single();
@@ -571,8 +558,7 @@ router.post('/:id/signature', authenticateToken, async (req, res) => {
 router.post('/:id/weight', authenticateToken, async (req, res) => {
   try {
     if (req.user.role === 'driver') {
-      const { data: existing, error: fetchErr } = await supabase
-        .from('stops').select('driver_id').eq('id', req.params.id).single();
+      const { data: existing, error: fetchErr } = await scopeQueryByContext(supabase.from('stops').select('driver_id, company_id, location_id'), req.context).eq('id', req.params.id).single();
       if (fetchErr) return res.status(404).json({ error: 'Stop not found' });
       if (String(existing.driver_id) !== String(req.user.id)) {
         return res.status(403).json({ error: 'Access denied' });
@@ -582,13 +568,11 @@ router.post('/:id/weight', authenticateToken, async (req, res) => {
     if (weight_lbs === undefined || weight_lbs === null) {
       return res.status(400).json({ error: 'weight_lbs is required' });
     }
-    const { data, error } = await supabase
-      .from('stops')
-      .update({
+    const { data, error } = await scopeQueryByContext(supabase.from('stops').update({
         weight_lbs: Number(weight_lbs),
         weight_captured_at: new Date().toISOString(),
         weight_captured_by: req.user.name || req.user.email,
-      })
+      }), req.context)
       .eq('id', req.params.id)
       .select()
       .single();
@@ -602,8 +586,7 @@ router.post('/:id/weight', authenticateToken, async (req, res) => {
 // DELETE /api/stops/:id
 router.delete('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const { data: existing, error: fetchErr } = await supabase
-      .from('stops').select('*').eq('id', req.params.id).single();
+    const { data: existing, error: fetchErr } = await scopeQueryByContext(supabase.from('stops').select('*'), req.context).eq('id', req.params.id).single();
     if (fetchErr) return res.status(404).json({ error: 'Stop not found' });
     if (!rowMatchesContext(existing, req.context)) {
       return res.status(403).json({ error: 'Forbidden' });
@@ -624,7 +607,7 @@ router.post('/:id/notes', authenticateToken, requireRole('admin', 'manager', 'dr
     return res.status(400).json({ ok: false, error: 'notes must be a string' });
   }
   try {
-    const { data: updated, error } = await scopeQueryByContext(supabase.from('stops').update({ notes }).eq('id', stopId).select('*').single();
+    const { data: updated, error } = await scopeQueryByContext(supabase.from('stops').update({ notes }), req.context).eq('id', stopId).select('*').single();
     if (error) return res.status(500).json({ ok: false, error: error.message });
     res.json({ ok: true, stop: updated });
   } catch (err) {
