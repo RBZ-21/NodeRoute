@@ -94,7 +94,13 @@ export function SignupPage() {
   );
   const canAdvanceStep2 = useMemo(
     () =>
-      Boolean(form.firstName && form.lastName && form.businessName && form.city && form.state),
+      Boolean(
+        form.firstName.trim() &&
+        form.lastName.trim() &&
+        form.businessName.trim() &&
+        form.city.trim() &&
+        form.state.trim()
+      ),
     [form.businessName, form.city, form.firstName, form.lastName, form.state]
   );
   const canAdvanceStep3 = form.distributorType !== '';
