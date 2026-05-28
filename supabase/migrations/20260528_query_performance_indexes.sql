@@ -12,7 +12,7 @@ returns void
 language plpgsql
 as $$
 declare
-  column_name text;
+  required_column text;
 begin
   if not exists (
     select 1 from information_schema.tables
@@ -21,12 +21,12 @@ begin
     return;
   end if;
 
-  foreach column_name in array required_columns loop
+  foreach required_column in array required_columns loop
     if not exists (
       select 1 from information_schema.columns
       where table_schema = 'public'
         and table_name = create_index_if_columns_exist.table_name
-        and column_name = column_name
+        and column_name = required_column
     ) then
       return;
     end if;
