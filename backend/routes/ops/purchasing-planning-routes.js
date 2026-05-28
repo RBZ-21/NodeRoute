@@ -58,7 +58,7 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
     const days = Math.max(1, Math.min(90, parseInt(req.query.days || '30', 10)));
     const lookbackDays = Math.max(7, Math.min(90, parseInt(req.query.lookbackDays || '30', 10)));
     try {
-      const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays);
+      const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays, req.context);
       const projections = buildProjectionRows(inventory, usageByName, { days, lookbackDays });
       res.json({ days, lookbackDays, generated_at: new Date().toISOString(), projections });
     } catch (error) {
@@ -80,7 +80,7 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
             history: resolveHistoricalLeadTimeDays(summarizedOrders, vendor).history,
           }
         : resolveHistoricalLeadTimeDays(summarizedOrders, vendor);
-      const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays);
+      const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays, req.context);
       const suggestions = buildPurchasingSuggestions(inventory, usageByName, {
         coverageDays,
         leadTimeDays: resolvedLead.leadTimeDays,
@@ -134,7 +134,7 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
             history: resolveHistoricalLeadTimeDays(summarizedOrders, vendor).history,
           }
         : resolveHistoricalLeadTimeDays(summarizedOrders, vendor);
-      const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays);
+      const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays, req.context);
       const suggestions = buildPurchasingSuggestions(inventory, usageByName, {
         coverageDays,
         leadTimeDays: resolvedLead.leadTimeDays,
@@ -224,7 +224,7 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
             history: resolveHistoricalLeadTimeDays(summarizedOrders, vendor).history,
           }
         : resolveHistoricalLeadTimeDays(summarizedOrders, vendor);
-      const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays);
+      const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays, req.context);
       const normalizedIntake = intakeItems.map((raw) => {
         const unit = normalizeUnit(raw.unit);
         const requested = normalizeIntakeQuantity(raw, unit);
