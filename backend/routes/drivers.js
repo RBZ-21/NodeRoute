@@ -7,6 +7,7 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const {
   filterRowsByContext,
   rowMatchesContext,
+  scopeQueryByContext,
 } = require('../services/operating-context');
 
 const router = express.Router();
@@ -33,9 +34,9 @@ function driverPayload(source) {
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   // Pull from users table where role = 'driver'
   const data = await dbQuery(
-    supabase
+    scopeQueryByContext(supabase
       .from('users')
-      .select('id, name, email, phone, status, role, created_at')
+      .select('id, name, email, phone, status, role, created_at, company_id, location_id'), req.context)
       .eq('role', 'driver')
       .order('name', { ascending: true }),
     res
@@ -48,9 +49,9 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
   const driverNames = scoped.map(d => d.name).filter(Boolean);
   let locationMap = {};
   if (driverNames.length) {
-    const { data: locs } = await supabase
+    const { data: locs } = await scopeQueryByContext(supabase
       .from('driver_locations')
-      .select('driver_name, lat, lng, updated_at')
+      .select('driver_name, lat, lng, updated_at, company_id, location_id'), req.context)
       .in('driver_name', driverNames);
     (locs || []).forEach(loc => {
       // Keep the most recent location per driver
@@ -61,9 +62,9 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
   }
 
   // Enrich with assigned route from routes table
-  const { data: routes } = await supabase
+  const { data: routes } = await scopeQueryByContext(supabase
     .from('routes')
-    .select('id, name, driver_id, driver, driver_email')
+    .select('id, name, driver_id, driver, driver_email, company_id, location_id'), req.context)
     .order('created_at', { ascending: false });
   const scopedRoutes = filterRowsByContext(routes || [], req.context);
 
@@ -92,7 +93,7 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
 // PATCH /api/drivers/:id — update driver profile fields
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const existing = await dbQuery(
-    supabase.from('users').select('*').eq('id', req.params.id).single(),
+    scopeQueryByContext(supabase.from('users').select('*'), req.context).eq('id', req.params.id).single(),
     res
   );
   if (!existing) return res.status(404).json({ error: 'Driver not found' });
@@ -103,7 +104,7 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   if (!Object.keys(payload).length) return res.status(400).json({ error: 'No valid fields provided' });
 
   const data = await dbQuery(
-    supabase.from('users').update(payload).eq('id', req.params.id).select().single(),
+    scopeQueryByContext(supabase.from('users').update(payload), req.context).eq('id', req.params.id).select().single(),
     res
   );
   if (!data) return;
