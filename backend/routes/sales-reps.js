@@ -3,14 +3,14 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const { authenticateToken } = require('../middleware/auth');
-const { filterRowsByContext, buildScopeFields } = require('../services/operating-context');
+const { filterRowsByContext, buildScopeFields, scopeQueryByContext } = require('../services/operating-context');
 
 const router = express.Router();
 
 // GET /api/sales-reps/customers
 router.get('/customers', authenticateToken, async (req, res) => {
   try {
-    let query = supabase.from('Customers').select('*').order('company_name', { ascending: true });
+    let query = scopeQueryByContext(supabase.from('Customers').select('*'), req.context).order('company_name', { ascending: true });
     if (!['admin', 'manager'].includes(req.user.role)) {
       query = query.eq('sales_rep_id', req.user.id);
     }
@@ -56,7 +56,7 @@ router.post('/visit-logs', authenticateToken, async (req, res) => {
     visited_at: new Date().toISOString(),
     ...buildScopeFields(req.context),
   };
-  const { data, error } = await supabase.from('customer_visit_logs').insert([record]).select().single();
+  const { data, error } = await scopeQueryByContext(supabase.from('customer_visit_logs').insert([record]), req.context).select().single();
   if (error) return res.status(500).json({ error: error.message });
   res.status(201).json(data);
 });
