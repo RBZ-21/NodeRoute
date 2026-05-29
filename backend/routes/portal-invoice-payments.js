@@ -1,6 +1,6 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
-const { filterRowsByContext } = require('../services/operating-context');
+const { filterRowsByContext, scopeQueryByContext } = require('../services/operating-context');
 const { findOrCreateCustomer, createPaymentIntent, createCheckoutSession } = require('../services/stripe');
 const {
   PORTAL_PAYMENT_ENABLED,
@@ -169,7 +169,7 @@ module.exports = function buildInvoicePaymentsRouter({ authenticatePortalToken }
       });
 
       if (paymentStatus === 'succeeded') {
-        await supabase.from('invoices').update({ status: 'paid', sent_at: new Date().toISOString() }).eq('id', invoiceRow.id);
+        await scopeQueryByContext(supabase.from('invoices').update({ status: 'paid', sent_at: new Date().toISOString() }), req.portalContext).eq('id', invoiceRow.id);
       }
 
       return res.json({

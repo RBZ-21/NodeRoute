@@ -25,7 +25,7 @@ test('vendor bills endpoint has validation, tenant checks, and receive-to-bill P
     "router.post('/:id/bills'",
     'validateBody(vendorBillBodySchema)',
     'rowMatchesContext(vendor, req.context)',
-    "supabase.from('purchase_orders').select('*').eq('id', purchaseOrderId).single()",
+    "scopeQueryByContext(supabase.from('purchase_orders').select('*'), req.context).eq('id', purchaseOrderId).single()",
     "insertRecordWithOptionalScope(supabase, 'vendor_bills'",
     'purchase_order_id: purchaseOrderId || null',
     'items,',

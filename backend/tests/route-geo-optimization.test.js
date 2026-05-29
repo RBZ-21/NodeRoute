@@ -43,7 +43,7 @@ test('route optimization heuristic still falls back to address clustering when G
 test('AI route optimization endpoint requests stop coordinates and customer delivery windows', () => {
   const source = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ai.js'), 'utf8');
 
-  assert.ok(source.includes("select('id,address,customer_id,status,lat,lng')"), 'route optimization endpoint should fetch stop coordinates');
+  assert.ok(source.includes("select('id,address,customer_id,status,lat,lng,company_id,location_id')"), 'route optimization endpoint should fetch stop coordinates');
   assert.ok(source.includes('preferred_delivery_window'), 'route optimization endpoint should include customer delivery windows');
 });
 

@@ -59,6 +59,7 @@ test('catch weight entry records actual weight and updates JSON order item statu
       estimated_unit_weight: 23.5,
       weight_tolerance_pct: 10,
       catch_weight_unit: 'lb',
+      company_id: '00000000-0000-0000-0000-000000000001',
     });
     await supabase.from('orders').insert({
       id: orderId,
@@ -111,6 +112,7 @@ test('catch weight entry flags variance beyond product tolerance without blockin
       is_catch_weight: true,
       estimated_unit_weight: 10,
       weight_tolerance_pct: 5,
+      company_id: '00000000-0000-0000-0000-000000000001',
     });
     await supabase.from('orders').insert({
       id: orderId,

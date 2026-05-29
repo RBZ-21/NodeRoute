@@ -757,7 +757,10 @@ async function recordPaymentReceived({ customer_id, customer_name, invoice, amou
       updates.payment_count = nextCount;
     }
 
-    await supabase.from('Customers').update(updates).eq('id', resolvedCustomerId);
+    let updateQuery = supabase.from('Customers').update(updates).eq('id', resolvedCustomerId);
+    if (invoice?.company_id) updateQuery = updateQuery.eq('company_id', invoice.company_id);
+    if (invoice?.location_id) updateQuery = updateQuery.eq('location_id', invoice.location_id);
+    await updateQuery;
     return autoReleaseCheck(resolvedCustomerId, { notes: `Payment of $${toMoney(amount || 0).toFixed(2)} received` });
   } catch (err) {
     logger.warn({ err: err.message, customer_id: resolvedCustomerId }, 'recordPaymentReceived failed');

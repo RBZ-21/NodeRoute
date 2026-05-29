@@ -15,7 +15,7 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
-const { filterRowsByContext } = require('../services/operating-context');
+const { filterRowsByContext, rowMatchesContext, scopeQueryByContext } = require('../services/operating-context');
 const logger = require('../services/logger');
 
 const router = express.Router();
@@ -31,19 +31,19 @@ function parsePaging(query) {
   return { limit, offset };
 }
 
-async function hydrateUsers(rows, idField = 'performed_by') {
+async function hydrateUsers(rows, idField = 'performed_by', context = null) {
   const ids = [...new Set(rows.map((r) => r[idField]).filter(Boolean))];
   if (!ids.length) return {};
-  const { data } = await supabase.from('users').select('id,email,name').in('id', ids);
+  const { data } = await scopeQueryByContext(supabase.from('users').select('id,email,name,company_id,location_id'), context).in('id', ids);
   const map = {};
   (data || []).forEach((u) => { map[u.id] = u; });
   return map;
 }
 
-async function hydrateCustomers(rows, idField = 'customer_id') {
+async function hydrateCustomers(rows, idField = 'customer_id', context = null) {
   const ids = [...new Set(rows.map((r) => r[idField]).filter(Boolean))];
   if (!ids.length) return {};
-  const { data } = await supabase.from('Customers').select('id,company_name').in('id', ids);
+  const { data } = await scopeQueryByContext(supabase.from('Customers').select('id,company_name,company_id,location_id'), context).in('id', ids);
   const map = {};
   (data || []).forEach((c) => { map[c.id] = c; });
   return map;
@@ -74,9 +74,9 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
     const { start_date, end_date, user_id, action_type, customer_id } = req.query;
 
     // ── Source 1: audit_log ──
-    let auditQ = supabase
+    let auditQ = scopeQueryByContext(supabase
       .from('audit_log')
-      .select('*')
+      .select('*'), req.context)
       .order('created_at', { ascending: false })
       .limit(MAX_LIMIT);
     auditQ = applyDateFilters(auditQ, start_date, end_date);
@@ -85,9 +85,9 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
     if (customer_id) auditQ = auditQ.eq('customer_id', parseInt(customer_id, 10));
 
     // ── Source 2: credit_hold_log ──
-    let creditQ = supabase
+    let creditQ = scopeQueryByContext(supabase
       .from('credit_hold_log')
-      .select('*')
+      .select('*'), req.context)
       .order('created_at', { ascending: false })
       .limit(MAX_LIMIT);
     creditQ = applyDateFilters(creditQ, start_date, end_date);
@@ -96,9 +96,9 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
     if (customer_id) creditQ = creditQ.eq('customer_id', parseInt(customer_id, 10));
 
     // ── Source 3: credit_hold_overrides ──
-    let overrideQ = supabase
+    let overrideQ = scopeQueryByContext(supabase
       .from('credit_hold_overrides')
-      .select('*')
+      .select('*'), req.context)
       .order('created_at', { ascending: false })
       .limit(MAX_LIMIT);
     overrideQ = applyDateFilters(overrideQ, start_date, end_date);
@@ -171,8 +171,8 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
 
     // Hydrate users and customers in one pass.
     const [usersById, customersById] = await Promise.all([
-      hydrateUsers(page),
-      hydrateCustomers(page),
+      hydrateUsers(page, 'performed_by', req.context),
+      hydrateCustomers(page, 'customer_id', req.context),
     ]);
 
     const enriched = page.map((r) => ({
@@ -208,9 +208,9 @@ router.get('/overrides', authenticateToken, requireRole('admin', 'manager'), asy
     const { limit, offset } = parsePaging(req.query);
     const { start_date, end_date, user_id, customer_id } = req.query;
 
-    let q = supabase
+    let q = scopeQueryByContext(supabase
       .from('credit_hold_overrides')
-      .select('*')
+      .select('*'), req.context)
       .order('created_at', { ascending: false })
       .limit(MAX_LIMIT);
     q = applyDateFilters(q, start_date, end_date);
@@ -224,8 +224,8 @@ router.get('/overrides', authenticateToken, requireRole('admin', 'manager'), asy
     const page = scoped.slice(offset, offset + limit);
 
     const [usersById, customersById] = await Promise.all([
-      hydrateUsers(page, 'overridden_by'),
-      hydrateCustomers(page),
+      hydrateUsers(page, 'overridden_by', req.context),
+      hydrateCustomers(page, 'customer_id', req.context),
     ]);
 
     const STALE_MS = 7 * 86_400_000;
@@ -269,15 +269,16 @@ router.get('/customer/:id', authenticateToken, requireRole('admin', 'manager'), 
     const { start_date, end_date, action_type } = req.query;
 
     // Verify customer exists + context.
-    const { data: customer, error: cErr } = await supabase
-      .from('Customers').select('id,company_name,company_id,location_id').eq('id', customerId).single();
+    const { data: customer, error: cErr } = await scopeQueryByContext(supabase
+      .from('Customers').select('id,company_name,company_id,location_id'), req.context).eq('id', customerId).single();
     if (cErr || !customer) return res.status(404).json({ error: 'Customer not found' });
+    if (!rowMatchesContext(customer, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
     // Pull all three sources filtered to this customer.
     let [auditQ, creditQ, overrideQ] = [
-      supabase.from('audit_log').select('*').eq('customer_id', customerId).order('created_at', { ascending: false }).limit(MAX_LIMIT),
-      supabase.from('credit_hold_log').select('*').eq('customer_id', customerId).order('created_at', { ascending: false }).limit(MAX_LIMIT),
-      supabase.from('credit_hold_overrides').select('*').eq('customer_id', customerId).order('created_at', { ascending: false }).limit(MAX_LIMIT),
+      scopeQueryByContext(supabase.from('audit_log').select('*'), req.context).eq('customer_id', customerId).order('created_at', { ascending: false }).limit(MAX_LIMIT),
+      scopeQueryByContext(supabase.from('credit_hold_log').select('*'), req.context).eq('customer_id', customerId).order('created_at', { ascending: false }).limit(MAX_LIMIT),
+      scopeQueryByContext(supabase.from('credit_hold_overrides').select('*'), req.context).eq('customer_id', customerId).order('created_at', { ascending: false }).limit(MAX_LIMIT),
     ];
     auditQ = applyDateFilters(auditQ, start_date, end_date);
     creditQ = applyDateFilters(creditQ, start_date, end_date);
@@ -299,6 +300,8 @@ router.get('/customer/:id', authenticateToken, requireRole('admin', 'manager'), 
         ? { balance: r.balance, previous_credit_limit: r.previous_credit_limit, new_credit_limit: r.new_credit_limit, triggered_by: r.triggered_by }
         : r.metadata || null,
       created_at: r.created_at,
+      company_id: r.company_id,
+      location_id: r.location_id,
     }));
 
     const all = [
@@ -309,7 +312,7 @@ router.get('/customer/:id', authenticateToken, requireRole('admin', 'manager'), 
      .sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
 
     const page = all.slice(offset, offset + limit);
-    const usersById = await hydrateUsers(page);
+    const usersById = await hydrateUsers(page, 'performed_by', req.context);
 
     res.json({
       customer_id: customerId,

@@ -1,6 +1,7 @@
 const {
   executeWithOptionalScope,
   insertRecordWithOptionalScope,
+  scopeQueryByContext,
 } = require('./operating-context');
 
 function normalizeIdArray(value) {
@@ -64,12 +65,11 @@ function isMissingRelationError(error, relationName) {
   return message.includes('does not exist') && message.includes(String(relationName || '').toLowerCase());
 }
 
-async function fetchRouteRecord(supabase, routeId) {
-  const { data, error } = await supabase
-    .from('routes')
-    .select('*')
-    .eq('id', routeId)
-    .single();
+async function fetchRouteRecord(supabase, routeId, context) {
+  const { data, error } = await scopeQueryByContext(
+    supabase.from('routes').select('*'),
+    context
+  ).eq('id', routeId).single();
 
   if (error) return { data: null, error };
   return { data, error: null };
@@ -112,7 +112,7 @@ async function syncRouteMutation(supabase, {
   context,
   metadata,
 }) {
-  const routeResult = await fetchRouteRecord(supabase, routeId);
+  const routeResult = await fetchRouteRecord(supabase, routeId, context);
   if (routeResult.error) return routeResult;
   const existingRoute = routeResult.data;
   if (!existingRoute) return { data: null, error: new Error('Route not found') };
@@ -129,7 +129,7 @@ async function syncRouteMutation(supabase, {
   };
 
   const routeUpdate = await executeWithOptionalScope(
-    (candidate) => supabase.from('routes').update(candidate).eq('id', routeId).select().single(),
+    (candidate) => scopeQueryByContext(supabase.from('routes').update(candidate), context).eq('id', routeId).select().single(),
     routePayload
   );
   if (routeUpdate.error) return { data: null, error: routeUpdate.error };

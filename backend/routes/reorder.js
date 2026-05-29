@@ -10,6 +10,7 @@ const {
   filterRowsByContext,
   rowMatchesContext,
   buildScopeFields,
+  scopeQueryByContext,
 } = require('../services/operating-context');
 const { generatePurchaseOrderNumber } = require('../services/purchase-order-numbers');
 const reorderEngine = require('../services/reorderEngine');
@@ -41,34 +42,33 @@ function currentUserId(req) {
 }
 
 async function fetchSuggestion(id, context) {
-  const { data, error } = await supabase
-    .from('reorder_suggestions')
-    .select('*')
-    .eq('id', id)
-    .single();
+  const { data, error } = await scopeQueryByContext(
+    supabase.from('reorder_suggestions').select('*'),
+    context
+  ).eq('id', id).single();
   if (error || !data) return { error: error || new Error('Suggestion not found'), status: 404 };
   if (!rowMatchesContext(data, context)) return { error: new Error('Forbidden'), status: 403 };
   return { data };
 }
 
-async function enrichSuggestions(rows) {
+async function enrichSuggestions(rows, context) {
   const productIds = [...new Set((rows || []).map((row) => row.product_id).filter(Boolean))];
   const vendorIds = [...new Set((rows || []).map((row) => row.vendor_id).filter(Boolean))];
   const productMap = new Map();
   const vendorMap = new Map();
 
   if (productIds.length) {
-    const { data: products } = await supabase
-      .from('products')
-      .select('id,item_number,name,description,category,unit,default_unit,on_hand_qty,reorder_point,safety_stock,lead_time_days,min_order_quantity,max_stock_level,avg_daily_usage,usage_trend,reorder_enabled,preferred_vendor_id,company_id,location_id')
-      .in('id', productIds);
+    const { data: products } = await scopeQueryByContext(
+      supabase.from('products').select('id,item_number,name,description,category,unit,default_unit,on_hand_qty,reorder_point,safety_stock,lead_time_days,min_order_quantity,max_stock_level,avg_daily_usage,usage_trend,reorder_enabled,preferred_vendor_id,company_id,location_id'),
+      context
+    ).in('id', productIds);
     (products || []).forEach((product) => productMap.set(product.id, product));
   }
   if (vendorIds.length) {
-    const { data: vendors } = await supabase
-      .from('vendors')
-      .select('id,name,email,phone,contact,payment_terms')
-      .in('id', vendorIds);
+    const { data: vendors } = await scopeQueryByContext(
+      supabase.from('vendors').select('id,name,email,phone,contact,payment_terms'),
+      context
+    ).in('id', vendorIds);
     (vendors || []).forEach((vendor) => vendorMap.set(vendor.id, vendor));
   }
 
@@ -95,10 +95,10 @@ function sortSuggestions(rows, sort) {
 router.get('/suggestions', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
     const status = String(req.query.status || 'pending').trim();
-    let query = supabase
-      .from('reorder_suggestions')
-      .select('*')
-      .order('created_at', { ascending: false });
+    let query = scopeQueryByContext(
+      supabase.from('reorder_suggestions').select('*'),
+      req.context
+    ).order('created_at', { ascending: false });
     if (status && status !== 'all') query = query.eq('status', status);
     if (req.query.urgency) query = query.eq('urgency', String(req.query.urgency));
     if (req.query.vendor_id) query = query.eq('vendor_id', String(req.query.vendor_id));
@@ -108,7 +108,7 @@ router.get('/suggestions', authenticateToken, requireRole('admin', 'manager'), a
     if (error) return res.status(500).json({ error: error.message });
     const visible = filterRowsByContext(data || [], req.context)
       .filter((row) => !row.snoozed_until || new Date(row.snoozed_until).getTime() <= Date.now() || row.status !== 'snoozed');
-    const enriched = await enrichSuggestions(visible);
+    const enriched = await enrichSuggestions(visible, req.context);
     res.json(sortSuggestions(enriched, String(req.query.sort || 'urgency')));
   } catch (error) {
     res.status(500).json({ error: error.message || 'Could not load reorder suggestions' });
@@ -119,7 +119,7 @@ router.get('/suggestions/:id', authenticateToken, requireRole('admin', 'manager'
   try {
     const result = await fetchSuggestion(req.params.id, req.context);
     if (result.error) return res.status(result.status).json({ error: result.error.message });
-    const [enriched] = await enrichSuggestions([result.data]);
+    const [enriched] = await enrichSuggestions([result.data], req.context);
     res.json(enriched);
   } catch (error) {
     res.status(500).json({ error: error.message || 'Could not load reorder suggestion' });
@@ -138,7 +138,7 @@ router.patch('/suggestions/:id/approve', authenticateToken, requireRole('admin',
       return res.status(422).json({ error: 'Suggestion has no vendor_id. Assign a product preferred vendor before approving.' });
     }
 
-    const [enriched] = await enrichSuggestions([suggestion]);
+    const [enriched] = await enrichSuggestions([suggestion], req.context);
     const product = enriched.product || {};
     const vendor = enriched.vendor || {};
     const unit = suggestion.suggested_unit || product.unit || product.default_unit || 'units';
@@ -177,14 +177,15 @@ router.patch('/suggestions/:id/approve', authenticateToken, requireRole('admin',
     const poInsert = await insertRecordWithOptionalScope(supabase, 'purchase_orders', poPayload, req.context);
     if (poInsert.error) return res.status(500).json({ error: poInsert.error.message });
 
-    const update = await supabase
-      .from('reorder_suggestions')
-      .update({
+    const update = await scopeQueryByContext(
+      supabase.from('reorder_suggestions').update({
         status: 'converted_to_po',
         approved_by: currentUserId(req),
         approved_at: new Date().toISOString(),
         po_id: poInsert.data?.id || null,
-      })
+      }),
+      req.context
+    )
       .eq('id', suggestion.id)
       .select()
       .single();
@@ -199,14 +200,15 @@ router.patch('/suggestions/:id/dismiss', authenticateToken, requireRole('admin',
   try {
     const result = await fetchSuggestion(req.params.id, req.context);
     if (result.error) return res.status(result.status).json({ error: result.error.message });
-    const { data, error } = await supabase
-      .from('reorder_suggestions')
-      .update({
+    const { data, error } = await scopeQueryByContext(
+      supabase.from('reorder_suggestions').update({
         status: 'dismissed',
         dismissed_by: currentUserId(req),
         dismissed_at: new Date().toISOString(),
         dismiss_reason: req.validated.body.reason,
-      })
+      }),
+      req.context
+    )
       .eq('id', req.params.id)
       .select()
       .single();
@@ -221,9 +223,10 @@ router.patch('/suggestions/:id/snooze', authenticateToken, requireRole('admin', 
   try {
     const result = await fetchSuggestion(req.params.id, req.context);
     if (result.error) return res.status(result.status).json({ error: result.error.message });
-    const { data, error } = await supabase
-      .from('reorder_suggestions')
-      .update({ status: 'snoozed', snoozed_until: req.validated.body.snooze_until })
+    const { data, error } = await scopeQueryByContext(
+      supabase.from('reorder_suggestions').update({ status: 'snoozed', snoozed_until: req.validated.body.snooze_until }),
+      req.context
+    )
       .eq('id', req.params.id)
       .select()
       .single();
@@ -245,11 +248,10 @@ router.post('/run-check', authenticateToken, requireRole('admin'), async (req, r
 
 router.get('/product/:product_id/settings', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const { data: product, error } = await supabase
-      .from('products')
-      .select('*')
-      .eq('id', req.params.product_id)
-      .single();
+    const { data: product, error } = await scopeQueryByContext(
+      supabase.from('products').select('*'),
+      req.context
+    ).eq('id', req.params.product_id).single();
     if (error || !product) return res.status(404).json({ error: 'Product not found' });
     if (!rowMatchesContext(product, req.context)) return res.status(403).json({ error: 'Forbidden' });
     const calculation = await reorderEngine.calculateSuggestedQuantity(product.id).catch((err) => ({ error: err.message }));
@@ -276,18 +278,18 @@ router.get('/product/:product_id/settings', authenticateToken, requireRole('admi
 
 router.patch('/product/:product_id/settings', authenticateToken, requireRole('admin', 'manager'), validateBody(settingsSchema), async (req, res) => {
   try {
-    const { data: before, error: beforeErr } = await supabase
-      .from('products')
-      .select('*')
-      .eq('id', req.params.product_id)
-      .single();
+    const { data: before, error: beforeErr } = await scopeQueryByContext(
+      supabase.from('products').select('*'),
+      req.context
+    ).eq('id', req.params.product_id).single();
     if (beforeErr || !before) return res.status(404).json({ error: 'Product not found' });
     if (!rowMatchesContext(before, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
     const fields = { ...req.validated.body, updated_at: new Date().toISOString() };
-    const { data: after, error } = await supabase
-      .from('products')
-      .update(fields)
+    const { data: after, error } = await scopeQueryByContext(
+      supabase.from('products').update(fields),
+      req.context
+    )
       .eq('id', before.id)
       .select()
       .single();
@@ -308,10 +310,10 @@ router.patch('/product/:product_id/settings', authenticateToken, requireRole('ad
 
 router.get('/dashboard', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('reorder_suggestions')
-      .select('*')
-      .eq('status', 'pending');
+    const { data, error } = await scopeQueryByContext(
+      supabase.from('reorder_suggestions').select('*'),
+      req.context
+    ).eq('status', 'pending');
     if (error) return res.status(500).json({ error: error.message });
     const pending = filterRowsByContext(data || [], req.context);
     const critical = pending.filter((row) => row.urgency === 'critical');
@@ -321,7 +323,8 @@ router.get('/dashboard', authenticateToken, requireRole('admin', 'manager'), asy
       pending
         .filter((row) => row.days_of_stock_remaining !== null && toNumber(row.days_of_stock_remaining, 999) <= 2)
         .sort((a, b) => toNumber(a.days_of_stock_remaining, 999) - toNumber(b.days_of_stock_remaining, 999))
-        .slice(0, 10)
+        .slice(0, 10),
+      req.context
     );
 
     res.json({

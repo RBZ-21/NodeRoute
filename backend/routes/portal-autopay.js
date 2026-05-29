@@ -1,6 +1,6 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
-const { buildScopeFields, filterRowsByContext, insertRecordWithOptionalScope, executeWithOptionalScope } = require('../services/operating-context');
+const { buildScopeFields, filterRowsByContext, insertRecordWithOptionalScope, executeWithOptionalScope, scopeQueryByContext } = require('../services/operating-context');
 const { findOrCreateCustomer, createPaymentIntent } = require('../services/stripe');
 const {
   PORTAL_PAYMENT_CURRENCY,
@@ -69,7 +69,7 @@ module.exports = function buildAutopayRouter({ authenticatePortalToken }) {
 
       const writeResult = existing?.id
         ? await executeWithOptionalScope(
-            (candidate) => supabase.from('portal_payment_settings').update(candidate).eq('id', existing.id).select('*').single(),
+            (candidate) => scopeQueryByContext(supabase.from('portal_payment_settings').update(candidate), req.portalContext).eq('id', existing.id).select('*').single(),
             payload
           )
         : await insertRecordWithOptionalScope(supabase, 'portal_payment_settings', payload, req.portalContext);
@@ -167,7 +167,7 @@ module.exports = function buildAutopayRouter({ authenticatePortalToken }) {
           });
 
           if (status === 'succeeded') {
-            await supabase.from('invoices').update({ status: 'paid', sent_at: new Date().toISOString() }).eq('id', invoice.id);
+            await scopeQueryByContext(supabase.from('invoices').update({ status: 'paid', sent_at: new Date().toISOString() }), req.portalContext).eq('id', invoice.id);
           }
 
           runningTotal += amount;

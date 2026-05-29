@@ -5,6 +5,7 @@ const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
+  scopeQueryByContext,
 } = require('../../services/operating-context');
 const {
   buildProjectionRows,
@@ -58,7 +59,7 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
     const days = Math.max(1, Math.min(90, parseInt(req.query.days || '30', 10)));
     const lookbackDays = Math.max(7, Math.min(90, parseInt(req.query.lookbackDays || '30', 10)));
     try {
-      const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays);
+      const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays, req.context);
       const projections = buildProjectionRows(inventory, usageByName, { days, lookbackDays });
       res.json({ days, lookbackDays, generated_at: new Date().toISOString(), projections });
     } catch (error) {
@@ -80,7 +81,7 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
             history: resolveHistoricalLeadTimeDays(summarizedOrders, vendor).history,
           }
         : resolveHistoricalLeadTimeDays(summarizedOrders, vendor);
-      const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays);
+      const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays, req.context);
       const suggestions = buildPurchasingSuggestions(inventory, usageByName, {
         coverageDays,
         leadTimeDays: resolvedLead.leadTimeDays,
@@ -134,7 +135,7 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
             history: resolveHistoricalLeadTimeDays(summarizedOrders, vendor).history,
           }
         : resolveHistoricalLeadTimeDays(summarizedOrders, vendor);
-      const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays);
+      const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays, req.context);
       const suggestions = buildPurchasingSuggestions(inventory, usageByName, {
         coverageDays,
         leadTimeDays: resolvedLead.leadTimeDays,
@@ -224,7 +225,7 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
             history: resolveHistoricalLeadTimeDays(summarizedOrders, vendor).history,
           }
         : resolveHistoricalLeadTimeDays(summarizedOrders, vendor);
-      const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays);
+      const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays, req.context);
       const normalizedIntake = intakeItems.map((raw) => {
         const unit = normalizeUnit(raw.unit);
         const requested = normalizeIntakeQuantity(raw, unit);
@@ -362,18 +363,21 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
     const nextStatus = String(req.body.status || '').toLowerCase();
     if (!allowed.has(nextStatus)) return res.status(400).json({ error: 'Invalid status' });
 
-    const { data: existing, error: fetchErr } = await supabase
-      .from('op_po_drafts').select('*').eq('id', req.params.id).single();
+    const { data: existing, error: fetchErr } = await scopeQueryByContext(
+      supabase.from('op_po_drafts').select('*'),
+      req.context
+    ).eq('id', req.params.id).single();
     if (fetchErr) return res.status(404).json({ error: 'Draft not found' });
     if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
-    const { data, error } = await supabase
-      .from('op_po_drafts')
-      .update({
+    const { data, error } = await scopeQueryByContext(
+      supabase.from('op_po_drafts').update({
         status: nextStatus,
         updated_at: new Date().toISOString(),
         updated_by: req.user?.name || req.user?.email || 'system',
-      })
+      }),
+      req.context
+    )
       .eq('id', req.params.id)
       .select()
       .single();

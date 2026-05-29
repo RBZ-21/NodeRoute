@@ -30,7 +30,7 @@ router.post('/purchase-order-drafts/from-suggestions', authenticateToken, requir
   const includedUrgencies = new Set(includeUrgencies);
 
   try {
-    const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays);
+    const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays, req.context);
     const suggestions = buildPurchasingSuggestions(inventory, usageByName, { coverageDays, leadTimeDays, lookbackDays });
     const urgencyRank = { high: 0, normal: 1, none: 2 };
     const selected = suggestions
@@ -90,7 +90,7 @@ router.post('/purchase-order-drafts/from-order-intake', authenticateToken, requi
   const { intakeItems, leadTimeDays, lookbackDays, minOrderQty, maxLines, vendor, notes, intakeMessage } = req.validated.body;
 
   try {
-    const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays);
+    const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays, req.context);
     const normalizedIntake = intakeItems.map((raw) => {
       const unit = normalizeUnit(raw.unit);
       const requested = normalizeIntakeQuantity(raw, unit);

@@ -5,6 +5,7 @@ const {
   executeWithOptionalScope,
   filterRowsByContext,
   rowMatchesContext,
+  scopeQueryByContext,
 } = require('../../services/operating-context');
 const {
   applyInventoryLedgerEntry,
@@ -54,9 +55,9 @@ async function ensureReceiptLotRecord({ lotNumber, itemNumber, poLine, acceptedQ
   let existingLot = null;
 
   if (scopedLotError) {
-    const fallbackLookup = await supabase.from('lot_codes').select('*').eq('lot_number', trimmedLotNumber).limit(5);
+    const fallbackLookup = await scopeQueryByContext(supabase.from('lot_codes').select('*'), req.context).eq('lot_number', trimmedLotNumber).limit(5);
     if (fallbackLookup.error) throw new Error(fallbackLookup.error.message);
-    existingLot = filterRowsByContext(fallbackLookup.data || [], req.context)[0] || fallbackLookup.data?.[0] || null;
+    existingLot = filterRowsByContext(fallbackLookup.data || [], req.context)[0] || null;
   } else {
     existingLot = scopedLots?.[0] || null;
   }
@@ -88,7 +89,7 @@ async function ensureReceiptLotRecord({ lotNumber, itemNumber, poLine, acceptedQ
     );
   }
   if (lotInsert.error && lotInsert.error.code === '23505') {
-    const lookup = await supabase.from('lot_codes').select('id').eq('lot_number', trimmedLotNumber).limit(1);
+    const lookup = await scopeQueryByContext(supabase.from('lot_codes').select('id'), req.context).eq('lot_number', trimmedLotNumber).limit(1);
     if (lookup.error) throw new Error(lookup.error.message);
     return { lotId: lookup.data?.[0]?.id || null, created: false };
   }
@@ -109,8 +110,10 @@ module.exports = function buildOpsPurchasingOrderRouter() {
   });
 
   router.post('/vendor-purchase-orders/from-draft/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-    const { data: draft, error: draftErr } = await supabase
-      .from('op_po_drafts').select('*').eq('id', req.params.id).single();
+    const { data: draft, error: draftErr } = await scopeQueryByContext(
+      supabase.from('op_po_drafts').select('*'),
+      req.context
+    ).eq('id', req.params.id).single();
     if (draftErr || !draft) return res.status(404).json({ error: 'Draft not found' });
     if (!rowMatchesContext(draft, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
@@ -143,15 +146,15 @@ module.exports = function buildOpsPurchasingOrderRouter() {
     }
 
     // Mark the draft as ordered and link to the new vendor PO.
-    await supabase
-      .from('op_po_drafts')
-      .update({
+    await scopeQueryByContext(
+      supabase.from('op_po_drafts').update({
         status: 'ordered',
         linked_vendor_po_id: persisted?.row?.id || null,
         updated_at: new Date().toISOString(),
         updated_by: req.user?.name || req.user?.email || 'system',
-      })
-      .eq('id', draft.id);
+      }),
+      req.context
+    ).eq('id', draft.id);
 
     res.json(po);
   });
@@ -283,7 +286,7 @@ module.exports = function buildOpsPurchasingOrderRouter() {
       }
     }
 
-    const { data: inventory, error: invErr } = await supabase.from('products').select('*');
+    const { data: inventory, error: invErr } = await scopeQueryByContext(supabase.from('products').select('*'), req.context);
     if (invErr) return res.status(500).json({ error: invErr.message });
     const inventoryRows = inventory || [];
     const receiptLines = [];

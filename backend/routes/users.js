@@ -9,6 +9,7 @@ const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
+  scopeQueryByContext,
   userResponseWithContext,
 } = require('../services/operating-context');
 const { validateBody } = require('../lib/zod-validate');
@@ -121,7 +122,7 @@ function isAdminLike(user) {
 }
 
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const data = await dbQuery(supabase.from('users').select('*').order('created_at', { ascending: true }), res);
+  const data = await dbQuery(scopeQueryByContext(supabase.from('users').select('*'), req.context).order('created_at', { ascending: true }), res);
   if (!data) return;
   const scopedUsers = filterRowsByContext(data, req.context);
   res.json(scopedUsers.map(u => ({ ...userResponseWithContext(u), status: u.status, createdAt: u.created_at })));
@@ -174,6 +175,15 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), valid
   }
   if (!canInviteAcrossCompanies && targetLocationId && allowedLocationIds.length && !allowedLocationIds.includes(targetLocationId)) {
     return res.status(403).json({ error: 'Cannot invite users outside your location scope' });
+  }
+
+  if (role === 'driver') {
+    try {
+      await enforceDriverLimit(supabase, { ...req.context, activeCompanyId: targetCompanyId });
+    } catch (error) {
+      if (sendPlanLimitError(res, error)) return;
+      return res.status(500).json({ error: error.message || 'Could not verify subscription limits' });
+    }
   }
 
   const { data: existing } = await supabase
@@ -260,13 +270,13 @@ router.patch('/:id', authenticateToken, validateBody(userPatchBodySchema), async
   const updates = { name };
   if (phone !== undefined) updates.phone = phone;
   if (vehicle_id !== undefined) updates.vehicle_id = vehicle_id;
-  const { data, error } = await supabase.from('users').update(updates).eq('id', req.params.id).select('id,name,phone,vehicle_id').single();
+  const { data, error } = await scopeQueryByContext(supabase.from('users').update(updates), req.context).eq('id', req.params.id).select('id,name,phone,vehicle_id').single();
   if (error) return res.status(500).json({ error: error.message });
   res.json(data);
 });
 
 router.delete('/:id', authenticateToken, requireRole('admin'), async (req, res) => {
-  const users = await dbQuery(supabase.from('users').select('*').eq('id', req.params.id).limit(1), res);
+  const users = await dbQuery(scopeQueryByContext(supabase.from('users').select('*'), req.context).eq('id', req.params.id).limit(1), res);
   if (!users) return;
   const u = users && users[0];
   if (!u) return res.status(404).json({ error: 'User not found' });
@@ -274,17 +284,17 @@ router.delete('/:id', authenticateToken, requireRole('admin'), async (req, res) 
   if ((u.role === 'admin' || u.role === 'superadmin') && req.user.role !== 'superadmin') {
     return res.status(403).json({ error: `Cannot delete ${u.role}` });
   }
-  const delResult = await dbQuery(supabase.from('users').delete().eq('id', req.params.id), res);
+  const delResult = await dbQuery(scopeQueryByContext(supabase.from('users').delete(), req.context).eq('id', req.params.id), res);
   if (delResult === null) return;
   res.json({ message: 'User deleted' });
 });
 
 router.patch('/:id/role', authenticateToken, requireRole('admin'), validateBody(userRolePatchBodySchema), async (req, res) => {
   const { role } = req.validated.body;
-  const currentUser = await dbQuery(supabase.from('users').select('*').eq('id', req.params.id).single(), res);
+  const currentUser = await dbQuery(scopeQueryByContext(supabase.from('users').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!currentUser) return res.status(404).json({ error: 'User not found' });
   if (!rowMatchesContext(currentUser, req.context)) return res.status(403).json({ error: 'Forbidden' });
-  const data = await dbQuery(supabase.from('users').update({ role }).eq('id', req.params.id).select('id').single(), res);
+  const data = await dbQuery(scopeQueryByContext(supabase.from('users').update({ role }), req.context).eq('id', req.params.id).select('id').single(), res);
   if (!data) return res.status(404).json({ error: 'User not found' });
   res.json({ message: 'Role updated' });
 });

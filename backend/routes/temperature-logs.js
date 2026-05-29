@@ -5,6 +5,7 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
+  scopeQueryByContext,
 } = require('../services/operating-context');
 const { validateBody, validateQuery } = require('../lib/zod-validate');
 
@@ -99,7 +100,7 @@ function buildTemperatureLogCsv(rows) {
 }
 
 router.get('/', authenticateToken, requireRole('admin', 'manager'), validateQuery(temperatureLogQuerySchema), async (req, res) => {
-  const data = await dbQuery(supabase.from('temperature_logs').select('*').order('logged_at', { ascending: false }), res);
+  const data = await dbQuery(scopeQueryByContext(supabase.from('temperature_logs').select('*'), req.context).order('logged_at', { ascending: false }), res);
   if (!data) return;
   let rows = filterRowsByContext(data, req.context);
   const { date } = req.validated.query;
@@ -110,7 +111,7 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), validateQuer
 });
 
 router.get('/export.csv', authenticateToken, requireRole('admin', 'manager'), validateQuery(temperatureLogQuerySchema), async (req, res) => {
-  const data = await dbQuery(supabase.from('temperature_logs').select('*').order('logged_at', { ascending: false }), res);
+  const data = await dbQuery(scopeQueryByContext(supabase.from('temperature_logs').select('*'), req.context).order('logged_at', { ascending: false }), res);
   if (!data) return;
 
   let rows = filterRowsByContext(data, req.context);

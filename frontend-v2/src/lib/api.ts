@@ -35,26 +35,48 @@ function getCsrfToken(): string {
   return match ? decodeURIComponent(match[1]) : '';
 }
 
+async function refreshSession(): Promise<boolean> {
+  try {
+    const response = await fetch('/auth/refresh', {
+      method: 'POST',
+      credentials: 'include',
+    });
+    if (!response.ok) return false;
+    const payload = await response.json().catch(() => ({}));
+    if (payload?.user) localStorage.setItem('nr_user', JSON.stringify(payload.user));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function parseResponse<T>(response: Response, url: string): Promise<T> {
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok) throw new Error(data?.error || `Request failed: ${url}`);
+  return data as T;
+}
+
+async function parseResponseWithRefresh<T>(response: Response, url: string, retry: () => Promise<Response>): Promise<T> {
+  if (response.status === 401 && await refreshSession()) {
+    response = await retry();
+  }
   if (response.status === 401) {
     clearSession();
     redirectToLogin('Your session could not be verified. Please sign in again.');
     throw new Error('Unauthorized');
   }
-  const data = await response.json();
-  if (!response.ok) throw new Error(data?.error || `Request failed: ${url}`);
-  return data as T;
-}
-
-export async function fetchWithAuth<T>(url: string): Promise<T> {
-  const response = await fetch(url, {
-    credentials: 'include',
-  });
   return parseResponse<T>(response, url);
 }
 
+export async function fetchWithAuth<T>(url: string): Promise<T> {
+  const makeRequest = () => fetch(url, {
+    credentials: 'include',
+  });
+  return parseResponseWithRefresh<T>(await makeRequest(), url, makeRequest);
+}
+
 export async function sendWithAuth<T>(url: string, method: 'POST' | 'PATCH' | 'DELETE', body?: unknown): Promise<T> {
-  const response = await fetch(url, {
+  const makeRequest = () => fetch(url, {
     method,
     credentials: 'include',
     headers: {
@@ -63,7 +85,7 @@ export async function sendWithAuth<T>(url: string, method: 'POST' | 'PATCH' | 'D
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
-  return parseResponse<T>(response, url);
+  return parseResponseWithRefresh<T>(await makeRequest(), url, makeRequest);
 }
 
 /**
@@ -79,7 +101,7 @@ export async function sendWithAuth<T>(url: string, method: 'POST' | 'PATCH' | 'D
 export async function uploadWithAuth<T>(url: string, field: string, file: File): Promise<T> {
   const formData = new FormData();
   formData.append(field, file);
-  const response = await fetch(url, {
+  const makeRequest = () => fetch(url, {
     method: 'POST',
     credentials: 'include',
     headers: {
@@ -88,7 +110,7 @@ export async function uploadWithAuth<T>(url: string, field: string, file: File):
     // No Content-Type header: browser sets multipart/form-data + boundary automatically.
     body: formData,
   });
-  return parseResponse<T>(response, url);
+  return parseResponseWithRefresh<T>(await makeRequest(), url, makeRequest);
 }
 
 export async function fetchCurrentUser<T>(): Promise<T> {

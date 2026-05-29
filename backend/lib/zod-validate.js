@@ -1,5 +1,7 @@
 'use strict';
 
+const { z } = require('zod');
+
 function firstIssueMessage(error, fallback) {
   if (Array.isArray(error?.issues) && error.issues[0]?.message) {
     return error.issues[0].message;
@@ -38,10 +40,32 @@ function validateParams(schema, options) {
   return validatePart('params', schema, options);
 }
 
+const jsonMutationBodySchema = z.union([
+  z.record(z.string(), z.unknown()),
+  z.array(z.unknown()),
+]);
+
+function validateJsonMutationBody() {
+  return function jsonMutationBodyMiddleware(req, res, next) {
+    if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method)) return next();
+    if (!req.is('application/json')) return next();
+
+    const body = req.body === undefined ? {} : req.body;
+    const result = jsonMutationBodySchema.safeParse(body);
+    if (!result.success) {
+      return res.status(400).json({ error: firstIssueMessage(result.error, 'JSON request body must be an object or array') });
+    }
+
+    req.body = result.data;
+    return next();
+  };
+}
+
 module.exports = {
   validate,
   validateBody,
   validateQuery,
   validateParams,
+  validateJsonMutationBody,
   firstIssueMessage,
 };

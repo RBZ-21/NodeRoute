@@ -1,7 +1,7 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
-const { filterRowsByContext } = require('../services/operating-context');
+const { filterRowsByContext, scopeQueryByContext } = require('../services/operating-context');
 const { summarizeVendorPo } = require('./ops-utils');
 const { loadVendorPurchaseOrdersFromDb } = require('../services/purchase-order-workflows');
 
@@ -576,16 +576,16 @@ router.get('/rollups', authenticateToken, requireRole('admin', 'manager'), async
 
   try {
     const [ordersResult, invoicesResult, routesResult, inventoryResult] = await Promise.all([
-      supabase.from('orders').select('*')
+      scopeQueryByContext(supabase.from('orders').select('*'), req.context)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
         .limit(5000),
-      supabase.from('invoices').select('*')
+      scopeQueryByContext(supabase.from('invoices').select('*'), req.context)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
         .limit(5000),
-      supabase.from('routes').select('*').limit(2000),
-      supabase.from('products').select('item_number,description,cost').limit(5000),
+      scopeQueryByContext(supabase.from('routes').select('*'), req.context).limit(2000),
+      scopeQueryByContext(supabase.from('products').select('item_number,description,cost'), req.context).limit(5000),
     ]);
 
     const ordersMissing = isMissingTableError(ordersResult.error);
@@ -639,11 +639,11 @@ router.get('/sales-summary', authenticateToken, requireRole('admin', 'manager'),
 
   try {
     const [ordersResult, invoicesResult] = await Promise.all([
-      supabase.from('orders').select('*')
+      scopeQueryByContext(supabase.from('orders').select('*'), req.context)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
         .limit(5000),
-      supabase.from('invoices').select('*')
+      scopeQueryByContext(supabase.from('invoices').select('*'), req.context)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
         .limit(5000),
@@ -682,9 +682,9 @@ router.get('/recent-sold-items', authenticateToken, requireRole('admin', 'manage
   const startDate = startOfDay(new Date(endDate.getTime() - (days - 1) * 86400000));
 
   try {
-    const invoicesResult = await supabase
+    const invoicesResult = await scopeQueryByContext(supabase
       .from('invoices')
-      .select('*')
+      .select('*'), req.context)
       .gte('created_at', startDate.toISOString())
       .lte('created_at', endDate.toISOString())
       .limit(5000);
@@ -718,16 +718,16 @@ router.get('/daily-ops', authenticateToken, requireRole('admin', 'manager'), asy
 
   try {
     const [ordersResult, invoicesResult, routesResult, inventoryResult] = await Promise.all([
-      supabase.from('orders').select('*')
+      scopeQueryByContext(supabase.from('orders').select('*'), req.context)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
         .limit(5000),
-      supabase.from('invoices').select('*')
+      scopeQueryByContext(supabase.from('invoices').select('*'), req.context)
         .gte('created_at', startDate.toISOString())
         .lte('created_at', endDate.toISOString())
         .limit(5000),
-      supabase.from('routes').select('*').limit(2000),
-      supabase.from('products').select('item_number,description,category,cost,on_hand_qty').limit(5000),
+      scopeQueryByContext(supabase.from('routes').select('*'), req.context).limit(2000),
+      scopeQueryByContext(supabase.from('products').select('item_number,description,category,cost,on_hand_qty'), req.context).limit(5000),
     ]);
 
     const ordersMissing = isMissingTableError(ordersResult.error);
@@ -796,9 +796,9 @@ function toCsv(headers, rows) {
 router.get('/ar-aging', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
     const format = String(req.query.format || 'json').toLowerCase();
-    const { data: invoices, error } = await supabase
+    const { data: invoices, error } = await scopeQueryByContext(supabase
       .from('invoices')
-      .select('id, invoice_number, customer_id, customer_name, customer_email, total, due_date, created_at, status')
+      .select('id, invoice_number, customer_id, customer_name, customer_email, total, due_date, created_at, status, company_id, location_id'), req.context)
       .in('status', creditEngine.OPEN_INVOICE_STATUSES);
     if (error) return res.status(500).json({ error: error.message });
 
@@ -854,7 +854,7 @@ router.get('/credit-hold-history', authenticateToken, requireRole('admin', 'mana
     const customerId = req.query.customer_id ? parseInt(req.query.customer_id, 10) : null;
     const reason = req.query.reason ? String(req.query.reason).trim() : null;
 
-    let query = supabase.from('credit_hold_log').select('*').order('created_at', { ascending: false }).limit(2000);
+    let query = scopeQueryByContext(supabase.from('credit_hold_log').select('*'), req.context).order('created_at', { ascending: false }).limit(2000);
     if (customerId) query = query.eq('customer_id', customerId);
     if (from) query = query.gte('created_at', from.toISOString());
     if (to) query = query.lte('created_at', to.toISOString());
@@ -904,7 +904,7 @@ router.get('/credit-override-audit', authenticateToken, requireRole('admin', 'ma
   try {
     const from = toDateOrNull(req.query.from);
     const to = toDateOrNull(req.query.to);
-    let query = supabase.from('credit_hold_overrides').select('*').order('created_at', { ascending: false }).limit(5000);
+    let query = scopeQueryByContext(supabase.from('credit_hold_overrides').select('*'), req.context).order('created_at', { ascending: false }).limit(5000);
     if (from) query = query.gte('created_at', from.toISOString());
     if (to) query = query.lte('created_at', to.toISOString());
     const { data, error } = await query;
@@ -914,8 +914,8 @@ router.get('/credit-override-audit', authenticateToken, requireRole('admin', 'ma
     const customerIds = [...new Set(scoped.map((o) => o.customer_id))];
     const userIds = [...new Set(scoped.map((o) => o.overridden_by))];
     const [custRes, userRes] = await Promise.all([
-      customerIds.length ? supabase.from('Customers').select('id,company_name').in('id', customerIds) : { data: [] },
-      userIds.length ? supabase.from('users').select('id,email,name').in('id', userIds) : { data: [] },
+      customerIds.length ? scopeQueryByContext(supabase.from('Customers').select('id,company_name,company_id,location_id'), req.context).in('id', customerIds) : { data: [] },
+      userIds.length ? scopeQueryByContext(supabase.from('users').select('id,email,name,company_id,location_id'), req.context).in('id', userIds) : { data: [] },
     ]);
     const customers = {};
     (custRes.data || []).forEach((c) => { customers[c.id] = c; });
@@ -963,9 +963,9 @@ router.get('/credit-override-audit', authenticateToken, requireRole('admin', 'ma
 // 9D. GET /api/reporting/bad-debt-risk
 router.get('/bad-debt-risk', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const { data: invoices, error } = await supabase
+    const { data: invoices, error } = await scopeQueryByContext(supabase
       .from('invoices')
-      .select('id, customer_id, customer_name, total, due_date, created_at, status')
+      .select('id, customer_id, customer_name, total, due_date, created_at, status, company_id, location_id'), req.context)
       .in('status', creditEngine.OPEN_INVOICE_STATUSES);
     if (error) return res.status(500).json({ error: error.message });
 
@@ -1015,9 +1015,9 @@ router.get('/reorder-performance', authenticateToken, requireRole('admin', 'mana
   const { startDate, endDate } = range;
 
   try {
-    const { data, error } = await supabase
+    const { data, error } = await scopeQueryByContext(supabase
       .from('reorder_suggestions')
-      .select('*')
+      .select('*'), req.context)
       .gte('created_at', startDate.toISOString())
       .lte('created_at', endDate.toISOString())
       .limit(5000);
@@ -1063,9 +1063,9 @@ router.get('/reorder-performance', authenticateToken, requireRole('admin', 'mana
 router.get('/stockout-risk', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const horizon = Math.max(1, Math.min(parseInt(req.query.days || '14', 10), 30));
   try {
-    const { data, error } = await supabase
+    const { data, error } = await scopeQueryByContext(supabase
       .from('products')
-      .select('id,item_number,name,description,category,unit,on_hand_qty,avg_daily_usage,reorder_point,safety_stock,lead_time_days,company_id,location_id')
+      .select('id,item_number,name,description,category,unit,on_hand_qty,avg_daily_usage,reorder_point,safety_stock,lead_time_days,company_id,location_id'), req.context)
       .eq('reorder_enabled', true);
     if (error) return res.status(500).json({ error: error.message });
     const rows = filterRowsByContext(data || [], req.context)
@@ -1105,20 +1105,23 @@ router.get('/inventory-turnover', authenticateToken, requireRole('admin', 'manag
   const days = Math.max(7, Math.min(parseInt(req.query.days || '30', 10), 365));
   const since = new Date(Date.now() - days * 86400000).toISOString().slice(0, 10);
   try {
-    const [{ data: products, error: pErr }, { data: usage, error: uErr }] = await Promise.all([
-      supabase
-        .from('products')
-        .select('id,item_number,name,description,category,unit,on_hand_qty,cost,avg_daily_usage,company_id,location_id')
-        .eq('reorder_enabled', true)
-        .limit(5000),
-      supabase
+    const { data: products, error: pErr } = await scopeQueryByContext(supabase
+      .from('products')
+      .select('id,item_number,name,description,category,unit,on_hand_qty,cost,avg_daily_usage,company_id,location_id'), req.context)
+      .eq('reorder_enabled', true)
+      .limit(5000);
+    if (pErr) return res.status(500).json({ error: pErr.message });
+    const scopedProducts = filterRowsByContext(products || [], req.context);
+    const productIds = scopedProducts.map((product) => product.id).filter(Boolean);
+    const { data: usage, error: uErr } = productIds.length
+      ? await supabase
         .from('product_usage_history')
         .select('product_id,units_used,recorded_date')
+        .in('product_id', productIds)
         .gte('recorded_date', since)
-        .limit(10000),
-    ]);
-    if (pErr || uErr) return res.status(500).json({ error: (pErr || uErr).message });
-    const scopedProducts = filterRowsByContext(products || [], req.context);
+        .limit(10000)
+      : { data: [], error: null };
+    if (uErr) return res.status(500).json({ error: uErr.message });
     const usageByProduct = new Map();
     (usage || []).forEach((row) => {
       usageByProduct.set(row.product_id, toNumber(usageByProduct.get(row.product_id), 0) + toNumber(row.units_used, 0));
