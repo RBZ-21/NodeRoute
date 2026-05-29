@@ -1,4 +1,4 @@
-const { filterRowsByContext } = require('./operating-context');
+const { filterRowsByContext, scopeQueryByContext } = require('./operating-context');
 
 function normalize(value) {
   return String(value || '')
@@ -49,9 +49,9 @@ function attachRouteContext(invoice, matchedRoute, stop) {
 
 async function loadDriverInvoiceScope(supabase, user, context) {
   const [routesResult, stopsResult, invoicesResult] = await Promise.all([
-    supabase.from('routes').select('*').order('created_at', { ascending: false }),
-    supabase.from('stops').select('*'),
-    supabase.from('invoices').select('*').order('created_at', { ascending: false }),
+    scopeQueryByContext(supabase.from('routes').select('*'), context).order('created_at', { ascending: false }),
+    scopeQueryByContext(supabase.from('stops').select('*'), context),
+    scopeQueryByContext(supabase.from('invoices').select('*'), context).order('created_at', { ascending: false }),
   ]);
 
   if (routesResult.error) throw new Error(routesResult.error.message);
