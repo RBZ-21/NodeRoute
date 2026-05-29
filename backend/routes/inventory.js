@@ -374,10 +374,10 @@ router.get('/lots', authenticateToken, async (req, res) => {
   const itemNumbers = [...new Set((lots || []).map(l => l.item_number))];
   let descMap = {};
   if (itemNumbers.length) {
-    const { data: prods } = await supabase
-      .from('products')
-      .select('item_number,description')
-      .in('item_number', itemNumbers);
+    const { data: prods } = await scopeQueryByContext(
+      supabase.from('products').select('item_number,description'),
+      req.context
+    ).in('item_number', itemNumbers);
     (prods || []).forEach(p => { descMap[p.item_number] = p.description; });
   }
   res.json((lots || []).map(l => ({ ...l, item_description: descMap[l.item_number] || null })));
