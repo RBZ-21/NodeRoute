@@ -672,6 +672,30 @@ if (invoice?.company_id) updateQuery = updateQuery.eq('company_id', invoice.comp
 ```
 
 Explanation: Printer queue rows now persist tenant fields, and payment-stat updates add tenant filters when invoice context supplies them.
+
+## 29. Driver Invoice Scope Test Mock
+
+FILE PATH: `backend/tests/driver-invoice-access.test.js`
+
+BEFORE:
+```js
+select() {
+  return { order() { return Promise.resolve({ data: routes, error: null }); } };
+}
+```
+
+AFTER:
+```js
+const chain = {
+  eq(column, value) {
+    rows = rows.filter((row) => String(row[column] || '') === String(value || ''));
+    return chain;
+  },
+  order() { return Promise.resolve({ data: rows, error: null }); },
+};
+```
+
+Explanation: Updated the Supabase mock to support tenant-scoping `.eq()` calls added to driver invoice hydration.
 ## Summary Table
 
 | # | Priority | File | Issue Fixed | Status |
@@ -694,5 +718,5 @@ Explanation: Printer queue rows now persist tenant fields, and payment-stat upda
 | 16 | Code Quality | `backend/services/operating-context.js`, `backend/services/plan-limits.js` | Shared tenant scoping and plan-limit utilities extracted | Done on branch |
 | 17 | Code Quality | `backend/services/invoice-lots.js` | Stale lot-forwarding comment resolved | Done on branch |
 | 18 | Infrastructure | `backend/instrument.js`, `frontend-v2/src/instrument.ts` | Sentry already present and preserved | Done |
-| 19 | Infrastructure | `backend/tests/critical-workflows-contract.test.js` | Added required unit/contract tests | Done on branch |
+| 19 | Infrastructure | `backend/tests/critical-workflows-contract.test.js`, `backend/tests/driver-invoice-access.test.js` | Added required unit/contract tests and updated scope-aware test mocks | Done on branch |
 | 20 | Infrastructure | `.env.example` | All targeted scanned environment variables are listed with description comments | Done on branch |
