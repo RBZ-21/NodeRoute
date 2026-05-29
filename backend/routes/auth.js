@@ -27,10 +27,13 @@ function authDelay() {
 }
 
 const { JWT_SECRET } = require('../lib/config');
-const JWT_EXPIRY = '1h';
+const ACCESS_TOKEN_EXPIRY = '15m';
+const REFRESH_TOKEN_EXPIRY = '7d';
 const DRIVER_ACCESS_EXPIRY = '15m';
 const DRIVER_REFRESH_EXPIRY = '7d';
-const COOKIE_MAX_AGE = 24 * 60 * 60 * 1000; // 24 h in ms
+const ACCESS_COOKIE_MAX_AGE = 15 * 60 * 1000;
+const REFRESH_COOKIE_MAX_AGE = 7 * 24 * 60 * 60 * 1000;
+const REFRESH_SESSION_TABLE = 'auth_refresh_sessions';
 const TEMPLATES_PATH = path.join(__dirname, '../../supabase/seeds/inventory_templates.json');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
@@ -56,10 +59,10 @@ function verifyPassword(pw, stored) {
 }
 
 function signJWT(user) {
-  return signUserJWT(user, JWT_EXPIRY, 'session');
+  return signUserJWT(user, ACCESS_TOKEN_EXPIRY, 'access');
 }
 
-function signUserJWT(user, expiresIn, tokenType) {
+function signUserJWT(user, expiresIn, tokenType, extraClaims = {}) {
   const context = getUserOperatingContext(user);
   const userId = user?.id;
   return jwt.sign(
@@ -73,17 +76,175 @@ function signUserJWT(user, expiresIn, tokenType) {
       locationId: context.locationId,
       platformRole: context.platformRole,
       tokenType,
+      ...extraClaims,
     },
     JWT_SECRET,
     { expiresIn }
   );
 }
 
-function signDriverTokens(user) {
+async function issueDriverTokens(user) {
+  const sessionId = crypto.randomUUID();
+  const refreshToken = signUserJWT(user, DRIVER_REFRESH_EXPIRY, 'driver_refresh', { sessionId });
+  const { error } = await supabase.from(REFRESH_SESSION_TABLE).insert({
+    id: sessionId,
+    user_id: user.id,
+    token_hash: hashRefreshToken(refreshToken),
+    expires_at: refreshExpiresAt().toISOString(),
+  });
+  if (error) throw error;
   return {
     token: signUserJWT(user, DRIVER_ACCESS_EXPIRY, 'driver_access'),
-    refreshToken: signUserJWT(user, DRIVER_REFRESH_EXPIRY, 'driver_refresh'),
+    refreshToken,
+    sessionId,
   };
+}
+
+function hashRefreshToken(token) {
+  return crypto.createHash('sha256').update(String(token || '')).digest('hex');
+}
+
+function refreshExpiresAt() {
+  return new Date(Date.now() + REFRESH_COOKIE_MAX_AGE);
+}
+
+async function createRefreshSession(user) {
+  const sessionId = crypto.randomUUID();
+  const refreshToken = signUserJWT(user, REFRESH_TOKEN_EXPIRY, 'refresh', { sessionId });
+  const { error } = await supabase.from(REFRESH_SESSION_TABLE).insert({
+    id: sessionId,
+    user_id: user.id,
+    token_hash: hashRefreshToken(refreshToken),
+    expires_at: refreshExpiresAt().toISOString(),
+  });
+  if (error) throw error;
+  return { refreshToken, sessionId };
+}
+
+async function revokeRefreshSession(refreshToken) {
+  if (!refreshToken) return;
+  try {
+    const payload = jwt.verify(refreshToken, JWT_SECRET);
+    if (payload?.tokenType !== 'refresh' || !payload?.sessionId) return;
+    await supabase
+      .from(REFRESH_SESSION_TABLE)
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('id', payload.sessionId)
+      .eq('token_hash', hashRefreshToken(refreshToken))
+      .is('revoked_at', null);
+  } catch {
+    // Invalid or expired refresh tokens are already unusable; still clear cookies.
+  }
+}
+
+async function rotateRefreshSession(refreshToken) {
+  let payload;
+  try {
+    payload = jwt.verify(refreshToken, JWT_SECRET);
+  } catch {
+    const err = new Error('Invalid or expired refresh token');
+    err.status = 401;
+    throw err;
+  }
+  if (payload?.tokenType !== 'refresh' || !payload?.sessionId) {
+    const err = new Error('Invalid refresh token');
+    err.status = 401;
+    throw err;
+  }
+
+  const { data: session, error: sessionError } = await supabase
+    .from(REFRESH_SESSION_TABLE)
+    .select('*')
+    .eq('id', payload.sessionId)
+    .eq('user_id', payload.userId || payload.sub)
+    .single();
+
+  if (sessionError || !session) {
+    const err = new Error('Refresh session not found');
+    err.status = 401;
+    throw err;
+  }
+  if (session.revoked_at || new Date(session.expires_at).getTime() <= Date.now() || session.token_hash !== hashRefreshToken(refreshToken)) {
+    const err = new Error('Refresh session revoked');
+    err.status = 401;
+    throw err;
+  }
+
+  const users = await dbQuery(supabase.from('users').select('*').eq('id', payload.userId || payload.sub).limit(1), null);
+  const user = users?.[0];
+  if (!user || user.status !== 'active') {
+    const err = new Error('User not found');
+    err.status = 401;
+    throw err;
+  }
+
+  const next = await createRefreshSession(user);
+  await supabase
+    .from(REFRESH_SESSION_TABLE)
+    .update({
+      revoked_at: new Date().toISOString(),
+      replaced_by: next.sessionId,
+      last_used_at: new Date().toISOString(),
+    })
+    .eq('id', session.id)
+    .is('revoked_at', null);
+
+  return { accessToken: signJWT(user), refreshToken: next.refreshToken, user };
+}
+
+async function rotateDriverRefreshSession(refreshToken) {
+  let payload;
+  try {
+    payload = jwt.verify(refreshToken, JWT_SECRET);
+  } catch {
+    const err = new Error('Invalid or expired refresh token');
+    err.status = 401;
+    throw err;
+  }
+  if (payload?.tokenType !== 'driver_refresh' || !payload?.sessionId) {
+    const err = new Error('Invalid refresh token');
+    err.status = 401;
+    throw err;
+  }
+
+  const { data: session, error: sessionError } = await supabase
+    .from(REFRESH_SESSION_TABLE)
+    .select('*')
+    .eq('id', payload.sessionId)
+    .eq('user_id', payload.userId || payload.sub)
+    .single();
+
+  if (sessionError || !session) {
+    const err = new Error('Refresh session not found');
+    err.status = 401;
+    throw err;
+  }
+  if (session.revoked_at || new Date(session.expires_at).getTime() <= Date.now() || session.token_hash !== hashRefreshToken(refreshToken)) {
+    const err = new Error('Refresh session revoked');
+    err.status = 401;
+    throw err;
+  }
+
+  const users = await dbQuery(supabase.from('users').select('*').eq('id', payload.userId || payload.sub).limit(1), null);
+  const user = users?.[0];
+  if (!user || user.status !== 'active' || user.role !== 'driver') {
+    const err = new Error('User not found');
+    err.status = 401;
+    throw err;
+  }
+
+  const next = await issueDriverTokens(user);
+  await supabase
+    .from(REFRESH_SESSION_TABLE)
+    .update({
+      revoked_at: new Date().toISOString(),
+      replaced_by: next.sessionId,
+      last_used_at: new Date().toISOString(),
+    })
+    .eq('id', session.id)
+    .is('revoked_at', null);
+
+  return { token: next.token, refreshToken: next.refreshToken, user };
 }
 
 async function findUserByCredentials(email, password) {
@@ -193,12 +354,19 @@ async function seedProductsFromTemplate(companyId, templateKey) {
  * The CSRF cookie is NOT HttpOnly so the frontend JS can read it
  * and send it back as the X-CSRF-Token header on mutations.
  */
-function setAuthCookies(res, token) {
-  res.cookie('token', token, {
+function setSessionCookies(res, accessToken, refreshToken) {
+  res.cookie('token', accessToken, {
     httpOnly: true,
     secure: IS_PROD,
     sameSite: 'strict',
-    maxAge: COOKIE_MAX_AGE,
+    maxAge: ACCESS_COOKIE_MAX_AGE,
+    path: '/',
+  });
+  res.cookie('refresh-token', refreshToken, {
+    httpOnly: true,
+    secure: IS_PROD,
+    sameSite: 'strict',
+    maxAge: REFRESH_COOKIE_MAX_AGE,
     path: '/',
   });
   // Readable CSRF token — same session, different cookie
@@ -207,13 +375,19 @@ function setAuthCookies(res, token) {
     httpOnly: false,
     secure: IS_PROD,
     sameSite: 'strict',
-    maxAge: COOKIE_MAX_AGE,
+    maxAge: ACCESS_COOKIE_MAX_AGE,
     path: '/',
   });
 }
 
+async function setAuthCookies(res, user) {
+  const { refreshToken } = await createRefreshSession(user);
+  setSessionCookies(res, signJWT(user), refreshToken);
+}
+
 function clearAuthCookies(res) {
   res.clearCookie('token', { httpOnly: true, secure: IS_PROD, sameSite: 'strict', path: '/' });
+  res.clearCookie('refresh-token', { httpOnly: true, secure: IS_PROD, sameSite: 'strict', path: '/' });
   res.clearCookie('csrf-token', { httpOnly: false, secure: IS_PROD, sameSite: 'strict', path: '/' });
 }
 
@@ -226,8 +400,7 @@ router.post('/login', loginLimiter, async (req, res) => {
 
   const { user: u, valid } = await findUserByCredentials(email, password);
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
-  const token = signJWT(u);
-  setAuthCookies(res, token);
+  await setAuthCookies(res, u);
   res.json({ user: userResponseWithContext(u) });
 });
 
@@ -241,7 +414,8 @@ router.post('/driver/login', loginLimiter, async (req, res) => {
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
   if (u.role !== 'driver') return res.status(403).json({ error: 'Forbidden' });
 
-  const { token, refreshToken } = signDriverTokens(u);
+  const { token, refreshToken } = await issueDriverTokens(u);
+  await setAuthCookies(res, u);
   res.json({ token, refreshToken, user: userResponseWithContext(u) });
 });
 
@@ -249,25 +423,16 @@ router.post('/driver/refresh', async (req, res) => {
   const refreshToken = req.body?.refreshToken;
   if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' });
 
-  let payload;
   try {
-    payload = jwt.verify(refreshToken, JWT_SECRET);
-  } catch {
-    return res.status(401).json({ error: 'Invalid or expired refresh token' });
+    const rotated = await rotateDriverRefreshSession(refreshToken);
+    res.json({
+      token: rotated.token,
+      refreshToken: rotated.refreshToken,
+      user: userResponseWithContext(rotated.user),
+    });
+  } catch (error) {
+    return res.status(error.status || 401).json({ error: error.message || 'Invalid refresh token' });
   }
-  if (payload?.tokenType !== 'driver_refresh') {
-    return res.status(401).json({ error: 'Invalid refresh token' });
-  }
-
-  const users = await dbQuery(supabase.from('users').select('*').eq('id', payload.userId || payload.sub).limit(1), res);
-  if (!users) return;
-  const u = users[0];
-  if (!u || u.status !== 'active' || u.role !== 'driver') {
-    return res.status(401).json({ error: 'User not found' });
-  }
-
-  const tokens = signDriverTokens(u);
-  res.json({ ...tokens, user: userResponseWithContext(u) });
 });
 
 router.post('/signup', loginLimiter, async (req, res) => {
@@ -377,8 +542,7 @@ router.post('/signup', loginLimiter, async (req, res) => {
     });
   }
 
-  const token = signJWT(createdUser);
-  setAuthCookies(res, token);
+  await setAuthCookies(res, createdUser);
   res.status(201).json({ user: userResponseWithContext(createdUser) });
 });
 
@@ -398,8 +562,7 @@ router.post('/setup-password', setupPasswordLimiter, async (req, res) => {
     invite_token: null,
     invite_expires: null
   }).eq('id', u.id);
-  const sessionToken = signJWT(u);
-  setAuthCookies(res, sessionToken);
+  await setAuthCookies(res, u);
   res.json({ user: userResponseWithContext(u) });
 });
 
@@ -407,7 +570,25 @@ router.get('/me', authenticateToken, (req, res) => {
   res.json(userResponseWithContext(req.user));
 });
 
-router.post('/logout', authenticateToken, (req, res) => {
+router.post('/refresh', async (req, res) => {
+  const refreshToken = req.cookies?.['refresh-token'];
+  if (!refreshToken) {
+    clearAuthCookies(res);
+    return res.status(401).json({ error: 'Refresh token required' });
+  }
+
+  try {
+    const rotated = await rotateRefreshSession(refreshToken);
+    setSessionCookies(res, rotated.accessToken, rotated.refreshToken);
+    return res.json({ user: userResponseWithContext(rotated.user) });
+  } catch (error) {
+    clearAuthCookies(res);
+    return res.status(error.status || 401).json({ error: error.message || 'Invalid refresh token' });
+  }
+});
+
+router.post('/logout', async (req, res) => {
+  await revokeRefreshSession(req.cookies?.['refresh-token']);
   clearAuthCookies(res);
   res.json({ message: 'Logged out' });
 });

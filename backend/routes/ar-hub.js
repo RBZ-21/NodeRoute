@@ -4,7 +4,7 @@ const express = require('express');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { OPEN_UNPAID_INVOICE_STATUSES } = require('../services/invoice-delivery');
-const { filterRowsByContext, rowMatchesContext } = require('../services/operating-context');
+const { filterRowsByContext, rowMatchesContext, scopeQueryByContext } = require('../services/operating-context');
 const { sendInvoiceEmail } = require('../services/invoice-email');
 
 const router = express.Router();
@@ -26,9 +26,9 @@ function ageBucket(days) {
 // GET /api/ar/aging
 router.get('/aging', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await scopeQueryByContext(supabase
       .from('invoices')
-      .select('id,invoice_number,customer_name,customer_email,total,status,due_date,created_at')
+      .select('id,invoice_number,customer_name,customer_email,total,status,due_date,created_at,company_id,location_id'), req.context)
       .in('status', OPEN_STATUSES)
       .order('due_date', { ascending: true });
     if (error) return res.status(500).json({ error: error.message });
@@ -73,16 +73,16 @@ router.get('/aging', authenticateToken, requireRole('admin', 'manager'), async (
 router.post('/remind/:customerId', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
     const id = req.params.customerId;
-    let { data: invoices, error } = await supabase
+    let { data: invoices, error } = await scopeQueryByContext(supabase
       .from('invoices')
-      .select('*')
+      .select('*'), req.context)
       .eq('customer_email', id)
       .in('status', OPEN_STATUSES);
     if (error) return res.status(500).json({ error: error.message });
     if (!invoices?.length) {
-      const { data: byName } = await supabase
+      const { data: byName } = await scopeQueryByContext(supabase
         .from('invoices')
-        .select('*')
+        .select('*'), req.context)
         .ilike('customer_name', `%${id}%`)
         .in('status', OPEN_STATUSES);
       invoices = byName || [];
@@ -114,9 +114,9 @@ router.post('/remind/:customerId', authenticateToken, requireRole('admin', 'mana
 router.get('/collections', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
     const cutoff = new Date(Date.now() - 30 * 86_400_000).toISOString();
-    const { data, error } = await supabase
+    const { data, error } = await scopeQueryByContext(supabase
       .from('invoices')
-      .select('id,invoice_number,customer_name,customer_email,total,status,due_date,created_at,collections_note,collections_status')
+      .select('id,invoice_number,customer_name,customer_email,total,status,due_date,created_at,collections_note,collections_status,company_id,location_id'), req.context)
       .in('status', ['pending', 'sent', 'overdue'])
       .lt('due_date', cutoff)
       .order('due_date', { ascending: true });
@@ -136,7 +136,7 @@ router.get('/collections', authenticateToken, requireRole('admin', 'manager'), a
 router.patch('/collections/:invoiceId/note', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   try {
     const existing = await dbQuery(
-      supabase.from('invoices').select('*').eq('id', req.params.invoiceId).single(),
+      scopeQueryByContext(supabase.from('invoices').select('*'), req.context).eq('id', req.params.invoiceId).single(),
       res
     );
     if (!existing) return;
@@ -152,7 +152,7 @@ router.patch('/collections/:invoiceId/note', authenticateToken, requireRole('adm
       if (val === 'resolved') updates.status = 'paid';
     }
     if (!Object.keys(updates).length) return res.status(400).json({ error: 'No valid fields provided' });
-    const { data, error } = await supabase.from('invoices').update(updates).eq('id', req.params.invoiceId).select().single();
+    const { data, error } = await scopeQueryByContext(supabase.from('invoices').update(updates), req.context).eq('id', req.params.invoiceId).select().single();
     if (error) return res.status(500).json({ error: error.message });
     res.json(data);
   } catch (err) {

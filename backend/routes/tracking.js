@@ -1,6 +1,6 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
-const { filterRowsByContext, rowMatchesContext } = require('../services/operating-context');
+const { filterRowsByContext, rowMatchesContext, scopeQueryByContext } = require('../services/operating-context');
 const { buildDeliveryWindow } = require('../lib/delivery-window');
 const { getMedianDwellMs } = require('../services/dwell-stats');
 
@@ -191,8 +191,8 @@ router.get('/:token', async (req, res) => {
   const outingStarted = routeHasStarted(route);
 
   const driverLocationQuery = route?.driver_id
-    ? supabase.from('driver_locations').select('*').eq('user_id', route.driver_id)
-    : supabase.from('driver_locations').select('*').ilike('driver_name', driverName);
+    ? scopeQueryByContext(supabase.from('driver_locations').select('*'), trackingContext).eq('user_id', route.driver_id)
+    : scopeQueryByContext(supabase.from('driver_locations').select('*'), trackingContext).ilike('driver_name', driverName);
   const { data: driverLocations, error: driverLocationError } = await driverLocationQuery
     .order('updated_at', { ascending: false })
     .limit(10);

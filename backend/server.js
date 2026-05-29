@@ -6,11 +6,14 @@ const logger = require('./services/logger');
 const config = require('./lib/config');
 config.validate(logger);
 const express = require('express');
+const { installAsyncRouteHandlerWrapping } = require('./lib/async-route-handler');
+installAsyncRouteHandlerWrapping(express);
 const cookieParser = require('cookie-parser');
 const pinoHttp = require('pino-http');
 const fs = require('fs');
 const path = require('path');
 const { globalLimiter, authLimiter, aiLimiter } = require('./middleware/rateLimiter');
+const { validateJsonMutationBody } = require('./lib/zod-validate');
 
 // Route modules
 const authRouter          = require('./routes/auth');
@@ -131,16 +134,20 @@ app.use(pinoHttp({
 }));
 
 app.use(globalLimiter);
+app.use(validateJsonMutationBody());
 
 // CORS
 app.use((req, res, next) => {
   const origin         = req.headers.origin || '';
   const allowedOrigins = config.CORS_ORIGINS;
-  if (allowedOrigins.length > 0 && allowedOrigins.includes(origin)) {
+  if (origin) {
+    if (!allowedOrigins.includes(origin)) {
+      return res.status(403).json({ error: 'CORS origin not allowed' });
+    }
     res.setHeader('Access-Control-Allow-Origin', origin);
     res.setHeader('Vary', 'Origin');
   }
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS');
+  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,sentry-trace,baggage');
   res.setHeader('Access-Control-Allow-Credentials', 'true');
   if (req.method === 'OPTIONS') return res.sendStatus(204);
@@ -172,50 +179,52 @@ app.use('/dashboard-v2', express.static(frontendV2DistDir, { index: false }));
 app.use('/driver-app', express.static(driverAppDistDir, { index: false }));
 app.use(express.static(landingV2DistDir, { index: false }));
 
+const { authenticateToken, requireRole } = require('./middleware/auth');
+const requireApiAuth = authenticateToken;
+
 // Mount routers
 app.use('/auth', authLimiter, authRouter);
-app.use('/api/users', usersRouter);
-app.use('/api/orders', ordersRouter);
-app.use('/api/invoices', invoicesRouter);
-app.use('/api/inventory', inventoryRouter);
-app.use('/api', deliveriesRouter);
-app.use('/api/stops', stopsRouter);
-app.use('/api/routes', routesRouter);
-app.use('/api/customers', customersRouter);
-app.use('/api/forecast', forecastRouter);
-app.use('/api/ai', aiLimiter, aiRouter);
+app.use('/api/users', requireApiAuth, usersRouter);
+app.use('/api/orders', requireApiAuth, ordersRouter);
+app.use('/api/invoices', requireApiAuth, invoicesRouter);
+app.use('/api/inventory', requireApiAuth, inventoryRouter);
+// Public/customer-token API routers must be mounted before the broad /api dispatch router.
 app.use('/api/portal', portalRouter);
-app.use('/api/driver', driverRouter);
-app.use('/api/drivers', driversRouter);
-app.use('/api/vendors', vendorsRouter);
-app.use('/api/purchase-orders', purchaseOrdersRouter);
-app.use('/api/reorder', reorderRouter);
 app.use('/api/track', trackingRouter);
-app.use('/api/settings', settingsRouter);
-app.use('/api/temperature-logs', temperatureLogsRouter);
-app.use('/api/ops', opsRouter);
-app.use('/api/reporting', reportingRouter);
-app.use('/api/lots', lotsRouter);
-app.use('/api/integrations', integrationsRouter);
-app.use('/api/warehouse/locations', warehouseLocationsRouter);
-app.use('/api/warehouse', warehouseRouter);
-app.use('/api/catch-weight', catchWeightRouter);
+app.use('/api/waitlist', waitlistRouter);
+app.use('/api', requireApiAuth, deliveriesRouter);
+app.use('/api/stops', requireApiAuth, stopsRouter);
+app.use('/api/routes', requireApiAuth, routesRouter);
+app.use('/api/customers', requireApiAuth, customersRouter);
+app.use('/api/forecast', requireApiAuth, forecastRouter);
+app.use('/api/ai', aiLimiter, requireApiAuth, aiRouter);
+app.use('/api/driver', requireApiAuth, driverRouter);
+app.use('/api/drivers', requireApiAuth, driversRouter);
+app.use('/api/vendors', requireApiAuth, vendorsRouter);
+app.use('/api/purchase-orders', requireApiAuth, purchaseOrdersRouter);
+app.use('/api/reorder', requireApiAuth, reorderRouter);
+app.use('/api/settings', requireApiAuth, settingsRouter);
+app.use('/api/temperature-logs', requireApiAuth, temperatureLogsRouter);
+app.use('/api/ops', requireApiAuth, opsRouter);
+app.use('/api/reporting', requireApiAuth, reportingRouter);
+app.use('/api/lots', requireApiAuth, lotsRouter);
+app.use('/api/integrations', requireApiAuth, integrationsRouter);
+app.use('/api/warehouse/locations', requireApiAuth, warehouseLocationsRouter);
+app.use('/api/warehouse', requireApiAuth, warehouseRouter);
+app.use('/api/catch-weight', requireApiAuth, catchWeightRouter);
 const { authenticateToken: _authenticateToken } = require('./middleware/auth');
 app.post('/api/superadmin/restore-session', _authenticateToken, superadminRouter.restoreSessionHandler);
 
-app.use('/api/superadmin', superadminRouter);
-app.use('/api/company-config', companyConfigRouter);
-app.use('/api/onboarding', onboardingRouter);
-app.use('/api/waitlist', waitlistRouter);
-app.use('/api/dwell', dwellRouter);
-app.use('/api/sales-reps', salesRepsRouter);
-app.use('/api/ar', arHubRouter);
-app.use('/api/credit', creditHoldRouter);
-app.use('/api/vendor-bills', vendorBillsRouter);
-app.use('/api/compliance', complianceRouter);
-app.use('/api/audit-log', auditLogRouter);
-
-const { authenticateToken, requireRole } = require('./middleware/auth');
+app.use('/api/superadmin', requireApiAuth, superadminRouter);
+app.use('/api/company-config', requireApiAuth, companyConfigRouter);
+app.use('/api/onboarding', requireApiAuth, onboardingRouter);
+app.use('/api/dwell', requireApiAuth, dwellRouter);
+app.use('/api/sales-reps', requireApiAuth, salesRepsRouter);
+app.use('/api/ar', requireApiAuth, arHubRouter);
+app.use('/api/credit', requireApiAuth, creditHoldRouter);
+app.use('/api/vendor-bills', requireApiAuth, vendorBillsRouter);
+app.use('/api/compliance', requireApiAuth, complianceRouter);
+app.use('/api/audit-log', requireApiAuth, auditLogRouter);
 
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 

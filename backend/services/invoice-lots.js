@@ -26,9 +26,7 @@ function sanitizeInvoiceLotEntry(entry = {}) {
 }
 
 function invoiceLotEntriesFromItems(items = []) {
-  // TODO: Order items need to carry lot_number forward from the PO scan confirm step.
-  // Until that path is wired, lot_numbers on invoices will always be [].
-  // Tracked: Tier-4 invoice lot forwarding.
+  // Order and PO scan flows now pass lot_number through item payloads; derive invoice lot rows from those items.
   const sourceItems = Array.isArray(items) ? items : [];
   const entries = [];
 

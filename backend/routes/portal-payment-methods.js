@@ -1,6 +1,6 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
-const { buildScopeFields, insertRecordWithOptionalScope, executeWithOptionalScope } = require('../services/operating-context');
+const { buildScopeFields, insertRecordWithOptionalScope, executeWithOptionalScope, scopeQueryByContext } = require('../services/operating-context');
 const {
   portalMethodTypeForStripeType,
   findOrCreateCustomer,
@@ -189,7 +189,7 @@ module.exports = function buildPaymentMethodsRouter({ authenticatePortalToken })
       }
 
       const archiveResult = await executeWithOptionalScope(
-        (candidate) => supabase.from('portal_payment_methods').update(candidate).eq('id', methodId).select('*').single(),
+        (candidate) => scopeQueryByContext(supabase.from('portal_payment_methods').update(candidate), req.portalContext).eq('id', methodId).select('*').single(),
         { status: 'archived', is_default: false, updated_at: new Date().toISOString() }
       );
       if (archiveResult.error) throw archiveResult.error;

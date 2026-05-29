@@ -5,6 +5,7 @@
 const fetch = global.fetch; // Node 18+ has global fetch; otherwise, this will be undefined
 const config = require('../lib/config');
 const { renderOrderSlip } = require('./print-template');
+const { buildScopeFields } = require('./operating-context');
 
 async function triggerExternalPrint(order, items, context = {}) {
   const url = process.env.PRINTER_SERVICE_URL;
@@ -55,6 +56,10 @@ async function enqueuePrintJob(order, items, context = {}) {
       created_at: new Date().toISOString(),
       template: 'order-slip',
       status: 'pending',
+      ...buildScopeFields(context, {
+        company_id: order.company_id || undefined,
+        location_id: order.location_id || undefined,
+      }),
     };
     const { data, error } = await supabase.from('printer_queue').insert([payload]).single();
     if (error) return { ok: false, error: error.message };

@@ -13,6 +13,7 @@
   "type": "commonjs",
   "dependencies": {
     "@anthropic-ai/sdk": "^0.90.0",
+    "@sentry/node": "^10.51.0",
     "@supabase/supabase-js": "^2.103.0",
     "bcryptjs": "^2.4.3",
     "cookie-parser": "^1.4.7",

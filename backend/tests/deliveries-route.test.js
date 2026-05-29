@@ -118,6 +118,10 @@ function makeDashboardQuery(table, rows, onFrom) {
       this.rows = [...(rows[table] || [])];
     }
     select() { return this; }
+    eq(column, value) {
+      this.rows = this.rows.filter((row) => String(row[column] || '') === String(value || ''));
+      return this;
+    }
     order() { return this; }
     then(resolve) {
       return Promise.resolve({ data: this.rows, error: null }).then(resolve);

@@ -8,21 +8,25 @@ const {
 } = require('../services/driver-invoice-access');
 
 function mockSupabase({ routes = [], stops = [], invoices = [] }) {
+  const tableRows = { routes, stops, invoices };
   return {
     from(table) {
+      let rows = tableRows[table] || [];
+      const chain = {
+        eq(column, value) {
+          rows = rows.filter((row) => String(row[column] || '') === String(value || ''));
+          return chain;
+        },
+        order() {
+          return Promise.resolve({ data: rows, error: null });
+        },
+        then(resolve, reject) {
+          return Promise.resolve({ data: rows, error: null }).then(resolve, reject);
+        },
+      };
       return {
         select() {
-          return {
-            order() {
-              if (table === 'routes') return Promise.resolve({ data: routes, error: null });
-              if (table === 'invoices') return Promise.resolve({ data: invoices, error: null });
-              return Promise.resolve({ data: [], error: null });
-            },
-            then(resolve, reject) {
-              if (table === 'stops') return Promise.resolve({ data: stops, error: null }).then(resolve, reject);
-              return Promise.resolve({ data: [], error: null }).then(resolve, reject);
-            },
-          };
+          return chain;
         },
       };
     },

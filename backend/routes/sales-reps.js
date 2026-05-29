@@ -3,14 +3,14 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const { authenticateToken } = require('../middleware/auth');
-const { filterRowsByContext, buildScopeFields } = require('../services/operating-context');
+const { filterRowsByContext, buildScopeFields, scopeQueryByContext } = require('../services/operating-context');
 
 const router = express.Router();
 
 // GET /api/sales-reps/customers
 router.get('/customers', authenticateToken, async (req, res) => {
   try {
-    let query = supabase.from('Customers').select('*').order('company_name', { ascending: true });
+    let query = scopeQueryByContext(supabase.from('Customers').select('*'), req.context).order('company_name', { ascending: true });
     if (!['admin', 'manager'].includes(req.user.role)) {
       query = query.eq('sales_rep_id', req.user.id);
     }
@@ -25,9 +25,9 @@ router.get('/customers', authenticateToken, async (req, res) => {
 // GET /api/sales-reps/visit-logs
 router.get('/visit-logs', authenticateToken, async (req, res) => {
   try {
-    let query = supabase
+    let query = scopeQueryByContext(supabase
       .from('customer_visit_logs')
-      .select('*')
+      .select('*'), req.context)
       .order('visited_at', { ascending: false })
       .limit(500);
     if (!['admin', 'manager'].includes(req.user.role)) {
@@ -66,18 +66,18 @@ router.post('/visit-logs', authenticateToken, async (req, res) => {
 router.get('/upsell-alerts', authenticateToken, async (req, res) => {
   try {
     const [forecastResult, ordersResult, customersResult] = await Promise.all([
-      supabase
+      scopeQueryByContext(supabase
         .from('forecast_items')
-        .select('species,projected_demand,unit')
+        .select('species,projected_demand,unit'), req.context)
         .order('projected_demand', { ascending: false })
         .limit(20),
-      supabase
+      scopeQueryByContext(supabase
         .from('orders')
-        .select('customer_id,customer_name,items,created_at')
+        .select('customer_id,customer_name,items,created_at,company_id,location_id'), req.context)
         .gte('created_at', new Date(Date.now() - 60 * 24 * 60 * 60 * 1000).toISOString()),
-      supabase
+      scopeQueryByContext(supabase
         .from('Customers')
-        .select('id,company_name,email,sales_rep_id')
+        .select('id,company_name,email,sales_rep_id,company_id,location_id'), req.context)
         .eq('status', 'active'),
     ]);
 
@@ -124,9 +124,9 @@ router.get('/upsell-alerts', authenticateToken, async (req, res) => {
 // GET /api/sales-reps/order-history/:customerId
 router.get('/order-history/:customerId', authenticateToken, async (req, res) => {
   try {
-    const { data, error } = await supabase
+    const { data, error } = await scopeQueryByContext(supabase
       .from('orders')
-      .select('*')
+      .select('*'), req.context)
       .eq('customer_id', req.params.customerId)
       .order('created_at', { ascending: false })
       .limit(100);

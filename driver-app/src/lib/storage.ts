@@ -16,102 +16,55 @@ type TokenStore = {
 };
 
 let tokenCache: TokenStore = {};
-let tokenDbPromise: Promise<IDBDatabase> | null = null;
 
-function openTokenDb() {
-  if (tokenDbPromise) return tokenDbPromise;
-  tokenDbPromise = new Promise((resolve, reject) => {
-    const request = window.indexedDB.open('noderoute-driver-auth', 1);
-    request.onupgradeneeded = () => {
-      request.result.createObjectStore('tokens');
-    };
-    request.onsuccess = () => resolve(request.result);
-    request.onerror = () => reject(request.error);
-  });
-  return tokenDbPromise;
-}
-
-async function readTokenValue(key: string) {
-  const db = await openTokenDb();
-  return new Promise<string | null>((resolve, reject) => {
-    const tx = db.transaction('tokens', 'readonly');
-    const request = tx.objectStore('tokens').get(key);
-    request.onsuccess = () => resolve(typeof request.result === 'string' ? request.result : null);
-    request.onerror = () => reject(request.error);
-  });
-}
-
-async function writeTokenValue(key: string, value: string) {
-  const db = await openTokenDb();
-  return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction('tokens', 'readwrite');
-    tx.objectStore('tokens').put(value, key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
-  });
-}
-
-async function deleteTokenValue(key: string) {
-  const db = await openTokenDb();
-  return new Promise<void>((resolve, reject) => {
-    const tx = db.transaction('tokens', 'readwrite');
-    tx.objectStore('tokens').delete(key);
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => reject(tx.error);
+function deleteLegacyTokenDb() {
+  return new Promise<void>((resolve) => {
+    if (!window.indexedDB) {
+      resolve();
+      return;
+    }
+    const request = window.indexedDB.deleteDatabase('noderoute-driver-auth');
+    request.onsuccess = () => resolve();
+    request.onerror = () => resolve();
+    request.onblocked = () => resolve();
   });
 }
 
 export async function initializeTokenStorage() {
-  const legacyToken = window.localStorage.getItem(TOKEN_STORAGE_KEY);
-  if (legacyToken) {
-    await writeTokenValue(TOKEN_STORAGE_KEY, legacyToken);
-    window.localStorage.removeItem(TOKEN_STORAGE_KEY);
-  }
-
-  tokenCache = {
-    token: await readTokenValue(TOKEN_STORAGE_KEY) || undefined,
-    refreshToken: await readTokenValue(REFRESH_TOKEN_STORAGE_KEY) || undefined,
-  };
+  tokenCache = {};
+  window.localStorage.removeItem(TOKEN_STORAGE_KEY);
+  window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+  await deleteLegacyTokenDb();
   return tokenCache;
 }
 
 export function loadToken() {
-  return tokenCache.token || null;
+  return null;
 }
 
 export async function loadTokenAsync() {
-  if (tokenCache.token) return tokenCache.token;
-  tokenCache.token = await readTokenValue(TOKEN_STORAGE_KEY) || undefined;
-  return tokenCache.token || null;
+  return null;
 }
 
 export function loadRefreshToken() {
-  return tokenCache.refreshToken || null;
+  return null;
 }
 
 export async function loadRefreshTokenAsync() {
-  if (tokenCache.refreshToken) return tokenCache.refreshToken;
-  tokenCache.refreshToken = await readTokenValue(REFRESH_TOKEN_STORAGE_KEY) || undefined;
-  return tokenCache.refreshToken || null;
+  return null;
 }
 
 export async function saveToken(token: string, refreshToken?: string) {
-  tokenCache.token = token;
-  await writeTokenValue(TOKEN_STORAGE_KEY, token);
-  if (refreshToken) {
-    tokenCache.refreshToken = refreshToken;
-    await writeTokenValue(REFRESH_TOKEN_STORAGE_KEY, refreshToken);
-  }
+  tokenCache = {};
+  void token;
+  void refreshToken;
 }
 
 export async function clearToken() {
   tokenCache = {};
-  await Promise.all([
-    deleteTokenValue(TOKEN_STORAGE_KEY),
-    deleteTokenValue(REFRESH_TOKEN_STORAGE_KEY),
-  ]);
   window.localStorage.removeItem(TOKEN_STORAGE_KEY);
   window.localStorage.removeItem(REFRESH_TOKEN_STORAGE_KEY);
+  await deleteLegacyTokenDb();
 }
 
 export function loadUser() {

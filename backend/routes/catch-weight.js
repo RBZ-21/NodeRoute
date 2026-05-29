@@ -7,6 +7,7 @@ const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
+  scopeQueryByContext,
 } = require('../services/operating-context');
 
 const router = express.Router();
@@ -69,34 +70,34 @@ function withCalculatedFields(entry) {
   };
 }
 
-async function fetchProduct(item = {}) {
+async function fetchProduct(item = {}, context = null) {
   const productId = normalizeText(item.product_id);
   if (productId && isUuid(productId)) {
-    const byId = await supabase.from('products').select('*').eq('id', productId).single();
+    const byId = await scopeQueryByContext(supabase.from('products').select('*'), context).eq('id', productId).single();
     if (!byId.error && byId.data) return byId.data;
   }
 
   const itemNumber = normalizeText(item.item_number || item.product_item_number);
   if (itemNumber) {
-    const byNumber = await supabase.from('products').select('*').eq('item_number', itemNumber).limit(1);
+    const byNumber = await scopeQueryByContext(supabase.from('products').select('*'), context).eq('item_number', itemNumber).limit(1);
     if (!byNumber.error && Array.isArray(byNumber.data) && byNumber.data.length) return byNumber.data[0];
   }
 
   return null;
 }
 
-async function fetchOrder(orderId) {
+async function fetchOrder(orderId, context = null) {
   if (!orderId) return null;
-  const { data, error } = await supabase.from('orders').select('*').eq('id', orderId).single();
+  const { data, error } = await scopeQueryByContext(supabase.from('orders').select('*'), context).eq('id', orderId).single();
   if (error || !data) return null;
   return data;
 }
 
-async function resolveOrderItem(bodyOrParams) {
+async function resolveOrderItem(bodyOrParams, context = null) {
   const explicitOrderId = normalizeText(bodyOrParams.order_id);
   const explicitIndex = bodyOrParams.item_index ?? bodyOrParams.itemIndex;
   if (explicitOrderId && explicitIndex !== undefined) {
-    const order = await fetchOrder(explicitOrderId);
+    const order = await fetchOrder(explicitOrderId, context);
     const index = Number(explicitIndex);
     const items = Array.isArray(order?.items) ? order.items : [];
     if (!order || !Number.isInteger(index) || index < 0 || index >= items.length) return null;
@@ -104,15 +105,15 @@ async function resolveOrderItem(bodyOrParams) {
   }
 
   const parsed = parseOrderItemToken(bodyOrParams.order_item_id);
-  if (parsed) return resolveOrderItem({ order_id: parsed.orderId, item_index: parsed.itemIndex, order_item_id: bodyOrParams.order_item_id });
+  if (parsed) return resolveOrderItem({ order_id: parsed.orderId, item_index: parsed.itemIndex, order_item_id: bodyOrParams.order_item_id }, context);
 
   const orderItemId = normalizeText(bodyOrParams.order_item_id);
   if (!orderItemId) return null;
 
-  const { data: orderItem } = await supabase.from('order_items').select('*').eq('id', orderItemId).single();
+  const { data: orderItem } = await scopeQueryByContext(supabase.from('order_items').select('*'), context).eq('id', orderItemId).single();
   if (!orderItem) return null;
 
-  const order = await fetchOrder(orderItem.order_id);
+  const order = await fetchOrder(orderItem.order_id, context);
   return {
     order,
     orderItemRow: orderItem,
@@ -130,7 +131,7 @@ async function resolveOrderItem(bodyOrParams) {
   };
 }
 
-async function updateOrderItemStatus(resolved, entry, status) {
+async function updateOrderItemStatus(resolved, entry, status, context = null) {
   const updateFields = {
     catch_weight_entry_id: entry.id,
     weight_status: status,
@@ -142,7 +143,7 @@ async function updateOrderItemStatus(resolved, entry, status) {
 
   if (resolved.orderItemRow?.id) {
     await executeWithOptionalScope(
-      (candidate) => supabase.from('order_items').update(candidate).eq('id', resolved.orderItemRow.id).select().single(),
+      (candidate) => scopeQueryByContext(supabase.from('order_items').update(candidate), context).eq('id', resolved.orderItemRow.id).select().single(),
       updateFields
     );
   }
@@ -165,12 +166,12 @@ async function updateOrderItemStatus(resolved, entry, status) {
         catch_weight_approved_by: entry.approved_by || item.catch_weight_approved_by || null,
       };
     });
-    await supabase.from('orders').update({ items: nextItems }).eq('id', resolved.order.id);
+    await scopeQueryByContext(supabase.from('orders').update({ items: nextItems }), context).eq('id', resolved.order.id);
   }
 }
 
 async function createCatchWeightEntry(input, req) {
-  const resolved = await resolveOrderItem(input);
+  const resolved = await resolveOrderItem(input, req.context);
   if (!resolved?.item) {
     const error = new Error('order_item_id was not found');
     error.status = 404;
@@ -182,7 +183,7 @@ async function createCatchWeightEntry(input, req) {
     throw error;
   }
 
-  const product = await fetchProduct(resolved.item);
+  const product = await fetchProduct(resolved.item, req.context);
   const orderedQuantity = asNumber(input.ordered_quantity ?? resolved.orderItemRow?.ordered_quantity ?? orderedQuantityForItem(resolved.item), 0);
   const actualWeight = asNumber(input.actual_weight, NaN);
   const pricePerWeightUnit = asNumber(input.price_per_weight_unit ?? resolved.item.price_per_weight_unit ?? resolved.item.price_per_lb ?? resolved.item.unit_price, NaN);
@@ -228,15 +229,15 @@ async function createCatchWeightEntry(input, req) {
   delete insertPayload.variance_pct;
   delete insertPayload.total_price;
 
-  const existing = await supabase
+  const existing = await scopeQueryByContext(supabase
     .from('catch_weight_entries')
-    .select('*')
+    .select('*'), req.context)
     .eq(isUuid(resolved.orderItemId) ? 'order_item_id' : 'order_item_ref', resolved.orderItemId)
     .limit(1);
   let writeResult;
   if (!existing.error && Array.isArray(existing.data) && existing.data[0]?.id) {
     writeResult = await executeWithOptionalScope(
-      (candidate) => supabase.from('catch_weight_entries').update(candidate).eq('id', existing.data[0].id).select().single(),
+      (candidate) => scopeQueryByContext(supabase.from('catch_weight_entries').update(candidate), req.context).eq('id', existing.data[0].id).select().single(),
       insertPayload
     );
   } else {
@@ -245,7 +246,7 @@ async function createCatchWeightEntry(input, req) {
   if (writeResult.error) throw writeResult.error;
 
   const entry = withCalculatedFields({ ...baseEntry, ...(writeResult.data || {}) });
-  await updateOrderItemStatus(resolved, entry, status);
+  await updateOrderItemStatus(resolved, entry, status, req.context);
 
   if (status === 'variance_flagged') {
     logger.warn({
@@ -273,31 +274,31 @@ router.post('/entry', authenticateToken, requireRole('admin', 'manager'), async 
 
 router.get('/entry/:order_item_id', authenticateToken, async (req, res) => {
   const orderItemId = req.params.order_item_id;
-  const { data, error } = await supabase
+  const { data, error } = await scopeQueryByContext(supabase
     .from('catch_weight_entries')
-    .select('*')
+    .select('*'), req.context)
     .eq(isUuid(orderItemId) ? 'order_item_id' : 'order_item_ref', orderItemId)
     .limit(1);
   if (error) return res.status(500).json({ error: error.message });
   const entry = data?.[0];
   if (!entry) return res.status(404).json({ error: 'Catch weight entry not found' });
 
-  const order = await fetchOrder(entry.order_id);
+  const order = await fetchOrder(entry.order_id, req.context);
   if (order && !rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
-  const product = await fetchProduct(entry);
+  const product = await fetchProduct(entry, req.context);
   const item = Number.isInteger(Number(entry.item_index)) ? order?.items?.[Number(entry.item_index)] : null;
   res.json({ ...withCalculatedFields(entry), product, weight_status: item?.weight_status || entry.weight_status || null });
 });
 
 router.patch('/entry/:id/approve', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { data: entry, error: fetchError } = await supabase.from('catch_weight_entries').select('*').eq('id', req.params.id).single();
+  const { data: entry, error: fetchError } = await scopeQueryByContext(supabase.from('catch_weight_entries').select('*'), req.context).eq('id', req.params.id).single();
   if (fetchError || !entry) return res.status(404).json({ error: 'Catch weight entry not found' });
-  const order = await fetchOrder(entry.order_id);
+  const order = await fetchOrder(entry.order_id, req.context);
   if (order && !rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
   const approvedAt = new Date().toISOString();
   const updateResult = await executeWithOptionalScope(
-    (candidate) => supabase.from('catch_weight_entries').update(candidate).eq('id', req.params.id).select().single(),
+    (candidate) => scopeQueryByContext(supabase.from('catch_weight_entries').update(candidate), req.context).eq('id', req.params.id).select().single(),
     { approved_by: req.user?.id || null, approved_at: approvedAt, weight_status: 'approved', updated_at: approvedAt }
   );
   if (updateResult.error) return res.status(500).json({ error: updateResult.error.message });
@@ -306,17 +307,17 @@ router.patch('/entry/:id/approve', authenticateToken, requireRole('admin', 'mana
     order,
     itemIndex: Number.isInteger(Number(entry.item_index)) ? Number(entry.item_index) : null,
     orderItemRow: entry.order_item_id ? { id: entry.order_item_id } : null,
-  }, { ...entry, ...(updateResult.data || {}) }, 'approved');
+  }, { ...entry, ...(updateResult.data || {}) }, 'approved', req.context);
 
   res.json({ ...withCalculatedFields({ ...entry, ...(updateResult.data || {}) }), weight_status: 'approved' });
 });
 
 router.get('/order/:order_id', authenticateToken, async (req, res) => {
-  const order = await fetchOrder(req.params.order_id);
+  const order = await fetchOrder(req.params.order_id, req.context);
   if (!order) return res.status(404).json({ error: 'Order not found' });
   if (!rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
-  const { data, error } = await supabase.from('catch_weight_entries').select('*').eq('order_id', req.params.order_id);
+  const { data, error } = await scopeQueryByContext(supabase.from('catch_weight_entries').select('*'), req.context).eq('order_id', req.params.order_id);
   if (error) return res.status(500).json({ error: error.message });
   const entries = (data || []).map(withCalculatedFields);
   const summary = entries.reduce((acc, entry) => {
@@ -340,9 +341,9 @@ router.get('/order/:order_id', authenticateToken, async (req, res) => {
 router.get('/product/:product_id/history', authenticateToken, async (req, res) => {
   const limit = Math.min(Math.max(parseInt(req.query.limit || '50', 10) || 50, 1), 200);
   const since = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString();
-  const { data, error } = await supabase
+  const { data, error } = await scopeQueryByContext(supabase
     .from('catch_weight_entries')
-    .select('*')
+    .select('*'), req.context)
     .eq('product_id', req.params.product_id)
     .gte('created_at', since)
     .order('created_at', { ascending: false })
@@ -382,7 +383,7 @@ router.post('/bulk-entry', authenticateToken, requireRole('admin', 'manager'), a
 });
 
 router.get('/variance-report', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  let query = supabase.from('catch_weight_entries').select('*');
+  let query = scopeQueryByContext(supabase.from('catch_weight_entries').select('*'), req.context);
   if (req.query.product_id) query = query.eq('product_id', req.query.product_id);
   if (req.query.driver || req.query.weighed_by) query = query.eq('weighed_by', req.query.driver || req.query.weighed_by);
   if (req.query.order_id) query = query.eq('order_id', req.query.order_id);

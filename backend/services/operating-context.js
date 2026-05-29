@@ -225,6 +225,20 @@ function filterRowsByContext(rows, context) {
   return rows.filter((row) => rowMatchesContext(row, context));
 }
 
+function scopeQueryByContext(query, context, options = {}) {
+  if (!query || !context || context.isGlobalOperator) return query;
+
+  const companyField = options.companyField || 'company_id';
+  const locationField = options.locationField || 'location_id';
+  const activeCompanyId = normalizeId(context.activeCompanyId || context.companyId);
+  const activeLocationId = normalizeId(context.activeLocationId || context.locationId);
+
+  let scopedQuery = query;
+  if (activeCompanyId && companyField) scopedQuery = scopedQuery.eq(companyField, activeCompanyId);
+  if (options.includeLocation && activeLocationId && locationField) scopedQuery = scopedQuery.eq(locationField, activeLocationId);
+  return scopedQuery;
+}
+
 function buildScopeFields(context, overrides = {}) {
   const scoped = { ...overrides };
   const companyId = normalizeId(overrides.company_id || overrides.companyId || context.activeCompanyId || context.companyId);
@@ -285,5 +299,6 @@ module.exports = {
   insertRecordWithOptionalScope,
   isMissingColumnError,
   rowMatchesContext,
+  scopeQueryByContext,
   userResponseWithContext,
 };

@@ -27,7 +27,7 @@ test('reporting route is mounted with auth + manager/admin role guard', () => {
   assert.ok(reportingRouteSource.includes("router.get('/daily-ops', authenticateToken, requireRole('admin', 'manager')"));
   assert.ok(reportingRouteSource.includes("const limit = Math.max(1, Math.min(parseInt(req.query.limit || '100', 10), 500));"));
   assert.ok(serverSource.includes("require('./routes/reporting').router;"), 'reporting router should be required in server.js');
-  assert.ok(serverSource.includes("app.use('/api/reporting', reportingRouter);"));
+  assert.ok(serverSource.includes("app.use('/api/reporting', requireApiAuth, reportingRouter);"));
 });
 
 test('analytics UI integrates reporting rollups controls and API call', () => {
