@@ -1272,9 +1272,7 @@ router.post('/:id/fulfill', validateBody(orderFulfillSchema), authenticateToken,
 
 router.post('/:id/tracking-link', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const order = await dbQuery(
-    supabase
-      .from('orders')
-      .select('*')
+    scopeQueryByContext(supabase.from('orders').select('*'), req.context)
       .eq('id', req.params.id)
       .single(),
     res
@@ -1295,12 +1293,13 @@ router.post('/:id/tracking-link', authenticateToken, requireRole('admin', 'manag
     trackingToken = generateTrackingToken();
     trackingExpiresAt = trackingExpiry();
     const updated = await dbQuery(
-      supabase
-        .from('orders')
-        .update({
+      scopeQueryByContext(
+        supabase.from('orders').update({
           tracking_token: trackingToken,
           tracking_expires_at: trackingExpiresAt,
-        })
+        }),
+        req.context
+      )
         .eq('id', req.params.id)
         .select('id, order_number, tracking_token, tracking_expires_at')
         .single(),
