@@ -723,12 +723,40 @@ async function loadComplianceRows(context) {
 ```
 
 Explanation: Optional email/Stripe providers no longer crash import-time tests or no-provider deployments, compliance endpoints pass request context correctly, and tests now assert the scoped query forms.
+
+## 31. Driver PWA Cookie Auth and Driver Refresh Rotation
+
+FILE PATH: `backend/routes/auth.js`, `driver-app/src/lib/api.ts`, `driver-app/src/lib/storage.ts`, `driver-app/src/hooks/useDriverApp.tsx`, `backend/tests/driver-auth-contract.test.js`, `.env.example`
+
+BEFORE:
+```js
+const token = await loadTokenAsync();
+nextHeaders.set('Authorization', `Bearer ${token}`);
+await saveToken(response.token, response.refreshToken);
+const { token, refreshToken } = signDriverTokens(u);
+res.json({ token, refreshToken, user: userResponseWithContext(u) });
+```
+
+AFTER:
+```js
+const response = await fetch(buildUrl('/auth/refresh'), {
+  method: 'POST',
+  credentials: 'include',
+});
+setToken('cookie-session');
+const { token, refreshToken } = await issueDriverTokens(u);
+await setAuthCookies(res, u);
+res.json({ token, refreshToken, user: userResponseWithContext(u) });
+```
+
+Explanation: The driver PWA now authenticates with HttpOnly cookies and deletes legacy browser token stores, while legacy/native driver refresh tokens rotate through persisted refresh-session rows.
+
 ## Summary Table
 
 | # | Priority | File | Issue Fixed | Status |
 |---|---|---|---|---|
 | 1 | Security | `backend/server.js` | Protected private API router mounts | Done on branch |
-| 2 | Security | `backend/routes/auth.js`, `frontend-v2/src/lib/api.ts`, `backend/middleware/auth.js` | 15m access, 7d refresh, refresh rotation, HttpOnly browser cookies | Done on branch |
+| 2 | Security | `backend/routes/auth.js`, `frontend-v2/src/lib/api.ts`, `driver-app/src/lib/api.ts`, `driver-app/src/lib/storage.ts`, `backend/middleware/auth.js` | 15m access, 7d refresh, refresh rotation, HttpOnly browser cookies, and driver PWA token-storage cleanup | Done on branch |
 | 3 | Security | `supabase/migrations/20260528_enable_rls_all_public_tables.sql` | RLS sweep for remaining public tables | Done on branch |
 | 4 | Security | `backend/lib/zod-validate.js`, `backend/server.js` | Global Zod validation for JSON mutations | Done on branch |
 | 5 | Security | `.env.example` | Environment variables documented; secret hardcoding search found no live key hits | Done on branch |
@@ -745,5 +773,5 @@ Explanation: Optional email/Stripe providers no longer crash import-time tests o
 | 16 | Code Quality | `backend/services/operating-context.js`, `backend/services/plan-limits.js` | Shared tenant scoping and plan-limit utilities extracted | Done on branch |
 | 17 | Code Quality | `backend/services/invoice-lots.js` | Stale lot-forwarding comment resolved | Done on branch |
 | 18 | Infrastructure | `backend/instrument.js`, `frontend-v2/src/instrument.ts` | Sentry already present and preserved | Done |
-| 19 | Infrastructure | `backend/tests/critical-workflows-contract.test.js`, `backend/tests/driver-invoice-access.test.js`, `backend/tests/deliveries-route.test.js`, `backend/tests/catch-weight.test.js`, `backend/tests/compliance-route.test.js` | Added required unit/contract tests and updated scope-aware test mocks | Done; backend per-file sweep 55/55 passing |
-| 20 | Infrastructure | `.env.example` | All targeted scanned environment variables are listed with description comments | Done on branch |
+| 19 | Infrastructure | `backend/tests/critical-workflows-contract.test.js`, `backend/tests/driver-auth-contract.test.js`, `backend/tests/driver-invoice-access.test.js`, `backend/tests/deliveries-route.test.js`, `backend/tests/catch-weight.test.js`, `backend/tests/compliance-route.test.js` | Added required unit/contract tests and updated scope-aware test mocks | Done; backend sweep 302/302 passing |
+| 20 | Infrastructure | `.env.example` | All targeted scanned environment variables, including CI/test vars, are listed with description comments | Done on branch |
