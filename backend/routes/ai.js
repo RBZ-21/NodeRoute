@@ -651,10 +651,37 @@ router.post('/driver-assignments', authenticateToken, requireRole('admin', 'mana
       scopeQueryByContext(supabase.from('routes').select('id,name,stop_ids,active_stop_ids,driver,driver_id,company_id,location_id'), req.context).order('created_at', { ascending: false }).limit(20),
     ]);
 
-    const enrichedDrivers = await Promise.all((drivers || []).map(async (d) => {
-      const { count: completedCount } = await scopeQueryByContext(supabase.from('deliveries').select('id', { count: 'exact', head: true }), req.context).eq('driver_id', d.id).eq('status', 'delivered');
-      const { count: activeCount } = await scopeQueryByContext(supabase.from('routes').select('id', { count: 'exact', head: true }), req.context).eq('driver_id', d.id);
-      return { ...d, completed_count: completedCount || 0, active_count: activeCount || 0 };
+    const driverIds = (drivers || []).map((driver) => driver.id).filter(Boolean);
+    let completedByDriver = new Map();
+    let activeByDriver = new Map();
+
+    if (driverIds.length) {
+      const [{ data: completedDeliveries }, { data: activeRoutes }] = await Promise.all([
+        scopeQueryByContext(
+          supabase.from('deliveries').select('driver_id,status,company_id,location_id'),
+          req.context
+        ).in('driver_id', driverIds).eq('status', 'delivered'),
+        scopeQueryByContext(
+          supabase.from('routes').select('driver_id,company_id,location_id'),
+          req.context
+        ).in('driver_id', driverIds),
+      ]);
+
+      completedByDriver = (completedDeliveries || []).reduce((counts, row) => {
+        counts.set(row.driver_id, (counts.get(row.driver_id) || 0) + 1);
+        return counts;
+      }, new Map());
+
+      activeByDriver = (activeRoutes || []).reduce((counts, row) => {
+        counts.set(row.driver_id, (counts.get(row.driver_id) || 0) + 1);
+        return counts;
+      }, new Map());
+    }
+
+    const enrichedDrivers = (drivers || []).map((d) => ({
+      ...d,
+      completed_count: completedByDriver.get(d.id) || 0,
+      active_count: activeByDriver.get(d.id) || 0,
     }));
 
     const enrichedRoutes = (routes || []).map((r) => ({
