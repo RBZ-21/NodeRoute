@@ -5,6 +5,7 @@ const {
   filterRowsByContext,
   insertRecordWithOptionalScope,
   rowMatchesContext,
+  scopeQueryByContext,
 } = require('../../services/operating-context');
 const {
   buildProjectionRows,
@@ -362,18 +363,21 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
     const nextStatus = String(req.body.status || '').toLowerCase();
     if (!allowed.has(nextStatus)) return res.status(400).json({ error: 'Invalid status' });
 
-    const { data: existing, error: fetchErr } = await supabase
-      .from('op_po_drafts').select('*').eq('id', req.params.id).single();
+    const { data: existing, error: fetchErr } = await scopeQueryByContext(
+      supabase.from('op_po_drafts').select('*'),
+      req.context
+    ).eq('id', req.params.id).single();
     if (fetchErr) return res.status(404).json({ error: 'Draft not found' });
     if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
-    const { data, error } = await supabase
-      .from('op_po_drafts')
-      .update({
+    const { data, error } = await scopeQueryByContext(
+      supabase.from('op_po_drafts').update({
         status: nextStatus,
         updated_at: new Date().toISOString(),
         updated_by: req.user?.name || req.user?.email || 'system',
-      })
+      }),
+      req.context
+    )
       .eq('id', req.params.id)
       .select()
       .single();
