@@ -110,8 +110,10 @@ module.exports = function buildOpsPurchasingOrderRouter() {
   });
 
   router.post('/vendor-purchase-orders/from-draft/:id', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-    const { data: draft, error: draftErr } = await supabase
-      .from('op_po_drafts').select('*').eq('id', req.params.id).single();
+    const { data: draft, error: draftErr } = await scopeQueryByContext(
+      supabase.from('op_po_drafts').select('*'),
+      req.context
+    ).eq('id', req.params.id).single();
     if (draftErr || !draft) return res.status(404).json({ error: 'Draft not found' });
     if (!rowMatchesContext(draft, req.context)) return res.status(403).json({ error: 'Forbidden' });
 
@@ -144,15 +146,15 @@ module.exports = function buildOpsPurchasingOrderRouter() {
     }
 
     // Mark the draft as ordered and link to the new vendor PO.
-    await supabase
-      .from('op_po_drafts')
-      .update({
+    await scopeQueryByContext(
+      supabase.from('op_po_drafts').update({
         status: 'ordered',
         linked_vendor_po_id: persisted?.row?.id || null,
         updated_at: new Date().toISOString(),
         updated_by: req.user?.name || req.user?.email || 'system',
-      })
-      .eq('id', draft.id);
+      }),
+      req.context
+    ).eq('id', draft.id);
 
     res.json(po);
   });
