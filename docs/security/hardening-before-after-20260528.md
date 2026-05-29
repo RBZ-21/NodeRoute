@@ -653,6 +653,25 @@ scopeQueryByContext(supabase.from('products').select('item_number,description'),
 ```
 
 Explanation: Reorder suggestion/product reads, suggestion status updates, reorder dashboard data, and inventory lot product enrichment now apply tenant scope in the Supabase query.
+
+## 28. Printer Queue and Credit Payment Scope Fields
+
+FILE PATH: `backend/services/printer.js`, `backend/services/creditEngine.js`
+
+BEFORE:
+```js
+const { data, error } = await supabase.from('printer_queue').insert([payload]).single();
+await supabase.from('Customers').update(updates).eq('id', resolvedCustomerId);
+```
+
+AFTER:
+```js
+const payload = { ...printPayload, ...buildScopeFields(context, { company_id: order.company_id, location_id: order.location_id }) };
+let updateQuery = supabase.from('Customers').update(updates).eq('id', resolvedCustomerId);
+if (invoice?.company_id) updateQuery = updateQuery.eq('company_id', invoice.company_id);
+```
+
+Explanation: Printer queue rows now persist tenant fields, and payment-stat updates add tenant filters when invoice context supplies them.
 ## Summary Table
 
 | # | Priority | File | Issue Fixed | Status |
@@ -663,7 +682,7 @@ Explanation: Reorder suggestion/product reads, suggestion status updates, reorde
 | 4 | Security | `backend/lib/zod-validate.js`, `backend/server.js` | Global Zod validation for JSON mutations | Done on branch |
 | 5 | Security | `.env.example` | Environment variables documented; secret hardcoding search found no live key hits | Done on branch |
 | 6 | Security | `backend/server.js`, `backend/lib/config.js` | Strict CORS allow-list enforcement | Done on branch |
-| 7 | Multi-tenant | `backend/services/operating-context.js`, `backend/routes/driver.js`, `backend/routes/deliveries.js`, `backend/routes/reporting.js`, `backend/routes/credit-hold.js`, `backend/routes/ar-hub.js`, `backend/routes/audit-log.js`, `backend/routes/users.js`, `backend/routes/drivers.js`, `backend/routes/catch-weight.js`, `backend/routes/temperature-logs.js`, `backend/routes/compliance.js`, `backend/routes/sales-reps.js`, `backend/routes/vendor-bills.js`, `backend/routes/ai.js`, `backend/routes/orders.js`, `backend/routes/inventory.js`, `backend/routes/reorder.js`, `backend/routes/ops/purchasing-order-routes.js`, `backend/routes/ops/purchasing-planning-routes.js`, `backend/services/driver-invoice-access.js`, `backend/services/route-stop-sync.js` | Tenant filters added before high-risk DB queries | Done for tenant-sensitive API routes; auth/portal challenge/superadmin use separate credential, token, or platform scope |
+| 7 | Multi-tenant | `backend/services/operating-context.js`, `backend/routes/driver.js`, `backend/routes/deliveries.js`, `backend/routes/reporting.js`, `backend/routes/credit-hold.js`, `backend/routes/ar-hub.js`, `backend/routes/audit-log.js`, `backend/routes/users.js`, `backend/routes/drivers.js`, `backend/routes/catch-weight.js`, `backend/routes/temperature-logs.js`, `backend/routes/compliance.js`, `backend/routes/sales-reps.js`, `backend/routes/vendor-bills.js`, `backend/routes/ai.js`, `backend/routes/orders.js`, `backend/routes/inventory.js`, `backend/routes/reorder.js`, `backend/routes/ops/purchasing-order-routes.js`, `backend/routes/ops/purchasing-planning-routes.js`, `backend/services/driver-invoice-access.js`, `backend/services/route-stop-sync.js`, `backend/services/printer.js`, `backend/services/creditEngine.js` | Tenant filters and scope fields added before high-risk DB queries/writes | Done for tenant-sensitive API routes; auth/portal challenge/superadmin use separate credential, token, or platform scope |
 | 8 | Multi-tenant | `backend/routes/driver.js`, `backend/routes/deliveries.js` | Driver delivery reads scoped by company | Done for driver/delivery surfaces |
 | 9 | Multi-tenant | `backend/services/plan-limits.js`, `backend/routes/users.js`, `backend/routes/orders.js` | API-level driver and delivery plan limits | Done on branch |
 | 10 | Performance | `backend/routes/deliveries.js`, `backend/routes/ai.js` | Replaced delivery product and AI driver-assignment N+1 lookups with batched queries | Done for identified N+1 paths |
