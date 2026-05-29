@@ -633,6 +633,26 @@ scopeQueryByContext(supabase.from('products').update({ avg_yield: newAvg, yield_
 ```
 
 Explanation: Moved additional driver invoice, route synchronization, order mutation helper, and inventory yield update paths from post-query filtering to tenant-scoped Supabase builders.
+
+## 27. Reorder Route and Inventory Product Lookup Query Scoping
+
+FILE PATH: `backend/routes/reorder.js`, `backend/routes/inventory.js`
+
+BEFORE:
+```js
+supabase.from('reorder_suggestions').select('*').order('created_at', { ascending: false });
+supabase.from('products').select('*').eq('id', req.params.product_id).single();
+supabase.from('products').select('item_number,description').in('item_number', itemNumbers);
+```
+
+AFTER:
+```js
+scopeQueryByContext(supabase.from('reorder_suggestions').select('*'), req.context).order('created_at', { ascending: false });
+scopeQueryByContext(supabase.from('products').select('*'), req.context).eq('id', req.params.product_id).single();
+scopeQueryByContext(supabase.from('products').select('item_number,description'), req.context).in('item_number', itemNumbers);
+```
+
+Explanation: Reorder suggestion/product reads, suggestion status updates, reorder dashboard data, and inventory lot product enrichment now apply tenant scope in the Supabase query.
 ## Summary Table
 
 | # | Priority | File | Issue Fixed | Status |
@@ -643,7 +663,7 @@ Explanation: Moved additional driver invoice, route synchronization, order mutat
 | 4 | Security | `backend/lib/zod-validate.js`, `backend/server.js` | Global Zod validation for JSON mutations | Done on branch |
 | 5 | Security | `.env.example` | Environment variables documented; secret hardcoding search found no live key hits | Done on branch |
 | 6 | Security | `backend/server.js`, `backend/lib/config.js` | Strict CORS allow-list enforcement | Done on branch |
-| 7 | Multi-tenant | `backend/services/operating-context.js`, `backend/routes/driver.js`, `backend/routes/deliveries.js`, `backend/routes/reporting.js`, `backend/routes/credit-hold.js`, `backend/routes/ar-hub.js`, `backend/routes/audit-log.js`, `backend/routes/users.js`, `backend/routes/drivers.js`, `backend/routes/catch-weight.js`, `backend/routes/temperature-logs.js`, `backend/routes/compliance.js`, `backend/routes/sales-reps.js`, `backend/routes/vendor-bills.js`, `backend/routes/ai.js`, `backend/routes/orders.js`, `backend/routes/inventory.js`, `backend/routes/ops/purchasing-order-routes.js`, `backend/routes/ops/purchasing-planning-routes.js`, `backend/services/driver-invoice-access.js`, `backend/services/route-stop-sync.js` | Tenant filters added before high-risk DB queries | Done for tenant-sensitive API routes; auth/portal challenge/superadmin use separate credential, token, or platform scope |
+| 7 | Multi-tenant | `backend/services/operating-context.js`, `backend/routes/driver.js`, `backend/routes/deliveries.js`, `backend/routes/reporting.js`, `backend/routes/credit-hold.js`, `backend/routes/ar-hub.js`, `backend/routes/audit-log.js`, `backend/routes/users.js`, `backend/routes/drivers.js`, `backend/routes/catch-weight.js`, `backend/routes/temperature-logs.js`, `backend/routes/compliance.js`, `backend/routes/sales-reps.js`, `backend/routes/vendor-bills.js`, `backend/routes/ai.js`, `backend/routes/orders.js`, `backend/routes/inventory.js`, `backend/routes/reorder.js`, `backend/routes/ops/purchasing-order-routes.js`, `backend/routes/ops/purchasing-planning-routes.js`, `backend/services/driver-invoice-access.js`, `backend/services/route-stop-sync.js` | Tenant filters added before high-risk DB queries | Done for tenant-sensitive API routes; auth/portal challenge/superadmin use separate credential, token, or platform scope |
 | 8 | Multi-tenant | `backend/routes/driver.js`, `backend/routes/deliveries.js` | Driver delivery reads scoped by company | Done for driver/delivery surfaces |
 | 9 | Multi-tenant | `backend/services/plan-limits.js`, `backend/routes/users.js`, `backend/routes/orders.js` | API-level driver and delivery plan limits | Done on branch |
 | 10 | Performance | `backend/routes/deliveries.js`, `backend/routes/ai.js` | Replaced delivery product and AI driver-assignment N+1 lookups with batched queries | Done for identified N+1 paths |
