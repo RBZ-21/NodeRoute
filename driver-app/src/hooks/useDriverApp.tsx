@@ -35,14 +35,12 @@ import {
   loadQueuedTemperatureLogs,
   listStopDrafts,
   loadSelectedRouteId,
-  loadToken,
   loadUser,
   saveOfflineRoutePackStatus,
   saveQueuedStopNoteUpdates,
   saveCache,
   saveQueuedTemperatureLogs,
   saveSelectedRouteId,
-  saveToken,
   saveUser,
 } from '@/lib/storage';
 import { extractStopItems, findLinkedDelivery, getCurrentRoute, getRouteInvoices, isArrivedStatus, isDeliveredStatus } from '@/lib/utils';
@@ -140,11 +138,11 @@ function statusForAction(action: StatusAction) {
 
 export function DriverAppProvider({ children }: { children: ReactNode }) {
   const { pushToast } = useToast();
-  const [token, setToken] = useState<string | null>(() => loadToken());
+  const [token, setToken] = useState<string | null>(() => loadUser() ? 'cookie-session' : null);
   const [user, setUser] = useState<DriverUser | null>(() => loadUser());
   const [payload, setPayload] = useState<BootstrapPayload | null>(() => loadCache());
   const [selectedRouteId, setSelectedRouteIdState] = useState<string | null>(() => loadSelectedRouteId());
-  const [loading, setLoading] = useState(() => !!loadToken());
+  const [loading, setLoading] = useState(() => !!loadUser());
   const [refreshing, setRefreshing] = useState(false);
   const [usingCachedData, setUsingCachedData] = useState(false);
   const [isOnline, setIsOnline] = useState(() => navigator.onLine);
@@ -190,9 +188,9 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
   });
 
   useEffect(() => {
-    void initializeTokenStorage().then(({ token: storedToken }) => {
-      if (storedToken) {
-        setToken(storedToken);
+    void initializeTokenStorage().then(() => {
+      if (loadUser()) {
+        setToken('cookie-session');
         setLoading(true);
       } else {
         setLoading(false);
@@ -380,9 +378,8 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
 
   async function login(email: string, password: string) {
     const response = await loginRequest(email, password);
-    await saveToken(response.token, response.refreshToken);
     saveUser(response.user);
-    setToken(response.token);
+    setToken('cookie-session');
     setUser(response.user);
     pushToast(`Welcome back, ${response.user.name || 'driver'}.`, 'success');
   }
