@@ -42,10 +42,10 @@ function daysOpen(lot) {
   return Math.max(0, Math.floor((Date.now() - start.getTime()) / 86400000));
 }
 
-async function loadComplianceRows() {
+async function loadComplianceRows(context) {
   const [lotCodesResult, inventoryLotsResult] = await Promise.all([
-    scopeQueryByContext(supabase.from('lot_codes').select('*'), req.context),
-    scopeQueryByContext(supabase.from('inventory_lots').select('*'), req.context),
+    scopeQueryByContext(supabase.from('lot_codes').select('*'), context),
+    scopeQueryByContext(supabase.from('inventory_lots').select('*'), context),
   ]);
 
   if (lotCodesResult.error) throw lotCodesResult.error;
@@ -59,7 +59,7 @@ async function loadComplianceRows() {
 
 router.get('/summary', async (req, res) => {
   try {
-    const { lotCodes, inventoryLots } = await loadComplianceRows();
+    const { lotCodes, inventoryLots } = await loadComplianceRows(req.context);
     const scopedLots = filterRowsByContext(lotCodes, req.context);
     const scopedInventoryLots = filterRowsByContext(inventoryLots, req.context);
     const totalEvents = scopedLots.length * EVENT_DEFINITIONS.length;
@@ -88,7 +88,7 @@ router.get('/summary', async (req, res) => {
 
 router.get('/cte-completeness', async (req, res) => {
   try {
-    const { lotCodes } = await loadComplianceRows();
+    const { lotCodes } = await loadComplianceRows(req.context);
     const scopedLots = filterRowsByContext(lotCodes, req.context);
     const ctes = EVENT_DEFINITIONS.map((definition) => {
       const complete = scopedLots.filter((lot) => eventComplete(lot, definition)).length;
@@ -137,7 +137,7 @@ function buildGaps(lots) {
 
 router.get('/gaps', async (req, res) => {
   try {
-    const { lotCodes } = await loadComplianceRows();
+    const { lotCodes } = await loadComplianceRows(req.context);
     const scopedLots = filterRowsByContext(lotCodes, req.context);
     res.json({ gaps: buildGaps(scopedLots) });
   } catch (error) {
