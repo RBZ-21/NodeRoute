@@ -588,6 +588,31 @@ VITE_STATUSPAGE_EMBED_SCRIPT_URL=
 ```
 
 Explanation: Added the environment variables found by targeted branch scans of `process.env.*`, `process.env['...']`, and `import.meta.env.*`, and verified every assignment has a description comment.
+
+## 25. Final Tenant Scope and AI Count Batching Audit Fixes
+
+FILE PATH: `backend/routes/orders.js`, `backend/routes/ops/purchasing-order-routes.js`, `backend/routes/ops/purchasing-planning-routes.js`, `backend/routes/ai.js`
+
+BEFORE:
+```js
+supabase.from('orders').select('*').eq('id', req.params.id).single();
+supabase.from('op_po_drafts').select('*').eq('id', req.params.id).single();
+await Promise.all((drivers || []).map(async (d) => {
+  await scopeQueryByContext(supabase.from('deliveries').select('id', { count: 'exact', head: true }), req.context).eq('driver_id', d.id);
+}));
+```
+
+AFTER:
+```js
+scopeQueryByContext(supabase.from('orders').select('*'), req.context).eq('id', req.params.id).single();
+scopeQueryByContext(supabase.from('op_po_drafts').select('*'), req.context).eq('id', req.params.id).single();
+const [{ data: completedDeliveries }, { data: activeRoutes }] = await Promise.all([
+  scopeQueryByContext(supabase.from('deliveries').select('driver_id,status,company_id,location_id'), req.context).in('driver_id', driverIds),
+  scopeQueryByContext(supabase.from('routes').select('driver_id,company_id,location_id'), req.context).in('driver_id', driverIds),
+]);
+```
+
+Explanation: Closed audit gaps where ID lookups relied on post-fetch context checks and replaced the AI driver-assignment per-driver count loop with two batched tenant-scoped queries.
 ## Summary Table
 
 | # | Priority | File | Issue Fixed | Status |
@@ -598,10 +623,10 @@ Explanation: Added the environment variables found by targeted branch scans of `
 | 4 | Security | `backend/lib/zod-validate.js`, `backend/server.js` | Global Zod validation for JSON mutations | Done on branch |
 | 5 | Security | `.env.example` | Environment variables documented; secret hardcoding search found no live key hits | Done on branch |
 | 6 | Security | `backend/server.js`, `backend/lib/config.js` | Strict CORS allow-list enforcement | Done on branch |
-| 7 | Multi-tenant | `backend/services/operating-context.js`, `backend/routes/driver.js`, `backend/routes/deliveries.js`, `backend/routes/reporting.js`, `backend/routes/credit-hold.js`, `backend/routes/ar-hub.js`, `backend/routes/audit-log.js`, `backend/routes/users.js`, `backend/routes/drivers.js`, `backend/routes/catch-weight.js`, `backend/routes/temperature-logs.js`, `backend/routes/compliance.js`, `backend/routes/sales-reps.js`, `backend/routes/vendor-bills.js`, `backend/routes/ai.js` | Tenant filters added before high-risk DB queries | Done for tenant-sensitive API routes; auth/portal challenge/superadmin use separate credential, token, or platform scope |
+| 7 | Multi-tenant | `backend/services/operating-context.js`, `backend/routes/driver.js`, `backend/routes/deliveries.js`, `backend/routes/reporting.js`, `backend/routes/credit-hold.js`, `backend/routes/ar-hub.js`, `backend/routes/audit-log.js`, `backend/routes/users.js`, `backend/routes/drivers.js`, `backend/routes/catch-weight.js`, `backend/routes/temperature-logs.js`, `backend/routes/compliance.js`, `backend/routes/sales-reps.js`, `backend/routes/vendor-bills.js`, `backend/routes/ai.js`, `backend/routes/orders.js`, `backend/routes/ops/purchasing-order-routes.js`, `backend/routes/ops/purchasing-planning-routes.js` | Tenant filters added before high-risk DB queries | Done for tenant-sensitive API routes; auth/portal challenge/superadmin use separate credential, token, or platform scope |
 | 8 | Multi-tenant | `backend/routes/driver.js`, `backend/routes/deliveries.js` | Driver delivery reads scoped by company | Done for driver/delivery surfaces |
 | 9 | Multi-tenant | `backend/services/plan-limits.js`, `backend/routes/users.js`, `backend/routes/orders.js` | API-level driver and delivery plan limits | Done on branch |
-| 10 | Performance | `backend/routes/deliveries.js` | Replaced delivery product N+1 lookup with batched queries | Done for identified N+1 path |
+| 10 | Performance | `backend/routes/deliveries.js`, `backend/routes/ai.js` | Replaced delivery product and AI driver-assignment N+1 lookups with batched queries | Done for identified N+1 paths |
 | 11 | Performance | `supabase/migrations/20260528_query_performance_indexes.sql` | Conditional indexes for common filters/joins/sorts | Done on branch |
 | 12 | Performance | Repo search | No socket/realtime subscriptions found to clean up | Verified by search |
 | 13 | Performance | `backend/routes/driver.js`, `driver-app/src/hooks/useLocationUpdater.ts` | Location updates throttled to 5 seconds | Done on branch |
