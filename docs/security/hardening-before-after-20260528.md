@@ -696,6 +696,33 @@ const chain = {
 ```
 
 Explanation: Updated the Supabase mock to support tenant-scoping `.eq()` calls added to driver invoice hydration.
+
+## 30. Optional Provider Lazy Loading and Scope-Aware Test Coverage
+
+FILE PATH: `backend/services/email.js`, `backend/services/stripe.js`, `backend/routes/compliance.js`, `backend/tests/catch-weight.test.js`, `backend/tests/deliveries-route.test.js`, `backend/tests/reporting-rollups.test.js`, `backend/tests/route-geo-optimization.test.js`, `backend/tests/sprint4-coverage-cleanup.test.js`, `backend/tests/stop-delivery-email-and-driver-skip.test.js`
+
+BEFORE:
+```js
+const { Resend } = require('resend');
+const Stripe = require('stripe');
+async function loadComplianceRows() {
+  scopeQueryByContext(supabase.from('lot_codes').select('*'), req.context);
+}
+```
+
+AFTER:
+```js
+if (process.env.RESEND_API_KEY) ({ Resend } = require('resend'));
+function getClient() {
+  const Stripe = require('stripe');
+  return new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2023-10-16' });
+}
+async function loadComplianceRows(context) {
+  scopeQueryByContext(supabase.from('lot_codes').select('*'), context);
+}
+```
+
+Explanation: Optional email/Stripe providers no longer crash import-time tests or no-provider deployments, compliance endpoints pass request context correctly, and tests now assert the scoped query forms.
 ## Summary Table
 
 | # | Priority | File | Issue Fixed | Status |
@@ -706,7 +733,7 @@ Explanation: Updated the Supabase mock to support tenant-scoping `.eq()` calls a
 | 4 | Security | `backend/lib/zod-validate.js`, `backend/server.js` | Global Zod validation for JSON mutations | Done on branch |
 | 5 | Security | `.env.example` | Environment variables documented; secret hardcoding search found no live key hits | Done on branch |
 | 6 | Security | `backend/server.js`, `backend/lib/config.js` | Strict CORS allow-list enforcement | Done on branch |
-| 7 | Multi-tenant | `backend/services/operating-context.js`, `backend/routes/driver.js`, `backend/routes/deliveries.js`, `backend/routes/reporting.js`, `backend/routes/credit-hold.js`, `backend/routes/ar-hub.js`, `backend/routes/audit-log.js`, `backend/routes/users.js`, `backend/routes/drivers.js`, `backend/routes/catch-weight.js`, `backend/routes/temperature-logs.js`, `backend/routes/compliance.js`, `backend/routes/sales-reps.js`, `backend/routes/vendor-bills.js`, `backend/routes/ai.js`, `backend/routes/orders.js`, `backend/routes/inventory.js`, `backend/routes/reorder.js`, `backend/routes/ops/purchasing-order-routes.js`, `backend/routes/ops/purchasing-planning-routes.js`, `backend/services/driver-invoice-access.js`, `backend/services/route-stop-sync.js`, `backend/services/printer.js`, `backend/services/creditEngine.js` | Tenant filters and scope fields added before high-risk DB queries/writes | Done for tenant-sensitive API routes; auth/portal challenge/superadmin use separate credential, token, or platform scope |
+| 7 | Multi-tenant | `backend/services/operating-context.js`, `backend/routes/driver.js`, `backend/routes/deliveries.js`, `backend/routes/reporting.js`, `backend/routes/credit-hold.js`, `backend/routes/ar-hub.js`, `backend/routes/audit-log.js`, `backend/routes/users.js`, `backend/routes/drivers.js`, `backend/routes/catch-weight.js`, `backend/routes/temperature-logs.js`, `backend/routes/compliance.js`, `backend/routes/sales-reps.js`, `backend/routes/vendor-bills.js`, `backend/routes/ai.js`, `backend/routes/orders.js`, `backend/routes/inventory.js`, `backend/routes/reorder.js`, `backend/routes/ops/purchasing-order-routes.js`, `backend/routes/ops/purchasing-planning-routes.js`, `backend/services/driver-invoice-access.js`, `backend/services/route-stop-sync.js`, `backend/services/printer.js`, `backend/services/creditEngine.js` | Tenant filters and scope fields added before high-risk DB queries/writes | Done for tenant-sensitive API routes; auth/portal challenge/superadmin use separate credential, token, or platform scope; backend test sweep passes |
 | 8 | Multi-tenant | `backend/routes/driver.js`, `backend/routes/deliveries.js` | Driver delivery reads scoped by company | Done for driver/delivery surfaces |
 | 9 | Multi-tenant | `backend/services/plan-limits.js`, `backend/routes/users.js`, `backend/routes/orders.js` | API-level driver and delivery plan limits | Done on branch |
 | 10 | Performance | `backend/routes/deliveries.js`, `backend/routes/ai.js` | Replaced delivery product and AI driver-assignment N+1 lookups with batched queries | Done for identified N+1 paths |
@@ -718,5 +745,5 @@ Explanation: Updated the Supabase mock to support tenant-scoping `.eq()` calls a
 | 16 | Code Quality | `backend/services/operating-context.js`, `backend/services/plan-limits.js` | Shared tenant scoping and plan-limit utilities extracted | Done on branch |
 | 17 | Code Quality | `backend/services/invoice-lots.js` | Stale lot-forwarding comment resolved | Done on branch |
 | 18 | Infrastructure | `backend/instrument.js`, `frontend-v2/src/instrument.ts` | Sentry already present and preserved | Done |
-| 19 | Infrastructure | `backend/tests/critical-workflows-contract.test.js`, `backend/tests/driver-invoice-access.test.js` | Added required unit/contract tests and updated scope-aware test mocks | Done on branch |
+| 19 | Infrastructure | `backend/tests/critical-workflows-contract.test.js`, `backend/tests/driver-invoice-access.test.js`, `backend/tests/deliveries-route.test.js`, `backend/tests/catch-weight.test.js`, `backend/tests/compliance-route.test.js` | Added required unit/contract tests and updated scope-aware test mocks | Done; backend per-file sweep 55/55 passing |
 | 20 | Infrastructure | `.env.example` | All targeted scanned environment variables are listed with description comments | Done on branch |
