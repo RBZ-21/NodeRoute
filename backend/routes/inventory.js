@@ -787,10 +787,10 @@ router.post('/:id/yield', authenticateToken, validateBody(inventoryYieldBodySche
   const n      = (item?.yield_count || 0) + 1;
   const newAvg = parseFloat((((item?.avg_yield || 0) * (n - 1) + yield_pct) / n).toFixed(2));
 
-  const { data, error } = await supabase
-    .from('products')
-    .update({ avg_yield: newAvg, yield_count: n, updated_at: new Date().toISOString() })
-    .eq('item_number', req.params.id).select().single();
+  const { data, error } = await scopeQueryByContext(
+    supabase.from('products').update({ avg_yield: newAvg, yield_count: n, updated_at: new Date().toISOString() }),
+    req.context
+  ).eq('item_number', req.params.id).select().single();
   if (error) return res.status(500).json({ error: error.message });
 
   res.json({ ...data, yield_pct, sample_count: n });
