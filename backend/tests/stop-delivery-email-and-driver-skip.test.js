@@ -12,7 +12,7 @@ const driverAppHookSource = fs.readFileSync(path.join(repoRoot, 'driver-app', 's
 test('stop depart email follows the stop invoice instead of customer fallback order lookup', () => {
   for (const marker of [
     "if (stop.invoice_id) {",
-    ".from('invoices').select('*').eq('id', stop.invoice_id).single();",
+    "scopeQueryByContext(supabase.from('invoices').select('*'), context).eq('id', stop.invoice_id).single();",
     "if (invoice && email) await sendInvoiceEmail(invoice, 'Invoice');",
   ]) {
     assert.ok(stopsRouteSource.includes(marker), `stops route missing marker ${marker}`);
