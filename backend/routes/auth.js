@@ -83,10 +83,20 @@ function signUserJWT(user, expiresIn, tokenType, extraClaims = {}) {
   );
 }
 
-function signDriverTokens(user) {
+async function issueDriverTokens(user) {
+  const sessionId = crypto.randomUUID();
+  const refreshToken = signUserJWT(user, DRIVER_REFRESH_EXPIRY, 'driver_refresh', { sessionId });
+  const { error } = await supabase.from(REFRESH_SESSION_TABLE).insert({
+    id: sessionId,
+    user_id: user.id,
+    token_hash: hashRefreshToken(refreshToken),
+    expires_at: refreshExpiresAt().toISOString(),
+  });
+  if (error) throw error;
   return {
     token: signUserJWT(user, DRIVER_ACCESS_EXPIRY, 'driver_access'),
-    refreshToken: signUserJWT(user, DRIVER_REFRESH_EXPIRY, 'driver_refresh', { sessionId: crypto.randomUUID() }),
+    refreshToken,
+    sessionId,
   };
 }
 
@@ -180,6 +190,61 @@ async function rotateRefreshSession(refreshToken) {
     .is('revoked_at', null);
 
   return { accessToken: signJWT(user), refreshToken: next.refreshToken, user };
+}
+
+async function rotateDriverRefreshSession(refreshToken) {
+  let payload;
+  try {
+    payload = jwt.verify(refreshToken, JWT_SECRET);
+  } catch {
+    const err = new Error('Invalid or expired refresh token');
+    err.status = 401;
+    throw err;
+  }
+  if (payload?.tokenType !== 'driver_refresh' || !payload?.sessionId) {
+    const err = new Error('Invalid refresh token');
+    err.status = 401;
+    throw err;
+  }
+
+  const { data: session, error: sessionError } = await supabase
+    .from(REFRESH_SESSION_TABLE)
+    .select('*')
+    .eq('id', payload.sessionId)
+    .eq('user_id', payload.userId || payload.sub)
+    .single();
+
+  if (sessionError || !session) {
+    const err = new Error('Refresh session not found');
+    err.status = 401;
+    throw err;
+  }
+  if (session.revoked_at || new Date(session.expires_at).getTime() <= Date.now() || session.token_hash !== hashRefreshToken(refreshToken)) {
+    const err = new Error('Refresh session revoked');
+    err.status = 401;
+    throw err;
+  }
+
+  const users = await dbQuery(supabase.from('users').select('*').eq('id', payload.userId || payload.sub).limit(1), null);
+  const user = users?.[0];
+  if (!user || user.status !== 'active' || user.role !== 'driver') {
+    const err = new Error('User not found');
+    err.status = 401;
+    throw err;
+  }
+
+  const next = await issueDriverTokens(user);
+  await supabase
+    .from(REFRESH_SESSION_TABLE)
+    .update({
+      revoked_at: new Date().toISOString(),
+      replaced_by: next.sessionId,
+      last_used_at: new Date().toISOString(),
+    })
+    .eq('id', session.id)
+    .is('revoked_at', null);
+
+  return { token: next.token, refreshToken: next.refreshToken, user };
 }
 
 async function findUserByCredentials(email, password) {
@@ -349,7 +414,8 @@ router.post('/driver/login', loginLimiter, async (req, res) => {
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
   if (u.role !== 'driver') return res.status(403).json({ error: 'Forbidden' });
 
-  const { token, refreshToken } = signDriverTokens(u);
+  const { token, refreshToken } = await issueDriverTokens(u);
+  await setAuthCookies(res, u);
   res.json({ token, refreshToken, user: userResponseWithContext(u) });
 });
 
@@ -357,25 +423,16 @@ router.post('/driver/refresh', async (req, res) => {
   const refreshToken = req.body?.refreshToken;
   if (!refreshToken) return res.status(400).json({ error: 'Refresh token required' });
 
-  let payload;
   try {
-    payload = jwt.verify(refreshToken, JWT_SECRET);
-  } catch {
-    return res.status(401).json({ error: 'Invalid or expired refresh token' });
+    const rotated = await rotateDriverRefreshSession(refreshToken);
+    res.json({
+      token: rotated.token,
+      refreshToken: rotated.refreshToken,
+      user: userResponseWithContext(rotated.user),
+    });
+  } catch (error) {
+    return res.status(error.status || 401).json({ error: error.message || 'Invalid refresh token' });
   }
-  if (payload?.tokenType !== 'driver_refresh') {
-    return res.status(401).json({ error: 'Invalid refresh token' });
-  }
-
-  const users = await dbQuery(supabase.from('users').select('*').eq('id', payload.userId || payload.sub).limit(1), res);
-  if (!users) return;
-  const u = users[0];
-  if (!u || u.status !== 'active' || u.role !== 'driver') {
-    return res.status(401).json({ error: 'User not found' });
-  }
-
-  const tokens = signDriverTokens(u);
-  res.json({ ...tokens, user: userResponseWithContext(u) });
 });
 
 router.post('/signup', loginLimiter, async (req, res) => {
