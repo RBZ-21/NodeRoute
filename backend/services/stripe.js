@@ -6,11 +6,11 @@
  * payloads with missing, non-numeric, or stale timestamps before Stripe's own
  * library can parse them. This prevents replay attacks and forged events.
  */
-const Stripe = require('stripe');
 const config = require('../lib/config');
 
 let _client = null;
 function getClient() {
+  const Stripe = require('stripe');
   if (!_client) _client = new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2023-10-16' });
   return _client;
 }
