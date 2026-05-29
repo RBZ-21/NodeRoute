@@ -582,9 +582,9 @@ function withoutOptionalInvoiceFields(payload, { stripEstimatedWeightPending = f
   return next;
 }
 
-async function updateRecord(table, id, payload, res) {
+async function updateRecord(table, id, payload, res, context) {
   const updateResult = await executeWithOptionalScope(
-    (candidate) => supabase.from(table).update(candidate).eq('id', id).select().single(),
+    (candidate) => scopeQueryByContext(supabase.from(table).update(candidate), context).eq('id', id).select().single(),
     payload
   );
   if (updateResult.error) {
@@ -606,11 +606,10 @@ async function findOrderStop(order, context) {
 
   const orderNumber = String(order?.order_number || '').trim();
   if (!orderNumber) return null;
-  const { data, error } = await supabase
-    .from('stops')
-    .select('*')
-    .ilike('notes', `Order ${orderNumber}`)
-    .limit(1);
+  const { data, error } = await scopeQueryByContext(
+    supabase.from('stops').select('*'),
+    context
+  ).ilike('notes', `Order ${orderNumber}`).limit(1);
   if (error || !Array.isArray(data) || !data.length) return null;
   return data[0];
 }
@@ -1010,7 +1009,7 @@ router.patch('/:id/items/:itemIndex/actual-weight', validateBody(orderActualWeig
   // eslint-disable-next-line no-console
   console.log(`[weight-capture] order=${order.id} item=${idx} actual_weight=${rounded} user=${req.user?.id || req.user?.email} ts=${new Date().toISOString()}`);
 
-  const updated = await updateRecord('orders', req.params.id, { items: updatedItems }, res);
+  const updated = await updateRecord('orders', req.params.id, { items: updatedItems }, res, req.context);
   if (!updated) return;
   const invoice = await createOrUpdateProcessingInvoice(
     { ...order, ...updated, items: updatedItems },
@@ -1025,7 +1024,7 @@ router.patch('/:id/items/:itemIndex/actual-weight', validateBody(orderActualWeig
   const orderWithInvoice = await updateRecord('orders', req.params.id, {
     invoice_id: invoice.id,
     status: orderStatus,
-  }, res);
+  }, res, req.context);
   if (!orderWithInvoice) return;
 
   res.json(enrichOrderResponse({ ...orderWithInvoice, items: updatedItems, invoice_id: invoice.id }));
@@ -1103,7 +1102,7 @@ router.patch('/:id', validateBody(orderUpdateSchema), authenticateToken, require
   if (req.body.taxRate !== undefined || req.body.tax_rate !== undefined) {
     updates.tax_rate = normalizeTaxRate(req.body.taxRate ?? req.body.tax_rate);
   }
-  const data = await updateRecord('orders', req.params.id, updates, res);
+  const data = await updateRecord('orders', req.params.id, updates, res, req.context);
   if (!data) return;
   const mergedOrder = { ...existing, ...data, ...updates, fulfillment_type: fulfillmentType };
   try {
@@ -1131,7 +1130,7 @@ router.patch('/:id', validateBody(orderUpdateSchema), authenticateToken, require
     const refreshed = await updateRecord('orders', req.params.id, {
       invoice_id: invoice.id,
       status: 'in_process',
-    }, res);
+    }, res, req.context);
     if (!refreshed) return;
     return res.json(enrichOrderResponse({ ...mergedOrder, ...refreshed, items: mergedOrder.items || [], invoice_id: invoice.id }));
   }
@@ -1183,7 +1182,7 @@ router.post('/:id/send', validateBody(orderSendSchema), authenticateToken, requi
     invoice_id: invoice.id,
     tracking_token: trackingToken,
     tracking_expires_at: trackingExpiresAt,
-  }, res);
+  }, res, req.context);
   if (!data) return;
   res.json({
     ...data,
@@ -1324,3 +1323,4 @@ module.exports.validateFtlLots = validateFtlLots;
 module.exports.enrichItemsWithLotData = enrichItemsWithLotData;
 module.exports.enrichItemsWithCatchWeightData = enrichItemsWithCatchWeightData;
 module.exports.findInventoryMatchForFulfillment = findInventoryMatchForFulfillment;
+
