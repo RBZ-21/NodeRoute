@@ -1,5 +1,4 @@
 const nodemailer = require('nodemailer');
-const { Resend } = require('resend');
 
 function withTimeout(promise, timeoutMs, provider) {
   if (!timeoutMs || timeoutMs <= 0) return promise;
@@ -89,6 +88,13 @@ function createSmtpMailer() {
 
 function createResendMailer() {
   if (!process.env.RESEND_API_KEY) return null;
+  let Resend;
+  try {
+    ({ Resend } = require('resend'));
+  } catch (error) {
+    if (error?.code === 'MODULE_NOT_FOUND') return null;
+    throw error;
+  }
   const resend = new Resend(process.env.RESEND_API_KEY);
   const timeoutMs = Number(process.env.EMAIL_SEND_TIMEOUT_MS || 5000);
 
