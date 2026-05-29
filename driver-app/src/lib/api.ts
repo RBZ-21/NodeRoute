@@ -7,7 +7,6 @@ import type {
   DriverSummary,
   DriverUser,
 } from '@/types';
-import { loadRefreshTokenAsync, loadTokenAsync, saveToken } from '@/lib/storage';
 import { getApiBaseUrl } from '@/lib/utils';
 
 type RequestOptions = RequestInit & {
@@ -43,15 +42,10 @@ async function request<T>(path: string, options: RequestOptions = {}) {
 
 async function requestWithRefresh<T>(path: string, options: RequestOptions = {}, allowRefresh: boolean): Promise<T> {
   const { skipAuth = false, responseType = 'json', headers, ...rest } = options;
-  const token = await loadTokenAsync();
   const nextHeaders = new Headers(headers);
 
   if (!nextHeaders.has('Content-Type') && rest.body && !(rest.body instanceof FormData)) {
     nextHeaders.set('Content-Type', 'application/json');
-  }
-
-  if (!skipAuth && token) {
-    nextHeaders.set('Authorization', `Bearer ${token}`);
   }
 
   const method = rest.method || 'GET';
@@ -91,25 +85,18 @@ async function requestWithRefresh<T>(path: string, options: RequestOptions = {},
 }
 
 async function refreshDriverToken() {
-  const refreshToken = await loadRefreshTokenAsync();
-  if (!refreshToken) return false;
-
-  const response = await fetch(buildUrl('/auth/driver/refresh'), {
+  const response = await fetch(buildUrl('/auth/refresh'), {
     method: 'POST',
-    credentials: 'omit',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ refreshToken }),
+    credentials: 'include',
   });
   if (!response.ok) return false;
 
-  const payload = await response.json() as { token?: string; refreshToken?: string };
-  if (!payload.token || !payload.refreshToken) return false;
-  await saveToken(payload.token, payload.refreshToken);
+  await response.json().catch(() => ({}));
   return true;
 }
 
 export async function login(email: string, password: string) {
-  return request<{ token: string; refreshToken: string; user: DriverUser }>('/auth/driver/login', {
+  return request<{ user: DriverUser }>('/auth/driver/login', {
     method: 'POST',
     skipAuth: true,
     body: JSON.stringify({ email, password }),
