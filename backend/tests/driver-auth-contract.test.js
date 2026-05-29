@@ -81,7 +81,7 @@ async function startHarness(t) {
   };
 }
 
-test('driver login returns bearer tokens and bearer token can load an assigned route', async (t) => {
+test('driver login sets HttpOnly cookies and bearer token can load an assigned route', async (t) => {
   const harness = await startHarness(t);
 
   const loginResponse = await fetch(`${harness.baseUrl}/auth/driver/login`, {
@@ -94,7 +94,10 @@ test('driver login returns bearer tokens and bearer token can load an assigned r
   });
 
   assert.equal(loginResponse.status, 200);
-  assert.equal(loginResponse.headers.get('set-cookie'), null);
+  const setCookie = loginResponse.headers.get('set-cookie') || '';
+  assert.match(setCookie, /token=.*HttpOnly/);
+  assert.match(setCookie, /refresh-token=.*HttpOnly/);
+  assert.match(setCookie, /csrf-token=/);
   const loginBody = await loginResponse.json();
   assert.equal(typeof loginBody.token, 'string');
   assert.equal(typeof loginBody.refreshToken, 'string');
