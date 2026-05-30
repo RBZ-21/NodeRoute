@@ -52,6 +52,9 @@ const vendorBillsRouter   = require('./routes/vendor-bills');
 const complianceRouter    = require('./routes/compliance');
 const auditLogRouter      = require('./routes/audit-log');
 const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
+const blandWebhookRouter      = require('./routes/webhooks/bland');
+const phoneOrdersRouter       = require('./routes/phone-orders');
+const publicInventoryRouter   = require('./routes/public/inventory');
 
 const helmet = require('helmet');
 
@@ -62,6 +65,8 @@ app.set('trust proxy', 1);
 
 app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhookHandler);
 app.use(express.json({ limit: config.JSON_BODY_LIMIT }));
+// Bland.ai webhook — no auth middleware, must be before any global auth guard
+app.use('/api/webhooks/bland', blandWebhookRouter);
 app.use(cookieParser());
 app.disable('x-powered-by');
 
@@ -214,6 +219,8 @@ app.use('/api/credit', creditHoldRouter);
 app.use('/api/vendor-bills', vendorBillsRouter);
 app.use('/api/compliance', complianceRouter);
 app.use('/api/audit-log', auditLogRouter);
+app.use('/api/phone-orders', phoneOrdersRouter);
+app.use('/api/public/inventory', publicInventoryRouter);
 
 const { authenticateToken, requireRole } = require('./middleware/auth');
 
@@ -252,6 +259,7 @@ const frontendV2Routes = [
   '/ar',
   '/credit',
   '/audit-log',
+  '/phone-orders',
 ];
 app.get(frontendV2Routes, (req, res) => res.sendFile(frontendV2Entry));
 

@@ -1,9 +1,11 @@
 import { ChevronDown, ChevronRight, X } from 'lucide-react';
 import { useEffect, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import { cn } from '../../lib/utils';
+import { fetchWithAuth } from '../../lib/api';
 import {
-  type NavGroup, type Role,
+  type NavGroup, type NavItem, type Role,
   defaultPath, findNavItem, navGroups,
   canAccess, canAccessGroup,
 } from '../../lib/nav';
@@ -18,6 +20,15 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
   const location    = useLocation();
   const navigate    = useNavigate();
   const currentItem = findNavItem(location.pathname) ?? findNavItem(defaultPath);
+
+  const { data: phoneOrderDraftCount = 0 } = useQuery({
+    queryKey: ['phone-orders-draft-count'],
+    queryFn: () =>
+      fetchWithAuth<{ count: number }>('/api/phone-orders/draft-count').then((d) => d.count ?? 0),
+    refetchInterval: 30_000,
+    staleTime: 15_000,
+  });
+  const badgeCounts: Record<string, number> = { 'phone-orders': phoneOrderDraftCount };
 
   useEffect(() => { onMobileClose(); }, [location.pathname]);
 
@@ -68,6 +79,7 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
               group={group}
               activeId={activeId}
               onNavigate={navigate}
+              badgeCounts={badgeCounts}
             />
           ) : (
             <SidebarGroup
@@ -75,6 +87,7 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
               group={group}
               activeId={activeId}
               onNavigate={navigate}
+              badgeCounts={badgeCounts}
             />
           )
         )}
@@ -89,6 +102,7 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
               group={group}
               activeId={activeId}
               onNavigate={navigate}
+              badgeCounts={badgeCounts}
             />
           ))}
         </div>
@@ -121,40 +135,24 @@ function FlatItems({
   group,
   activeId,
   onNavigate,
+  badgeCounts = {},
 }: {
   group: NavGroup;
   activeId: string;
   onNavigate: (path: string) => void;
+  badgeCounts?: Record<string, number>;
 }) {
   return (
     <ul className="mb-1 space-y-0.5">
-      {group.items.map((item) => {
-        const Icon     = item.icon;
-        const isActive = item.id === activeId;
-        return (
-          <li key={item.id}>
-            <button
-              onClick={() => onNavigate(item.path)}
-              aria-current={isActive ? 'page' : undefined}
-              className={cn(
-                'group flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-sm transition-colors',
-                isActive
-                  ? 'bg-primary/10 font-semibold text-primary'
-                  : 'text-foreground hover:bg-muted/60',
-              )}
-            >
-              <Icon
-                className={cn(
-                  'h-4 w-4 shrink-0 transition-colors',
-                  isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground',
-                )}
-                aria-hidden="true"
-              />
-              {item.label}
-            </button>
-          </li>
-        );
-      })}
+      {group.items.map((item) => (
+        <NavItemButton
+          key={item.id}
+          item={item}
+          isActive={item.id === activeId}
+          onNavigate={onNavigate}
+          badge={badgeCounts[item.id]}
+        />
+      ))}
     </ul>
   );
 }
@@ -163,10 +161,12 @@ function SidebarGroup({
   group,
   activeId,
   onNavigate,
+  badgeCounts = {},
 }: {
   group: NavGroup;
   activeId: string;
   onNavigate: (path: string) => void;
+  badgeCounts?: Record<string, number>;
 }) {
   const hasActive = group.items.some((i) => i.id === activeId);
   const [open, setOpen] = useState(hasActive);
@@ -192,35 +192,59 @@ function SidebarGroup({
 
       {open && (
         <ul className="mt-0.5 space-y-0.5">
-          {group.items.map((item) => {
-            const Icon     = item.icon;
-            const isActive = item.id === activeId;
-            return (
-              <li key={item.id}>
-                <button
-                  onClick={() => onNavigate(item.path)}
-                  aria-current={isActive ? 'page' : undefined}
-                  className={cn(
-                    'group flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-sm transition-colors',
-                    isActive
-                      ? 'bg-primary/10 font-semibold text-primary'
-                      : 'text-foreground hover:bg-muted/60',
-                  )}
-                >
-                  <Icon
-                    className={cn(
-                      'h-4 w-4 shrink-0 transition-colors',
-                      isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground',
-                    )}
-                    aria-hidden="true"
-                  />
-                  {item.label}
-                </button>
-              </li>
-            );
-          })}
+          {group.items.map((item) => (
+            <NavItemButton
+              key={item.id}
+              item={item}
+              isActive={item.id === activeId}
+              onNavigate={onNavigate}
+              badge={badgeCounts[item.id]}
+            />
+          ))}
         </ul>
       )}
     </div>
+  );
+}
+
+function NavItemButton({
+  item,
+  isActive,
+  onNavigate,
+  badge,
+}: {
+  item: NavItem;
+  isActive: boolean;
+  onNavigate: (path: string) => void;
+  badge?: number;
+}) {
+  const Icon = item.icon;
+  return (
+    <li>
+      <button
+        onClick={() => onNavigate(item.path)}
+        aria-current={isActive ? 'page' : undefined}
+        className={cn(
+          'group flex w-full items-center gap-2.5 rounded-md px-3 py-1.5 text-left text-sm transition-colors',
+          isActive
+            ? 'bg-primary/10 font-semibold text-primary'
+            : 'text-foreground hover:bg-muted/60',
+        )}
+      >
+        <Icon
+          className={cn(
+            'h-4 w-4 shrink-0 transition-colors',
+            isActive ? 'text-primary' : 'text-muted-foreground group-hover:text-foreground',
+          )}
+          aria-hidden="true"
+        />
+        <span className="flex-1">{item.label}</span>
+        {badge != null && badge > 0 && (
+          <span className="rounded-full bg-amber-500 px-1.5 py-0.5 text-xs font-semibold leading-none text-white">
+            {badge}
+          </span>
+        )}
+      </button>
+    </li>
   );
 }

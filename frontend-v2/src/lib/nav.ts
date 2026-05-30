@@ -14,6 +14,7 @@ import {
   DollarSign, Receipt, Lock,
   BarChart2, Sparkles, FileText, Bot,
   User, Building2, Settings, Plug, CheckSquare, Calendar, ScanSearch,
+  Phone,
 } from 'lucide-react';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -76,6 +77,7 @@ const IntegrationsPage = lazyNamed(() => import('../pages/IntegrationsPage'), 'I
 const CompliancePage   = lazyNamed(() => import('../pages/ComplianceDashboardPage'), 'ComplianceDashboardPage');
 const PlanningPage     = lazyNamed(() => import('../pages/PlanningPage'), 'PlanningPage');
 const AuditLogPage     = lazyNamed(() => import('../pages/AuditLogPage'), 'AuditLogPage');
+const PhoneOrdersPage  = lazyNamed(() => import('../pages/PhoneOrdersPage'), 'PhoneOrdersPage');
 
 // ── Nav groups ────────────────────────────────────────────────────────────────
 
@@ -86,6 +88,7 @@ export const navGroups: NavGroup[] = [
     items: [
       { id: 'dashboard',    label: 'Dashboard',    path: '/dashboard',    icon: LayoutDashboard, component: DashboardPage },
       { id: 'orders',       label: 'Orders',       path: '/orders',       icon: Package,         component: OrdersPage },
+      { id: 'phone-orders', label: 'Phone Orders', path: '/phone-orders', icon: Phone,           component: PhoneOrdersPage, roles: ['admin', 'manager'] },
       { id: 'routes',       label: 'Routes',       path: '/routes',       icon: Map,             component: RoutesPage },
       { id: 'deliveries',   label: 'Deliveries',   path: '/deliveries',   icon: Truck,           component: DeliveriesPage },
       { id: 'stops',        label: 'Stops',        path: '/stops',        icon: MapPin,          component: StopsPage },
