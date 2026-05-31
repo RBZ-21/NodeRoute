@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { getUserRole } from '../lib/api';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -137,12 +138,22 @@ export function RoutesPage() {
   const [selectedOrderIds, setSelectedOrderIds] = useState<Set<string>>(new Set());
   const [addingStops, setAddingStops] = useState(false);
 
+  // Add Stops modal
+  const [addStopsRoute, setAddStopsRoute] = useState<RouteRecord | null>(null);
+  const [manualStopName, setManualStopName] = useState('');
+  const [manualStopAddress, setManualStopAddress] = useState('');
+  const [manualStopNotes, setManualStopNotes] = useState('');
+  const [addingManual, setAddingManual] = useState(false);
+
   // AI
   const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(null);
   const [optimizeRouteId, setOptimizeRouteId] = useState<string | null>(null);
   const [assignmentsResult, setAssignmentsResult] = useState<AssignmentsResult | null>(null);
 
   const [statusFilter, setStatusFilter] = useState<'all' | RouteStatus>('all');
+
+  const role = getUserRole();
+  const canManageStops = role === 'admin' || role === 'manager';
 
   const driverById = useMemo(
     () => new Map(drivers.map((driver) => [String(driver.id), driver])),
@@ -476,6 +487,79 @@ export function RoutesPage() {
 
   function toggleOrder(orderId: string) {
     setSelectedOrderIds((prev) => { const next = new Set(prev); next.has(orderId) ? next.delete(orderId) : next.add(orderId); return next; });
+  }
+
+  function openAddStops(route: RouteRecord) {
+    setAddStopsRoute(route);
+    setSelectedOrderIds(new Set());
+    setManualStopName('');
+    setManualStopAddress('');
+    setManualStopNotes('');
+  }
+
+  function closeAddStops() {
+    setAddStopsRoute(null);
+    setSelectedOrderIds(new Set());
+  }
+
+  async function addManualStop() {
+    if (!addStopsRoute || !manualStopAddress.trim()) return;
+    setAddingManual(true); setActionError(''); setNotice('');
+    try {
+      const stop = await createStop.mutateAsync({
+        name: manualStopName.trim() || manualStopAddress.trim(),
+        address: manualStopAddress.trim(),
+        notes: manualStopNotes.trim() || undefined,
+      });
+      if (stop?.id) {
+        const existing = addStopsRoute.active_stop_ids || addStopsRoute.stop_ids || [];
+        const merged = Array.from(new Set([...existing, stop.id]));
+        await updateRoute.mutateAsync({ id: addStopsRoute.id, patch: { stopIds: merged, activeStopIds: merged } });
+        setAddStopsRoute((prev) => prev ? { ...prev, active_stop_ids: merged, stop_ids: merged } : null);
+        setNotice('Stop added to route.');
+        setManualStopName(''); setManualStopAddress(''); setManualStopNotes('');
+        await refetchStops();
+      }
+    } catch (err) {
+      setActionError(String((err as Error).message || 'Could not add stop'));
+    } finally {
+      setAddingManual(false);
+    }
+  }
+
+  async function addOrdersAsStopsTo(route: RouteRecord) {
+    if (!selectedOrderIds.size) return;
+    setAddingStops(true); setActionError(''); setNotice('');
+    try {
+      const orders = pendingOrders.filter((o) => selectedOrderIds.has(o.id));
+      const newStopIds: string[] = [];
+      const failed: string[] = [];
+      const existingIds = route.active_stop_ids || route.stop_ids || [];
+      for (const order of orders) {
+        const name = order.customer_name || order.order_number || order.id;
+        const address = order.customer_address || '';
+        if (!address) { failed.push(name); continue; }
+        const existingStop = allStops.find((s) => normalizedLocationKey(s.name, s.address) === normalizedLocationKey(name, address));
+        if (existingStop && !existingIds.includes(existingStop.id)) { newStopIds.push(existingStop.id); continue; }
+        if (existingStop && existingIds.includes(existingStop.id)) continue;
+        const stop = await createStop.mutateAsync({ name, address, notes: `Order ${order.order_number || order.id}` });
+        if (stop?.id) newStopIds.push(stop.id); else failed.push(name);
+      }
+      if (newStopIds.length) {
+        const merged = Array.from(new Set([...existingIds, ...newStopIds]));
+        await updateRoute.mutateAsync({ id: route.id, patch: { stopIds: merged, activeStopIds: merged } });
+        setAddStopsRoute((prev) => prev ? { ...prev, active_stop_ids: merged, stop_ids: merged } : null);
+        setNotice(`${newStopIds.length} stop${newStopIds.length > 1 ? 's' : ''} added.${failed.length ? ` Skipped (no address): ${failed.join(', ')}` : ''}`);
+        setSelectedOrderIds(new Set());
+        await refetchStops();
+      } else {
+        setActionError(`No stops added. Missing addresses for: ${failed.join(', ')}`);
+      }
+    } catch (err) {
+      setActionError(String((err as Error).message || 'Could not add stops'));
+    } finally {
+      setAddingStops(false);
+    }
   }
 
   function handleDispatchRoute(route: RouteRecord) {
@@ -829,6 +913,11 @@ export function RoutesPage() {
                         <Button variant={isEditing ? 'secondary' : 'ghost'} size="sm" onClick={() => isEditing ? closeEdit() : openEdit(route)}>
                           {isEditing ? 'Close' : 'Edit'}
                         </Button>
+                        {canManageStops && (
+                          <Button variant="ghost" size="sm" onClick={() => openAddStops(route)}>
+                            Add Stops
+                          </Button>
+                        )}
                         <Button variant="ghost" size="sm" onClick={() => navigate(`/stops?routeId=${route.id}`)}>Stops</Button>
                         <Button variant="ghost" size="sm" onClick={() => handleRunOptimize(route.id)} disabled={optimizeRoute.isPending && optimizeRouteId === route.id} title="AI optimize stop order">
                           {optimizeRoute.isPending && optimizeRouteId === route.id ? '…' : '❆ Optimize'}
@@ -858,6 +947,87 @@ export function RoutesPage() {
           </Table>
         </CardContent>
       </Card>
+      {/* Add Stops Modal */}
+      {addStopsRoute && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={(e) => { if (e.target === e.currentTarget) closeAddStops(); }}>
+          <Card className="w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-xl">
+            <CardHeader className="flex flex-row items-start justify-between">
+              <div className="space-y-1">
+                <CardTitle>Add Stops</CardTitle>
+                <CardDescription>{addStopsRoute.name || addStopsRoute.id}</CardDescription>
+              </div>
+              <Button variant="ghost" size="sm" onClick={closeAddStops}>Close</Button>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <div className="space-y-3">
+                <p className="text-sm font-semibold text-muted-foreground">Manual Stop</p>
+                <div className="grid gap-3 md:grid-cols-3">
+                  <label className="space-y-1 text-sm">
+                    <span className="font-semibold text-muted-foreground">Name</span>
+                    <Input value={manualStopName} onChange={(e) => setManualStopName(e.target.value)} placeholder="Customer or location" />
+                  </label>
+                  <label className="space-y-1 text-sm">
+                    <span className="font-semibold text-muted-foreground">Address *</span>
+                    <Input value={manualStopAddress} onChange={(e) => setManualStopAddress(e.target.value)} placeholder="123 Main St" />
+                  </label>
+                  <label className="space-y-1 text-sm">
+                    <span className="font-semibold text-muted-foreground">Notes</span>
+                    <Input value={manualStopNotes} onChange={(e) => setManualStopNotes(e.target.value)} placeholder="Optional" />
+                  </label>
+                </div>
+                <Button onClick={addManualStop} disabled={!manualStopAddress.trim() || addingManual}>
+                  {addingManual ? 'Adding…' : 'Add Stop'}
+                </Button>
+              </div>
+              <div className="border-t border-border" />
+              {pendingOrders.length > 0 ? (
+                <div className="space-y-2">
+                  <p className="text-sm font-semibold text-muted-foreground">From Pending Orders</p>
+                  <p className="text-xs text-muted-foreground">Select orders — a stop is created from each customer address.</p>
+                  <div className="rounded-lg border border-border">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead className="w-8" />
+                          <TableHead>Order #</TableHead>
+                          <TableHead>Customer</TableHead>
+                          <TableHead>Address</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {pendingOrders.map((order) => (
+                          <TableRow
+                            key={order.id}
+                            className={selectedOrderIds.has(order.id) ? 'bg-primary/5' : 'cursor-pointer hover:bg-muted/40'}
+                            onClick={() => toggleOrder(order.id)}
+                          >
+                            <TableCell>
+                              <input type="checkbox" readOnly checked={selectedOrderIds.has(order.id)} className="h-4 w-4 cursor-pointer accent-primary" />
+                            </TableCell>
+                            <TableCell className="font-medium">{order.order_number || order.id.slice(0, 8)}</TableCell>
+                            <TableCell>{order.customer_name || '-'}</TableCell>
+                            <TableCell className={order.customer_address ? '' : 'text-muted-foreground italic'}>
+                              {order.customer_address || 'No address'}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
+                  <Button
+                    onClick={() => addOrdersAsStopsTo(addStopsRoute)}
+                    disabled={!selectedOrderIds.size || addingStops}
+                  >
+                    {addingStops ? 'Adding…' : `Add ${selectedOrderIds.size || ''} Stop${selectedOrderIds.size !== 1 ? 's' : ''} to Route`}
+                  </Button>
+                </div>
+              ) : (
+                <p className="text-sm text-muted-foreground">No pending orders available to add from.</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
     </div>
   );
 }
