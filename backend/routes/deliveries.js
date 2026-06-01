@@ -54,9 +54,31 @@ function deliveryItemQuantity(item) {
   return toNumber(item?.actual_weight ?? item?.requested_weight ?? item?.estimated_weight ?? item?.requested_qty ?? item?.quantity ?? item?.qty, 0);
 }
 
+function isUuidLike(value) {
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(String(value || '').trim());
+}
+
+function deliveryInventoryLookupKeys(items) {
+  const productIds = new Set();
+  const itemNumbers = new Set();
+
+  for (const item of items || []) {
+    const productId = String(item?.product_id || '').trim();
+    const itemNumber = String(item?.item_number || item?.product_item_number || '').trim();
+
+    if (isUuidLike(productId)) productIds.add(productId);
+    else if (productId) itemNumbers.add(productId);
+    if (itemNumber) itemNumbers.add(itemNumber);
+  }
+
+  return {
+    productIds: [...productIds],
+    itemNumbers: [...itemNumbers],
+  };
+}
+
 async function loadProductsForDeliveryItems(items, context) {
-  const productIds = [...new Set(items.map((item) => String(item?.product_id || '').trim()).filter(Boolean))];
-  const itemNumbers = [...new Set(items.map((item) => String(item?.item_number || item?.product_item_number || '').trim()).filter(Boolean))];
+  const { productIds, itemNumbers } = deliveryInventoryLookupKeys(items);
   const products = [];
 
   if (productIds.length) {
@@ -89,7 +111,7 @@ async function loadProductsForDeliveryItems(items, context) {
 function productForDeliveryItem(item, productMaps) {
   const productId = String(item?.product_id || '').trim();
   const itemNumber = String(item?.item_number || item?.product_item_number || '').trim();
-  return productMaps.byId.get(productId) || productMaps.byItemNumber.get(itemNumber) || null;
+  return productMaps.byId.get(productId) || productMaps.byItemNumber.get(itemNumber) || productMaps.byItemNumber.get(productId) || null;
 }
 
 async function deductDeliveryInventoryAndRunReorder(order, req) {
@@ -108,6 +130,7 @@ async function deductDeliveryInventoryAndRunReorder(order, req) {
       changeType: 'delivery_complete',
       notes: `Delivery ${order.order_number || order.id} completed`,
       createdBy: req.user?.name || req.user?.email || 'system',
+      preventNegative: false,
       context: req.context,
     });
     affectedProductIds.add(product.id);
@@ -608,4 +631,5 @@ module.exports.findMatchingStop = findMatchingStop;
 module.exports.loadDashboardContext = loadDashboardContext;
 module.exports.invalidateDashboardCache = invalidateDashboardCache;
 module.exports.buildDeliveryWindow = buildDeliveryWindow;
+module.exports.deliveryInventoryLookupKeys = deliveryInventoryLookupKeys;
 module.exports.dashboardCache = dashboardCache;
