@@ -143,7 +143,7 @@ AFTER:
 ```sql
 create table if not exists public.auth_refresh_sessions (
   id uuid primary key,
-  user_id uuid not null references public.users(id) on delete cascade,
+  user_id text not null references public.users(id) on delete cascade,
   token_hash text not null,
   expires_at timestamptz not null,
   revoked_at timestamptz,

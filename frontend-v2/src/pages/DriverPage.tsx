@@ -112,6 +112,7 @@ export function DriverPage() {
         'POST',
         {
           routeId: activeRoute.id,
+          ...(stop?.invoice_id ? { invoiceId: stop.invoice_id } : {}),
           ...(deliveryMode === 'drop_off' ? { completion_type: 'drop_off' } : {}),
         } as never
       );

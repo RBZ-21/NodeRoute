@@ -121,6 +121,26 @@ async function createRefreshSession(user) {
   return { refreshToken, sessionId };
 }
 
+function isMissingRefreshSessionStore(error) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  return (
+    code === 'PGRST205' ||
+    code === '42P01' ||
+    (
+      message.includes(REFRESH_SESSION_TABLE) &&
+      /schema cache|does not exist|relation/i.test(message)
+    )
+  );
+}
+
+function sendRefreshSessionStoreError(res, error) {
+  if (!isMissingRefreshSessionStore(error)) throw error;
+  return res.status(503).json({
+    error: 'Authentication session store is not initialized. Run supabase/migrations/20260528_security_auth_refresh_sessions.sql.',
+  });
+}
+
 async function revokeRefreshSession(refreshToken) {
   if (!refreshToken) return;
   try {
@@ -400,7 +420,11 @@ router.post('/login', loginLimiter, async (req, res) => {
 
   const { user: u, valid } = await findUserByCredentials(email, password);
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
-  await setAuthCookies(res, u);
+  try {
+    await setAuthCookies(res, u);
+  } catch (error) {
+    return sendRefreshSessionStoreError(res, error);
+  }
   res.json({ user: userResponseWithContext(u) });
 });
 
@@ -414,8 +438,16 @@ router.post('/driver/login', loginLimiter, async (req, res) => {
   if (!valid) return res.status(401).json({ error: 'Invalid credentials' });
   if (u.role !== 'driver') return res.status(403).json({ error: 'Forbidden' });
 
-  const { token, refreshToken } = await issueDriverTokens(u);
-  await setAuthCookies(res, u);
+  let token;
+  let refreshToken;
+  try {
+    const tokens = await issueDriverTokens(u);
+    token = tokens.token;
+    refreshToken = tokens.refreshToken;
+    await setAuthCookies(res, u);
+  } catch (error) {
+    return sendRefreshSessionStoreError(res, error);
+  }
   res.json({ token, refreshToken, user: userResponseWithContext(u) });
 });
 
@@ -542,7 +574,11 @@ router.post('/signup', loginLimiter, async (req, res) => {
     });
   }
 
-  await setAuthCookies(res, createdUser);
+  try {
+    await setAuthCookies(res, createdUser);
+  } catch (error) {
+    return sendRefreshSessionStoreError(res, error);
+  }
   res.status(201).json({ user: userResponseWithContext(createdUser) });
 });
 
@@ -562,7 +598,11 @@ router.post('/setup-password', setupPasswordLimiter, async (req, res) => {
     invite_token: null,
     invite_expires: null
   }).eq('id', u.id);
-  await setAuthCookies(res, u);
+  try {
+    await setAuthCookies(res, u);
+  } catch (error) {
+    return sendRefreshSessionStoreError(res, error);
+  }
   res.json({ user: userResponseWithContext(u) });
 });
 
