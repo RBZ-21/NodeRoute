@@ -20,10 +20,26 @@ export function SignupGate({ onClose }: Props) {
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  function handleSubmit(e: React.FormEvent) {
+  async function resetDashboardSession() {
+    try {
+      localStorage.removeItem('nr_token');
+      localStorage.removeItem('nr_user');
+      sessionStorage.removeItem('nr_auth_error');
+      await fetch('/auth/logout', {
+        method: 'POST',
+        credentials: 'include',
+      });
+    } catch {
+      // Best effort only. The signup wizard still clears local session hints.
+    }
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (email.trim().toLowerCase() === ALLOWED_EMAIL) {
-      window.location.href = '/login';
+    const normalizedEmail = email.trim().toLowerCase();
+    if (normalizedEmail === ALLOWED_EMAIL) {
+      await resetDashboardSession();
+      window.location.href = `/signup?fresh=1&email=${encodeURIComponent(normalizedEmail)}`;
     } else {
       setStatus('denied');
     }

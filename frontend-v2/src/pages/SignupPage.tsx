@@ -62,6 +62,7 @@ const INITIAL_STATE: SignupState = {
   password: '',
   confirmPassword: '',
 };
+const MIN_PASSWORD_LENGTH = 12;
 
 type SignupResponse = {
   user: {
@@ -69,13 +70,27 @@ type SignupResponse = {
   };
 };
 
+function initialSignupState(): SignupState {
+  const params = new URLSearchParams(window.location.search);
+  return {
+    ...INITIAL_STATE,
+    email: params.get('email') || '',
+  };
+}
+
 export function SignupPage() {
   const [step, setStep] = useState(1);
-  const [form, setForm] = useState<SignupState>(INITIAL_STATE);
+  const [form, setForm] = useState<SignupState>(initialSignupState);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState('');
 
   useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('fresh') === '1') {
+      clearSession();
+      return;
+    }
+
     const rawUser = localStorage.getItem('nr_user');
     if (!rawUser) return;
     window.location.href = '/dashboard';
@@ -88,7 +103,7 @@ export function SignupPage() {
   const canAdvanceStep1 = useMemo(
     () =>
       form.email.includes('@') &&
-      form.password.length >= 8 &&
+      form.password.length >= MIN_PASSWORD_LENGTH &&
       form.password === form.confirmPassword,
     [form.confirmPassword, form.email, form.password]
   );
@@ -245,9 +260,12 @@ export function SignupPage() {
                       type="password"
                       value={form.password}
                       onChange={(event) => setField('password', event.target.value)}
-                      placeholder="Minimum 8 characters"
+                      placeholder="Minimum 12 characters"
                       autoComplete="new-password"
                     />
+                    {form.password && form.password.length < MIN_PASSWORD_LENGTH ? (
+                      <p className="text-xs text-destructive">Password must be at least 12 characters.</p>
+                    ) : null}
                   </div>
                   <div className="space-y-1 text-sm">
                     <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Confirm Password</span>
