@@ -150,3 +150,7 @@ backend/data/
 
 # Rust/Tauri build output
 frontend-v2/src-tauri/target/
+
+# Windows Explorer metadata
+desktop.ini
+Thumbs.db

@@ -50,17 +50,6 @@ type ReceiveScanApplySummary = {
   unmatchedItems: string[];
 };
 
-type PurchaseOrderHistoryLine = {
-  description?: string;
-  item_number?: string;
-  quantity?: number | string;
-  unit_price?: number | string;
-  total?: number | string;
-  unit?: string;
-  lot_number?: string;
-  expiration_date?: string;
-};
-
 type ReceiptDiscrepancyEntry = {
   id: string;
   poNumber: string;

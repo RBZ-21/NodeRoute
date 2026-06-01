@@ -70,9 +70,13 @@ export function DeliveriesPage() {
   const selectableIds = useMemo(() => filtered.filter((d) => d.orderDbId).map((d) => d.orderDbId!), [filtered]);
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
 
-  function toggleAll() { allSelected ? setSelected(new Set()) : setSelected(new Set(selectableIds)); }
+  function toggleAll() { setSelected(allSelected ? new Set() : new Set(selectableIds)); }
   function toggleOne(id: string) {
-    setSelected((prev) => { const next = new Set(prev); next.has(id) ? next.delete(id) : next.add(id); return next; });
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
   }
 
   function setDeliveryStatus(delivery: Delivery, nextStatus: string) {
