@@ -342,6 +342,10 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
     const auth = await authorizeDwellEvent(req, res, req.params.id);
     if (!auth.ok) return;
     const { route, stop } = auth;
+    const requestInvoiceId = req.body?.invoice_id || req.body?.invoiceId || null;
+    const stopForInvoice = requestInvoiceId
+      ? { ...stop, invoice_id: requestInvoiceId }
+      : stop;
     const completionType = String(req.body?.completion_type || '').trim().toLowerCase();
     const driverNotes = completionType === 'drop_off'
       ? appendDropOffDriverNote(stop?.driver_notes)
@@ -376,19 +380,21 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
       ...(driverNotes ? { driver_notes: driverNotes } : {}),
     }), req.context).eq('id', req.params.id);
     invalidateDashboardCache(req.context);
-    deliveryNotifications.notifyDeliveryCompleted(supabase, req.params.id, stop.invoice_id || null).catch(() => {});
+    deliveryNotifications.notifyDeliveryCompleted(supabase, req.params.id, requestInvoiceId || stop.invoice_id || null).catch(() => {});
     deliveryNotifications.notifyUpcomingStops(supabase, route.id, req.params.id, req.context).catch(() => {});
 
     // Fire delivery confirmation email non-fatally using the invoice already linked to this stop
     try {
       const invoice = await syncLinkedInvoiceForStop(
-        { ...stop, status: 'completed', driver_notes: driverNotes },
+        { ...stopForInvoice, status: 'completed', driver_notes: driverNotes },
         req.context,
         { markDelivered: true, syncDriverNotes: true }
       );
       const email = invoice?.customer_email || invoice?.contact_email || invoice?.billing_email;
       if (invoice && email) await sendInvoiceEmail(invoice, 'Invoice');
-    } catch { /* email failure must never block the depart response */ }
+    } catch (emailError) {
+      console.error('[stops] delivery invoice email failed:', emailError?.message || emailError);
+    }
 
     res.json(updated);
   } catch (err) {

@@ -13,6 +13,8 @@ test('stop depart email follows the stop invoice instead of customer fallback or
   for (const marker of [
     "if (stop.invoice_id) {",
     "scopeQueryByContext(supabase.from('invoices').select('*'), context).eq('id', stop.invoice_id).single();",
+    'const requestInvoiceId = req.body?.invoice_id || req.body?.invoiceId || null;',
+    "{ ...stopForInvoice, status: 'completed', driver_notes: driverNotes },",
     "if (invoice && email) await sendInvoiceEmail(invoice, 'Invoice');",
   ]) {
     assert.ok(stopsRouteSource.includes(marker), `stops route missing marker ${marker}`);
@@ -26,7 +28,7 @@ test('stop routes sync driver notes onto the linked invoice and mark it delivere
     'mergeInvoiceNotesWithDriverNotes(linkedInvoice.notes, stop.driver_notes)',
     "await syncLinkedInvoiceForStop(data, req.context, { syncDriverNotes: true });",
     "const invoice = await syncLinkedInvoiceForStop(",
-    "{ ...stop, status: 'completed', driver_notes: driverNotes },",
+    "{ ...stopForInvoice, status: 'completed', driver_notes: driverNotes },",
     'updates.status = nextStatus;',
   ]) {
     assert.ok(stopsRouteSource.includes(marker), `stops route missing invoice sync marker ${marker}`);

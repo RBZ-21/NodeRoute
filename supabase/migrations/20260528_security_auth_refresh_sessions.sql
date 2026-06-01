@@ -2,7 +2,7 @@
 
 create table if not exists public.auth_refresh_sessions (
   id uuid primary key,
-  user_id uuid not null references public.users(id) on delete cascade,
+  user_id text not null references public.users(id) on delete cascade,
   token_hash text not null,
   expires_at timestamptz not null,
   revoked_at timestamptz,
@@ -43,6 +43,8 @@ create index if not exists idx_routes_company_created_at
   on public.routes(company_id, created_at desc);
 create index if not exists idx_stops_company_created_at
   on public.stops(company_id, created_at desc);
+alter table public.driver_locations
+  add column if not exists user_id text;
 create index if not exists idx_driver_locations_company_user_updated
   on public.driver_locations(company_id, user_id, updated_at desc);
 create index if not exists idx_users_company_role_status

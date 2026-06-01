@@ -49,6 +49,35 @@ function isRouteAssignedToUser(route, user) {
   );
 }
 
+async function loadDriverLocationRows(req) {
+  const rowsById = new Map();
+  const lookups = [];
+
+  if (req.user.id) {
+    lookups.push(supabase.from('driver_locations').select('*').eq('user_id', req.user.id));
+  }
+  if (req.user.name) {
+    lookups.push(supabase.from('driver_locations').select('*').ilike('driver_name', req.user.name));
+  }
+
+  for (const baseQuery of lookups) {
+    const { data, error } = await scopeQueryByContext(baseQuery, req.context)
+      .order('updated_at', { ascending: false })
+      .limit(10);
+    if (error) throw error;
+    for (const row of filterRowsByContext(data || [], req.context)) {
+      if (row?.id && !rowsById.has(row.id)) rowsById.set(row.id, row);
+    }
+  }
+
+  return [...rowsById.values()].sort((a, b) => {
+    const aMatchesUser = req.user.id && String(a.user_id || '') === String(req.user.id);
+    const bMatchesUser = req.user.id && String(b.user_id || '') === String(req.user.id);
+    if (aMatchesUser !== bMatchesUser) return aMatchesUser ? -1 : 1;
+    return new Date(b.updated_at || 0).getTime() - new Date(a.updated_at || 0).getTime();
+  });
+}
+
 // GET /api/driver/routes — this driver's routes with hydrated stops (incl. door_code)
 router.get('/routes', authenticateToken, requireRole('driver'), async (req, res) => {
   const { data: routes, error: rErr } = await scopeQueryByContext(
@@ -124,31 +153,17 @@ router.get('/routes', authenticateToken, requireRole('driver'), async (req, res)
 });
 
 router.get('/location', authenticateToken, async (req, res) => {
-  const lookupQuery = scopeQueryByContext(
-    req.user.id
-      ? supabase.from('driver_locations').select('*').eq('user_id', req.user.id)
-      : supabase.from('driver_locations').select('*').ilike('driver_name', req.user.name),
-    req.context
-  );
-  const { data, error } = await lookupQuery
-    .order('updated_at', { ascending: false })
-    .limit(10);
-
-  if (error) return res.status(500).json({ error: error.message });
-  const scopedLocations = filterRowsByContext(data || [], req.context);
-  res.json(scopedLocations[0] || null);
+  try {
+    const locations = await loadDriverLocationRows(req);
+    res.json(locations[0] || null);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
 });
 
 async function loadCurrentDriverLocation(req) {
-  if (!req.user.id) return null;
-  const { data, error } = await scopeQueryByContext(
-    supabase.from('driver_locations').select('*').eq('user_id', req.user.id),
-    req.context
-  ).order('updated_at', { ascending: false })
-    .limit(10);
-  if (error) throw error;
-  const scopedLocations = filterRowsByContext(data || [], req.context);
-  return scopedLocations[0] || null;
+  const locations = await loadDriverLocationRows(req);
+  return locations[0] || null;
 }
 
 // POST /api/driver/heartbeat
@@ -217,20 +232,12 @@ router.patch('/location', authenticateToken, requireRole('driver', 'manager', 'a
     updated_at: new Date().toISOString(),
   };
 
-  // Prefer user_id lookup; fall back to driver_name for legacy records
-  const lookupQuery = scopeQueryByContext(
-    req.user.id
-      ? supabase.from('driver_locations').select('*').eq('user_id', req.user.id)
-      : supabase.from('driver_locations').select('*').ilike('driver_name', req.user.name),
-    req.context
-  );
-  const { data: existingRows, error: existingError } = await lookupQuery
-    .order('updated_at', { ascending: false })
-    .limit(10);
-
-  if (existingError) return res.status(500).json({ error: existingError.message });
-
-  const scopedExisting = filterRowsByContext(existingRows || [], req.context);
+  let scopedExisting;
+  try {
+    scopedExisting = await loadDriverLocationRows(req);
+  } catch (error) {
+    return res.status(500).json({ error: error.message });
+  }
   const lastUpdatedAt = scopedExisting[0]?.updated_at ? new Date(scopedExisting[0].updated_at).getTime() : 0;
   if (lastUpdatedAt && Date.now() - lastUpdatedAt < LOCATION_UPDATE_MIN_INTERVAL_MS) {
     res.setHeader('Retry-After', '5');
