@@ -573,6 +573,20 @@ export function RoutesPage() {
     );
   }
 
+  function handleCancelDispatch(route: RouteRecord) {
+    const routeLabel = route.name || route.id.slice(0, 8);
+    const confirmed = confirm(`Cancel dispatch for "${routeLabel}"? Customer ETA and live tracking will pause until this route is dispatched again.`);
+    if (!confirmed) return;
+    setActionError('');
+    updateRoute.mutate(
+      { id: route.id, patch: { status: 'pending', dispatched_at: null } },
+      {
+        onSuccess: () => setNotice(`Dispatch cancelled for "${routeLabel}". Customer ETA and live tracking are paused until dispatch starts again.`),
+        onError: (err) => setActionError(String((err as Error).message || 'Could not cancel dispatch')),
+      },
+    );
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
   return (
@@ -896,6 +910,8 @@ export function RoutesPage() {
             <TableBody>
               {filtered.length ? filtered.map((route) => {
                 const status = normalizeStatus(route.status);
+                const isDispatched = status === 'active' || Boolean(route.dispatched_at);
+                const canChangeDispatch = status !== 'completed' && status !== 'cancelled';
                 const stopCount = resolvedStopIds(route, allStops).length;
                 const isEditing = editRoute?.id === route.id;
                 const assignedDriver = route.driver || driverDisplayName(driverById.get(String(route.driver_id || '')));
@@ -922,7 +938,7 @@ export function RoutesPage() {
                         <Button variant="ghost" size="sm" onClick={() => handleRunOptimize(route.id)} disabled={optimizeRoute.isPending && optimizeRouteId === route.id} title="AI optimize stop order">
                           {optimizeRoute.isPending && optimizeRouteId === route.id ? '…' : '❆ Optimize'}
                         </Button>
-                        {status !== 'active' && status !== 'completed' && (
+                        {!isDispatched && canChangeDispatch && (
                           <Button
                             variant="outline"
                             size="sm"
@@ -931,6 +947,18 @@ export function RoutesPage() {
                             disabled={updateRoute.isPending}
                           >
                             Dispatch Route
+                          </Button>
+                        )}
+                        {isDispatched && canChangeDispatch && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                            title="Cancel dispatch and pause customer ETA/live tracking"
+                            onClick={() => handleCancelDispatch(route)}
+                            disabled={updateRoute.isPending}
+                          >
+                            Cancel Dispatch
                           </Button>
                         )}
                         <a href={`https://maps.google.com/?q=${encodeURIComponent(route.name || '')}`} target="_blank" rel="noreferrer">

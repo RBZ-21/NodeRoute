@@ -13,6 +13,7 @@ const { fetchWithAuthMock, sendWithAuthMock, navigateMock } = vi.hoisted(() => (
 vi.mock('../lib/api', () => ({
   fetchWithAuth: fetchWithAuthMock,
   sendWithAuth: sendWithAuthMock,
+  getUserRole: () => 'admin',
 }));
 
 vi.mock('react-router-dom', async () => {
@@ -99,10 +100,10 @@ describe('RoutesPage', () => {
 
     renderRoutesPage();
 
-    expect(await screen.findByText('North Route')).toBeInTheDocument();
+    expect(await screen.findByText('North Route')).toBeTruthy();
 
     fireEvent.click(screen.getByRole('button', { name: 'Create Route' }));
-    expect(await screen.findByText('Route name is required.')).toBeInTheDocument();
+    expect(await screen.findByText('Route name is required.')).toBeTruthy();
 
     fireEvent.change(screen.getByPlaceholderText('Back Side'), { target: { value: 'South Route' } });
     fireEvent.change(screen.getByPlaceholderText('Assign driver'), { target: { value: 'Jamie Driver' } });
@@ -118,7 +119,7 @@ describe('RoutesPage', () => {
         stopIds: [],
       });
     });
-    expect(await screen.findByText('Route "South Route" created.')).toBeInTheDocument();
+    expect(await screen.findByText('Route "South Route" created.')).toBeTruthy();
   });
 
   it('opens the edit panel, saves changes, adds a stop from a customer, and adds stops from pending orders', async () => {
@@ -135,10 +136,10 @@ describe('RoutesPage', () => {
 
     renderRoutesPage();
 
-    expect(await screen.findByText('North Route')).toBeInTheDocument();
+    expect(await screen.findByText('North Route')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
 
-    expect(await screen.findByText('Editing: North Route')).toBeInTheDocument();
+    expect(await screen.findByText('Editing: North Route')).toBeTruthy();
 
     const routeNameInput = screen.getByDisplayValue('North Route');
     fireEvent.change(routeNameInput, { target: { value: 'Updated Route' } });
@@ -154,7 +155,7 @@ describe('RoutesPage', () => {
         notes: 'Updated notes',
       });
     });
-    expect(await screen.findByText('Route updated.')).toBeInTheDocument();
+    expect(await screen.findByText('Route updated.')).toBeTruthy();
 
     fireEvent.change(screen.getByPlaceholderText('Search customers or orders…'), { target: { value: 'Harbor' } });
     fireEvent.mouseDown(await screen.findByText('Harbor Wholesale'));
@@ -166,7 +167,7 @@ describe('RoutesPage', () => {
         activeStopIds: ['stop-1', 'stop-2'],
       });
     });
-    expect(await screen.findByText('"Harbor Wholesale" added to route.')).toBeInTheDocument();
+    expect(await screen.findByText('"Harbor Wholesale" added to route.')).toBeTruthy();
 
     const pendingOrdersSection = screen.getByText('Batch Add from Pending Orders').closest('div');
     if (!pendingOrdersSection) throw new Error('Expected pending orders section');
@@ -186,7 +187,7 @@ describe('RoutesPage', () => {
         activeStopIds: ['stop-1', 'stop-2', 'stop-4'],
       });
     });
-    expect(await screen.findByText('1 stop added.')).toBeInTheDocument();
+    expect(await screen.findByText('1 stop added.')).toBeTruthy();
   });
 
   it('filters the route list and deletes a route after confirmation', async () => {
@@ -200,13 +201,13 @@ describe('RoutesPage', () => {
 
     renderRoutesPage();
 
-    expect(await screen.findByText('North Route')).toBeInTheDocument();
-    expect(screen.getByText('Completed Route')).toBeInTheDocument();
+    expect(await screen.findByText('North Route')).toBeTruthy();
+    expect(screen.getByText('Completed Route')).toBeTruthy();
 
     fireEvent.change(screen.getByDisplayValue('All'), { target: { value: 'completed' } });
     await waitFor(() => {
-      expect(screen.queryByText('North Route')).not.toBeInTheDocument();
-      expect(screen.getByText('Completed Route')).toBeInTheDocument();
+      expect(screen.queryByText('North Route')).toBeNull();
+      expect(screen.getByText('Completed Route')).toBeTruthy();
     });
 
     fireEvent.change(screen.getByDisplayValue('Completed'), { target: { value: 'all' } });
@@ -216,7 +217,7 @@ describe('RoutesPage', () => {
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-1', 'DELETE');
     });
-    expect(await screen.findByText('Route deleted.')).toBeInTheDocument();
+    expect(await screen.findByText('Route deleted.')).toBeTruthy();
   });
 
   it('dispatches a pending route and explains that ETA is now allowed to go live', async () => {
@@ -229,7 +230,7 @@ describe('RoutesPage', () => {
 
     renderRoutesPage();
 
-    expect(await screen.findByText('Dock Run')).toBeInTheDocument();
+    expect(await screen.findByText('Dock Run')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Dispatch Route' }));
 
     await waitFor(() => {
@@ -238,7 +239,38 @@ describe('RoutesPage', () => {
         dispatched_at: expect.any(String),
       });
     });
-    expect(await screen.findByText(/marked as departed/i)).toBeInTheDocument();
+    expect(await screen.findByText(/marked as departed/i)).toBeTruthy();
+  });
+
+  it('cancels a dispatched route so ETA tracking pauses', async () => {
+    mockRoutesApi({
+      routes: [
+        {
+          id: 'route-4',
+          name: 'Lunch Run',
+          driver: 'Alex Driver',
+          status: 'active',
+          dispatched_at: '2026-04-11T12:00:00Z',
+          stop_ids: [],
+          active_stop_ids: [],
+          created_at: '2026-04-11T00:00:00Z',
+        },
+      ],
+    });
+    sendWithAuthMock.mockResolvedValueOnce({});
+
+    renderRoutesPage();
+
+    expect(await screen.findByText('Lunch Run')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel Dispatch' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-4', 'PATCH', {
+        status: 'pending',
+        dispatched_at: null,
+      });
+    });
+    expect(await screen.findByText(/Dispatch cancelled/i)).toBeTruthy();
   });
 
   it('applies an AI driver suggestion as a linked driver user assignment', async () => {
@@ -260,10 +292,10 @@ describe('RoutesPage', () => {
 
     renderRoutesPage();
 
-    expect(await screen.findByText('North Route')).toBeInTheDocument();
+    expect(await screen.findByText('North Route')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Suggest Assignments' }));
 
-    expect(await screen.findByText('Least-loaded driver.')).toBeInTheDocument();
+    expect(await screen.findByText('Least-loaded driver.')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
 
     await waitFor(() => {
@@ -272,6 +304,6 @@ describe('RoutesPage', () => {
         driverId: 'driver-2',
       });
     });
-    expect(await screen.findByText('Assigned Jamie Driver to the route.')).toBeInTheDocument();
+    expect(await screen.findByText('Assigned Jamie Driver to the route.')).toBeTruthy();
   });
 });
