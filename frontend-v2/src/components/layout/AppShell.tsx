@@ -11,6 +11,7 @@ import { allNavItems, defaultPath, findNavItem, routePath, canAccess } from '../
 
 const showSentryTestButton =
   import.meta.env.DEV || new URLSearchParams(window.location.search).has('sentry-test');
+const brandLogoSrc = `${import.meta.env.BASE_URL}NodeRoute_Logo.svg`;
 
 /** Role badge colours */
 const roleBadgeClass: Record<string, string> = {
@@ -63,7 +64,11 @@ export function AppShell() {
             >
               <Menu className="h-5 w-5" />
             </button>
-            <span className="text-sm font-bold uppercase tracking-widest text-primary">NodeRoute</span>
+            <img
+              src={brandLogoSrc}
+              alt="NodeRoute"
+              className="nr-brand-logo h-7 w-auto max-w-[11.5rem] object-contain"
+            />
             <span className="hidden text-muted-foreground sm:inline">|</span>
             <span className="hidden text-sm text-muted-foreground sm:inline">
               {currentItem?.label ?? 'Dashboard'}

@@ -10,6 +10,7 @@ export type RouteRecord = {
   stop_ids?: string[];
   active_stop_ids?: string[];
   notes?: string;
+  dispatched_at?: string | null;
   created_at?: string;
 };
 
