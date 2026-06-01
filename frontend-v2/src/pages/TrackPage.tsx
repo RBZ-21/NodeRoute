@@ -2,7 +2,6 @@
 import { Bell, BellOff, CheckCircle2, Clock, Loader2, MapPin, Navigation, Package, Truck } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge } from '../components/ui/badge';
-import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { useTrackingData } from '../hooks/useTrack';
 

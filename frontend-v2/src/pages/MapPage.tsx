@@ -159,7 +159,6 @@ export function MapPage() {
     return status === 'active' || status === 'on-duty';
   });
   const mappableActiveDrivers = activeDrivers.filter((d) => hasCoordinates(d.lat, d.lng));
-  const unmappedActiveDrivers = activeDrivers.filter((d) => !hasCoordinates(d.lat, d.lng));
   const mappedStops = stops.filter((s) => hasCoordinates(s.lat, s.lng));
   const operationalGuidance = !activeDrivers.length
     ? 'No dispatched drivers are live right now. Dispatch a route once the truck leaves the shop to start live tracking.'
