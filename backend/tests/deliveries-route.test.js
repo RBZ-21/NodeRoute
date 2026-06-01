@@ -10,6 +10,7 @@ const {
   buildDeliveryWindow,
   loadDashboardContext,
   invalidateDashboardCache,
+  deliveryInventoryLookupKeys,
 } = deliveriesRoute;
 const { supabase } = require('../services/supabase');
 
@@ -228,4 +229,21 @@ test('deliveries status patch validates allowed statuses and checks context', ()
 test('deliveries status patch allows processed orders to be delivered', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'deliveries.js'), 'utf8');
   assert.ok(src.includes("processed:  ['invoiced']"), 'processed orders must be deliverable');
+});
+
+test('delivery inventory lookup treats legacy numeric product_id values as item numbers', () => {
+  const keys = deliveryInventoryLookupKeys([
+    { product_id: '4159', item_number: '' },
+    { product_id: '0db58ccc-c605-484d-ad78-d5dadf0b08e9', item_number: 'SKU-UUID' },
+    { product_item_number: 'ALT-100' },
+  ]);
+
+  assert.deepEqual(keys.productIds, ['0db58ccc-c605-484d-ad78-d5dadf0b08e9']);
+  assert.deepEqual(keys.itemNumbers, ['4159', 'SKU-UUID', 'ALT-100']);
+});
+
+test('delivery completion ledger can post delivered quantities below current stock', () => {
+  const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'deliveries.js'), 'utf8');
+  assert.ok(src.includes("changeType: 'delivery_complete'"), 'delivery completion must post a delivery ledger entry');
+  assert.ok(src.includes('preventNegative: false'), 'delivery completion should not block delivered status because current stock is stale');
 });
