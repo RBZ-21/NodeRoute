@@ -134,6 +134,21 @@ function isMissingRefreshSessionStore(error) {
   );
 }
 
+function isMissingRelationError(error, relationName) {
+  const code = String(error?.code || '');
+  const message = String(error?.message || '');
+  const relation = String(relationName || '').toLowerCase();
+  return (
+    code === 'PGRST205' ||
+    code === '42P01' ||
+    (
+      relation &&
+      message.toLowerCase().includes(relation) &&
+      /schema cache|does not exist|relation/i.test(message)
+    )
+  );
+}
+
 function sendRefreshSessionStoreError(res, error) {
   if (!isMissingRefreshSessionStore(error)) throw error;
   return res.status(503).json({
@@ -546,6 +561,7 @@ router.post('/signup', loginLimiter, async (req, res) => {
   }
 
   const configDefaults = companyConfigDefaultsFromSignup(distributorType, inventoryChoice, selectedTemplate);
+  let setupWarning = null;
 
   const { error: configError } = await supabase
     .from('company_config')
@@ -556,9 +572,14 @@ router.post('/signup', loginLimiter, async (req, res) => {
     });
 
   if (configError) {
-    await supabase.from('users').delete().eq('id', createdUser.id);
-    await supabase.from('companies').delete().eq('id', company.id);
-    return res.status(500).json({ error: configError.message || 'Could not initialize company setup' });
+    if (isMissingRelationError(configError, 'company_config')) {
+      setupWarning = 'Company setup defaults were skipped because the company_config migration has not been applied.';
+      console.warn('[signup] company_config missing; continuing account creation without setup defaults');
+    } else {
+      await supabase.from('users').delete().eq('id', createdUser.id);
+      await supabase.from('companies').delete().eq('id', company.id);
+      return res.status(500).json({ error: configError.message || 'Could not initialize company setup' });
+    }
   }
 
   try {
@@ -566,12 +587,17 @@ router.post('/signup', loginLimiter, async (req, res) => {
       await seedProductsFromTemplate(company.id, configDefaults.catalog_template);
     }
   } catch (seedError) {
-    await supabase.from('company_config').delete().eq('company_id', company.id);
-    await supabase.from('users').delete().eq('id', createdUser.id);
-    await supabase.from('companies').delete().eq('id', company.id);
-    return res.status(500).json({
-      error: seedError?.message || 'Could not initialize inventory template',
-    });
+    if (isMissingRelationError(seedError, 'products')) {
+      setupWarning = setupWarning || 'Inventory template seeding was skipped because the products migration has not been applied.';
+      console.warn('[signup] products missing; continuing account creation without inventory template');
+    } else {
+      await supabase.from('company_config').delete().eq('company_id', company.id);
+      await supabase.from('users').delete().eq('id', createdUser.id);
+      await supabase.from('companies').delete().eq('id', company.id);
+      return res.status(500).json({
+        error: seedError?.message || 'Could not initialize inventory template',
+      });
+    }
   }
 
   try {
@@ -579,7 +605,7 @@ router.post('/signup', loginLimiter, async (req, res) => {
   } catch (error) {
     return sendRefreshSessionStoreError(res, error);
   }
-  res.status(201).json({ user: userResponseWithContext(createdUser) });
+  res.status(201).json({ user: userResponseWithContext(createdUser), setupWarning });
 });
 
 // POST /auth/setup-password — 10 attempts / hour
