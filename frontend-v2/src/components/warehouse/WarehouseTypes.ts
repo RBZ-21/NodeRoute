@@ -1,16 +1,7 @@
-export type InventoryItem = {
-  id: string | number;
-  item_number?: string;
-  description?: string;
-  name?: string;
-  on_hand_qty?: number | null;
-  quantity?: number | null;
-  unit?: string;
-  category?: string;
-  status?: string;
-  location?: string;
-  cost?: number | null;
-};
+// Single source of truth for InventoryItem lives in types/inventory.types.ts.
+// Re-exported here so existing warehouse imports keep working.
+export type { InventoryItem } from '../../types/inventory.types';
+import type { InventoryItem } from '../../types/inventory.types';
 
 export type Location = {
   id: string | number;

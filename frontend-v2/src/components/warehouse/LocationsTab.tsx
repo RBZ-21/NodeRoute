@@ -145,7 +145,7 @@ export function LocationsTab({ onNotice, onError }: { onNotice: (m: string) => v
                       <TableCell className="font-medium">{loc.name}</TableCell>
                       <TableCell>{LOCATION_TYPE_LABELS[loc.type] || loc.type}</TableCell>
                       <TableCell>
-                        <Badge variant={(loc.status === 'active' ? 'success' : 'secondary') as any}>{loc.status || 'active'}</Badge>
+                        <Badge variant={loc.status === 'active' ? 'success' : 'secondary'}>{loc.status || 'active'}</Badge>
                       </TableCell>
                       <TableCell className="text-xs text-muted-foreground">{loc.notes || '-'}</TableCell>
                       <TableCell>

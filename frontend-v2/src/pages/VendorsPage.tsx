@@ -67,7 +67,7 @@ export function VendorsPage() {
   const inventoryProductsQuery = useInventoryProducts();
   const saveVendorMutation = useSaveVendorMutation();
 
-  const vendors = vendorsQuery.data ?? [];
+  const vendors = useMemo(() => vendorsQuery.data ?? [], [vendorsQuery.data]);
   const inventoryProducts = useMemo(
     () =>
       (inventoryProductsQuery.data ?? [])

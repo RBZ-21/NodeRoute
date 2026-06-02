@@ -9,7 +9,7 @@ const statusColors = { active: 'green', inactive: 'gray', draft: 'yellow' } as c
 
 export function PlanningPage() {
   const { data, isLoading, isError, error } = usePlanningRules();
-  const rules = data?.rules ?? [];
+  const rules = useMemo(() => data?.rules ?? [], [data]);
   const endpoint = data?.endpoint ?? '';
   const endpointUnavailable = data?.endpointUnavailable ?? false;
 

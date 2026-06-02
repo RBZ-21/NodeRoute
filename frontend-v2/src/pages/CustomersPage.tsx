@@ -33,7 +33,7 @@ export function CustomersPage() {
   const saveCustomerMutation = useSaveCustomerMutation();
   const deleteCustomerMutation = useDeleteCustomerMutation();
 
-  const customers = customersQuery.data ?? [];
+  const customers = useMemo(() => customersQuery.data ?? [], [customersQuery.data]);
 
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');

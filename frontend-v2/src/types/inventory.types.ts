@@ -20,6 +20,11 @@ export type InventoryItem = {
   barcode?: string | null;
   location_id?: string | null;
   company_id?: string | null;
+  // Warehouse view fields (GET /api/warehouse/inventory). Merged here so the
+  // warehouse components share this single InventoryItem definition.
+  quantity?: number | string | null;
+  status?: string;
+  location?: string;
 };
 
 export type LowStockItem = InventoryItem & {

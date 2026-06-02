@@ -18,7 +18,8 @@ export function readAndClearAuthError(): string {
 }
 
 export function clearSession() {
-  localStorage.removeItem('nr_token'); // kept for clean wipe of any legacy value
+  // JWT migration Steps 1-3 complete for the browser app: tokens live only in
+  // HttpOnly cookies, so there is no longer a legacy nr_token to wipe here.
   localStorage.removeItem('nr_user');
 }
 
