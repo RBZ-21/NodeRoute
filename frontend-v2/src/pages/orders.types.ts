@@ -54,6 +54,8 @@ export type Order = {
   items?: OrderItem[];
   charges?: OrderCharge[];
   route_id?: string | null;
+  draft?: boolean;
+  source?: string | null;
 };
 
 export type Customer = {

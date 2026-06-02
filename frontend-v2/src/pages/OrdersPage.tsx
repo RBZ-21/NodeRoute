@@ -35,6 +35,7 @@ import {
 } from './orders.types';
 import type { Order, OrderStatus } from './orders.types';
 import { usePricingAnomalies } from '../hooks/useAI';
+import { SmsDraftsPanel } from './SmsDraftsPanel';
 
 function escapeHtml(value: unknown): string {
   return String(value ?? '')
@@ -424,6 +425,8 @@ export function OrdersPage() {
           Filtered by customer from Customers page: <strong>{customerIdParam}</strong>
         </div>
       ) : null}
+
+      <SmsDraftsPanel />
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">

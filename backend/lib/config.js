@@ -58,6 +58,10 @@ const envSchema = z.object({
   // Superadmin email gate — must match the user's email for requireSuperadmin to pass.
   // Sentinel value '__superadmin_unset__' ensures the check fails closed when unset.
   SUPERADMIN_EMAIL:           z.string().optional().default('__superadmin_unset__'),
+  // SMS inbound webhook (Textbox / Zapier integration)
+  SMS_WEBHOOK_SECRET:         z.string().optional().default(''),
+  SMS_COMPANY_ID:             z.string().optional().default(''),
+  SMS_LOCATION_ID:            z.string().optional().default(''),
 }).passthrough();
 
 const rawEnv       = envSchema.parse(process.env);
@@ -106,6 +110,9 @@ const COMPANY_NAME        = rawEnv.COMPANY_NAME;
 const DAILY_BLAST_CRON    = rawEnv.DAILY_BLAST_CRON;
 const hasTwilio           = !!(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_FROM_NUMBER);
 const SUPERADMIN_EMAIL    = rawEnv.SUPERADMIN_EMAIL;
+const SMS_WEBHOOK_SECRET  = rawEnv.SMS_WEBHOOK_SECRET;
+const SMS_COMPANY_ID      = rawEnv.SMS_COMPANY_ID;
+const SMS_LOCATION_ID     = rawEnv.SMS_LOCATION_ID;
 
 function validate(logger) {
   const fatal  = [];
@@ -224,4 +231,7 @@ module.exports = {
   DAILY_BLAST_CRON,
   hasTwilio,
   SUPERADMIN_EMAIL,
+  SMS_WEBHOOK_SECRET,
+  SMS_COMPANY_ID,
+  SMS_LOCATION_ID,
 };

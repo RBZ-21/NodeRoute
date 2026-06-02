@@ -1312,6 +1312,39 @@ router.post('/:id/tracking-link', authenticateToken, requireRole('admin', 'manag
   });
 });
 
+// Approve a draft order (SMS-sourced) — promotes it into the normal pending queue.
+router.patch('/:id/approve-draft', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const order = await dbQuery(
+    supabase.from('orders').select('id, draft, company_id, location_id').eq('id', req.params.id).single(),
+    res
+  );
+  if (!order) return;
+  if (!rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
+  if (!order.draft) return res.status(400).json({ error: 'Order is not a draft' });
+
+  const updated = await dbQuery(
+    supabase.from('orders').update({ draft: false }).eq('id', req.params.id).select('id, order_number, status, draft').single(),
+    res
+  );
+  if (!updated) return;
+  res.json(updated);
+});
+
+// Discard a draft order (SMS-sourced) — hard delete, only allowed while still a draft.
+router.delete('/:id/draft', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const order = await dbQuery(
+    supabase.from('orders').select('id, draft, company_id, location_id').eq('id', req.params.id).single(),
+    res
+  );
+  if (!order) return;
+  if (!rowMatchesContext(order, req.context)) return res.status(403).json({ error: 'Forbidden' });
+  if (!order.draft) return res.status(400).json({ error: 'Only draft orders can be discarded this way' });
+
+  const { error } = await supabase.from('orders').delete().eq('id', req.params.id);
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ deleted: true });
+});
+
 module.exports = router;
 module.exports.validateFtlLots = validateFtlLots;
 module.exports.enrichItemsWithLotData = enrichItemsWithLotData;

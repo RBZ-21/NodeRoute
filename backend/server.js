@@ -52,6 +52,7 @@ const vendorBillsRouter   = require('./routes/vendor-bills');
 const complianceRouter    = require('./routes/compliance');
 const auditLogRouter      = require('./routes/audit-log');
 const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
+const smsWebhookRouter        = require('./routes/sms-webhook');
 
 const helmet = require('helmet');
 
@@ -61,6 +62,7 @@ const PORT = config.PORT;
 app.set('trust proxy', 1);
 
 app.post('/api/webhooks/stripe', express.raw({ type: 'application/json' }), stripeWebhookHandler);
+app.use('/api/webhooks/sms', express.json({ limit: '100kb' }), smsWebhookRouter);
 app.use(express.json({ limit: config.JSON_BODY_LIMIT }));
 app.use(cookieParser());
 app.disable('x-powered-by');

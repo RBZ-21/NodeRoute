@@ -6,6 +6,7 @@ import type { Customer, InventoryProduct, LotCode, Order } from '../pages/orders
 export const orderKeys = {
   all: ['orders'] as const,
   list: (customerId?: string) => ['orders', customerId ?? ''] as const,
+  drafts: ['orders', 'drafts'] as const,
 };
 
 export function useOrdersQuery(customerIdParam?: string) {
@@ -143,6 +144,41 @@ export function useSaveWeightMutation() {
       queryClient.setQueriesData<Order[]>({ queryKey: orderKeys.all }, (old) =>
         old?.map((o) => (o.id === updatedOrder.id ? updatedOrder : o)) ?? old,
       );
+    },
+  });
+}
+
+export function useSmsDraftsQuery() {
+  return useQuery({
+    queryKey: orderKeys.drafts,
+    queryFn: () =>
+      fetchWithAuth<Order[]>('/api/orders').then((d) =>
+        (Array.isArray(d) ? d : []).filter((o) => o.draft === true),
+      ),
+    staleTime: 10_000,
+    refetchInterval: 20_000,
+    retry: false,
+  });
+}
+
+export function useApproveDraftMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (orderId: string) =>
+      sendWithAuth<Order>(`/api/orders/${orderId}/approve-draft`, 'PATCH', {}),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: orderKeys.all });
+    },
+  });
+}
+
+export function useDiscardDraftMutation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (orderId: string) =>
+      sendWithAuth<{ deleted: boolean }>(`/api/orders/${orderId}/draft`, 'DELETE'),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: orderKeys.all });
     },
   });
 }
