@@ -486,7 +486,11 @@ export function RoutesPage() {
   }
 
   function toggleOrder(orderId: string) {
-    setSelectedOrderIds((prev) => { const next = new Set(prev); next.has(orderId) ? next.delete(orderId) : next.add(orderId); return next; });
+    setSelectedOrderIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(orderId)) next.delete(orderId); else next.add(orderId);
+      return next;
+    });
   }
 
   function openAddStops(route: RouteRecord) {
