@@ -18,7 +18,7 @@ import { useDriverWorkspace } from '../hooks/useDriverWorkspace';
 import { useLocationSharing } from '../hooks/useLocationSharing';
 import { DriverRouteTab } from './DriverRouteTab';
 import { SignatureModal } from './SignatureModal';
-import { asDriverNumber, dwellForStop, formatDateTime, formatMoney, greeting, routeProgress, stopStatus } from './driver.types';
+import { asDriverNumber, formatDateTime, formatMoney, greeting, routeProgress, stopStatus } from './driver.types';
 import type { DriverRoute, DriverTab, DwellRecord } from './driver.types';
 
 export function DriverPage() {

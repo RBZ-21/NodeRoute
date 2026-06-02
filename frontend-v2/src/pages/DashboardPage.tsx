@@ -2,8 +2,6 @@ import {
   Activity,
   AlertTriangle,
   ArrowRight,
-  Clock3,
-  MapPinned,
   Package,
   RefreshCw,
   Scale,
