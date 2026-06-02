@@ -171,8 +171,8 @@ export function CreditHoldPage() {
       setStats(s);
       setHolds(h.holds ?? []);
       setOverrides(o ?? []);
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to load credit data');
+    } catch (e) {
+      setError((e as Error).message ?? 'Failed to load credit data');
     } finally {
       setLoading(false);
     }
@@ -194,8 +194,8 @@ export function CreditHoldPage() {
       setSettingsTerms(c.credit_terms ?? 'NET30');
       setSettingsThreshold(String(c.warning_threshold_pct ?? 80));
       setSettingsAutoHold(c.auto_hold_enabled !== false);
-    } catch (e: any) {
-      setLookupError(e.message ?? 'Customer not found');
+    } catch (e) {
+      setLookupError((e as Error).message ?? 'Customer not found');
     } finally {
       setLookupLoading(false);
     }
@@ -223,8 +223,8 @@ export function CreditHoldPage() {
       await loadDashboard();
       setHoldModal(false); setReleaseModal(false); setOverrideModal(false);
       setHoldNotes(''); setReleaseNotes(''); setOverrideOrderId(''); setOverrideReason(''); setOverrideExpires('');
-    } catch (e: any) {
-      setActionError(e.message ?? 'Action failed');
+    } catch (e) {
+      setActionError((e as Error).message ?? 'Action failed');
     } finally {
       setActionLoading(false);
     }
@@ -244,8 +244,8 @@ export function CreditHoldPage() {
       const c = await fetchWithAuth<CustomerStatus>(`/api/credit/customer/${customer.customer_id}/status`);
       setCustomer(c);
       setSettingsModal(false);
-    } catch (e: any) {
-      setActionError(e.message ?? 'Settings update failed');
+    } catch (e) {
+      setActionError((e as Error).message ?? 'Settings update failed');
     } finally {
       setActionLoading(false);
     }

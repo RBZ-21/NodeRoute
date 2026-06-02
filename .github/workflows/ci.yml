@@ -79,6 +79,8 @@ jobs:
         run: npm ci --prefix driver-app
       - name: Type-check driver-app
         run: npx --prefix driver-app tsc -p driver-app/tsconfig.app.json --noEmit
+      - name: Test driver-app
+        run: npm --prefix driver-app test -- --run --passWithNoTests
       - name: Build driver-app
         run: npm --prefix driver-app run build
         env:

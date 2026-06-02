@@ -148,7 +148,7 @@ export function InventoryTab({
                 </TableCell>
                 <TableCell>{item.unit || '-'}</TableCell>
                 <TableCell>
-                  <Badge variant={(getStatus(item) === 'active' ? 'success' : getStatus(item) === 'low' ? 'warning' : 'secondary') as any}>
+                  <Badge variant={getStatus(item) === 'active' ? 'success' : getStatus(item) === 'low' ? 'warning' : 'secondary'}>
                     {getStatus(item)}
                   </Badge>
                 </TableCell>
