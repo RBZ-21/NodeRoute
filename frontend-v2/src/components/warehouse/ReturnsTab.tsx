@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Badge } from '../ui/badge';
+import { Badge, type BadgeVariant } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
@@ -166,7 +166,7 @@ export function ReturnsTab({
                   <TableCell><div className="font-medium text-sm">{r.item_description || r.item_number}</div><div className="text-xs text-muted-foreground">{r.item_number}</div></TableCell>
                   <TableCell>{r.quantity}{r.unit ? ` ${r.unit}` : ''}</TableCell>
                   <TableCell className="text-sm max-w-[180px] truncate">{r.reason}</TableCell>
-                  <TableCell><Badge variant={(RETURN_STATUS_COLORS[r.status] || 'secondary') as any}>{r.status}</Badge></TableCell>
+                  <TableCell><Badge variant={(RETURN_STATUS_COLORS[r.status] || 'secondary') as BadgeVariant}>{r.status}</Badge></TableCell>
                   <TableCell>
                     {r.status === 'open' ? (
                       <Button size="sm" variant="outline" onClick={() => { setResolvingId(r.id); setResolveForm({ status: 'resolved', resolution: r.resolution || '', restocked: r.restocked || false }); }}>Resolve</Button>

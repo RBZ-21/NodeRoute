@@ -198,8 +198,8 @@ function AllActivityTab() {
       setEvents(offset === 0 ? res.events : (prev) => [...prev, ...res.events]);
       setPaging(res.paging);
       setSearched(true);
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to load audit log');
+    } catch (e) {
+      setError((e as Error).message ?? 'Failed to load audit log');
     } finally {
       setLoading(false);
     }
@@ -296,8 +296,8 @@ function OverridesTab() {
       setSummary(res.summary);
       setPaging(res.paging);
       setSearched(true);
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to load overrides');
+    } catch (e) {
+      setError((e as Error).message ?? 'Failed to load overrides');
     } finally {
       setLoading(false);
     }
@@ -418,8 +418,8 @@ function ByCustomerTab() {
       setPaging(res.paging);
       setCustomerName(res.company_name);
       setSearched(true);
-    } catch (e: any) {
-      setError(e.message ?? 'Failed to load customer trail');
+    } catch (e) {
+      setError((e as Error).message ?? 'Failed to load customer trail');
     } finally {
       setLoading(false);
     }
