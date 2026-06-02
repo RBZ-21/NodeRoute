@@ -126,9 +126,9 @@ export function InventoryPage() {
 
   // ── Queries ───────────────────────────────────────────────────────────────
   const inventoryQuery = useInventoryQuery();
-  const items = inventoryQuery.data ?? [];
+  const items = useMemo(() => inventoryQuery.data ?? [], [inventoryQuery.data]);
   const activeLotsQuery = useActiveInventoryLotsQuery();
-  const activeLots = activeLotsQuery.data ?? [];
+  const activeLots = useMemo(() => activeLotsQuery.data ?? [], [activeLotsQuery.data]);
 
   const [ledgerCommitted, setLedgerCommitted] = useState<LedgerParams>({
     itemFilter: '',

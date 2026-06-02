@@ -113,9 +113,12 @@ export function OrdersPage() {
   const { lotsCache, loadLotsForProduct } = useLotsCache();
   const queryClient = useQueryClient();
 
-  const orders    = ordersQuery.data    ?? [];
-  const customers = customersQuery.data ?? [];
-  const products  = (productsQuery.data ?? []).filter((p) => p.is_active !== false);
+  const orders    = useMemo(() => ordersQuery.data ?? [], [ordersQuery.data]);
+  const customers = useMemo(() => customersQuery.data ?? [], [customersQuery.data]);
+  const products  = useMemo(
+    () => (productsQuery.data ?? []).filter((p) => p.is_active !== false),
+    [productsQuery.data],
+  );
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const submitOrderMutation  = useSubmitOrderMutation();

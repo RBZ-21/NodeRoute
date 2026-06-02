@@ -94,8 +94,8 @@ export function FinancialsPage() {
   const invoicesQuery = useFinancialInvoicesQuery();
   const posQuery      = useFinancePOsQuery();
 
-  const invoices       = invoicesQuery.data ?? [];
-  const purchaseOrders = posQuery.data       ?? [];
+  const invoices       = useMemo(() => invoicesQuery.data ?? [], [invoicesQuery.data]);
+  const purchaseOrders = useMemo(() => posQuery.data ?? [], [posQuery.data]);
 
   const [showHistory, setShowHistory] = useState(false);
   const [startDate, setStartDate]     = useState('');
