@@ -14,7 +14,7 @@ const statusColors = { connected: 'green', disconnected: 'gray', error: 'red' } 
 
 export function IntegrationsPage() {
   const { data, isLoading } = useIntegrations();
-  const cards = data?.cards ?? [];
+  const cards = useMemo(() => data?.cards ?? [], [data]);
   const endpoint = data?.endpoint ?? '';
   const endpointUnavailable = data?.endpointUnavailable ?? false;
 
