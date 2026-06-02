@@ -14,7 +14,7 @@ function formatPhone(phone: string | undefined | null) {
 
 function extractOriginalMessage(notes: string | undefined | null): string {
   if (!notes) return '';
-  const match = notes.match(/Original message: (.+?)(?:\n|$)/s);
+  const match = notes.match(/(?:Original message|Call transcript): (.+?)(?:\n|$)/s);
   return match ? match[1].trim() : '';
 }
 
@@ -30,7 +30,9 @@ function DraftCard({ order, onApprove, onDiscard }: { order: Order; onApprove: (
           <p className="font-medium text-sm">{formatPhone(order.customer_phone)}</p>
           <p className="text-xs text-gray-500">{order.order_number} · {order.created_at ? new Date(order.created_at).toLocaleString() : ''}</p>
         </div>
-        <span className="text-xs bg-yellow-200 text-yellow-800 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">SMS Draft</span>
+        <span className="text-xs bg-yellow-200 text-yellow-800 px-2 py-0.5 rounded-full font-medium whitespace-nowrap">
+        {order.source === 'call' ? 'Call Draft' : 'SMS Draft'}
+      </span>
       </div>
 
       {originalMessage && (
@@ -99,7 +101,7 @@ export function SmsDraftsPanel() {
           <span>SMS Order Drafts</span>
           <span className="text-xs bg-yellow-400 text-yellow-900 rounded-full px-2 py-0.5 font-bold">{drafts.length}</span>
         </CardTitle>
-        <p className="text-sm text-gray-600">Orders received by text message — review and approve or discard each one.</p>
+        <p className="text-sm text-gray-600">Orders received by text or phone call — review and approve or discard each one.</p>
       </CardHeader>
       <CardContent className="space-y-3">
         {drafts.map((draft) => (

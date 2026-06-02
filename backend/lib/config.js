@@ -58,10 +58,12 @@ const envSchema = z.object({
   // Superadmin email gate — must match the user's email for requireSuperadmin to pass.
   // Sentinel value '__superadmin_unset__' ensures the check fails closed when unset.
   SUPERADMIN_EMAIL:           z.string().optional().default('__superadmin_unset__'),
-  // SMS inbound webhook (Textbox / Zapier integration)
+  // SMS inbound webhook (Textbox / Twilio / Zapier)
   SMS_WEBHOOK_SECRET:         z.string().optional().default(''),
   SMS_COMPANY_ID:             z.string().optional().default(''),
   SMS_LOCATION_ID:            z.string().optional().default(''),
+  // Bland AI post-call webhook
+  BLAND_AI_SECRET:            z.string().optional().default(''),
 }).passthrough();
 
 const rawEnv       = envSchema.parse(process.env);
@@ -113,6 +115,7 @@ const SUPERADMIN_EMAIL    = rawEnv.SUPERADMIN_EMAIL;
 const SMS_WEBHOOK_SECRET  = rawEnv.SMS_WEBHOOK_SECRET;
 const SMS_COMPANY_ID      = rawEnv.SMS_COMPANY_ID;
 const SMS_LOCATION_ID     = rawEnv.SMS_LOCATION_ID;
+const BLAND_AI_SECRET     = rawEnv.BLAND_AI_SECRET;
 
 function validate(logger) {
   const fatal  = [];
@@ -234,4 +237,5 @@ module.exports = {
   SMS_WEBHOOK_SECRET,
   SMS_COMPANY_ID,
   SMS_LOCATION_ID,
+  BLAND_AI_SECRET,
 };
