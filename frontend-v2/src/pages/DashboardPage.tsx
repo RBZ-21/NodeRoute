@@ -119,12 +119,12 @@ export function DashboardPage() {
 
   const stats     = statsQuery.data     ?? null;
   const analytics = analyticsQuery.data ?? null;
-  const deliveries: Delivery[]     = deliveriesQuery.data    ?? [];
-  const drivers:   DriverSummary[] = driversQuery.data       ?? [];
-  const routes:    RouteRecord[]   = routesQuery.data        ?? [];
-  const orders:    OrderRecord[]   = ordersQuery.data        ?? [];
-  const vendorPurchaseOrders       = purchaseOrdersQuery.data ?? [];
-  const lowStockItems              = lowStockQuery.data ?? [];
+  const deliveries: Delivery[]     = useMemo(() => deliveriesQuery.data ?? [], [deliveriesQuery.data]);
+  const drivers:   DriverSummary[] = useMemo(() => driversQuery.data ?? [], [driversQuery.data]);
+  const routes:    RouteRecord[]   = useMemo(() => routesQuery.data ?? [], [routesQuery.data]);
+  const orders:    OrderRecord[]   = useMemo(() => ordersQuery.data ?? [], [ordersQuery.data]);
+  const vendorPurchaseOrders       = useMemo(() => purchaseOrdersQuery.data ?? [], [purchaseOrdersQuery.data]);
+  const lowStockItems              = useMemo(() => lowStockQuery.data ?? [], [lowStockQuery.data]);
 
   const isLoading = active && (
     statsQuery.isPending || deliveriesQuery.isPending || driversQuery.isPending ||

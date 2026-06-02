@@ -131,6 +131,18 @@ export type VendorPurchaseOrder = {
   }>;
 };
 
+// ── Polling cadence ───────────────────────────────────────────────────────────
+// The dashboard mounts several live queries. They previously each polled every
+// 15s, so the page fired ~5 requests every 15s (~20/min) on top of the Sidebar's
+// 30s poll. Polling at 30s halves that load while keeping the dashboard live.
+// (TanStack Query only polls a query when the tab is focused.)
+//
+// TODO(backend): the lower-load fix is a single GET /api/dashboard aggregate
+// endpoint backing one query here, replacing these per-resource polls. Tracked
+// as the Step 4 backend dependency.
+const DASHBOARD_REFETCH_MS = 30_000;
+const DASHBOARD_STALE_MS = 20_000;
+
 // ── Query keys ────────────────────────────────────────────────────────────────
 
 export const dashboardKeys = {
@@ -149,8 +161,8 @@ export function useStatsQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardKeys.stats,
     queryFn: () => fetchWithAuth<DashboardStats>('/api/stats'),
-    staleTime: 10_000,
-    refetchInterval: 15_000,
+    staleTime: DASHBOARD_STALE_MS,
+    refetchInterval: DASHBOARD_REFETCH_MS,
     enabled,
   });
 }
@@ -159,7 +171,7 @@ export function useAnalyticsQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardKeys.analytics,
     queryFn: () => fetchWithAuth<DashboardAnalytics>('/api/analytics'),
-    staleTime: 10_000,
+    staleTime: DASHBOARD_STALE_MS,
     enabled,
   });
 }
@@ -169,8 +181,8 @@ export function useDeliveriesQuery(enabled = true) {
     queryKey: dashboardKeys.deliveries,
     queryFn: () =>
       fetchWithAuth<Delivery[]>('/api/deliveries').then((d) => (Array.isArray(d) ? d : [])),
-    staleTime: 10_000,
-    refetchInterval: 15_000,
+    staleTime: DASHBOARD_STALE_MS,
+    refetchInterval: DASHBOARD_REFETCH_MS,
     enabled,
   });
 }
@@ -180,8 +192,8 @@ export function useDriversQuery(enabled = true) {
     queryKey: dashboardKeys.drivers,
     queryFn: () =>
       fetchWithAuth<DriverSummary[]>('/api/drivers').then((d) => (Array.isArray(d) ? d : [])),
-    staleTime: 10_000,
-    refetchInterval: 15_000,
+    staleTime: DASHBOARD_STALE_MS,
+    refetchInterval: DASHBOARD_REFETCH_MS,
     enabled,
   });
 }
@@ -191,8 +203,8 @@ export function useRoutesQuery(enabled = true) {
     queryKey: dashboardKeys.routes,
     queryFn: () =>
       fetchWithAuth<RouteRecord[]>('/api/routes').then((d) => (Array.isArray(d) ? d : [])),
-    staleTime: 10_000,
-    refetchInterval: 15_000,
+    staleTime: DASHBOARD_STALE_MS,
+    refetchInterval: DASHBOARD_REFETCH_MS,
     enabled,
   });
 }
@@ -204,8 +216,8 @@ export function useDashboardOrdersQuery(enabled = true) {
     queryKey: dashboardKeys.orders,
     queryFn: () =>
       fetchWithAuth<OrderRecord[]>('/api/orders').then((d) => (Array.isArray(d) ? d : [])),
-    staleTime: 10_000,
-    refetchInterval: 15_000,
+    staleTime: DASHBOARD_STALE_MS,
+    refetchInterval: DASHBOARD_REFETCH_MS,
     enabled,
   });
 }
@@ -217,7 +229,7 @@ export function usePurchaseOrdersQuery(enabled = true) {
       fetchWithAuth<VendorPurchaseOrder[]>('/api/ops/vendor-purchase-orders').then((d) =>
         Array.isArray(d) ? d : [],
       ),
-    staleTime: 10_000,
+    staleTime: DASHBOARD_STALE_MS,
     enabled,
   });
 }

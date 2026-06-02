@@ -19,283 +19,32 @@ import {
   useReceiveVendorPurchaseOrder,
   useVendorPurchaseOrders,
 } from '../hooks/usePurchasing';
-import { type Vendor, useSaveVendorMutation, useVendorsQuery } from '../hooks/useVendors';
-import { useVendorPerformance } from '../hooks/useAI';
-
-type PurchaseItemDraft = {
-  description: string;
-  item_number: string;
-  quantity: string;
-  unit_price: string;
-  unit: string;
-  category: string;
-  lot_number: string;
-  expiration_date: string;
-  count_item_approved: boolean;
-};
-
-type VendorDraft = Pick<Vendor, 'name' | 'contact' | 'email' | 'phone' | 'address' | 'payment_terms' | 'status'>;
-
-type ReceiveLineDraft = {
-  line_no: number;
-  qty_received: string;
-  unit_cost: string;
-  lot_number: string;
-};
-
-type ReceivePoLine = NonNullable<VendorPurchaseOrder['lines']>[number];
-
-type ReceiveScanApplySummary = {
-  mappedCount: number;
-  unmatchedItems: string[];
-};
-
-type ReceiptDiscrepancyEntry = {
-  id: string;
-  poNumber: string;
-  vendor: string;
-  receivedAt: string;
-  lineLabel: string;
-  varianceLabel: string;
-  quantityVariance: number;
-  overReceiptQty: number;
-};
-
-type LeadTimeInsights = {
-  measuredCount: number;
-  vendorCount: number;
-  averageDays: number;
-  medianDays: number;
-  latestDays: number | null;
-};
-
-type VendorLeadTimeHistory = {
-  vendor: string;
-  receiptCount: number;
-  averageDays: number;
-  latestDays: number | null;
-};
-
-type ProductLeadTimeHistory = VendorLeadTimeHistory & {
-  productLabel: string;
-};
-
-function money(value: number): string {
-  return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
-}
-function asNumber(value: unknown): number {
-  const parsed = Number(value);
-  return Number.isFinite(parsed) ? parsed : 0;
-}
-
-function formatLeadTimeDays(value: number | null | undefined) {
-  return Number.isFinite(Number(value)) ? `${asNumber(value).toFixed(2)} d` : 'Not measured';
-}
-
-function remainingQty(line: { ordered_qty?: number | string; received_qty?: number | string; backordered_qty?: number | string; waived_backorder_qty?: number | string }) {
-  const backordered = asNumber(line.backordered_qty);
-  const waived = asNumber(line.waived_backorder_qty);
-  if (waived > 0) return Math.max(0, backordered);
-  const ordered = asNumber(line.ordered_qty);
-  const receivedTowardOrdered = Math.min(asNumber(line.received_qty), ordered);
-  return Math.max(0, ordered - receivedTowardOrdered);
-}
-
-function lineRequiresLot(line: { description?: string; product_name?: string; category?: string | null }) {
-  return /\b(mussel|clam|oyster)s?\b/i.test(`${line.description || line.product_name || ''} ${line.category || ''}`);
-}
-
-function normalizeScanText(value: unknown) {
-  return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
-}
-
-function normalizeVendorName(value: unknown) {
-  return String(value || '').trim().toLowerCase();
-}
-
-function normalizeCatalogItemNumber(value: unknown) {
-  return String(value || '').trim().toLowerCase();
-}
-
-function vendorCatalogItemNumbers(vendorRecord: { catalog_item_numbers?: string[] } | null | undefined) {
-  if (!Array.isArray(vendorRecord?.catalog_item_numbers)) return [];
-  return Array.from(
-    new Set(
-      vendorRecord.catalog_item_numbers
-        .map((entry) => String(entry || '').trim())
-        .filter(Boolean)
-    )
-  );
-}
-
-function buildScannedVendorDraft(result: PoScanResult): VendorDraft | null {
-  const details = result.vendor_details || {};
-  const name = String(details.name || result.vendor || '').trim();
-  if (!name) return null;
-  return {
-    name,
-    contact: String(details.contact || '').trim(),
-    email: String(details.email || '').trim(),
-    phone: String(details.phone || '').trim(),
-    address: String(details.address || '').trim(),
-    payment_terms: String(details.payment_terms || '').trim(),
-    status: 'active',
-  };
-}
-
-function buildLeadTimeProductKey(itemNumber: unknown, description: unknown) {
-  const normalizedItemNumber = String(itemNumber || '').trim().toLowerCase();
-  if (normalizedItemNumber) return `item:${normalizedItemNumber}`;
-  const normalizedDescription = normalizeScanText(description);
-  return normalizedDescription ? `desc:${normalizedDescription}` : '';
-}
-
-function buildLeadTimeHistoryLookups(orders: VendorPurchaseOrder[]) {
-  const vendorBuckets = new Map<string, { vendor: string; values: number[]; latestDays: number | null; latestAt: string }>();
-  const productBuckets = new Map<string, { vendor: string; productLabel: string; values: number[]; latestDays: number | null; latestAt: string }>();
-
-  for (const po of orders) {
-    const leadTimeDays = asNumber(po.first_receipt_lead_time_days);
-    const vendorName = String(po.vendor || po.vendor_name || '').trim();
-    const vendorKey = vendorName.toLowerCase();
-    if (!vendorKey || leadTimeDays <= 0) continue;
-
-    const receivedAt = String(po.first_received_at || po.latest_received_at || po.created_at || '');
-    const vendorBucket = vendorBuckets.get(vendorKey) || {
-      vendor: vendorName,
-      values: [],
-      latestDays: null,
-      latestAt: '',
-    };
-    vendorBucket.values.push(leadTimeDays);
-    if (receivedAt && receivedAt >= vendorBucket.latestAt) {
-      vendorBucket.latestAt = receivedAt;
-      vendorBucket.latestDays = leadTimeDays;
-    }
-    vendorBuckets.set(vendorKey, vendorBucket);
-
-    for (const line of po.lines || []) {
-      const lineLeadTimeDays = asNumber(line.first_receipt_lead_time_days);
-      const productKey = buildLeadTimeProductKey(line.item_number, line.product_name || line.product_id);
-      if (!productKey || lineLeadTimeDays <= 0) continue;
-      const bucketKey = `${vendorKey}::${productKey}`;
-      const lineReceivedAt = String(line.first_received_at || line.latest_received_at || receivedAt);
-      const productBucket = productBuckets.get(bucketKey) || {
-        vendor: vendorName,
-        productLabel: String(line.product_name || line.item_number || 'Product').trim() || 'Product',
-        values: [],
-        latestDays: null,
-        latestAt: '',
-      };
-      productBucket.values.push(lineLeadTimeDays);
-      if (lineReceivedAt && lineReceivedAt >= productBucket.latestAt) {
-        productBucket.latestAt = lineReceivedAt;
-        productBucket.latestDays = lineLeadTimeDays;
-      }
-      productBuckets.set(bucketKey, productBucket);
-    }
-  }
-
-  const vendorHistory = new Map<string, VendorLeadTimeHistory>();
-  for (const [key, bucket] of vendorBuckets.entries()) {
-    vendorHistory.set(key, {
-      vendor: bucket.vendor,
-      receiptCount: bucket.values.length,
-      averageDays: bucket.values.reduce((sum, value) => sum + value, 0) / bucket.values.length,
-      latestDays: bucket.latestDays,
-    });
-  }
-
-  const productHistory = new Map<string, ProductLeadTimeHistory>();
-  for (const [key, bucket] of productBuckets.entries()) {
-    productHistory.set(key, {
-      vendor: bucket.vendor,
-      productLabel: bucket.productLabel,
-      receiptCount: bucket.values.length,
-      averageDays: bucket.values.reduce((sum, value) => sum + value, 0) / bucket.values.length,
-      latestDays: bucket.latestDays,
-    });
-  }
-
-  return { vendorHistory, productHistory };
-}
-
-function resolveProductLeadTimeHistory(line: PurchaseItemDraft, vendorName: string, history: Map<string, ProductLeadTimeHistory>) {
-  const vendorKey = String(vendorName || '').trim().toLowerCase();
-  if (!vendorKey) return null;
-
-  const itemKey = buildLeadTimeProductKey(line.item_number, null);
-  if (itemKey) {
-    const match = history.get(`${vendorKey}::${itemKey}`);
-    if (match) return match;
-  }
-
-  const descriptionKey = buildLeadTimeProductKey(null, line.description);
-  if (descriptionKey) {
-    return history.get(`${vendorKey}::${descriptionKey}`) || null;
-  }
-
-  return null;
-}
-
-function buildReceiveDraft(line: ReceivePoLine): ReceiveLineDraft {
-  return {
-    line_no: line.line_no,
-    qty_received: remainingQty(line) > 0 ? String(remainingQty(line)) : '',
-    unit_cost: asNumber(line.unit_cost) > 0 ? String(asNumber(line.unit_cost)) : '',
-    lot_number: String(line.lot_number || '').trim(),
-  };
-}
-
-function scoreReceiveScanMatch(line: ReceivePoLine, item: PoScanResult['items'][number]) {
-  const lineLabel = normalizeScanText(line.product_name || line.item_number);
-  const itemLabel = normalizeScanText(item.description);
-  if (!lineLabel || !itemLabel) return 0;
-
-  let score = 0;
-  if (lineLabel === itemLabel) score += 100;
-  if (line.item_number && normalizeScanText(line.item_number) === itemLabel) score += 80;
-  if (lineLabel.includes(itemLabel) || itemLabel.includes(lineLabel)) score += 60;
-
-  const lineTokens = new Set(lineLabel.split(' ').filter(Boolean));
-  for (const token of itemLabel.split(' ').filter(Boolean)) {
-    if (lineTokens.has(token)) score += 15;
-  }
-
-  if (item.quantity != null) {
-    score += Math.max(0, 10 - Math.abs(asNumber(item.quantity) - remainingQty(line)));
-  }
-  if (item.lot_number && lineRequiresLot(line)) score += 5;
-  return score;
-}
-
-function findReceiveScanMatchIndex(poLines: ReceivePoLine[], item: PoScanResult['items'][number], usedIndexes: Set<number>) {
-  let bestIndex = -1;
-  let bestScore = 0;
-  poLines.forEach((line, index) => {
-    if (usedIndexes.has(index)) return;
-    const score = scoreReceiveScanMatch(line, item);
-    if (score > bestScore) {
-      bestIndex = index;
-      bestScore = score;
-    }
-  });
-  return bestScore >= 25 ? bestIndex : -1;
-}
-
-function statusTone(status: string | undefined): 'success' | 'warning' | 'secondary' | 'neutral' {
-  const normalized = String(status || '').trim().toLowerCase();
-  if (normalized === 'received') return 'success';
-  if (normalized === 'backordered') return 'warning';
-  if (normalized === 'partial_received') return 'secondary';
-  return 'neutral';
-}
-
-const emptyLine = (): PurchaseItemDraft => ({
-  description: '', item_number: '', quantity: '', unit_price: '',
-  unit: 'lb', category: 'Other', lot_number: '', expiration_date: '',
-  count_item_approved: false,
-});
+import { useSaveVendorMutation, useVendorsQuery } from '../hooks/useVendors';
+import { VendorPerformanceCard } from './VendorPerformanceCard';
+import { PurchasingReceivingInsights } from './PurchasingReceivingInsights';
+import {
+  type LeadTimeInsights,
+  type PurchaseItemDraft,
+  type ReceiptDiscrepancyEntry,
+  type ReceiveLineDraft,
+  type ReceiveScanApplySummary,
+  type VendorDraft,
+  asNumber,
+  buildLeadTimeHistoryLookups,
+  buildReceiveDraft,
+  buildScannedVendorDraft,
+  emptyLine,
+  findReceiveScanMatchIndex,
+  formatLeadTimeDays,
+  lineRequiresLot,
+  money,
+  normalizeCatalogItemNumber,
+  normalizeVendorName,
+  remainingQty,
+  resolveProductLeadTimeHistory,
+  statusTone,
+  vendorCatalogItemNumbers,
+} from './purchasing.helpers';
 
 export function PurchasingPage() {
   const [searchParams] = useSearchParams();
@@ -343,9 +92,6 @@ export function PurchasingPage() {
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const receiveFileInputRef = useRef<HTMLInputElement>(null);
   const receiveCameraInputRef = useRef<HTMLInputElement>(null);
-
-  const [vendorPerfEnabled, setVendorPerfEnabled] = useState(false);
-  const vendorPerfQuery = useVendorPerformance(vendorPerfEnabled);
 
   const [barcodeScan, setBarcodeScan] = useState('');
   const [barcodeMatch, setBarcodeMatch] = useState<{ lineIndex: number; lineName: string } | null>(null);
@@ -889,77 +635,7 @@ export function PurchasingPage() {
       </div>
 
       {/* ── Vendor Performance Scorecard ── */}
-      <Card>
-        <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <CardTitle>✦ Vendor Performance Scorecard</CardTitle>
-            <CardDescription>
-              {vendorPerfQuery.data?.summary || 'AI-scored vendor reliability based on order history, short-ships, and lead times.'}
-            </CardDescription>
-          </div>
-          <Button
-            size="sm"
-            variant="outline"
-            onClick={() => {
-              if (!vendorPerfEnabled) {
-                setVendorPerfEnabled(true);
-              } else {
-                void vendorPerfQuery.refetch();
-              }
-            }}
-            disabled={vendorPerfQuery.isFetching}
-          >
-            {vendorPerfQuery.isFetching ? 'Scoring…' : vendorPerfQuery.data ? 'Refresh' : 'Score Vendors'}
-          </Button>
-        </CardHeader>
-        {vendorPerfQuery.isError && (
-          <CardContent>
-            <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">
-              {String((vendorPerfQuery.error as Error)?.message || 'Vendor scoring failed')}
-            </div>
-          </CardContent>
-        )}
-        {vendorPerfQuery.data && (
-          <CardContent>
-            {vendorPerfQuery.data.scores.length === 0 ? (
-              <p className="text-sm text-muted-foreground">No vendor data available to score. Confirm purchase orders to build vendor history.</p>
-            ) : (
-              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-                {vendorPerfQuery.data.scores.map((v, i) => (
-                  <div key={i} className="rounded-lg border border-border bg-muted/20 p-4 space-y-2">
-                    <div className="flex items-center justify-between">
-                      <span className="font-semibold text-sm truncate pr-2">{v.vendor}</span>
-                      <span className={`rounded-full px-2.5 py-0.5 text-sm font-bold border ${
-                        v.grade === 'A' ? 'bg-green-100 border-green-300 text-green-800'
-                        : v.grade === 'B' ? 'bg-blue-100 border-blue-300 text-blue-800'
-                        : v.grade === 'C' ? 'bg-yellow-100 border-yellow-300 text-yellow-800'
-                        : 'bg-red-100 border-red-300 text-red-800'
-                      }`}>{v.grade}</span>
-                    </div>
-                    <div className="text-xs text-muted-foreground">Score: {v.score}/100</div>
-                    {v.strengths.length > 0 && (
-                      <div>
-                        <p className="text-xs font-semibold text-emerald-700 mb-0.5">Strengths</p>
-                        <ul className="text-xs text-emerald-700 space-y-0.5">
-                          {v.strengths.map((s, j) => <li key={j}>✓ {s}</li>)}
-                        </ul>
-                      </div>
-                    )}
-                    {v.risks.length > 0 && (
-                      <div>
-                        <p className="text-xs font-semibold text-red-700 mb-0.5">Risks</p>
-                        <ul className="text-xs text-red-700 space-y-0.5">
-                          {v.risks.map((r, j) => <li key={j}>⚠ {r}</li>)}
-                        </ul>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        )}
-      </Card>
+      <VendorPerformanceCard />
 
       {/* AI PO Scanner */}
       <Card>
@@ -1306,79 +982,7 @@ export function PurchasingPage() {
             </Table>
           </div>
 
-          <div className="grid gap-3 md:grid-cols-3">
-            <div className="rounded-xl border border-border bg-muted/10 p-4">
-              <div className="text-sm font-semibold text-foreground">Historical Lead Time</div>
-              <div className="mt-2 text-2xl font-semibold">{leadTimeInsights.measuredCount ? formatLeadTimeDays(leadTimeInsights.averageDays) : 'No history yet'}</div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                Average first-receipt lead time across {leadTimeInsights.measuredCount} received PO{leadTimeInsights.measuredCount === 1 ? '' : 's'}.
-              </div>
-            </div>
-            <div className="rounded-xl border border-border bg-muted/10 p-4">
-              <div className="text-sm font-semibold text-foreground">Median Lead Time</div>
-              <div className="mt-2 text-2xl font-semibold">{leadTimeInsights.measuredCount ? formatLeadTimeDays(leadTimeInsights.medianDays) : 'No history yet'}</div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                Measured across {leadTimeInsights.vendorCount} vendor relationship{leadTimeInsights.vendorCount === 1 ? '' : 's'}.
-              </div>
-            </div>
-            <div className="rounded-xl border border-border bg-muted/10 p-4">
-              <div className="text-sm font-semibold text-foreground">Most Recent Lead Time</div>
-              <div className="mt-2 text-2xl font-semibold">{formatLeadTimeDays(leadTimeInsights.latestDays)}</div>
-              <div className="mt-1 text-xs text-muted-foreground">
-                Based on the latest PO that recorded a first receipt timestamp.
-              </div>
-            </div>
-          </div>
-
-          <div className="grid gap-3 xl:grid-cols-[280px_minmax(0,1fr)]">
-            <div className="rounded-xl border border-border bg-muted/10 p-4 space-y-3">
-              <div>
-                <div className="text-sm font-semibold text-foreground">Discrepancy Log</div>
-                <div className="text-xs text-muted-foreground">
-                  Recent overages and short receipts across vendor PO receiving.
-                </div>
-              </div>
-              <div className="grid gap-2 sm:grid-cols-3 xl:grid-cols-1">
-                <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-                  Receipts w/ variance: <strong>{discrepancyLog.receiptsWithVariance}</strong>
-                </div>
-                <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-                  Short qty flagged: <strong>{discrepancyLog.shortQty.toFixed(2)}</strong>
-                </div>
-                <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-                  Over qty flagged: <strong>{discrepancyLog.overQty.toFixed(2)}</strong>
-                </div>
-              </div>
-            </div>
-            <div className="rounded-xl border border-border bg-muted/10 p-4 space-y-3">
-              <div className="text-sm font-semibold text-foreground">Recent Discrepancy Activity</div>
-              {discrepancyLog.entries.length ? (
-                <div className="space-y-2">
-                  {discrepancyLog.entries.slice(0, 6).map((entry) => (
-                    <div key={entry.id} className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <strong>{entry.poNumber}</strong> · {entry.vendor}
-                        </div>
-                        <div className="text-xs text-muted-foreground">
-                          {entry.receivedAt ? new Date(entry.receivedAt).toLocaleString() : 'Receipt logged'}
-                        </div>
-                      </div>
-                      <div className="mt-1">
-                        {entry.lineLabel}: <span className="capitalize">{entry.varianceLabel}</span>
-                        {entry.quantityVariance !== 0 ? ` (${entry.quantityVariance.toFixed(2)})` : ''}
-                        {entry.overReceiptQty > 0 ? ` · over by ${entry.overReceiptQty.toFixed(2)}` : ''}
-                      </div>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="rounded-lg border border-dashed border-border bg-background px-4 py-6 text-sm text-muted-foreground">
-                  No receipt discrepancies have been logged yet. When vendors short or over-ship items, the variance history will show up here.
-                </div>
-              )}
-            </div>
-          </div>
+          <PurchasingReceivingInsights leadTimeInsights={leadTimeInsights} discrepancyLog={discrepancyLog} />
 
           {activeReceivePo ? (
             <div className="rounded-xl border border-border bg-muted/10 p-4 space-y-4">

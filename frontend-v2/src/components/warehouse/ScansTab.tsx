@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Badge } from '../ui/badge';
+import { Badge, type BadgeVariant } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
@@ -38,7 +38,7 @@ export function ScansTab({ onNotice, onError }: { onNotice: (m: string) => void;
     if (!form.item_number || !form.action) { onError('Item number and action are required'); return; }
     setSubmitting(true);
     try {
-      const payload: Record<string, any> = { item_number: form.item_number, action: form.action, notes: form.notes || undefined };
+      const payload: Record<string, string | number | undefined> = { item_number: form.item_number, action: form.action, notes: form.notes || undefined };
       if (form.quantity) payload.quantity = parseFloat(form.quantity);
       if (form.unit) payload.unit = form.unit;
       if (form.location_id) payload.location_id = form.location_id;
@@ -146,7 +146,7 @@ export function ScansTab({ onNotice, onError }: { onNotice: (m: string) => void;
                   <TableCell className="text-xs text-muted-foreground whitespace-nowrap">{new Date(s.created_at).toLocaleString()}</TableCell>
                   <TableCell className="font-mono text-sm">{s.item_number}</TableCell>
                   <TableCell>
-                    <Badge variant={(ACTION_COLORS[s.action] || 'secondary') as any}>{s.action}</Badge>
+                    <Badge variant={(ACTION_COLORS[s.action] || 'secondary') as BadgeVariant}>{s.action}</Badge>
                   </TableCell>
                   <TableCell>{s.quantity != null ? `${s.quantity}${s.unit ? ' ' + s.unit : ''}` : '-'}</TableCell>
                   <TableCell className="text-xs">{s.lot_number || '-'}</TableCell>
