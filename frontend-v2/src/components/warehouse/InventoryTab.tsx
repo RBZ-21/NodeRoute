@@ -4,7 +4,7 @@ import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { fetchWithAuth, sendWithAuth } from '../../lib/api';
-import type { InventoryItem } from './WarehouseTypes';
+import type { InventoryItem } from '../../types/inventory.types';
 
 export function InventoryTab({
   initialInventory,
@@ -81,7 +81,12 @@ export function InventoryTab({
   }
 
   const getStatus = (item: InventoryItem) => item.status || 'active';
-  const getQty = (item: InventoryItem) => item.on_hand_qty ?? item.quantity ?? null;
+  const getQty = (item: InventoryItem): number | null => {
+    const raw = item.on_hand_qty ?? item.quantity;
+    if (raw == null || raw === '') return null;
+    const n = Number(raw);
+    return Number.isFinite(n) ? n : null;
+  };
 
   return (
     <Card>
