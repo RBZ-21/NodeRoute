@@ -13,14 +13,12 @@ import { ActiveToggle, CatchWeightPriceInput, CatchWeightToggle, FtlToggle, Inve
 import {
   useActiveInventoryLotsQuery,
   type LedgerParams,
-  useAdjustMutation,
   useInventoryQuery,
   useLedgerQuery,
   useAddInventoryItemMutation,
   useEditInventoryItemMutation,
   useLowStockQuery,
   useRecentSoldQuery,
-  useRestockMutation,
   useSetReorderPointMutation,
   useSpoilageMutation,
   useTransferMutation,
@@ -28,8 +26,9 @@ import {
 import { SmartReorderAlertsCard } from './SmartReorderAlertsCard';
 import { InventoryAiHealthCard } from './InventoryAiHealthCard';
 import { InventoryMarkdownRecsCard } from './InventoryMarkdownRecsCard';
+import { InventoryActionsCard } from './InventoryActionsCard';
+import { asNumber, inventoryActionLabel } from './inventory.helpers';
 
-function asNumber(v: unknown): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function money(v: number) { return v.toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
 function csvEscape(v: string) { return `"${String(v).replace(/"/g, '""')}`; }
 function downloadCsv(filename: string, rows: string[][]) {
@@ -38,13 +37,6 @@ function downloadCsv(filename: string, rows: string[][]) {
   const a = document.createElement('a'); a.href = href; a.download = filename; a.click(); URL.revokeObjectURL(href);
 }
 function sanitizeHtml(v: string) { return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-function inventoryActionLabel(item: Pick<InventoryItem, 'item_number' | 'description'> | null | undefined): string {
-  if (!item) return '';
-  const itemNumber = String(item.item_number || '').trim();
-  const description = String(item.description || '').trim();
-  if (itemNumber && description) return `${itemNumber} - ${description}`;
-  return itemNumber || description || 'Unnamed item';
-}
 function formatInventoryLotDate(value: unknown) {
   if (!value) return '';
   const parsed = new Date(String(value));
@@ -130,8 +122,6 @@ export function InventoryPage() {
   // ── Mutations ─────────────────────────────────────────────────────────────
   const addItemMutation        = useAddInventoryItemMutation();
   const editItemMutation       = useEditInventoryItemMutation();
-  const restockMutation        = useRestockMutation();
-  const adjustMutation         = useAdjustMutation();
   const transferMutation       = useTransferMutation();
   const spoilageMutation       = useSpoilageMutation();
   const setReorderPointMutation = useSetReorderPointMutation();
@@ -149,13 +139,6 @@ export function InventoryPage() {
 
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  // Inline feedback for the Inventory Actions card specifically
-  const [actionError, setActionError] = useState('');
-  const [actionNotice, setActionNotice] = useState('');
-  const [selectedItemId, setSelectedItemId] = useState('');
-  const [restockQty, setRestockQty] = useState('');
-  const [adjustDelta, setAdjustDelta] = useState('');
-  const [actionNotes, setActionNotes] = useState('');
   const [transferFromId, setTransferFromId] = useState('');
   const [transferToId, setTransferToId] = useState('');
   const [transferQty, setTransferQty] = useState('');
@@ -182,7 +165,6 @@ export function InventoryPage() {
     if (selectorInitialized.current || !items.length) return;
     selectorInitialized.current = true;
     const firstItem = items[0];
-    setSelectedItemId(firstItem?.id || '');
     setSpoilageItemId(firstItem?.id || '');
     setTransferFromId(firstItem?.id || '');
     const secondItem = items.find((i) => i.id !== firstItem?.id);
@@ -276,53 +258,7 @@ export function InventoryPage() {
     setLedgerCommitted({ itemFilter: ledgerItemFilter, typeFilter: ledgerTypeFilter, limit: ledgerLimit });
   }
 
-  // Helper to reset inline action feedback before each submission
-  function clearActionFeedback() { setActionError(''); setActionNotice(''); }
-
-  function requireItemNumber(item: InventoryItem | null, actionLabel: string) {
-    if (!item) {
-      setActionError(`Please select an item before ${actionLabel}.`);
-      return null;
-    }
-    const itemNumber = String(item.item_number || '').trim();
-    if (!itemNumber) {
-      setActionError(`"${inventoryActionLabel(item)}" is missing an item number, so ${actionLabel} cannot be posted yet.`);
-      return null;
-    }
-    return itemNumber;
-  }
-
   // ── Mutations ─────────────────────────────────────────────────────────────
-  async function submitRestock() {
-    clearActionFeedback();
-    const itemNumber = requireItemNumber(selectedItem, 'restocking');
-    if (!itemNumber) return;
-    const qty = asNumber(restockQty);
-    if (qty <= 0) { setActionError('Restock quantity must be greater than 0.'); return; }
-    setSubmitting(true);
-    try {
-      await restockMutation.mutateAsync({ itemNumber, qty, notes: actionNotes || undefined });
-      setRestockQty(''); setActionNotes('');
-      setActionNotice(`Restocked ${inventoryActionLabel(selectedItem)} by ${qty.toLocaleString()}.`);
-    } catch (err) { setActionError(String((err as Error).message || 'Restock failed')); }
-    finally { setSubmitting(false); }
-  }
-
-  async function submitAdjustment() {
-    clearActionFeedback();
-    const itemNumber = requireItemNumber(selectedItem, 'applying an adjustment');
-    if (!itemNumber) return;
-    const delta = asNumber(adjustDelta);
-    if (delta === 0) { setActionError('Adjustment delta must be non-zero.'); return; }
-    setSubmitting(true);
-    try {
-      await adjustMutation.mutateAsync({ itemNumber, delta, notes: actionNotes || undefined });
-      setAdjustDelta(''); setActionNotes('');
-      setActionNotice(`Adjusted ${inventoryActionLabel(selectedItem)} by ${delta > 0 ? '+' : ''}${delta.toLocaleString()}.`);
-    } catch (err) { setActionError(String((err as Error).message || 'Adjustment failed')); }
-    finally { setSubmitting(false); }
-  }
-
   async function submitTransfer() {
     const qty = asNumber(transferQty);
     const fromItem = items.find((item) => item.id === transferFromId) ?? null;
@@ -372,7 +308,6 @@ export function InventoryPage() {
       .filter((i) => !n || [i.item_number, i.description, i.category].filter(Boolean).some((p) => String(p).toLowerCase().includes(n)));
   }, [items, search, showInactive]);
   const summary = useMemo(() => ({ totalSkus: items.length, lowStock: items.filter((i) => asNumber(i.on_hand_qty) > 0 && asNumber(i.on_hand_qty) <= 10).length, outOfStock: items.filter((i) => asNumber(i.on_hand_qty) <= 0).length, inventoryValue: items.reduce((s, i) => s + asNumber(i.on_hand_qty) * asNumber(i.cost), 0) }), [items]);
-  const selectedItem = useMemo(() => items.find((i) => i.id === selectedItemId) ?? null, [items, selectedItemId]);
   const countSheetRows = useMemo(() => {
     const rows = items.map((item) => ({ id: item.id, item_number: String(item.item_number || '').trim(), description: String(item.description || '').trim() || 'Unnamed item', category: String(item.category || 'Uncategorized').trim() || 'Uncategorized', on_hand_qty: asNumber(item.on_hand_qty), unit: String(item.unit || '').trim() })).filter((i) => i.item_number || i.description);
     return rows.filter((i) => countCategoryFilter === 'all' || i.category === countCategoryFilter).filter((i) => includeZeroStockInCounts || i.on_hand_qty > 0).filter((i) => { if (recentSalesExclusionWindow === 'all' || !recentSoldItemKeys) return true; return recentSoldItemKeys.has(i.item_number.trim().toLowerCase()) || recentSoldItemKeys.has(i.description.trim().toLowerCase()); }).sort((a, b) => itemCategoryCompare(a, b) || a.description.localeCompare(b.description) || a.item_number.localeCompare(b.item_number));
@@ -478,39 +413,7 @@ export function InventoryPage() {
       <SmartReorderAlertsCard />
 
       {/* ── Inventory Actions ─────────────────────────────────────────────── */}
-      <Card>
-        <CardHeader><CardTitle>Inventory Actions</CardTitle><CardDescription>Select by item name, then post restocks and adjustments against the matching inventory SKU.</CardDescription></CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-4">
-          {/* Inline feedback — shown right here in the card, not at the top of the page */}
-          {actionError && (
-            <div className="md:col-span-4 rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">
-              {actionError}
-            </div>
-          )}
-          {actionNotice && (
-            <div className="md:col-span-4 rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
-              {actionNotice}
-            </div>
-          )}
-          <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Item</span>
-            <select
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={selectedItemId}
-              onChange={(e) => { setSelectedItemId(e.target.value); clearActionFeedback(); }}
-            >
-              <option value="">Select item...</option>{items.map((i) => <option key={i.id} value={i.id}>{inventoryActionLabel(i)}</option>)}
-            </select>
-          </label>
-          <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Restock Qty</span><Input type="number" min="0" step="0.01" value={restockQty} onChange={(e) => setRestockQty(e.target.value)} placeholder="e.g. 25" /></label>
-          <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Adjustment Delta</span><Input type="number" step="0.01" value={adjustDelta} onChange={(e) => setAdjustDelta(e.target.value)} placeholder="e.g. -2.5" /></label>
-          <label className="space-y-1 text-sm md:col-span-4"><span className="font-semibold text-muted-foreground">Notes</span><Input value={actionNotes} onChange={(e) => setActionNotes(e.target.value)} placeholder="Optional movement notes" /></label>
-          <div className="md:col-span-4 flex flex-wrap gap-2">
-            <Button onClick={submitRestock} disabled={submitting}>Restock Item</Button>
-            <Button variant="secondary" onClick={submitAdjustment} disabled={submitting}>Apply Adjustment</Button>
-            {selectedItem && <div className="ml-auto rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">Current: <strong>{asNumber(selectedItem.on_hand_qty).toLocaleString()}</strong> {selectedItem.unit || ''}</div>}
-          </div>
-        </CardContent>
-      </Card>
+      <InventoryActionsCard items={items} />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader><CardTitle>Inventory Count Reports</CardTitle><CardDescription>Print or export count sheets grouped by category.</CardDescription></CardHeader>
