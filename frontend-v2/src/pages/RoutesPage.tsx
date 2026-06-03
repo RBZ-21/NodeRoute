@@ -27,6 +27,7 @@ import {
   useUpdateRoute,
 } from '../hooks/useRoutes';
 import { AIDriverAssignmentsCard } from './AIDriverAssignmentsCard';
+import { RouteOptimizationResultCard } from './RouteOptimizationResultCard';
 
 type RouteStatus = 'active' | 'pending' | 'completed' | 'cancelled' | 'other';
 
@@ -808,26 +809,12 @@ export function RoutesPage() {
 
       {/* AI Route Optimization Result */}
       {optimizeResult && optimizeRouteId && (
-        <Card className="border-primary/40 ring-1 ring-primary/20">
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">❆ Optimized Stop Order</CardTitle>
-            <CardDescription>Estimated efficiency gain: {optimizeResult.estimated_efficiency_gain}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <p className="text-sm text-muted-foreground">{optimizeResult.reasoning}</p>
-            {optimizeResult.key_changes.length > 0 && (
-              <ul className="space-y-1">
-                {optimizeResult.key_changes.map((change, i) => (
-                  <li key={i} className="flex items-start gap-2 text-sm"><span className="mt-0.5 text-primary">•</span>{change}</li>
-                ))}
-              </ul>
-            )}
-            <div className="flex gap-2">
-              <Button size="sm" onClick={handleApplyOptimization} disabled={updateRoute.isPending}>Apply New Order</Button>
-              <Button size="sm" variant="ghost" onClick={() => { setOptimizeResult(null); setOptimizeRouteId(null); }}>Dismiss</Button>
-            </div>
-          </CardContent>
-        </Card>
+        <RouteOptimizationResultCard
+          result={optimizeResult}
+          applying={updateRoute.isPending}
+          onApply={handleApplyOptimization}
+          onDismiss={() => { setOptimizeResult(null); setOptimizeRouteId(null); }}
+        />
       )}
 
       {/* Routes List */}
