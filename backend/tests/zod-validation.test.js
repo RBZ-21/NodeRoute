@@ -5,6 +5,7 @@ const path = require('node:path');
 const configModulePath = path.join(__dirname, '..', 'lib', 'config.js');
 const authSchemasModulePath = path.join(__dirname, '..', 'lib', 'auth-schemas.js');
 const inventoryWriteSchemasModulePath = path.join(__dirname, '..', 'lib', 'inventory-write-schemas.js');
+const schemasModulePath = path.join(__dirname, '..', 'lib', 'schemas.js');
 const zodValidateModulePath = path.join(__dirname, '..', 'lib', 'zod-validate.js');
 
 function withEnv(overrides, fn) {
@@ -255,6 +256,25 @@ test('shared validate helpers return the first Zod issue as a 400 error', async 
 
   assert.equal(statusCode, 400);
   assert.deepEqual(payload, { error: 'Too big: expected number to be <=90' });
+});
+
+test('order schemas accept null for clearable optional string fields', () => {
+  const { orderUpdateSchema, orderFulfillSchema } = require(schemasModulePath);
+
+  assert.doesNotThrow(() => orderUpdateSchema.parse({
+    customerEmail: '',
+    customerPhone: '',
+    customerAddress: '',
+    notes: '',
+    routeId: null,
+    stopId: null,
+  }));
+
+  assert.doesNotThrow(() => orderFulfillSchema.parse({
+    items: [],
+    driverName: null,
+    routeId: null,
+  }));
 });
 
 test('inventory count schema coerces string quantities and rejects invalid entries', () => {
