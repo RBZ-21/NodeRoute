@@ -9,38 +9,33 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import {
   type PoScanResult,
   type PurchaseOrder,
-  type VendorPoReceiptRules,
   type VendorPurchaseOrder,
   openPurchaseOrderPdf,
   scanPoFile,
   useConfirmPurchaseOrder,
   useInventoryProducts,
   usePurchaseOrders,
-  useReceiveVendorPurchaseOrder,
   useVendorPurchaseOrders,
 } from '../hooks/usePurchasing';
 import { useSaveVendorMutation, useVendorsQuery } from '../hooks/useVendors';
 import { VendorPerformanceCard } from './VendorPerformanceCard';
 import { PurchasingReceivingInsights } from './PurchasingReceivingInsights';
+import { ReceivePoDrawer } from './ReceivePoDrawer';
 import {
   type LeadTimeInsights,
   type PurchaseItemDraft,
   type ReceiptDiscrepancyEntry,
-  type ReceiveLineDraft,
-  type ReceiveScanApplySummary,
   type VendorDraft,
   asNumber,
   buildLeadTimeHistoryLookups,
-  buildReceiveDraft,
   buildScannedVendorDraft,
   emptyLine,
-  findReceiveScanMatchIndex,
   formatLeadTimeDays,
+  handleFileInputChange,
   lineRequiresLot,
   money,
   normalizeCatalogItemNumber,
   normalizeVendorName,
-  remainingQty,
   resolveProductLeadTimeHistory,
   statusTone,
   vendorCatalogItemNumbers,
@@ -57,7 +52,6 @@ export function PurchasingPage() {
   const { data: products = [] } = useInventoryProducts();
   const { data: vendorRecords = [], refetch: refetchVendors } = useVendorsQuery();
   const confirmPo = useConfirmPurchaseOrder();
-  const receiveVendorPo = useReceiveVendorPurchaseOrder();
   const saveVendorMutation = useSaveVendorMutation();
 
   const [notice, setNotice] = useState('');
@@ -77,24 +71,9 @@ export function PurchasingPage() {
   const [scanError, setScanError] = useState('');
   const [scanResult, setScanResult] = useState<PoScanResult | null>(null);
   const [scannedVendorDraft, setScannedVendorDraft] = useState<VendorDraft | null>(null);
-  const [receiveScanLoading, setReceiveScanLoading] = useState(false);
-  const [receiveScanError, setReceiveScanError] = useState('');
-  const [receiveScanResult, setReceiveScanResult] = useState<PoScanResult | null>(null);
   const [activeReceivePo, setActiveReceivePo] = useState<VendorPurchaseOrder | null>(null);
-  const [receiveNotes, setReceiveNotes] = useState('');
-  const [carrierName, setCarrierName] = useState('');
-  const [receiveLines, setReceiveLines] = useState<ReceiveLineDraft[]>([]);
-  const [receiveRules, setReceiveRules] = useState<VendorPoReceiptRules>({
-    over_receipt_policy: 'cap',
-    backorder_policy: 'open',
-  });
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
-  const receiveFileInputRef = useRef<HTMLInputElement>(null);
-  const receiveCameraInputRef = useRef<HTMLInputElement>(null);
-
-  const [barcodeScan, setBarcodeScan] = useState('');
-  const [barcodeMatch, setBarcodeMatch] = useState<{ lineIndex: number; lineName: string } | null>(null);
 
   const summary = useMemo(() => ({
     count: orders.length,
@@ -304,55 +283,15 @@ export function PurchasingPage() {
     );
   }, [lines, scanResult]);
 
-  const receiveDetectedLotCount = useMemo(
-    () => (receiveScanResult?.items || []).filter((item) => String(item.lot_number || '').trim()).length,
-    [receiveScanResult],
-  );
-
   function updateLine<Key extends keyof PurchaseItemDraft>(index: number, key: Key, value: PurchaseItemDraft[Key]) {
     setLines((cur) => cur.map((l, i) => (i === index ? { ...l, [key]: value } : l)));
   }
   function setCountItemApproval(index: number, approved: boolean) {
     setLines((cur) => cur.map((line, lineIndex) => (lineIndex === index ? { ...line, count_item_approved: approved } : line)));
   }
-  function handleBarcodeSubmit(scanValue: string) {
-    const normalized = scanValue.trim().toLowerCase();
-    if (!normalized || !activeReceivePo) return;
-    const lines = activeReceivePo.lines || [];
-    const idx = lines.findIndex((l) => {
-      const barcode = String((l as Record<string, unknown>).barcode || '').trim().toLowerCase();
-      const itemNo  = String(l.item_number || '').trim().toLowerCase();
-      return barcode === normalized || itemNo === normalized;
-    });
-    if (idx >= 0) {
-      setBarcodeMatch({ lineIndex: idx, lineName: lines[idx].product_name || lines[idx].item_number || `Line ${idx + 1}` });
-      updateReceiveLine(idx, 'qty_received', String(asNumber(receiveLines[idx]?.qty_received || 0) + 1));
-    } else {
-      setBarcodeMatch(null);
-    }
-    setBarcodeScan('');
-  }
-
-  function updateReceiveLine(index: number, key: keyof ReceiveLineDraft, value: string) {
-    setReceiveLines((cur) => cur.map((l, i) => (i === index ? { ...l, [key]: value } : l)));
-  }
   function addLine() { setLines((cur) => [...cur, emptyLine()]); }
   function removeLine(index: number) {
     setLines((cur) => (cur.length === 1 ? cur : cur.filter((_, i) => i !== index)));
-  }
-
-  function loadReceiveDraft(po: VendorPurchaseOrder) {
-    setActiveReceivePo(po);
-    setReceiveNotes('');
-    setCarrierName('');
-    setReceiveScanLoading(false);
-    setReceiveScanError('');
-    setReceiveScanResult(null);
-    setReceiveRules({
-      over_receipt_policy: po.receipt_rules?.over_receipt_policy || 'cap',
-      backorder_policy: po.receipt_rules?.backorder_policy || 'open',
-    });
-    setReceiveLines((po.lines || []).map((line) => buildReceiveDraft(line)));
   }
 
   function applyScanResult(result: PoScanResult) {
@@ -381,35 +320,6 @@ export function PurchasingPage() {
     setLines(draftLines.length ? draftLines : [emptyLine()]);
     setScanResult(result);
     setNotice('PO scan complete — review and confirm the lines below.');
-  }
-
-  function applyReceiveScanResult(result: PoScanResult): ReceiveScanApplySummary {
-    const poLines = activeReceivePo?.lines || [];
-    const usedIndexes = new Set<number>();
-    const draftLines = poLines.map((line, index) => ({ ...buildReceiveDraft(line), ...(receiveLines[index] || {}) }));
-    const unmatchedItems: string[] = [];
-    let mappedCount = 0;
-
-    for (const item of result.items || []) {
-      const matchIndex = findReceiveScanMatchIndex(poLines, item, usedIndexes);
-      if (matchIndex < 0) {
-        unmatchedItems.push(String(item.description || 'Unnamed scan line'));
-        continue;
-      }
-
-      usedIndexes.add(matchIndex);
-      mappedCount += 1;
-      draftLines[matchIndex] = {
-        ...draftLines[matchIndex],
-        qty_received: item.quantity != null ? String(item.quantity) : draftLines[matchIndex].qty_received,
-        unit_cost: item.unit_price != null ? String(item.unit_price) : draftLines[matchIndex].unit_cost,
-        lot_number: String(item.lot_number || '').trim() || draftLines[matchIndex].lot_number,
-      };
-    }
-
-    setReceiveLines(draftLines);
-    setReceiveScanResult(result);
-    return { mappedCount, unmatchedItems };
   }
 
   async function handleScanFile(file: File) {
@@ -442,44 +352,6 @@ export function PurchasingPage() {
     } catch (err) {
       setFormError(String((err as Error).message || 'Could not save scanned vendor'));
     }
-  }
-
-  async function handleReceiveScanFile(file: File) {
-    if (!activeReceivePo) {
-      setFormError('Open a vendor PO before scanning a dock invoice.');
-      return;
-    }
-
-    setReceiveScanLoading(true);
-    setReceiveScanError('');
-    setReceiveScanResult(null);
-    try {
-      const result = await scanPoFile(file);
-      const applied = applyReceiveScanResult(result);
-      if (!result.items?.length) {
-        setReceiveScanError('The image uploaded, but no receipt line items were detected. Try a clearer, well-lit photo that includes the full item table, or enter received quantities manually.');
-      }
-      const unmatchedSuffix = applied.unmatchedItems.length
-        ? ` ${applied.unmatchedItems.length} line(s) still need manual review.`
-        : '';
-      setNotice(
-        `Scanned receipt mapped ${applied.mappedCount} of ${(result.items || []).length} line(s) into ${activeReceivePo.po_number || activeReceivePo.id.slice(0, 8)}.${unmatchedSuffix}`
-      );
-    } catch (err) {
-      setReceiveScanError(String((err as Error).message || 'Receipt scan failed'));
-    } finally {
-      setReceiveScanLoading(false);
-    }
-  }
-
-  function handleFileInputChange(
-    e: React.ChangeEvent<HTMLInputElement>,
-    ref: React.RefObject<HTMLInputElement>,
-    onFile: (file: File) => Promise<void> | void,
-  ) {
-    const file = e.target.files?.[0];
-    if (ref.current) ref.current.value = '';
-    if (file) void onFile(file);
   }
 
   function printPurchaseOrder(order: PurchaseOrder) {
@@ -539,72 +411,6 @@ export function PurchasingPage() {
         },
         onError: (err) => setFormError(String((err as Error).message || 'Failed to confirm purchase order')),
       }
-    );
-  }
-
-  function submitReceipt() {
-    if (!activeReceivePo) {
-      setFormError('Select a vendor PO to receive first.');
-      return;
-    }
-
-    const missingLotLine = receiveLines.find((line) => {
-      const source = (activeReceivePo.lines || []).find((poLine) => poLine.line_no === line.line_no);
-      return !!source
-        && asNumber(line.qty_received) > 0
-        && lineRequiresLot(source)
-        && !String(line.lot_number || '').trim();
-    });
-    if (missingLotLine) {
-      const source = (activeReceivePo.lines || []).find((poLine) => poLine.line_no === missingLotLine.line_no);
-      setFormError(`Lot number is required before receiving mollusk item "${source?.product_name || `Line ${missingLotLine.line_no}`}".`);
-      return;
-    }
-
-    const payloadLines = receiveLines
-      .map((line) => {
-        const source = (activeReceivePo.lines || []).find((poLine) => poLine.line_no === line.line_no);
-        return {
-          line_no: line.line_no,
-          qty_received: asNumber(line.qty_received),
-          unit_cost: asNumber(line.unit_cost) > 0 ? asNumber(line.unit_cost) : undefined,
-          item_number: source?.item_number || undefined,
-          product_name: source?.product_name || undefined,
-          lot_number: String(line.lot_number || '').trim() || undefined,
-        };
-      })
-      .filter((line) => line.qty_received > 0);
-
-    if (!payloadLines.length) {
-      setFormError('Enter at least one received quantity before posting the receipt.');
-      return;
-    }
-
-    setFormError('');
-    receiveVendorPo.mutate(
-      {
-        id: activeReceivePo.id,
-        payload: {
-          scan_id: receiveScanResult?.scan_id || null,
-          lines: payloadLines,
-          carrier_name: carrierName.trim() || null,
-          notes: receiveNotes.trim() || null,
-          receiptRules: receiveRules,
-        },
-      },
-      {
-        onSuccess: (updatedPo) => {
-          const latestReceipt = updatedPo.receipts?.[0];
-          const acceptedQty = asNumber(latestReceipt?.variance_audit?.total_accepted_qty);
-          const rejectedQty = asNumber(latestReceipt?.variance_audit?.total_rejected_qty);
-          const backorderedQty = asNumber(latestReceipt?.variance_audit?.total_backordered_qty_after_receipt);
-          setNotice(
-            `Receipt posted for ${updatedPo.po_number || updatedPo.id.slice(0, 8)}. Accepted ${acceptedQty.toFixed(2)} unit(s), rejected ${rejectedQty.toFixed(2)}, backordered ${backorderedQty.toFixed(2)}.`
-          );
-          loadReceiveDraft(updatedPo);
-        },
-        onError: (err) => setFormError(String((err as Error).message || 'Could not post receipt')),
-      },
     );
   }
 
@@ -966,7 +772,7 @@ export function PurchasingPage() {
                     <TableCell>{asNumber(po.total_backordered_qty).toFixed(2)}</TableCell>
                     <TableCell>{po.created_at ? new Date(po.created_at).toLocaleDateString() : '-'}</TableCell>
                     <TableCell>
-                      <Button size="sm" onClick={() => loadReceiveDraft(po)}>
+                      <Button size="sm" onClick={() => setActiveReceivePo(po)}>
                         {activeReceivePo?.id === po.id ? 'Receiving Open' : 'Receive Items'}
                       </Button>
                     </TableCell>
@@ -985,258 +791,14 @@ export function PurchasingPage() {
           <PurchasingReceivingInsights leadTimeInsights={leadTimeInsights} discrepancyLog={discrepancyLog} />
 
           {activeReceivePo ? (
-            <div className="rounded-xl border border-border bg-muted/10 p-4 space-y-4">
-              <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                <div>
-                  <div className="text-lg font-semibold">
-                    Receiving {activeReceivePo.po_number || activeReceivePo.id.slice(0, 8)}
-                  </div>
-                  <div className="text-sm text-muted-foreground">
-                    Vendor: <strong>{activeReceivePo.vendor || activeReceivePo.vendor_name || 'Unassigned Vendor'}</strong>
-                    {' · '}
-                    Status: <strong>{String(activeReceivePo.status || 'open').replace(/_/g, ' ')}</strong>
-                  </div>
-                  {activeReceivePo.notes ? (
-                    <div className="mt-2 text-sm text-muted-foreground">{activeReceivePo.notes}</div>
-                  ) : null}
-                </div>
-                <div className="grid gap-2 sm:grid-cols-3">
-                  <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-                    Ordered: <strong>{asNumber(activeReceivePo.total_ordered_qty).toFixed(2)}</strong>
-                  </div>
-                  <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-                    Received: <strong>{asNumber(activeReceivePo.total_received_qty).toFixed(2)}</strong>
-                  </div>
-                  <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-                    Backordered: <strong>{asNumber(activeReceivePo.total_backordered_qty).toFixed(2)}</strong>
-                  </div>
-                </div>
-              </div>
-
-              <div className="grid gap-3 lg:grid-cols-3">
-                <label className="space-y-1 text-sm">
-                  <span className="font-semibold text-muted-foreground">Over-receipt policy</span>
-                  <select
-                    value={String(receiveRules.over_receipt_policy || 'cap')}
-                    onChange={(e) => setReceiveRules((cur) => ({ ...cur, over_receipt_policy: e.target.value }))}
-                    className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    <option value="reject">Reject overages</option>
-                    <option value="cap">Cap at ordered qty</option>
-                    <option value="allow">Allow over-receipts</option>
-                  </select>
-                </label>
-                <label className="space-y-1 text-sm">
-                  <span className="font-semibold text-muted-foreground">Backorder policy</span>
-                  <select
-                    value={String(receiveRules.backorder_policy || 'open')}
-                    onChange={(e) => setReceiveRules((cur) => ({ ...cur, backorder_policy: e.target.value }))}
-                    className="h-10 rounded-md border border-input bg-background px-3 text-sm"
-                  >
-                    <option value="open">Keep backorders open</option>
-                    <option value="waive">Waive shorted qty</option>
-                  </select>
-                </label>
-                <label className="space-y-1 text-sm">
-                  <span className="font-semibold text-muted-foreground">Carrier / Shipping Company</span>
-                  <Input value={carrierName} onChange={(e) => setCarrierName(e.target.value)} placeholder="e.g. Armory Transportation, FedEx (optional)" />
-                </label>
-                <label className="space-y-1 text-sm">
-                  <span className="font-semibold text-muted-foreground">Receipt Notes</span>
-                  <Input value={receiveNotes} onChange={(e) => setReceiveNotes(e.target.value)} placeholder="Driver shorted 2 cases on pallet 3" />
-                </label>
-              </div>
-
-              <div className="rounded-lg border border-dashed border-sky-200 bg-sky-50/70 p-4 space-y-3">
-                <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div>
-                    <div className="text-sm font-semibold text-foreground">AI Dock Invoice Scanner</div>
-                    <div className="text-xs text-muted-foreground">
-                      Scan the vendor invoice for this open PO to prefill receive quantities, unit costs, and lot numbers.
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <input ref={receiveFileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => handleFileInputChange(e, receiveFileInputRef, handleReceiveScanFile)} />
-                    <input ref={receiveCameraInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="hidden" onChange={(e) => handleFileInputChange(e, receiveCameraInputRef, handleReceiveScanFile)} />
-                    <Button variant="outline" onClick={() => receiveFileInputRef.current?.click()} disabled={receiveScanLoading}>
-                      {receiveScanLoading ? 'Scanning…' : 'Upload Invoice'}
-                    </Button>
-                    <Button variant="outline" onClick={() => receiveCameraInputRef.current?.click()} disabled={receiveScanLoading}>
-                      {receiveScanLoading ? 'Scanning…' : 'Use Camera'}
-                    </Button>
-                  </div>
-                </div>
-                {receiveScanError ? (
-                  <div className="rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive">
-                    {receiveScanError}
-                  </div>
-                ) : null}
-                {receiveScanResult ? (
-                  <div className="grid gap-2 md:grid-cols-4">
-                    <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-                      Scanned lines: <strong>{receiveScanResult.items.length}</strong>
-                    </div>
-                    <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-                      Lot numbers detected: <strong>{receiveDetectedLotCount}</strong>
-                    </div>
-                    <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-                      Scan vendor: <strong>{receiveScanResult.vendor || 'Unknown'}</strong>
-                    </div>
-                    <div className="rounded-lg border border-border bg-background px-3 py-2 text-sm">
-                      Scan PO ref: <strong>{receiveScanResult.po_number || 'Not found'}</strong>
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-
-              <div className="rounded-lg border border-border bg-background px-4 py-3">
-                <div className="text-sm font-semibold mb-2">Barcode Scan Receiving</div>
-                <div className="flex gap-2">
-                  <Input
-                    value={barcodeScan}
-                    onChange={(e) => setBarcodeScan(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') handleBarcodeSubmit(barcodeScan); }}
-                    placeholder="Scan or type barcode / item number — press Enter"
-                    className="flex-1"
-                  />
-                  <Button variant="outline" onClick={() => handleBarcodeSubmit(barcodeScan)}>Apply</Button>
-                </div>
-                {barcodeMatch && (
-                  <div className="mt-2 text-sm text-emerald-700">
-                    +1 added to <strong>{barcodeMatch.lineName}</strong> (line {barcodeMatch.lineIndex + 1})
-                  </div>
-                )}
-                {barcodeScan.trim() && !barcodeMatch && (
-                  <div className="mt-2 text-sm text-rose-600">No line matched "{barcodeScan.trim()}"</div>
-                )}
-              </div>
-
-              <div className="table-scroll-container overflow-x-auto rounded-lg border border-border bg-background">
-                <Table>
-                  <TableHeader>
-                    <TableRow>
-                      <TableHead>Line</TableHead>
-                      <TableHead>Product</TableHead>
-                      <TableHead>Ordered</TableHead>
-                      <TableHead>Received</TableHead>
-                      <TableHead>Remaining</TableHead>
-                      <TableHead>Receive Now</TableHead>
-                      <TableHead>Unit Cost</TableHead>
-                      <TableHead>Lot Number</TableHead>
-                      <TableHead>Expected Variance</TableHead>
-                    </TableRow>
-                  </TableHeader>
-                  <TableBody>
-                    {(activeReceivePo.lines || []).map((line, index) => {
-                      const draft = receiveLines[index];
-                      const ordered = asNumber(line.ordered_qty);
-                      const received = asNumber(line.received_qty);
-                      const remaining = remainingQty(line);
-                      const receiveNow = asNumber(draft?.qty_received);
-                      const expectedVariance = receiveNow - remaining;
-                      return (
-                        <TableRow key={line.line_no}>
-                          <TableCell className="font-medium">#{line.line_no}</TableCell>
-                          <TableCell>
-                            <div className="font-medium">{line.product_name || 'Unnamed item'}</div>
-                            <div className="text-xs text-muted-foreground">{line.item_number || 'No item #'}</div>
-                          </TableCell>
-                          <TableCell>{ordered.toFixed(2)} {line.unit || 'each'}</TableCell>
-                          <TableCell>{received.toFixed(2)} {line.unit || 'each'}</TableCell>
-                          <TableCell>{remaining.toFixed(2)} {line.unit || 'each'}</TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              min="0"
-                              step="0.01"
-                              value={draft?.qty_received || ''}
-                              onChange={(e) => updateReceiveLine(index, 'qty_received', e.target.value)}
-                              placeholder="0.00"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <Input
-                              type="number"
-                              min="0"
-                              step="0.0001"
-                              value={draft?.unit_cost || ''}
-                              onChange={(e) => updateReceiveLine(index, 'unit_cost', e.target.value)}
-                              placeholder="0.0000"
-                            />
-                          </TableCell>
-                          <TableCell>
-                            <div className="space-y-1">
-                              <Input
-                                value={draft?.lot_number || ''}
-                                onChange={(e) => updateReceiveLine(index, 'lot_number', e.target.value)}
-                                placeholder={lineRequiresLot(line) ? 'Required for shellfish lots' : 'Optional lot'}
-                                className="font-mono text-sm"
-                              />
-                              {lineRequiresLot(line) ? (
-                                <div className="text-[11px] text-amber-700">Required before posting mussel, clam, and oyster receipts.</div>
-                              ) : null}
-                            </div>
-                          </TableCell>
-                          <TableCell>
-                            {receiveNow <= 0 ? (
-                              <span className="text-muted-foreground">No receipt entered</span>
-                            ) : expectedVariance > 0 ? (
-                              <Badge variant="warning">Over by {expectedVariance.toFixed(2)}</Badge>
-                            ) : expectedVariance < 0 ? (
-                              <Badge variant="secondary">Short by {Math.abs(expectedVariance).toFixed(2)}</Badge>
-                            ) : (
-                              <Badge variant="success">Exact receipt</Badge>
-                            )}
-                          </TableCell>
-                        </TableRow>
-                      );
-                    })}
-                  </TableBody>
-                </Table>
-              </div>
-
-              <div className="flex flex-wrap items-center gap-2">
-                <Button onClick={submitReceipt} disabled={receiveVendorPo.isPending}>
-                  {receiveVendorPo.isPending ? 'Posting Receipt...' : 'Post Receipt to Inventory'}
-                </Button>
-                <Button variant="outline" onClick={() => loadReceiveDraft(activeReceivePo)}>
-                  Reset Receipt Draft
-                </Button>
-                <Button variant="ghost" onClick={() => { setActiveReceivePo(null); setReceiveScanError(''); setReceiveScanResult(null); }}>
-                  Close Receipt Panel
-                </Button>
-              </div>
-
-              {activeReceivePo.receipts?.length ? (
-                <div className="space-y-3">
-                  <div className="text-sm font-semibold text-foreground">Recent Receipt Activity</div>
-                  {(activeReceivePo.receipts || []).slice(0, 3).map((receipt) => (
-                    <div key={receipt.id} className="rounded-lg border border-border bg-background p-3 text-sm space-y-2">
-                      <div className="flex flex-wrap items-center justify-between gap-2">
-                        <div>
-                          <strong>{receipt.received_at ? new Date(receipt.received_at).toLocaleString() : 'Receipt logged'}</strong>
-                          <span className="ml-2 text-muted-foreground">by {receipt.received_by || 'system'}</span>
-                        </div>
-                        <div className="flex flex-wrap gap-2 text-xs">
-                          <Badge variant="neutral">Accepted {asNumber(receipt.variance_audit?.total_accepted_qty).toFixed(2)}</Badge>
-                          <Badge variant="warning">Rejected {asNumber(receipt.variance_audit?.total_rejected_qty).toFixed(2)}</Badge>
-                          <Badge variant="secondary">Backordered {asNumber(receipt.variance_audit?.total_backordered_qty_after_receipt).toFixed(2)}</Badge>
-                        </div>
-                      </div>
-                      {receipt.notes ? <div className="text-muted-foreground">{receipt.notes}</div> : null}
-                      {(receipt.lines || []).some((line) => asNumber(line.over_receipt_qty) > 0 || String(line.variance_type || '') !== 'exact_receipt') ? (
-                        <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                          {(receipt.lines || [])
-                            .filter((line) => asNumber(line.over_receipt_qty) > 0 || String(line.variance_type || '') !== 'exact_receipt')
-                            .map((line) => `${line.product_name || line.item_number || `Line ${line.line_no}`}: ${String(line.variance_type || 'variance').replace(/_/g, ' ')} (${asNumber(line.quantity_variance_qty).toFixed(2)})`)
-                            .join(' • ')}
-                        </div>
-                      ) : null}
-                    </div>
-                  ))}
-                </div>
-              ) : null}
-            </div>
+            <ReceivePoDrawer
+              key={activeReceivePo.id}
+              po={activeReceivePo}
+              onPosted={setActiveReceivePo}
+              onClose={() => setActiveReceivePo(null)}
+              setNotice={setNotice}
+              setFormError={setFormError}
+            />
           ) : (
             <div className="rounded-lg border border-dashed border-border bg-muted/10 px-4 py-6 text-sm text-muted-foreground">
               Select an open vendor PO above to compare ordered vs. received quantities and post the receipt into inventory.
