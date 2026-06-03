@@ -1,0 +1,14 @@
+name: "NodeRoute CodeQL config"
+
+# Exclude test harnesses from analysis. Tests spin up throwaway Express apps
+# (cookieParser + routers) purely to exercise route contracts, which trips the
+# js/missing-csrf-middleware query even though no production surface is involved.
+paths-ignore:
+  - '**/tests/**'
+  - '**/__tests__/**'
+  - '**/*.test.js'
+  - '**/*.test.ts'
+  - '**/*.test.tsx'
+  - '**/*.spec.js'
+  - '**/*.spec.ts'
+  - '**/*.spec.tsx'
