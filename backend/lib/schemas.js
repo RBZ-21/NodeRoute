@@ -4,7 +4,7 @@ const { z } = require('zod');
 
 // ── Reusable primitives ───────────────────────────────────────────────────────
 
-const optStr = (max) => z.string().max(max).optional();
+const optStr = (max) => z.string().max(max).nullable().optional();
 const posNum = z.number({ invalid_type_error: 'must be a number' }).positive();
 const optPosNum = posNum.optional();
 const nonNegNum = z.number({ invalid_type_error: 'must be a number' }).min(0);
