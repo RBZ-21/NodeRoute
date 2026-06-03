@@ -123,6 +123,40 @@ export function vendorCatalogItemNumbers(vendorRecord: { catalog_item_numbers?: 
   );
 }
 
+export type VendorOption = { label: string; value: string; sublabel?: string };
+
+/**
+ * Vendor dropdown options merged from saved vendor master records and any
+ * vendor names that only appear on historical purchase orders. Shared by the
+ * create-PO combobox and the purchasing-history vendor filter.
+ */
+export function buildVendorOptions(orders: { vendor?: string }[], vendorRecords: Vendor[]): VendorOption[] {
+  const byKey = new Map<string, VendorOption>();
+  for (const vendorRecord of vendorRecords) {
+    const label = String(vendorRecord.name || '').trim();
+    const key = normalizeVendorName(label);
+    if (!key) continue;
+    const catalogCount = vendorCatalogItemNumbers(vendorRecord).length;
+    const category = String(vendorRecord.category || '').trim();
+    const summaryParts = [
+      category || null,
+      catalogCount ? `${catalogCount} catalog SKU${catalogCount === 1 ? '' : 's'}` : 'all inventory',
+    ].filter(Boolean);
+    byKey.set(key, {
+      label,
+      value: label,
+      sublabel: summaryParts.join(' · ') || undefined,
+    });
+  }
+  for (const order of orders) {
+    const label = String(order.vendor || '').trim();
+    const key = normalizeVendorName(label);
+    if (!key || byKey.has(key)) continue;
+    byKey.set(key, { label, value: label });
+  }
+  return Array.from(byKey.values()).sort((left, right) => left.label.localeCompare(right.label));
+}
+
 export function buildScannedVendorDraft(result: PoScanResult): VendorDraft | null {
   const details = result.vendor_details || {};
   const name = String(details.name || result.vendor || '').trim();
