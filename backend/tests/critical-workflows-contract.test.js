@@ -50,6 +50,8 @@ test('order creation unit: delivery plan limit blocks over-limit companies', asy
     () => enforceDeliveryLimit(supabase, { companyId: 'company-1' }),
     (error) => error.code === 'PLAN_LIMIT_EXCEEDED' && error.details.limit === 100
   );
+  const companyLookup = supabase.calls.find((call) => call.table === 'companies');
+  assert.equal(companyLookup.columns, 'id, plan, status');
 });
 
 test('driver assignment unit: driver plan limit blocks over-limit invites', async () => {

@@ -23,6 +23,10 @@ function normalizeStopIds(value) {
   return [];
 }
 
+function hasAssignedDriverId(value) {
+  return String(value || '').trim().length > 0;
+}
+
 /**
  * Haversine distance in miles between two lat/lng points.
  */
@@ -202,6 +206,18 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   if (req.body.dispatched_at !== undefined) payload.dispatched_at = req.body.dispatched_at || null;
   if (!Object.keys(payload).length) return res.status(400).json({ error: 'No valid route fields provided' });
   if (payload.name === '') return res.status(400).json({ error: 'Route name required' });
+  const dispatchRequested =
+    (payload.status !== undefined
+      && String(payload.status || '').toLowerCase() === 'active'
+      && String(existing.status || '').toLowerCase() !== 'active')
+    || (payload.dispatched_at !== undefined && !!payload.dispatched_at && !existing.dispatched_at);
+  const nextDriverId = payload.driver_id !== undefined ? payload.driver_id : existing.driver_id;
+  if (dispatchRequested && !hasAssignedDriverId(nextDriverId)) {
+    return res.status(400).json({
+      code: 'ROUTE_DRIVER_REQUIRED',
+      error: 'Assign a driver before dispatching this route.',
+    });
+  }
   const requestedActiveStopsUpdate = payload.active_stop_ids !== undefined;
   const updateResult = await executeWithOptionalScope(
     (candidate) => {

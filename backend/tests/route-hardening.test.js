@@ -67,6 +67,14 @@ test('routes backend normalizes stop id payloads for create and update', () => {
   assert.deepEqual(normalizeStopIds(undefined), []);
 });
 
+test('routes backend blocks dispatch without a linked driver id', () => {
+  const source = routeSource('routes');
+
+  assert.ok(source.includes('ROUTE_DRIVER_REQUIRED'), 'dispatch should return a specific missing-driver code');
+  assert.ok(source.includes('Assign a driver before dispatching this route.'), 'dispatch should explain the missing driver');
+  assert.ok(source.includes('dispatchRequested && !hasAssignedDriverId(nextDriverId)'), 'dispatch guard should check the resolved driver_id');
+});
+
 test('processing workflow optional schema fields can be stripped on older databases', () => {
   const { isMissingColumnError } = require('../services/operating-context');
   const source = fs.readFileSync(path.join(repoRoot, 'backend', 'services', 'operating-context.js'), 'utf8');

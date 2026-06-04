@@ -29,7 +29,8 @@ import {
 import { AIDriverAssignmentsCard } from './AIDriverAssignmentsCard';
 import { RouteOptimizationResultCard } from './RouteOptimizationResultCard';
 import { AddStopsModal } from './AddStopsModal';
-import { normalizedLocationKey } from './routes.helpers';
+import { RouteEditPanel } from './RouteEditPanel';
+import { driverDisplayName, normalizedLocationKey, normalizeDriverKey, resolveDriverSelection } from './routes.helpers';
 
 type RouteStatus = 'active' | 'pending' | 'completed' | 'cancelled' | 'other';
 
@@ -52,49 +53,6 @@ function normalizeStatus(value: string | undefined): RouteStatus {
 function resolvedStopIds(route: RouteRecord, allStops: StopRecord[]) {
   const stopMap = new Set(allStops.map((s) => String(s.id)));
   return (route.active_stop_ids || route.stop_ids || []).filter((id) => stopMap.has(String(id)));
-}
-
-function normalizeDriverKey(value: string | undefined) {
-  return String(value || '').trim().toLowerCase();
-}
-
-function driverDisplayName(driver: Driver | undefined) {
-  return String(driver?.name || driver?.email || '').trim();
-}
-
-function resolveDriverSelection(drivers: Driver[], driverInput: string, selectedDriverId: string) {
-  const trimmedInput = String(driverInput || '').trim();
-  if (!trimmedInput) {
-    return { driverName: '', driverId: undefined as string | undefined };
-  }
-
-  const normalizedInput = normalizeDriverKey(trimmedInput);
-  const selectedDriver = drivers.find((driver) => String(driver.id) === String(selectedDriverId || ''));
-  if (
-    selectedDriver &&
-    (
-      normalizeDriverKey(selectedDriver.name) === normalizedInput
-      || normalizeDriverKey(selectedDriver.email) === normalizedInput
-    )
-  ) {
-    return {
-      driverName: driverDisplayName(selectedDriver) || trimmedInput,
-      driverId: selectedDriver.id,
-    };
-  }
-
-  const exactMatches = drivers.filter((driver) =>
-    normalizeDriverKey(driver.name) === normalizedInput
-    || normalizeDriverKey(driver.email) === normalizedInput,
-  );
-  if (exactMatches.length === 1) {
-    return {
-      driverName: driverDisplayName(exactMatches[0]) || trimmedInput,
-      driverId: exactMatches[0].id,
-    };
-  }
-
-  return null;
 }
 
 export function RoutesPage() {
@@ -122,7 +80,7 @@ export function RoutesPage() {
   const [newDriverId, setNewDriverId] = useState('');
   const [newNotes, setNewNotes] = useState('');
 
-  // Edit panel
+  // Edit panel — parent owns only the selection; the panel owns its draft.
   const [editRoute, setEditRoute] = useState<RouteRecord | null>(null);
   const [editName, setEditName] = useState('');
   const [editDriverName, setEditDriverName] = useState('');
@@ -140,6 +98,7 @@ export function RoutesPage() {
 
   // Add Stops modal — parent owns only the selection; the modal owns its draft.
   const [addStopsRoute, setAddStopsRoute] = useState<RouteRecord | null>(null);
+  const [dispatchCandidate, setDispatchCandidate] = useState<RouteRecord | null>(null);
 
   // AI
   const [optimizeResult, setOptimizeResult] = useState<OptimizeResult | null>(null);
@@ -355,6 +314,10 @@ export function RoutesPage() {
 
   function handleRemoveStop(stopId: string) {
     if (!editRoute) return;
+    const stop = editRouteStops.find((item) => item.id === stopId);
+    const stopLabel = stop?.name || stop?.address || stopId;
+    if (!confirm(`Remove stop "${stopLabel}" from route "${editRoute.name || editRoute.id}"?`)) return;
+    setActionError('');
     patchRouteStops(editRoute.id, routeStopIds.filter((id) => id !== stopId))
       .catch((err) => setActionError(String((err as Error).message || 'Could not remove stop')));
   }
@@ -490,7 +453,28 @@ export function RoutesPage() {
   }
 
   function handleDispatchRoute(route: RouteRecord) {
+    const assignedDriverId = String(route.driver_id || '').trim();
+    if (!assignedDriverId) {
+      setNotice('');
+      setActionError(`Assign a driver before dispatching "${route.name || route.id.slice(0, 8)}".`);
+      return;
+    }
     setActionError('');
+    setDispatchCandidate(route);
+  }
+
+  function confirmDispatchRoute() {
+    if (!dispatchCandidate) return;
+    const route = dispatchCandidate;
+    const assignedDriverId = String(route.driver_id || '').trim();
+    if (!assignedDriverId) {
+      setDispatchCandidate(null);
+      setNotice('');
+      setActionError(`Assign a driver before dispatching "${route.name || route.id.slice(0, 8)}".`);
+      return;
+    }
+    setActionError('');
+    setDispatchCandidate(null);
     updateRoute.mutate(
       { id: route.id, patch: { status: 'active', dispatched_at: new Date().toISOString() } },
       {
@@ -518,6 +502,39 @@ export function RoutesPage() {
 
   return (
     <div className="space-y-5">
+      {dispatchCandidate ? (() => {
+        const routeLabel = dispatchCandidate.name || dispatchCandidate.id.slice(0, 8);
+        const driverLabel = dispatchCandidate.driver || driverDisplayName(driverById.get(String(dispatchCandidate.driver_id || ''))) || 'Unassigned';
+        const stopCount = resolvedStopIds(dispatchCandidate, allStops).length;
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4" role="dialog" aria-modal="true" aria-labelledby="dispatch-confirm-title">
+            <div className="w-full max-w-md rounded-lg border border-border bg-background p-5 shadow-xl">
+              <div className="space-y-1">
+                <h2 id="dispatch-confirm-title" className="text-lg font-semibold">Dispatch route?</h2>
+                <p className="text-sm text-muted-foreground">Customer ETA and live tracking will begin for this route.</p>
+              </div>
+              <dl className="mt-4 grid gap-3 text-sm">
+                <div className="flex items-center justify-between gap-4">
+                  <dt className="text-muted-foreground">Route</dt>
+                  <dd className="font-medium text-right">{routeLabel}</dd>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <dt className="text-muted-foreground">Driver</dt>
+                  <dd className="font-medium text-right">{driverLabel}</dd>
+                </div>
+                <div className="flex items-center justify-between gap-4">
+                  <dt className="text-muted-foreground">Stops</dt>
+                  <dd className="font-medium text-right">{stopCount}</dd>
+                </div>
+              </dl>
+              <div className="mt-5 flex justify-end gap-2">
+                <Button variant="ghost" onClick={() => setDispatchCandidate(null)}>Cancel</Button>
+                <Button onClick={confirmDispatchRoute} disabled={updateRoute.isPending}>Dispatch Route</Button>
+              </div>
+            </div>
+          </div>
+        );
+      })() : null}
       {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading routes...</div> : null}
       {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load routes')}</div> : null}
       {actionError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{actionError}</div> : null}
@@ -780,6 +797,7 @@ export function RoutesPage() {
                 const stopCount = resolvedStopIds(route, allStops).length;
                 const isEditing = editRoute?.id === route.id;
                 const assignedDriver = route.driver || driverDisplayName(driverById.get(String(route.driver_id || '')));
+                const hasAssignedDriverId = String(route.driver_id || '').trim().length > 0;
                 return (
                   <TableRow key={route.id} className={isEditing ? 'bg-primary/5' : ''}>
                     <TableCell className="font-medium">{route.name || route.id.slice(0, 8)}</TableCell>
@@ -807,7 +825,7 @@ export function RoutesPage() {
                           <Button
                             variant="outline"
                             size="sm"
-                            title="Mark route as dispatched — driver has left the dock"
+                            title={hasAssignedDriverId ? 'Mark route as dispatched - driver has left the dock' : 'Assign a driver before dispatching this route'}
                             onClick={() => handleDispatchRoute(route)}
                             disabled={updateRoute.isPending}
                           >
