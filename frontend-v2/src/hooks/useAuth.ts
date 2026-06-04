@@ -1,6 +1,11 @@
 import { useEffect, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { fetchCurrentUser, redirectToLogin, requireAuthToken } from '../lib/api';
+import {
+  ensureSessionExpiryMarker,
+  fetchCurrentUser,
+  redirectToLogin,
+  requireAuthToken,
+} from '../lib/api';
 
 const PUBLIC_PATHS = ['/login', '/signup', '/portal', '/customer-portal', '/setup-password'];
 
@@ -40,7 +45,11 @@ export function useAuth(): AuthState {
     let cancelled = false;
 
     fetchCurrentUser()
-      .then(() => { if (!cancelled) setState('ready'); })
+      .then(() => {
+        if (cancelled) return;
+        ensureSessionExpiryMarker();
+        setState('ready');
+      })
       .catch((err: unknown) => {
         if (cancelled) return;
         // parseResponse already clears the session and redirects on 401.

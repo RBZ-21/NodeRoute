@@ -40,7 +40,18 @@ type Props = {
   onCancel: () => void;
   submitting: boolean;
   productsLoading?: boolean;
+  validationErrors?: OrderFormValidationErrors;
 };
+
+export type OrderFormValidationErrors = Partial<Record<
+  'customerName' | 'customerEmail' | 'customerAddress' | 'items',
+  string
+>>;
+
+function isAddressLookupServiceUnavailable(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error || '');
+  return /503|GOOGLE_MAPS_KEY|not configured|temporarily unavailable|Address lookup failed/i.test(message);
+}
 
 export function OrderFormCard({
   editingOrderId,
@@ -61,10 +72,13 @@ export function OrderFormCard({
   subtotal, charges, draftTotal,
   updateLine, toggleLineCatchWeight, addLine, removeLine,
   onSubmit, onCancel, submitting, productsLoading = false,
+  validationErrors = {},
 }: Props) {
   const { data: routes = [] } = useRoutes();
 
   const lookupInFlightRef = useRef<string | null>(null);
+  const lookupDisabledRef = useRef(false);
+  const lookupCacheRef = useRef<Record<string, string | null>>({});
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [addressLookupLoading, setAddressLookupLoading] = useState(false);
   const [browseLineIndex, setBrowseLineIndex] = useState<number | null>(null);
@@ -98,17 +112,28 @@ export function OrderFormCard({
 
   async function maybeLookupAddress(name: string) {
     const trimmed = name.trim();
-    if (!trimmed) return;
-    if (lookupInFlightRef.current === trimmed) return;
-    lookupInFlightRef.current = trimmed;
+    if (trimmed.length < 3 || lookupDisabledRef.current) return;
+    const cacheKey = normalizedCustomerName(trimmed);
+    if (lookupCacheRef.current[cacheKey] !== undefined) {
+      const cachedAddress = lookupCacheRef.current[cacheKey];
+      if (cachedAddress) setCustomerAddress(cachedAddress);
+      return;
+    }
+    if (lookupInFlightRef.current === cacheKey) return;
+    lookupInFlightRef.current = cacheKey;
     setAddressLookupLoading(true);
     try {
       const result = await fetchWithAuth<{ address?: string }>(
         `/api/customers/address-lookup?name=${encodeURIComponent(trimmed)}`
       );
-      if (result?.address) setCustomerAddress(result.address);
-    } catch {
-      // Silently ignore
+      const address = String(result?.address || '').trim();
+      lookupCacheRef.current[cacheKey] = address || null;
+      if (address) setCustomerAddress(address);
+    } catch (error) {
+      lookupCacheRef.current[cacheKey] = null;
+      if (isAddressLookupServiceUnavailable(error)) {
+        lookupDisabledRef.current = true;
+      }
     } finally {
       lookupInFlightRef.current = null;
       setAddressLookupLoading(false);
@@ -213,6 +238,9 @@ export function OrderFormCard({
               options={customerOptions}
               placeholder="Oceanview Market"
             />
+            {validationErrors.customerName && (
+              <p className="text-xs text-destructive">{validationErrors.customerName}</p>
+            )}
           </label>
           <label className="space-y-1 text-sm">
             <span className="font-semibold text-muted-foreground">Delivery Type</span>
@@ -245,6 +273,9 @@ export function OrderFormCard({
           <label className="space-y-1 text-sm">
             <span className="font-semibold text-muted-foreground">Customer Email</span>
             <Input value={customerEmail} onChange={(e) => setCustomerEmail(e.target.value)} placeholder="buyer@customer.com" />
+            {validationErrors.customerEmail && (
+              <p className="text-xs text-destructive">{validationErrors.customerEmail}</p>
+            )}
             {customerPhone && <p className="text-xs text-muted-foreground pt-0.5">📞 {customerPhone}</p>}
           </label>
           <label className="space-y-1 text-sm">
@@ -260,6 +291,9 @@ export function OrderFormCard({
               placeholder={fulfillmentType === 'delivery' ? '123 Harbor St' : 'Pickup order'}
               disabled={fulfillmentType === 'pickup'}
             />
+            {validationErrors.customerAddress && fulfillmentType === 'delivery' && (
+              <p className="text-xs text-destructive">{validationErrors.customerAddress}</p>
+            )}
           </label>
         </div>
 
@@ -300,6 +334,10 @@ export function OrderFormCard({
             </div>
           </label>
         </div>
+
+        {validationErrors.items && (
+          <p className="text-sm text-destructive">{validationErrors.items}</p>
+        )}
 
         <div className="table-scroll-container overflow-x-auto rounded-lg border border-border">
           <Table>

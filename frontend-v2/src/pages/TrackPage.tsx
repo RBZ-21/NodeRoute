@@ -69,7 +69,7 @@ function loadMapsScript(apiKey: string): Promise<void> {
     if (existing) { existing.addEventListener('load', () => resolve()); return; }
     const script = document.createElement('script');
     script.setAttribute('data-maps-sdk', '1');
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&loading=async`;
     script.async = true;
     script.onload = () => resolve();
     script.onerror = () => reject(new Error('Failed to load Google Maps'));

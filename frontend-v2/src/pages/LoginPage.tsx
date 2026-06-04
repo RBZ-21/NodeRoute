@@ -4,7 +4,7 @@ import * as Sentry from '@sentry/react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
-import { clearSession, readAndClearAuthError } from '../lib/api';
+import { clearSession, markSessionRenewed, readAndClearAuthError } from '../lib/api';
 
 type LoginResponse = {
   token: string;
@@ -80,6 +80,7 @@ export function LoginPage() {
 
       // Store user profile for role-based UI — NOT the token
       localStorage.setItem('nr_user', JSON.stringify(mePayload));
+      markSessionRenewed();
       window.location.href = landingFor(mePayload?.role, next);
     } catch (loginError) {
       clearSession();

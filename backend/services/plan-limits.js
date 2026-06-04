@@ -28,7 +28,7 @@ function planLimitsFor(company) {
 async function loadCompanyPlan(supabase, companyId) {
   const { data, error } = await supabase
     .from('companies')
-    .select('id, plan, subscription_plan, status')
+    .select('id, plan, status')
     .eq('id', companyId)
     .single();
   if (error) throw error;

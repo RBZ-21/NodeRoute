@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { InventoryProduct, LotCode, Order, OrderCharge, OrderLineDraft } from '../pages/orders.types';
 import { asNumber, draftSubtotal, emptyLine, normalizeText, orderItemQty, productSelectionKey } from '../pages/orders.types';
 
@@ -23,6 +23,7 @@ export function useOrderForm({
   const [minimumFlat, setMinimumFlat]         = useState('');
   const [lines, setLines]                     = useState<OrderLineDraft[]>([emptyLine()]);
   const [routeId, setRouteId]                 = useState('');
+  const [editSnapshot, setEditSnapshot]       = useState('');
 
   const subtotal = useMemo(() => draftSubtotal(lines), [lines]);
 
@@ -127,6 +128,7 @@ export function useOrderForm({
 
   function reset() {
     setEditingOrderId(null);
+    setEditSnapshot('');
     setCustomerName(''); setCustomerEmail(''); setCustomerPhone(''); setCustomerAddress('');
     setFulfillmentType('delivery');
     setNotes(''); setTaxEnabled(false); setTaxRate('0.09');
@@ -137,6 +139,7 @@ export function useOrderForm({
 
   function populate(order: Order) {
     setEditingOrderId(order.id);
+    setEditSnapshot('');
     setCustomerName(order.customer_name || '');
     setCustomerEmail(order.customer_email || '');
     setCustomerPhone(order.customer_phone || '');
@@ -235,6 +238,30 @@ export function useOrderForm({
     };
   }
 
+  const currentSnapshot = useMemo(
+    () => JSON.stringify(buildPayload()),
+    [
+      customerName,
+      customerEmail,
+      customerPhone,
+      customerAddress,
+      fulfillmentType,
+      notes,
+      taxEnabled,
+      taxRate,
+      charges,
+      lines,
+      routeId,
+    ],
+  );
+
+  useEffect(() => {
+    if (!editingOrderId || editSnapshot) return;
+    setEditSnapshot(currentSnapshot);
+  }, [currentSnapshot, editingOrderId, editSnapshot]);
+
+  const isDirty = !!editingOrderId && !!editSnapshot && currentSnapshot !== editSnapshot;
+
   const ftlSet = useMemo(
     () => {
       const set = new Set<string>();
@@ -298,5 +325,6 @@ export function useOrderForm({
     lotsCache,
     updateLine, toggleLineCatchWeight, addLine, removeLine,
     reset, populate, buildPayload,
+    isDirty,
   };
 }

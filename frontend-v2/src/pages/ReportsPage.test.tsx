@@ -107,4 +107,25 @@ describe('ReportsPage', () => {
       expect(fetchWithAuthMock).toHaveBeenCalledWith('/api/reporting/sales-summary?preset=range&start=2026-04-01&end=2026-04-30');
     });
   });
+
+  it('exports the visible item sales rows as CSV', async () => {
+    const createObjectURL = vi.fn(() => 'blob:reports-item-sales');
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, 'createObjectURL', { configurable: true, value: createObjectURL });
+    Object.defineProperty(URL, 'revokeObjectURL', { configurable: true, value: revokeObjectURL });
+    const click = vi.spyOn(HTMLAnchorElement.prototype, 'click').mockImplementation(() => {});
+
+    renderReportsPage();
+
+    await screen.findByText('Lobster');
+    fireEvent.click(screen.getByRole('button', { name: 'Export Item Sales CSV' }));
+
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    const blob = createObjectURL.mock.calls[0]?.[0] as Blob;
+    const csv = await blob.text();
+    expect(csv).toContain('"Item","Item Number","Qty Sold","Revenue","Delivery Sales","Pickup Sales","Invoices"');
+    expect(csv).toContain('"Lobster","LOB-001","14","700","520","180","3"');
+    expect(click).toHaveBeenCalledTimes(1);
+    expect(revokeObjectURL).toHaveBeenCalledWith('blob:reports-item-sales');
+  });
 });

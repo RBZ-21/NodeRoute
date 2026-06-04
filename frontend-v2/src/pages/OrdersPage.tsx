@@ -18,7 +18,7 @@ import {
   useSubmitOrderMutation,
 } from '../hooks/useOrders';
 import { OrderWeightsBoard } from './OrderWeightsBoard';
-import { OrderFormCard } from './OrderFormCard';
+import { OrderFormCard, type OrderFormValidationErrors } from './OrderFormCard';
 import { OrdersWorkbench } from './OrdersWorkbench';
 import { WeightCaptureCard } from './WeightCaptureCard';
 import { WeightStationPanel } from './WeightStationPanel';
@@ -131,6 +131,7 @@ export function OrdersPage() {
 
   const [notice, setNotice]   = useState('');
   const [error, setError]     = useState('');
+  const [formErrors, setFormErrors] = useState<OrderFormValidationErrors>({});
   const [search, setSearch]   = useState('');
   const [status, setStatus]   = useState<OrderStatus | 'all'>('all');
   const [submitting, setSubmitting] = useState(false);
@@ -152,6 +153,17 @@ export function OrdersPage() {
   // ── Pricing Anomaly Detection ────────────────────────────────────────
   const pricingAnomalies = usePricingAnomalies();
   const [anomalyDays, setAnomalyDays] = useState(30);
+
+  useEffect(() => {
+    if (!form.isDirty) return;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+      return '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [form.isDirty]);
 
   // ── Order Intake (AI parse) ──────────────────────────────────────────────
   const [intakeOpen, setIntakeOpen]       = useState(false);
@@ -261,10 +273,20 @@ export function OrdersPage() {
 
   async function submitOrder(sendToProcessing: boolean) {
     const payload = form.buildPayload();
-    if (!payload.customerName) { setError('Customer name is required.'); return; }
-    if (!payload.items.length) { setError('Add at least one order item.'); return; }
+    const nextErrors: OrderFormValidationErrors = {};
+    if (!payload.customerName) nextErrors.customerName = 'Customer name is required.';
+    if (!payload.customerEmail) nextErrors.customerEmail = 'Customer email is required.';
+    if (payload.fulfillmentType === 'delivery' && !payload.customerAddress) {
+      nextErrors.customerAddress = 'Customer address is required for delivery orders.';
+    }
+    if (!payload.items.length) nextErrors.items = 'Add at least one order item with quantity greater than 0.';
+    if (Object.keys(nextErrors).length) {
+      setFormErrors(nextErrors);
+      setError('Fix the highlighted fields before saving.');
+      return;
+    }
 
-    setSubmitting(true); setError(''); setNotice('');
+    setSubmitting(true); setError(''); setNotice(''); setFormErrors({});
     try {
       const order = await submitOrderMutation.mutateAsync({ editingOrderId: form.editingOrderId, payload });
       let printableOrder = order;
@@ -353,6 +375,25 @@ export function OrdersPage() {
       setNotice(`Invoice email resent for order ${orderLabel}.`);
     } catch (err) {
       setError(String((err as Error).message || 'Could not resend invoice email'));
+    }
+  }
+
+  async function bulkUpdateOrderStatus(orderIds: string[], nextStatus: OrderStatus) {
+    if (!orderIds.length) return;
+    const statusLabel = nextStatus.replace('_', ' ');
+    if (!confirm(`Update ${orderIds.length} selected order(s) to ${statusLabel}?`)) return;
+    setError('');
+    setNotice('');
+    try {
+      await Promise.all(orderIds.map((orderId) =>
+        sendWithAuth<Order>(`/api/orders/${orderId}`, 'PATCH', { status: nextStatus })
+      ));
+      await queryClient.invalidateQueries({ queryKey: orderKeys.all });
+      await queryClient.invalidateQueries({ queryKey: ['invoices'] });
+      setNotice(`Updated ${orderIds.length} order(s) to ${statusLabel}.`);
+    } catch (err) {
+      setError(String((err as Error).message || 'Could not update selected orders'));
+      throw err;
     }
   }
 
@@ -528,6 +569,7 @@ export function OrdersPage() {
         onSubmit={submitOrder}
         onCancel={form.reset}
         submitting={submitting}
+        validationErrors={formErrors}
       />
 
       <OrdersWorkbench
@@ -547,6 +589,7 @@ export function OrdersPage() {
         onFulfill={quickFulfill}
         onToggleWeightCapture={handleToggleWeightCapture}
         onDelete={deleteOrder}
+        onBulkStatusChange={bulkUpdateOrderStatus}
       />
 
       {weightBoardFilter ? (

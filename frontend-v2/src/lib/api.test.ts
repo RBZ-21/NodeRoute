@@ -1,5 +1,12 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { uploadWithAuth } from './api';
+import {
+  clearSession,
+  markSessionRenewed,
+  renewSession,
+  SESSION_EXPIRES_AT_KEY,
+  SESSION_TTL_MS,
+  uploadWithAuth,
+} from './api';
 
 describe('uploadWithAuth', () => {
   afterEach(() => {
@@ -28,5 +35,49 @@ describe('uploadWithAuth', () => {
       }),
     );
     expect(fetchMock.mock.calls[0]?.[1]).not.toHaveProperty('headers.Content-Type');
+  });
+});
+
+describe('session renewal helpers', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    localStorage.clear();
+  });
+
+  it('stores the expected access-session expiry marker', () => {
+    const now = Date.UTC(2026, 5, 4, 12, 0, 0);
+
+    const expiresAt = markSessionRenewed(now);
+
+    expect(expiresAt).toBe(now + SESSION_TTL_MS);
+    expect(localStorage.getItem(SESSION_EXPIRES_AT_KEY)).toBe(String(expiresAt));
+  });
+
+  it('renews via the refresh endpoint and updates the user session marker', async () => {
+    vi.spyOn(Date, 'now').mockReturnValue(1_000);
+    vi.spyOn(globalThis, 'fetch').mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ user: { role: 'admin' } }),
+    } as Response);
+
+    await expect(renewSession()).resolves.toBe(true);
+
+    expect(fetch).toHaveBeenCalledWith('/auth/refresh', {
+      method: 'POST',
+      credentials: 'include',
+    });
+    expect(localStorage.getItem('nr_user')).toBe(JSON.stringify({ role: 'admin' }));
+    expect(localStorage.getItem(SESSION_EXPIRES_AT_KEY)).toBe(String(1_000 + SESSION_TTL_MS));
+  });
+
+  it('clears the expiry marker with the local session', () => {
+    localStorage.setItem('nr_user', '{"role":"admin"}');
+    localStorage.setItem(SESSION_EXPIRES_AT_KEY, '123');
+
+    clearSession();
+
+    expect(localStorage.getItem('nr_user')).toBeNull();
+    expect(localStorage.getItem(SESSION_EXPIRES_AT_KEY)).toBeNull();
   });
 });
