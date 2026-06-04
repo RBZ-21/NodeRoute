@@ -4,6 +4,10 @@
 // See docs/security/jwt-migration.md for the full migration plan.
 
 const AUTH_ERROR_KEY = 'nr_auth_error';
+export const SESSION_EXPIRES_AT_KEY = 'nr_session_expires_at';
+export const SESSION_RENEWED_EVENT = 'nr-session-renewed';
+export const SESSION_TTL_MS = 15 * 60 * 1000;
+export const SESSION_WARNING_MS = 5 * 60 * 1000;
 
 function saveAuthError(message: string) {
   try { sessionStorage.setItem(AUTH_ERROR_KEY, message); } catch {}
@@ -21,6 +25,7 @@ export function clearSession() {
   // JWT migration Steps 1-3 complete for the browser app: tokens live only in
   // HttpOnly cookies, so there is no longer a legacy nr_token to wipe here.
   localStorage.removeItem('nr_user');
+  localStorage.removeItem(SESSION_EXPIRES_AT_KEY);
 }
 
 export function redirectToLogin(message?: string) {
@@ -36,7 +41,29 @@ function getCsrfToken(): string {
   return match ? decodeURIComponent(match[1]) : '';
 }
 
-async function refreshSession(): Promise<boolean> {
+export function markSessionRenewed(now = Date.now()) {
+  const expiresAt = now + SESSION_TTL_MS;
+  try {
+    localStorage.setItem(SESSION_EXPIRES_AT_KEY, String(expiresAt));
+    window.dispatchEvent(new CustomEvent(SESSION_RENEWED_EVENT, { detail: { expiresAt } }));
+  } catch {}
+  return expiresAt;
+}
+
+export function getSessionExpiresAt(): number | null {
+  try {
+    const raw = localStorage.getItem(SESSION_EXPIRES_AT_KEY);
+    if (!raw) return null;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  } catch { return null; }
+}
+
+export function ensureSessionExpiryMarker(now = Date.now()) {
+  return getSessionExpiresAt() ?? markSessionRenewed(now);
+}
+
+export async function renewSession(): Promise<boolean> {
   try {
     const response = await fetch('/auth/refresh', {
       method: 'POST',
@@ -45,6 +72,7 @@ async function refreshSession(): Promise<boolean> {
     if (!response.ok) return false;
     const payload = await response.json().catch(() => ({}));
     if (payload?.user) localStorage.setItem('nr_user', JSON.stringify(payload.user));
+    markSessionRenewed();
     return true;
   } catch {
     return false;
@@ -58,7 +86,7 @@ async function parseResponse<T>(response: Response, url: string): Promise<T> {
 }
 
 async function parseResponseWithRefresh<T>(response: Response, url: string, retry: () => Promise<Response>): Promise<T> {
-  if (response.status === 401 && await refreshSession()) {
+  if (response.status === 401 && await renewSession()) {
     response = await retry();
   }
   if (response.status === 401) {
