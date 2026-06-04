@@ -7,27 +7,28 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { sendWithAuth, getUserRole, hasRole } from '../lib/api';
+import { getUserRole, hasRole } from '../lib/api';
 import type { CountSheetRow, InventoryItem, InventoryLotSummary, LedgerEntry, LedgerSummary } from '../types/inventory.types';
 import { ActiveToggle, CatchWeightPriceInput, CatchWeightToggle, FtlToggle, InventoryLedger } from '../components/inventory';
 import {
   useActiveInventoryLotsQuery,
   type LedgerParams,
-  useAdjustMutation,
   useInventoryQuery,
   useLedgerQuery,
   useAddInventoryItemMutation,
   useEditInventoryItemMutation,
   useLowStockQuery,
   useRecentSoldQuery,
-  useRestockMutation,
   useSetReorderPointMutation,
   useSpoilageMutation,
   useTransferMutation,
 } from '../hooks/useInventory';
 import { SmartReorderAlertsCard } from './SmartReorderAlertsCard';
+import { InventoryAiHealthCard } from './InventoryAiHealthCard';
+import { InventoryMarkdownRecsCard } from './InventoryMarkdownRecsCard';
+import { InventoryActionsCard } from './InventoryActionsCard';
+import { asNumber, inventoryActionLabel } from './inventory.helpers';
 
-function asNumber(v: unknown): number { const n = Number(v); return Number.isFinite(n) ? n : 0; }
 function money(v: number) { return v.toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
 function csvEscape(v: string) { return `"${String(v).replace(/"/g, '""')}`; }
 function downloadCsv(filename: string, rows: string[][]) {
@@ -36,13 +37,6 @@ function downloadCsv(filename: string, rows: string[][]) {
   const a = document.createElement('a'); a.href = href; a.download = filename; a.click(); URL.revokeObjectURL(href);
 }
 function sanitizeHtml(v: string) { return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
-function inventoryActionLabel(item: Pick<InventoryItem, 'item_number' | 'description'> | null | undefined): string {
-  if (!item) return '';
-  const itemNumber = String(item.item_number || '').trim();
-  const description = String(item.description || '').trim();
-  if (itemNumber && description) return `${itemNumber} - ${description}`;
-  return itemNumber || description || 'Unnamed item';
-}
 function formatInventoryLotDate(value: unknown) {
   if (!value) return '';
   const parsed = new Date(String(value));
@@ -96,29 +90,6 @@ function InventoryLotsCell({ lots, isFtlProduct }: { lots: InventoryLotSummary[]
   );
 }
 
-// ── AI Health Analysis types ──────────────────────────────────────────────────
-type AiActionItem = {
-  priority: 'CRITICAL' | 'WARNING' | 'INFO';
-  action: string;
-  product_id: string;
-  product_name: string;
-  current_stock: number;
-  reason: string;
-  suggested_action: string;
-};
-type AiAnalysis = {
-  analysis_date: string;
-  total_skus_analyzed: number;
-  summary: { critical_items: number; warning_items: number; overstocked_items: number; healthy_items: number };
-  action_items: AiActionItem[];
-};
-
-const PRIORITY_COLORS: Record<string, string> = {
-  CRITICAL: 'text-red-700 bg-red-50 border-red-200',
-  WARNING:  'text-yellow-700 bg-yellow-50 border-yellow-200',
-  INFO:     'text-blue-700 bg-blue-50 border-blue-200',
-};
-
 export function InventoryPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -151,8 +122,6 @@ export function InventoryPage() {
   // ── Mutations ─────────────────────────────────────────────────────────────
   const addItemMutation        = useAddInventoryItemMutation();
   const editItemMutation       = useEditInventoryItemMutation();
-  const restockMutation        = useRestockMutation();
-  const adjustMutation         = useAdjustMutation();
   const transferMutation       = useTransferMutation();
   const spoilageMutation       = useSpoilageMutation();
   const setReorderPointMutation = useSetReorderPointMutation();
@@ -170,13 +139,6 @@ export function InventoryPage() {
 
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  // Inline feedback for the Inventory Actions card specifically
-  const [actionError, setActionError] = useState('');
-  const [actionNotice, setActionNotice] = useState('');
-  const [selectedItemId, setSelectedItemId] = useState('');
-  const [restockQty, setRestockQty] = useState('');
-  const [adjustDelta, setAdjustDelta] = useState('');
-  const [actionNotes, setActionNotes] = useState('');
   const [transferFromId, setTransferFromId] = useState('');
   const [transferToId, setTransferToId] = useState('');
   const [transferQty, setTransferQty] = useState('');
@@ -195,18 +157,6 @@ export function InventoryPage() {
   const [ledgerTypeFilter, setLedgerTypeFilter] = useState('');
   const [ledgerLimit, setLedgerLimit] = useState('75');
 
-  // AI Health Analysis state
-  const [aiAnalysis, setAiAnalysis] = useState<AiAnalysis | null>(null);
-  const [aiLoading, setAiLoading] = useState(false);
-  const [aiError, setAiError] = useState('');
-  const aiRef = useRef<HTMLDivElement>(null);
-
-  // AI Markdown Recommendations
-  type MarkdownRec = { product_id: string; product_name: string; lot_number: string | null; days_until_expiry: number; current_stock: number; suggested_discount_pct: number; urgency: string; message: string; suggested_action: string };
-  const [markdownRecs, setMarkdownRecs] = useState<MarkdownRec[] | null>(null);
-  const [markdownLoading, setMarkdownLoading] = useState(false);
-  const [markdownSummary, setMarkdownSummary] = useState('');
-
   // Initialise selector dropdowns once the first inventory load completes.
   // Use the first item whose item_number is truthy so we never silently
   // pre-select a blank value and disable the action buttons unexpectedly.
@@ -215,37 +165,11 @@ export function InventoryPage() {
     if (selectorInitialized.current || !items.length) return;
     selectorInitialized.current = true;
     const firstItem = items[0];
-    setSelectedItemId(firstItem?.id || '');
     setSpoilageItemId(firstItem?.id || '');
     setTransferFromId(firstItem?.id || '');
     const secondItem = items.find((i) => i.id !== firstItem?.id);
     if (secondItem) setTransferToId(secondItem.id);
   }, [items]);
-
-  // ── AI calls ──────────────────────────────────────────────────────────────
-  async function runAiHealthAnalysis() {
-    setAiLoading(true); setAiError(''); setAiAnalysis(null);
-    try {
-      const data = await sendWithAuth<AiAnalysis>('/api/ai/inventory-analysis', 'POST', {});
-      setAiAnalysis(data);
-      setTimeout(() => aiRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 100);
-    } catch (err) {
-      setAiError(String((err as Error).message || 'AI analysis failed'));
-    } finally {
-      setAiLoading(false);
-    }
-  }
-
-  async function runMarkdownRecommendations() {
-    setMarkdownLoading(true);
-    try {
-      type MarkdownResult = { recommendations: MarkdownRec[]; summary: string };
-      const result = await sendWithAuth<MarkdownResult>('/api/ai/markdown-recommendations', 'POST', { window_days: 10 });
-      setMarkdownRecs(result.recommendations || []);
-      setMarkdownSummary(result.summary || '');
-    } catch (err) { setError(String((err as Error).message || 'Markdown recommendations failed')); }
-    finally { setMarkdownLoading(false); }
-  }
 
   // ── Inventory action helpers ───────────────────────────────────────────────
   async function handleAddItem(e: React.FormEvent) {
@@ -334,53 +258,7 @@ export function InventoryPage() {
     setLedgerCommitted({ itemFilter: ledgerItemFilter, typeFilter: ledgerTypeFilter, limit: ledgerLimit });
   }
 
-  // Helper to reset inline action feedback before each submission
-  function clearActionFeedback() { setActionError(''); setActionNotice(''); }
-
-  function requireItemNumber(item: InventoryItem | null, actionLabel: string) {
-    if (!item) {
-      setActionError(`Please select an item before ${actionLabel}.`);
-      return null;
-    }
-    const itemNumber = String(item.item_number || '').trim();
-    if (!itemNumber) {
-      setActionError(`"${inventoryActionLabel(item)}" is missing an item number, so ${actionLabel} cannot be posted yet.`);
-      return null;
-    }
-    return itemNumber;
-  }
-
   // ── Mutations ─────────────────────────────────────────────────────────────
-  async function submitRestock() {
-    clearActionFeedback();
-    const itemNumber = requireItemNumber(selectedItem, 'restocking');
-    if (!itemNumber) return;
-    const qty = asNumber(restockQty);
-    if (qty <= 0) { setActionError('Restock quantity must be greater than 0.'); return; }
-    setSubmitting(true);
-    try {
-      await restockMutation.mutateAsync({ itemNumber, qty, notes: actionNotes || undefined });
-      setRestockQty(''); setActionNotes('');
-      setActionNotice(`Restocked ${inventoryActionLabel(selectedItem)} by ${qty.toLocaleString()}.`);
-    } catch (err) { setActionError(String((err as Error).message || 'Restock failed')); }
-    finally { setSubmitting(false); }
-  }
-
-  async function submitAdjustment() {
-    clearActionFeedback();
-    const itemNumber = requireItemNumber(selectedItem, 'applying an adjustment');
-    if (!itemNumber) return;
-    const delta = asNumber(adjustDelta);
-    if (delta === 0) { setActionError('Adjustment delta must be non-zero.'); return; }
-    setSubmitting(true);
-    try {
-      await adjustMutation.mutateAsync({ itemNumber, delta, notes: actionNotes || undefined });
-      setAdjustDelta(''); setActionNotes('');
-      setActionNotice(`Adjusted ${inventoryActionLabel(selectedItem)} by ${delta > 0 ? '+' : ''}${delta.toLocaleString()}.`);
-    } catch (err) { setActionError(String((err as Error).message || 'Adjustment failed')); }
-    finally { setSubmitting(false); }
-  }
-
   async function submitTransfer() {
     const qty = asNumber(transferQty);
     const fromItem = items.find((item) => item.id === transferFromId) ?? null;
@@ -430,7 +308,6 @@ export function InventoryPage() {
       .filter((i) => !n || [i.item_number, i.description, i.category].filter(Boolean).some((p) => String(p).toLowerCase().includes(n)));
   }, [items, search, showInactive]);
   const summary = useMemo(() => ({ totalSkus: items.length, lowStock: items.filter((i) => asNumber(i.on_hand_qty) > 0 && asNumber(i.on_hand_qty) <= 10).length, outOfStock: items.filter((i) => asNumber(i.on_hand_qty) <= 0).length, inventoryValue: items.reduce((s, i) => s + asNumber(i.on_hand_qty) * asNumber(i.cost), 0) }), [items]);
-  const selectedItem = useMemo(() => items.find((i) => i.id === selectedItemId) ?? null, [items, selectedItemId]);
   const countSheetRows = useMemo(() => {
     const rows = items.map((item) => ({ id: item.id, item_number: String(item.item_number || '').trim(), description: String(item.description || '').trim() || 'Unnamed item', category: String(item.category || 'Uncategorized').trim() || 'Uncategorized', on_hand_qty: asNumber(item.on_hand_qty), unit: String(item.unit || '').trim() })).filter((i) => i.item_number || i.description);
     return rows.filter((i) => countCategoryFilter === 'all' || i.category === countCategoryFilter).filter((i) => includeZeroStockInCounts || i.on_hand_qty > 0).filter((i) => { if (recentSalesExclusionWindow === 'all' || !recentSoldItemKeys) return true; return recentSoldItemKeys.has(i.item_number.trim().toLowerCase()) || recentSoldItemKeys.has(i.description.trim().toLowerCase()); }).sort((a, b) => itemCategoryCompare(a, b) || a.description.localeCompare(b.description) || a.item_number.localeCompare(b.item_number));
@@ -527,144 +404,16 @@ export function InventoryPage() {
       )}
 
       {/* ── AI Health Analysis ─────────────────────────────────────────── */}
-      <Card>
-        <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <CardTitle>AI Inventory Health Analysis</CardTitle>
-            <CardDescription>
-              Analyzes stock levels, expiring lots, and recent usage patterns to surface critical reorder and spoilage alerts.
-            </CardDescription>
-          </div>
-          <Button onClick={runAiHealthAnalysis} disabled={aiLoading}>
-            {aiLoading ? 'Analyzing…' : 'Run AI Analysis'}
-          </Button>
-        </CardHeader>
-        {aiError && (
-          <CardContent>
-            <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{aiError}</div>
-          </CardContent>
-        )}
-        {aiAnalysis && (
-          <CardContent className="space-y-4" ref={aiRef}>
-            <div className="grid gap-3 sm:grid-cols-4">
-              {[
-                { label: 'SKUs Analyzed', value: aiAnalysis.total_skus_analyzed },
-                { label: 'Critical', value: aiAnalysis.summary.critical_items },
-                { label: 'Warnings', value: aiAnalysis.summary.warning_items },
-                { label: 'Healthy', value: aiAnalysis.summary.healthy_items },
-              ].map(({ label, value }) => (
-                <div key={label} className="rounded-md border border-border bg-muted/30 px-4 py-3 text-sm">
-                  <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-                  <div className="mt-1 text-2xl font-bold">{value}</div>
-                </div>
-              ))}
-            </div>
-            {aiAnalysis.action_items.length > 0 ? (
-              <div className="space-y-2">
-                {aiAnalysis.action_items.map((item, idx) => (
-                  <div
-                    key={idx}
-                    className={`rounded-md border px-4 py-3 text-sm ${PRIORITY_COLORS[item.priority] ?? 'bg-muted border-border'}`}
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <span className="font-bold">[{item.priority}]</span>
-                      <span className="font-semibold">{item.product_name}</span>
-                      <span className="text-xs text-muted-foreground">#{item.product_id}</span>
-                      <span className="ml-auto text-xs">Stock: {item.current_stock.toLocaleString()}</span>
-                    </div>
-                    <div className="mt-1">{item.reason}</div>
-                    <div className="mt-1 font-medium">→ {item.suggested_action}</div>
-                  </div>
-                ))}
-              </div>
-            ) : (
-              <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                All inventory items look healthy — no immediate action required.
-              </div>
-            )}
-            <p className="text-xs text-muted-foreground">Analysis run: {new Date(aiAnalysis.analysis_date).toLocaleString()}</p>
-          </CardContent>
-        )}
-      </Card>
+      <InventoryAiHealthCard />
 
       {/* ── AI Markdown Recommendations ── */}
-      <Card>
-        <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <CardTitle className="flex items-center gap-2">✦ AI Spoilage Markdown Recommendations</CardTitle>
-            <CardDescription>{markdownSummary || 'Identify expiring lots and get AI-suggested discount pricing to move product before it spoils.'}</CardDescription>
-          </div>
-          <Button size="sm" variant="outline" onClick={() => void runMarkdownRecommendations()} disabled={markdownLoading}>
-            {markdownLoading ? 'Analyzing…' : markdownRecs ? 'Re-run' : 'Get Recommendations'}
-          </Button>
-        </CardHeader>
-        {markdownRecs && (
-          <CardContent>
-            {markdownRecs.length === 0 ? (
-              <p className="text-sm text-emerald-600">No lots approaching expiry within the next 10 days.</p>
-            ) : (
-              <div className="space-y-2">
-                {markdownRecs.map((rec, i) => (
-                  <div key={i} className={`rounded-lg border px-4 py-3 ${rec.urgency === 'immediate' ? 'border-red-200 bg-red-50' : rec.urgency === 'soon' ? 'border-yellow-200 bg-yellow-50' : 'border-border bg-muted/20'}`}>
-                    <div className="flex flex-wrap items-start justify-between gap-2">
-                      <div>
-                        <span className={`mr-2 rounded-full px-2 py-0.5 text-xs font-semibold ${rec.urgency === 'immediate' ? 'bg-red-100 text-red-700' : rec.urgency === 'soon' ? 'bg-yellow-100 text-yellow-700' : 'bg-muted text-muted-foreground'}`}>{rec.urgency}</span>
-                        <span className="font-medium text-sm">{rec.product_name}</span>
-                        {rec.lot_number && <span className="ml-2 text-xs text-muted-foreground">Lot: {rec.lot_number}</span>}
-                        <div className="mt-1 text-xs text-muted-foreground">{rec.days_until_expiry}d left · {rec.current_stock} units on hand</div>
-                      </div>
-                      <div className="rounded-lg bg-background border border-border px-3 py-2 text-center">
-                        <div className="text-xl font-bold text-primary">{rec.suggested_discount_pct}%</div>
-                        <div className="text-xs text-muted-foreground">off</div>
-                      </div>
-                    </div>
-                    <p className="mt-2 text-xs italic text-muted-foreground">"{rec.message}"</p>
-                    <p className="mt-1 text-xs font-medium">→ {rec.suggested_action}</p>
-                  </div>
-                ))}
-              </div>
-            )}
-          </CardContent>
-        )}
-      </Card>
+      <InventoryMarkdownRecsCard />
 
       {/* ── Smart Reorder Alerts ──────────────────────────────────────────── */}
       <SmartReorderAlertsCard />
 
       {/* ── Inventory Actions ─────────────────────────────────────────────── */}
-      <Card>
-        <CardHeader><CardTitle>Inventory Actions</CardTitle><CardDescription>Select by item name, then post restocks and adjustments against the matching inventory SKU.</CardDescription></CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-4">
-          {/* Inline feedback — shown right here in the card, not at the top of the page */}
-          {actionError && (
-            <div className="md:col-span-4 rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">
-              {actionError}
-            </div>
-          )}
-          {actionNotice && (
-            <div className="md:col-span-4 rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">
-              {actionNotice}
-            </div>
-          )}
-          <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Item</span>
-            <select
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
-              value={selectedItemId}
-              onChange={(e) => { setSelectedItemId(e.target.value); clearActionFeedback(); }}
-            >
-              <option value="">Select item...</option>{items.map((i) => <option key={i.id} value={i.id}>{inventoryActionLabel(i)}</option>)}
-            </select>
-          </label>
-          <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Restock Qty</span><Input type="number" min="0" step="0.01" value={restockQty} onChange={(e) => setRestockQty(e.target.value)} placeholder="e.g. 25" /></label>
-          <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Adjustment Delta</span><Input type="number" step="0.01" value={adjustDelta} onChange={(e) => setAdjustDelta(e.target.value)} placeholder="e.g. -2.5" /></label>
-          <label className="space-y-1 text-sm md:col-span-4"><span className="font-semibold text-muted-foreground">Notes</span><Input value={actionNotes} onChange={(e) => setActionNotes(e.target.value)} placeholder="Optional movement notes" /></label>
-          <div className="md:col-span-4 flex flex-wrap gap-2">
-            <Button onClick={submitRestock} disabled={submitting}>Restock Item</Button>
-            <Button variant="secondary" onClick={submitAdjustment} disabled={submitting}>Apply Adjustment</Button>
-            {selectedItem && <div className="ml-auto rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">Current: <strong>{asNumber(selectedItem.on_hand_qty).toLocaleString()}</strong> {selectedItem.unit || ''}</div>}
-          </div>
-        </CardContent>
-      </Card>
+      <InventoryActionsCard items={items} />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader><CardTitle>Inventory Count Reports</CardTitle><CardDescription>Print or export count sheets grouped by category.</CardDescription></CardHeader>

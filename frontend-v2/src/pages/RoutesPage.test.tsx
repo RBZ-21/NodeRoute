@@ -190,6 +190,32 @@ describe('RoutesPage', () => {
     expect(await screen.findByText('1 stop added.')).toBeTruthy();
   });
 
+  it('requires confirmation before removing a stop from a route', async () => {
+    const confirmMock = vi.fn(() => false);
+    vi.stubGlobal('confirm', confirmMock);
+
+    renderRoutesPage();
+
+    expect(await screen.findByText('North Route')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    expect(await screen.findByText('Editing: North Route')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+
+    expect(confirmMock).toHaveBeenCalledWith('Remove stop "Blue Fin" from route "North Route"?');
+    expect(sendWithAuthMock).not.toHaveBeenCalledWith('/api/routes/route-1', 'PATCH', expect.anything());
+
+    confirmMock.mockReturnValue(true);
+    sendWithAuthMock.mockResolvedValueOnce({});
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-1', 'PATCH', {
+        stopIds: [],
+        activeStopIds: [],
+      });
+    });
+  });
+
   it('filters the route list and deletes a route after confirmation', async () => {
     mockRoutesApi({
       routes: [
@@ -223,7 +249,7 @@ describe('RoutesPage', () => {
   it('dispatches a pending route and explains that ETA is now allowed to go live', async () => {
     mockRoutesApi({
       routes: [
-        { id: 'route-3', name: 'Dock Run', driver: 'Jamie Driver', status: 'pending', stop_ids: [], active_stop_ids: [], created_at: '2026-04-11T00:00:00Z' },
+        { id: 'route-3', name: 'Dock Run', driver: 'Jamie Driver', driver_id: 'driver-2', status: 'pending', stop_ids: [], active_stop_ids: [], created_at: '2026-04-11T00:00:00Z' },
       ],
     });
     sendWithAuthMock.mockResolvedValueOnce({});
@@ -232,6 +258,10 @@ describe('RoutesPage', () => {
 
     expect(await screen.findByText('Dock Run')).toBeTruthy();
     fireEvent.click(screen.getByRole('button', { name: 'Dispatch Route' }));
+    const dialog = await screen.findByRole('dialog');
+    expect(within(dialog).getByText('Dock Run')).toBeTruthy();
+    expect(within(dialog).getByText('Jamie Driver')).toBeTruthy();
+    fireEvent.click(within(dialog).getByRole('button', { name: 'Dispatch Route' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-3', 'PATCH', {
@@ -240,6 +270,22 @@ describe('RoutesPage', () => {
       });
     });
     expect(await screen.findByText(/marked as departed/i)).toBeTruthy();
+  });
+
+  it('blocks dispatch when the route has no linked driver user', async () => {
+    mockRoutesApi({
+      routes: [
+        { id: 'route-5', name: 'Unassigned Run', driver: 'Legacy Driver Name', driver_id: null, status: 'pending', stop_ids: [], active_stop_ids: [], created_at: '2026-04-11T00:00:00Z' },
+      ],
+    });
+
+    renderRoutesPage();
+
+    expect(await screen.findByText('Unassigned Run')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Dispatch Route' }));
+
+    expect(await screen.findByText(/Assign a driver before dispatching "Unassigned Run"/i)).toBeTruthy();
+    expect(sendWithAuthMock).not.toHaveBeenCalledWith('/api/routes/route-5', 'PATCH', expect.anything());
   });
 
   it('cancels a dispatched route so ETA tracking pauses', async () => {

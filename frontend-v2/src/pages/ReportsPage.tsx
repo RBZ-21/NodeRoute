@@ -9,6 +9,20 @@ function money(value: number): string {
   return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
 }
 
+function csvEscape(value: unknown): string {
+  return `"${String(value ?? '').replace(/"/g, '""')}"`;
+}
+
+function downloadCsv(filename: string, rows: unknown[][]) {
+  const csv = rows.map((row) => row.map(csvEscape).join(',')).join('\n');
+  const href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
+  const anchor = document.createElement('a');
+  anchor.href = href;
+  anchor.download = filename;
+  anchor.click();
+  URL.revokeObjectURL(href);
+}
+
 function localDateKey(date: Date): string {
   const y = date.getFullYear();
   const m = String(date.getMonth() + 1).padStart(2, '0');
@@ -62,6 +76,22 @@ export function ReportsPage() {
     total_sales: 0, delivery_sales: 0, pickup_sales: 0, unknown_sales: 0,
     invoice_count: 0, order_count: 0, average_invoice: 0, item_count: 0,
   };
+
+  function exportItemSalesCsv() {
+    if (!salesReport?.items?.length) return;
+    downloadCsv(`reports-item-sales-${reportPreset}-${reportStartDate || 'start'}-${reportEndDate || 'end'}.csv`, [
+      ['Item', 'Item Number', 'Qty Sold', 'Revenue', 'Delivery Sales', 'Pickup Sales', 'Invoices'],
+      ...salesReport.items.map((item) => [
+        item.label,
+        item.item_number || '',
+        item.qty,
+        item.revenue,
+        item.delivery_revenue,
+        item.pickup_revenue,
+        item.invoice_count,
+      ]),
+    ]);
+  }
 
   return (
     <div className="space-y-5">
@@ -145,9 +175,14 @@ export function ReportsPage() {
       </div>
 
       <Card>
-        <CardHeader>
-          <CardTitle>Item Sales</CardTitle>
-          <CardDescription>Use the item filter above to focus on a specific product or review all sold items for the selected window.</CardDescription>
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div className="space-y-1">
+            <CardTitle>Item Sales</CardTitle>
+            <CardDescription>Use the item filter above to focus on a specific product or review all sold items for the selected window.</CardDescription>
+          </div>
+          <Button variant="outline" onClick={exportItemSalesCsv} disabled={!salesReport?.items?.length}>
+            Export Item Sales CSV
+          </Button>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
           <Table>

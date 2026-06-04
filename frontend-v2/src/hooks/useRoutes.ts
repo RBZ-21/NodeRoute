@@ -6,7 +6,7 @@ export type RouteRecord = {
   name?: string;
   status?: string;
   driver?: string;
-  driver_id?: string;
+  driver_id?: string | null;
   stop_ids?: string[];
   active_stop_ids?: string[];
   notes?: string;

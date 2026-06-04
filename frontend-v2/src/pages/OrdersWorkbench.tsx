@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -25,6 +25,7 @@ type Props = {
   onFulfill: (order: Order) => void;
   onToggleWeightCapture: (order: Order) => void;
   onDelete: (id: string) => void;
+  onBulkStatusChange: (orderIds: string[], status: OrderStatus) => Promise<void> | void;
 };
 
 function hasCatchWeightPending(order: Order): boolean {
@@ -34,8 +35,12 @@ function hasCatchWeightPending(order: Order): boolean {
 export function OrdersWorkbench({
   orders, customerIdParam, search, setSearch, status, setStatus,
   weightCaptureOrderId, role, onLoad, onEdit, onSend, onMarkDelivered, onResendInvoice, onFulfill,
-  onToggleWeightCapture, onDelete,
+  onToggleWeightCapture, onDelete, onBulkStatusChange,
 }: Props) {
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [bulkStatus, setBulkStatus] = useState<OrderStatus>('in_process');
+  const [bulkUpdating, setBulkUpdating] = useState(false);
+
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
     return orders.filter((order) => {
@@ -49,6 +54,45 @@ export function OrdersWorkbench({
       );
     });
   }, [orders, customerIdParam, search, status]);
+
+  useEffect(() => {
+    const visibleIds = new Set(filtered.map((order) => order.id));
+    setSelectedIds((current) => new Set([...current].filter((id) => visibleIds.has(id))));
+  }, [filtered]);
+
+  const selectedVisibleIds = filtered.filter((order) => selectedIds.has(order.id)).map((order) => order.id);
+  const allVisibleSelected = filtered.length > 0 && selectedVisibleIds.length === filtered.length;
+
+  function toggleOrderSelected(orderId: string, checked: boolean) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(orderId);
+      else next.delete(orderId);
+      return next;
+    });
+  }
+
+  function toggleAllVisible(checked: boolean) {
+    setSelectedIds((current) => {
+      const next = new Set(current);
+      for (const order of filtered) {
+        if (checked) next.add(order.id);
+        else next.delete(order.id);
+      }
+      return next;
+    });
+  }
+
+  async function applyBulkStatusChange() {
+    if (!selectedVisibleIds.length) return;
+    setBulkUpdating(true);
+    try {
+      await onBulkStatusChange(selectedVisibleIds, bulkStatus);
+      setSelectedIds(new Set());
+    } finally {
+      setBulkUpdating(false);
+    }
+  }
 
   return (
     <Card>
@@ -82,9 +126,50 @@ export function OrdersWorkbench({
       </CardHeader>
       <CardContent>
         <div className="rounded-lg border border-border bg-card p-2">
+          <div className="mb-2 flex flex-col gap-2 rounded-md border border-border bg-muted/20 p-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <label className="flex items-center gap-2 font-medium">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={allVisibleSelected}
+                onChange={(event) => toggleAllVisible(event.target.checked)}
+                aria-label="Select all visible orders"
+              />
+              Select All
+              <span className="text-xs font-normal text-muted-foreground">
+                {selectedVisibleIds.length} selected
+              </span>
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <select
+                value={bulkStatus}
+                onChange={(event) => setBulkStatus(event.target.value as OrderStatus)}
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                aria-label="Bulk status"
+                disabled={!selectedVisibleIds.length || bulkUpdating}
+              >
+                <option value="pending">Pending</option>
+                <option value="in_process">In Process</option>
+                <option value="delivered">Delivered</option>
+                <option value="invoiced">Invoiced</option>
+                <option value="cancelled">Cancelled</option>
+              </select>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void applyBulkStatusChange()}
+                disabled={!selectedVisibleIds.length || bulkUpdating}
+              >
+                {bulkUpdating ? 'Updating...' : 'Apply Bulk Status'}
+              </Button>
+            </div>
+          </div>
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10">
+                  <span className="sr-only">Select</span>
+                </TableHead>
                 <TableHead>Order</TableHead>
                 <TableHead>Customer</TableHead>
                 <TableHead>Status</TableHead>
@@ -102,6 +187,15 @@ export function OrdersWorkbench({
                   const linkedInvoiceId = order.invoice_id || order.invoiceId;
                   return (
                     <TableRow key={order.id}>
+                      <TableCell>
+                        <input
+                          type="checkbox"
+                          className="h-4 w-4"
+                          checked={selectedIds.has(order.id)}
+                          onChange={(event) => toggleOrderSelected(order.id, event.target.checked)}
+                          aria-label={`Select order ${order.order_number || order.id.slice(0, 8)}`}
+                        />
+                      </TableCell>
                       <TableCell className="font-medium">
                         <button
                           type="button"
@@ -155,7 +249,7 @@ export function OrdersWorkbench({
                 })
               ) : (
                 <TableRow>
-                  <TableCell colSpan={7} className="text-muted-foreground">
+                  <TableCell colSpan={8} className="text-muted-foreground">
                     No orders match the current filters.
                   </TableCell>
                 </TableRow>

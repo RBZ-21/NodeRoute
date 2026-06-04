@@ -5,6 +5,7 @@ import { Button } from '../ui/button';
 import { Sidebar } from './Sidebar';
 import { PageSkeleton } from './PageSkeleton';
 import { ImpersonationBanner } from '../ImpersonationBanner';
+import { SessionExpiryBanner } from '../SessionExpiryBanner';
 import { AIAskBar } from './AIAskBar';
 import { getUserRole } from '../../lib/api';
 import { allNavItems, defaultPath, findNavItem, routePath, canAccess } from '../../lib/nav';
@@ -51,6 +52,7 @@ export function AppShell() {
     <div className="flex min-h-[100dvh] flex-col bg-enterprise-gradient">
       {/* Impersonation banner — visible only when superadmin has switched into a tenant */}
       <ImpersonationBanner />
+      <SessionExpiryBanner />
 
       <div className="mx-auto flex w-full max-w-[1420px] flex-1 flex-col">
 
