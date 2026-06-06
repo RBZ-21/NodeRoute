@@ -59,7 +59,7 @@ const upload = multer({
   },
 });
 
-const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
+const LOT_REQUIRED = /\b(mussel|clam)s?\b/i;
 const purchaseOrderConfirmSchema = z.object({
   vendor: z.preprocess(
     (value) => (value === null || value === undefined ? '' : value),

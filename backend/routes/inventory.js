@@ -29,7 +29,7 @@ const reorderEngine = require('../services/reorderEngine');
 const router = express.Router();
 
 // Products whose names match this pattern require a lot number on every receipt.
-const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
+const LOT_REQUIRED = /\b(mussel|clam)s?\b/i;
 const needsLot = desc => LOT_REQUIRED.test(desc || '');
 const inventoryCreateBodySchema = z.object({
   description: z.string().trim().min(1, 'Product description required'),
