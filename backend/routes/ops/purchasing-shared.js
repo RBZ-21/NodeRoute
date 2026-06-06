@@ -3,7 +3,7 @@ const { scopeQueryByContext } = require('../../services/operating-context');
 const { applyInventoryLedgerEntry } = require('../../services/inventory-ledger');
 const { genId, readOpsData, toNumber, writeOpsData } = require('./store');
 
-const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
+const LOT_REQUIRED = /\b(mussel|clam)s?\b/i;
 
 function normalizeUnit(value) {
   const unit = String(value || '').trim().toLowerCase();
