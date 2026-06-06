@@ -106,7 +106,7 @@ async function triggerReorderForOrderItems(items, context) {
 // ── Lot tracing validation ────────────────────────────────────────────────────
 // Lot tracing is required only for Fresh Clams and Mussels.
 // Returns null on success, or an error string on validation failure.
-const LOT_REQUIRED = /\b(mussel|clam)s?\b/i;
+const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
 
 async function validateFtlLots(items) {
   if (!Array.isArray(items) || !items.length) return null;
