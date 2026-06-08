@@ -103,9 +103,11 @@ async function triggerReorderForOrderItems(items, context) {
   }
 }
 
-// ── FSMA 204 lot validation ────────────────────────────────────────────────────
-// For each item that references an FTL-flagged product, lot_id is required.
+// ── Lot tracing validation ────────────────────────────────────────────────────
+// Lot tracing is required only for Fresh Clams and Mussels.
 // Returns null on success, or an error string on validation failure.
+const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
+
 async function validateFtlLots(items) {
   if (!Array.isArray(items) || !items.length) return null;
 
@@ -116,16 +118,16 @@ async function validateFtlLots(items) {
 
   if (!itemNumbers.length) return null;
 
-  // Fetch FTL flags for all referenced products in one query
+  // Fetch product descriptions to determine which items require lot tracing
   const { data: products, error: prodErr } = await supabase
     .from('products')
-    .select('item_number, description, is_ftl_regulated')
+    .select('item_number, description')
     .in('item_number', itemNumbers);
 
-  if (prodErr) return `Could not verify FTL product status: ${prodErr.message}`;
+  if (prodErr) return `Could not verify product lot requirements: ${prodErr.message}`;
 
   const ftlSet = new Set(
-    (products || []).filter((p) => p.is_ftl_regulated).map((p) => p.item_number)
+    (products || []).filter((p) => LOT_REQUIRED.test(p.description || '')).map((p) => p.item_number)
   );
 
   if (!ftlSet.size) return null; // no FTL products in this order — nothing to check
@@ -142,7 +144,7 @@ async function validateFtlLots(items) {
     if (!ftlSet.has(itemNum)) continue;
     if (!item.lot_id) {
       const prodName = (products || []).find((p) => p.item_number === itemNum)?.description || itemNum;
-      return `Lot assignment is required for FTL product "${prodName}" (item ${itemNum}). Assign a lot before confirming this order.`;
+      return `Lot assignment is required for "${prodName}" (item ${itemNum}). Assign a lot before confirming this order.`;
     }
   }
 
