@@ -500,7 +500,7 @@ export function OrdersPage() {
       )}
 
       {/* ── AI Order Intake modal ── */}
-      {(role === 'admin' || role === 'manager') && (
+      {(role === 'admin' || role === 'manager' || role === 'superadmin') && (
         <div>
           <button
             onClick={() => setIntakeOpen(true)}

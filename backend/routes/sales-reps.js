@@ -11,7 +11,7 @@ const router = express.Router();
 router.get('/customers', authenticateToken, async (req, res) => {
   try {
     let query = scopeQueryByContext(supabase.from('Customers').select('*'), req.context).order('company_name', { ascending: true });
-    if (!['admin', 'manager'].includes(req.user.role)) {
+    if (!['admin', 'manager', 'superadmin'].includes(req.user.role)) {
       query = query.eq('sales_rep_id', req.user.id);
     }
     const { data, error } = await query;
@@ -30,7 +30,7 @@ router.get('/visit-logs', authenticateToken, async (req, res) => {
       .select('*'), req.context)
       .order('visited_at', { ascending: false })
       .limit(500);
-    if (!['admin', 'manager'].includes(req.user.role)) {
+    if (!['admin', 'manager', 'superadmin'].includes(req.user.role)) {
       query = query.eq('sales_rep_id', req.user.id);
     }
     if (req.query.customer_id) query = query.eq('customer_id', req.query.customer_id);
@@ -84,7 +84,7 @@ router.get('/upsell-alerts', authenticateToken, async (req, res) => {
     const forecasts = forecastResult.data || [];
     const orders = ordersResult.data || [];
     const customers = filterRowsByContext(customersResult.data || [], req.context);
-    const myCustomers = ['admin', 'manager'].includes(req.user.role)
+    const myCustomers = ['admin', 'manager', 'superadmin'].includes(req.user.role)
       ? customers
       : customers.filter((c) => c.sales_rep_id === req.user.id);
 

@@ -12,43 +12,15 @@ const {
   DEFAULT_LOCATION_NAME,
 } = require('../lib/config');
 const OPTIONAL_SCOPE_FIELDS = [
-  'location_id',
-  'location_name',
-  'company_id',
-  'company_name',
-  'address',
-  'charges',
-  'tax_enabled',
-  'tax_rate',
-  'order_id',
-  'invoice_id',
-  'tracking_token',
-  'tracking_expires_at',
-  'catch_weight_summary',
-  'logged_at',
-  'storage_area',
-  'temperature',
-  'unit',
-  'check_type',
-  'corrective_action',
-  'driver_id',
-  'user_id',
-  'driver_name',
-  'route_id',
-  'stop_id',
-  'active_stop_ids',
-  'billing_name',
-  'billing_contact',
-  'billing_email',
-  'billing_phone',
-  'billing_address',
-  'initials',
-  'recorded_by',
-  'approved_at',
-  'approved_by',
+  'location_id', 'location_name', 'company_id', 'company_name', 'address',
+  'charges', 'tax_enabled', 'tax_rate', 'order_id', 'invoice_id',
+  'tracking_token', 'tracking_expires_at', 'catch_weight_summary', 'logged_at',
+  'storage_area', 'temperature', 'unit', 'check_type', 'corrective_action',
+  'driver_id', 'user_id', 'driver_name', 'route_id', 'stop_id', 'active_stop_ids',
+  'billing_name', 'billing_contact', 'billing_email', 'billing_phone',
+  'billing_address', 'initials', 'recorded_by', 'approved_at', 'approved_by',
 ];
 
-// Lazy-load logger to avoid circular dependency at module init time.
 let _logger = null;
 function getLogger() {
   if (!_logger) _logger = require('./logger');
@@ -97,6 +69,7 @@ function getUserOperatingContext(user) {
   const baseLocationId = normalizeId(firstValue(user, LOCATION_FIELD_CANDIDATES) || DEFAULT_LOCATION_ID);
   const locationName = normalizeId(firstValue(user, LOCATION_NAME_FIELD_CANDIDATES) || DEFAULT_LOCATION_NAME);
   const platformRole = normalizeId(firstValue(user, PLATFORM_ROLE_CANDIDATES));
+  const primaryRole = String(firstValue(user, ['role']) || '').toLowerCase();
   const accessibleLocationIds = [
     ...parseIdList(firstValue(user, LOCATION_LIST_FIELD_CANDIDATES)),
     ...(baseLocationId ? [baseLocationId] : []),
@@ -114,7 +87,12 @@ function getUserOperatingContext(user) {
     locationName,
     accessibleLocationIds,
     platformRole,
-    isGlobalOperator: ['platform_admin', 'super_admin'].includes(String(platformRole || '').toLowerCase()),
+    // A global operator bypasses all company/location scoping and sees every
+    // tenant's data. The canonical superadmin role (user.role === 'superadmin')
+    // qualifies, as do the legacy platform_role values.
+    isGlobalOperator:
+      primaryRole === 'superadmin'
+      || ['platform_admin', 'super_admin', 'superadmin'].includes(String(platformRole || '').toLowerCase()),
   };
 }
 
@@ -123,20 +101,15 @@ function buildRequestContext(req, user) {
   const logger = getLogger();
 
   const requestedCompanyId = normalizeId(
-    req?.headers?.['x-company-id'] ||
-    req?.query?.companyId ||
-    req?.body?.companyId ||
-    null
+    req?.headers?.['x-company-id'] || req?.query?.companyId || req?.body?.companyId || null
   );
   let activeCompanyId = userContext.companyId;
   if (requestedCompanyId) {
     const canUseRequestedCompany =
-      userContext.isGlobalOperator ||
-      userContext.accessibleCompanyIds.includes(requestedCompanyId);
+      userContext.isGlobalOperator || userContext.accessibleCompanyIds.includes(requestedCompanyId);
     if (canUseRequestedCompany) {
       activeCompanyId = requestedCompanyId;
     } else {
-      // Log rejected context-shift attempts for audit visibility.
       logger.warn(
         { userId: user?.id, role: user?.role, requestedCompanyId, allowedCompanyIds: userContext.accessibleCompanyIds },
         'Context shift rejected: x-company-id not in accessibleCompanyIds'
@@ -145,20 +118,15 @@ function buildRequestContext(req, user) {
   }
 
   const requestedLocationId = normalizeId(
-    req?.headers?.['x-location-id'] ||
-    req?.query?.locationId ||
-    req?.body?.locationId ||
-    null
+    req?.headers?.['x-location-id'] || req?.query?.locationId || req?.body?.locationId || null
   );
   let activeLocationId = userContext.locationId;
   if (requestedLocationId) {
     const canUseRequestedLocation =
-      userContext.isGlobalOperator ||
-      userContext.accessibleLocationIds.includes(requestedLocationId);
+      userContext.isGlobalOperator || userContext.accessibleLocationIds.includes(requestedLocationId);
     if (canUseRequestedLocation) {
       activeLocationId = requestedLocationId;
     } else {
-      // Log rejected context-shift attempts for audit visibility.
       logger.warn(
         { userId: user?.id, role: user?.role, requestedLocationId, allowedLocationIds: userContext.accessibleLocationIds },
         'Context shift rejected: x-location-id not in accessibleLocationIds'
@@ -251,9 +219,7 @@ function buildScopeFields(context, overrides = {}) {
 
 function isMissingColumnError(error) {
   const message = String(error?.message || '').toLowerCase();
-  return (
-    message.includes('column') && message.includes('does not exist')
-  ) || message.includes('schema cache');
+  return (message.includes('column') && message.includes('does not exist')) || message.includes('schema cache');
 }
 
 function findMissingScopeField(error, record) {
@@ -263,7 +229,6 @@ function findMissingScopeField(error, record) {
       return key;
     }
   }
-
   return OPTIONAL_SCOPE_FIELDS.find((key) => record[key] !== undefined) || null;
 }
 
