@@ -40,6 +40,7 @@ export function PurchasingPage() {
   const [formError, setFormError] = useState('');
   const [vendorFilter, setVendorFilter] = useState<'all' | string>(vendorParam || 'all');
   const [activeReceivePo, setActiveReceivePo] = useState<VendorPurchaseOrder | null>(null);
+  const [activeDraft, setActiveDraft] = useState<PurchaseOrder | null>(null);
 
   const summary = useMemo(() => ({
     count: orders.length,
@@ -154,7 +155,7 @@ export function PurchasingPage() {
         <div className="rounded-md border border-amber-200 bg-amber-50 px-4 py-2 text-sm text-amber-800">
           New PO pre-filled for low-stock item: <strong>{itemParam}</strong>
           {qtyParam ? ` · Suggested qty: ${qtyParam}` : ''}
-          {' '}— Review and adjust below, then submit.
+          {' '}— Review and adjust below, then save for later or confirm.
         </div>
       ) : null}
 
@@ -167,7 +168,12 @@ export function PurchasingPage() {
       {/* ── Vendor Performance Scorecard ── */}
       <VendorPerformanceCard />
 
-      <CreatePurchaseOrderForm setNotice={setNotice} setFormError={setFormError} />
+      <CreatePurchaseOrderForm
+        setNotice={setNotice}
+        setFormError={setFormError}
+        editingDraft={activeDraft}
+        onDraftChange={setActiveDraft}
+      />
 
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -277,6 +283,7 @@ export function PurchasingPage() {
               <TableRow>
                 <TableHead>PO Number</TableHead>
                 <TableHead>Vendor</TableHead>
+                <TableHead>Status</TableHead>
                 <TableHead>Total Cost</TableHead>
                 <TableHead>Line Items</TableHead>
                 <TableHead>Confirmed By</TableHead>
@@ -289,18 +296,25 @@ export function PurchasingPage() {
                 <TableRow key={order.id}>
                   <TableCell className="font-medium">{order.po_number || order.id.slice(0, 8)}</TableCell>
                   <TableCell>{order.vendor || <Badge variant="neutral">Unspecified</Badge>}</TableCell>
+                  <TableCell><Badge variant={statusTone(order.status)}>{String(order.status || 'received').replace(/_/g, ' ')}</Badge></TableCell>
                   <TableCell>{money(asNumber(order.total_cost))}</TableCell>
                   <TableCell>{(order.items || []).length.toLocaleString()}</TableCell>
                   <TableCell>{order.confirmed_by || '-'}</TableCell>
                   <TableCell>{order.created_at ? new Date(order.created_at).toLocaleDateString() : '-'}</TableCell>
                   <TableCell className="text-right">
+                    {String(order.status || '').trim().toLowerCase() === 'draft' ? (
+                      <Button variant="secondary" size="sm" onClick={() => { setActiveDraft(order); setFormError(''); setNotice(`Loaded draft ${order.po_number || order.id.slice(0, 8)} for editing.`); }}>
+                        Resume Draft
+                      </Button>
+                    ) : (
                       <Button variant="outline" size="sm" onClick={() => printPurchaseOrder(order)}>
                         Open PDF
                       </Button>
+                    )}
                   </TableCell>
                 </TableRow>
               )) : (
-                <TableRow><TableCell colSpan={7} className="text-muted-foreground">No purchase orders found for the selected filters.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={8} className="text-muted-foreground">No purchase orders found for the selected filters.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>

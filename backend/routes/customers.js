@@ -32,6 +32,7 @@ const CUSTOMER_FIELDS = [
   'delivery_notes',
   'preferred_delivery_window',
   'preferred_door',
+  'default_route_id',
 ];
 
 function normalizeLookup(value) {

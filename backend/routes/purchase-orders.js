@@ -61,6 +61,7 @@ const upload = multer({
 
 const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
 const purchaseOrderConfirmSchema = z.object({
+  draft_id: z.any().optional(),
   vendor: z.preprocess(
     (value) => (value === null || value === undefined ? '' : value),
     z.string().trim().min(1, 'Vendor Name Required')
@@ -92,6 +93,81 @@ const purchaseOrderConfirmSchema = z.object({
     }
   });
 });
+
+const purchaseOrderDraftSchema = z.object({
+  id: z.any().optional(),
+  vendor: z.any().optional(),
+  po_number: z.any().optional(),
+  scan_id: z.any().optional(),
+  total_cost: z.any().optional(),
+  notes: z.any().optional(),
+  items: z.array(z.any(), { error: 'items must be an array' }).min(1, 'items is required'),
+}).passthrough();
+
+const purchaseOrderStatusPatchSchema = z.object({
+  status: z.enum(['draft', 'abandoned']),
+}).strict();
+
+function currentUserName(req) {
+  return req.user?.name || req.user?.email || 'system';
+}
+
+function normalizeDraftItem(item) {
+  const description = String(item?.description || item?.product_name || '').trim();
+  const itemNumber = String(item?.item_number || '').trim();
+  const quantity = parseFloat(item?.quantity ?? item?.ordered_qty ?? 0) || 0;
+  const unitPrice = parseFloat(item?.unit_price ?? item?.unit_cost ?? item?.estimated_unit_cost ?? 0) || 0;
+  return {
+    ...item,
+    description,
+    item_number: itemNumber || undefined,
+    quantity,
+    unit_price: unitPrice,
+    unit: String(item?.unit || '').trim() || 'lb',
+    category: String(item?.category || '').trim() || 'Other',
+    lot_number: String(item?.lot_number || '').trim() || undefined,
+    expiration_date: String(item?.expiration_date || '').trim() || undefined,
+    total: parseFloat((quantity * unitPrice).toFixed(2)),
+  };
+}
+
+function normalizeDraftItems(items) {
+  return (Array.isArray(items) ? items : [])
+    .map(normalizeDraftItem)
+    .filter((item) => (item.description || item.item_number) && item.quantity > 0);
+}
+
+function computeDraftTotal(items, fallbackTotal) {
+  const provided = parseFloat(fallbackTotal);
+  if (Number.isFinite(provided) && provided >= 0) return provided;
+  return parseFloat((items || []).reduce((sum, item) => sum + (parseFloat(item.total) || 0), 0).toFixed(2));
+}
+
+function buildDraftWorkflowId() {
+  return `draft-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+}
+
+async function loadEditablePurchaseOrder(id, context) {
+  const normalizedId = String(id || '').trim();
+  if (!normalizedId) return { row: null };
+
+  const { data, error } = await scopeQueryByContext(
+    supabase.from('purchase_orders').select('*'),
+    context
+  ).eq('id', normalizedId).single();
+  if (error || !data) {
+    return { status: 404, error: 'Purchase order draft not found' };
+  }
+  if (!rowMatchesContext(data, context)) {
+    return { status: 403, error: 'Forbidden' };
+  }
+
+  const status = String(data.status || '').trim().toLowerCase();
+  if (status === 'received' || status === 'abandoned' || status === 'cancelled') {
+    return { status: 409, error: `Cannot edit a ${status} purchase order` };
+  }
+  return { row: data };
+}
 
 // ── POST /api/purchase-orders/scan ─────────────────────────────────────────
 router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
@@ -148,10 +224,67 @@ router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
   }
 );
 
+// ── POST /api/purchase-orders/draft ────────────────────────────────────────
+router.post('/draft', authenticateToken, requireRole('admin', 'manager'), validateBody(purchaseOrderDraftSchema), async (req, res) => {
+  try {
+    const { id, vendor, po_number, items, total_cost, notes, scan_id } = req.validated.body;
+    const existing = await loadEditablePurchaseOrder(id, req.context || {});
+    if (existing.error) return res.status(existing.status || 400).json({ error: existing.error });
+
+    const normalizedItems = normalizeDraftItems(items);
+    if (!normalizedItems.length) {
+      return res.status(400).json({ error: 'Add at least one line with item number or description and quantity.' });
+    }
+
+    const vendorName = String(vendor || '').trim();
+    const vendorRecord = vendorName ? await findVendorByName(vendorName, req.context || {}) : null;
+    const resolvedPoNumber = String(po_number || existing.row?.po_number || '').trim()
+      || await generateUniquePurchaseOrderNumber();
+    const nowIso = new Date().toISOString();
+    const userName = currentUserName(req);
+    const draftPayload = {
+      po_number: resolvedPoNumber,
+      vendor: vendorName || null,
+      vendor_id: vendorRecord?.id || null,
+      items: normalizedItems,
+      total_cost: computeDraftTotal(normalizedItems, total_cost),
+      notes: String(notes || '').trim() || null,
+      status: 'draft',
+      workflow_kind: 'inventory_receipt',
+      workflow_id: existing.row?.workflow_id || buildDraftWorkflowId(),
+      source_scan_id: String(scan_id || '').trim() || null,
+      updated_by: userName,
+      updated_at: nowIso,
+      created_by: existing.row?.created_by || userName,
+      ...buildScopeFields(req.context),
+    };
+
+    let result;
+    if (existing.row?.id) {
+      result = await executeWithOptionalScope(
+        (candidate) => supabase.from('purchase_orders').update(candidate).eq('id', existing.row.id).select().single(),
+        draftPayload
+      );
+    } else {
+      result = await insertRecordWithOptionalScope(supabase, 'purchase_orders', draftPayload, req.context);
+    }
+
+    if (result.error && isDuplicatePoNumberError(result.error)) {
+      return res.status(409).json({ error: 'PO number already exists. Enter a unique PO number.' });
+    }
+    if (result.error) return res.status(500).json({ error: result.error.message });
+    res.json(result.data);
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Could not save purchase order draft' });
+  }
+});
+
 // ── POST /api/purchase-orders/confirm ──────────────────────────────────────
 router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), validateBody(purchaseOrderConfirmSchema), async (req, res) => {
-  const { vendor, po_number, date, items, total_cost, notes, scan_id } = req.validated.body;
-  const providedPoNumber = String(po_number || '').trim();
+  const { vendor, po_number, date, items, total_cost, notes, scan_id, draft_id } = req.validated.body;
+  const existing = await loadEditablePurchaseOrder(draft_id, req.context || {});
+  if (existing.error) return res.status(existing.status || 400).json({ error: existing.error });
+  const providedPoNumber = String(po_number || existing.row?.po_number || '').trim();
   const resolvedPoNumber = providedPoNumber || await generateUniquePurchaseOrderNumber();
   const vendorRecord = await findVendorByName(vendor, req.context || {});
 
@@ -368,7 +501,15 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
     confirmed_by: req.user.name || req.user.email,
     ...buildScopeFields(req.context),
   };
-  const poInsert = await insertRecordWithOptionalScope(supabase, 'purchase_orders', poPayload, req.context);
+  let poInsert;
+  if (existing.row?.id) {
+    poInsert = await executeWithOptionalScope(
+      (candidate) => supabase.from('purchase_orders').update(candidate).eq('id', existing.row.id).select().single(),
+      poPayload
+    );
+  } else {
+    poInsert = await insertRecordWithOptionalScope(supabase, 'purchase_orders', poPayload, req.context);
+  }
   if (poInsert.error && isDuplicatePoNumberError(poInsert.error)) {
     return res.status(409).json({ error: 'PO number already exists. Enter a unique PO number.' });
   }
@@ -456,6 +597,24 @@ router.post('/confirm', authenticateToken, requireRole('admin', 'manager'), vali
   });
 });
 
+// ── PATCH /api/purchase-orders/:id/status ─────────────────────────────────
+router.patch('/:id/status', authenticateToken, requireRole('admin', 'manager'), validateBody(purchaseOrderStatusPatchSchema), async (req, res) => {
+  const nextStatus = req.validated.body.status;
+  const existing = await loadEditablePurchaseOrder(req.params.id, req.context || {});
+  if (existing.error) return res.status(existing.status || 400).json({ error: existing.error });
+
+  const { data, error } = await executeWithOptionalScope(
+    (candidate) => supabase.from('purchase_orders').update(candidate).eq('id', existing.row.id).select().single(),
+    {
+      status: nextStatus,
+      updated_by: currentUserName(req),
+      updated_at: new Date().toISOString(),
+    }
+  );
+  if (error) return res.status(500).json({ error: error.message });
+  res.json(data);
+});
+
 // ── GET /api/purchase-orders ──────────────────────────────────────────────
 router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   // Tenant-scope marker: 'id, po_number, vendor, total_cost, items, confirmed_by, created_at, company_id, location_id'
@@ -465,7 +624,7 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
       .select(candidate.select), req.context)
       .order('created_at', { ascending: false })
       .limit(100),
-    { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, created_at, company_id, location_id, workflow_kind' }
+    { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, status, updated_at, created_at, company_id, location_id, workflow_kind' }
   );
   if (result.error && String(result.error.message || '').includes('purchase_orders.company_id')) {
     result = await executeWithOptionalScope(
@@ -474,7 +633,7 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
         .select(candidate.select), req.context)
         .order('created_at', { ascending: false })
         .limit(100),
-      { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, created_at, location_id, workflow_kind' }
+      { select: 'id, po_number, vendor, total_cost, notes, items, confirmed_by, status, updated_at, created_at, location_id, workflow_kind' }
     );
   }
   if (result.error) return res.status(500).json({ error: result.error.message });
