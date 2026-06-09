@@ -8,6 +8,9 @@ export type PurchaseOrder = {
   notes?: string | null;
   total_cost?: number | string;
   confirmed_by?: string;
+  status?: string;
+  workflow_kind?: string;
+  updated_at?: string;
   created_at?: string;
   items?: unknown[];
 };
@@ -162,6 +165,7 @@ export type PoScanResult = {
 };
 
 export type ConfirmPoPayload = {
+  draft_id?: string | null;
   scan_id?: string | null;
   vendor: string | null;
   po_number: string | null;
@@ -178,6 +182,10 @@ export type ConfirmPoPayload = {
     expiration_date?: string;
     total: number;
   }[];
+};
+
+export type SavePurchaseOrderDraftPayload = ConfirmPoPayload & {
+  id?: string | null;
 };
 
 export type ConfirmPoResponse = {
@@ -243,6 +251,35 @@ export function useConfirmPurchaseOrder() {
         '/api/purchase-orders/confirm',
         'POST',
         payload
+      ),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['purchase-orders'] });
+      queryClient.invalidateQueries({ queryKey: ['inventory-products'] });
+    },
+  });
+}
+
+export function useSavePurchaseOrderDraft() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: SavePurchaseOrderDraftPayload) =>
+      sendWithAuth<PurchaseOrder>(
+        '/api/purchase-orders/draft',
+        'POST',
+        payload
+      ),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['purchase-orders'] }),
+  });
+}
+
+export function useAbandonPurchaseOrder() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) =>
+      sendWithAuth<PurchaseOrder>(
+        `/api/purchase-orders/${encodeURIComponent(id)}/status`,
+        'PATCH',
+        { status: 'abandoned' }
       ),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['purchase-orders'] }),
   });

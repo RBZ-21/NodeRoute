@@ -17,7 +17,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { WeightEntryModal } from '../components/dashboard/WeightEntryModal';
-import { getUserRole, sendWithAuth } from '../lib/api';
+import { getUserRole, sendWithAuth, type Role } from '../lib/api';
 import { cn } from '../lib/utils';
 import {
   type Delivery,
@@ -34,8 +34,6 @@ import {
   useStatsQuery,
 } from '../hooks/useDashboard';
 import { useLowStockQuery } from '../hooks/useInventory';
-
-type Role = 'admin' | 'manager' | 'driver' | 'unknown';
 
 function asNumber(value: unknown, fallback = 0): number {
   const parsed = Number(value);
@@ -106,6 +104,8 @@ export function DashboardPage() {
   const queryClient = useQueryClient();
   const role = getUserRole() as Role;
   const active = role !== 'driver';
+  // Superadmin sees everything an admin sees (plus cross-tenant data).
+  const isAdmin = role === 'admin' || role === 'superadmin';
 
   // ── Queries ───────────────────────────────────────────────────────────────
   const statsQuery         = useStatsQuery(active);
@@ -114,8 +114,8 @@ export function DashboardPage() {
   const driversQuery       = useDriversQuery(active);
   const routesQuery        = useRoutesQuery(active);
   const ordersQuery        = useDashboardOrdersQuery(active);
-  const purchaseOrdersQuery = usePurchaseOrdersQuery(active && role === 'admin');
-  const lowStockQuery       = useLowStockQuery(active && (role === 'admin' || role === 'manager'));
+  const purchaseOrdersQuery = usePurchaseOrdersQuery(active && isAdmin);
+  const lowStockQuery       = useLowStockQuery(active && (isAdmin || role === 'manager'));
 
   const stats     = statsQuery.data     ?? null;
   const analytics = analyticsQuery.data ?? null;
@@ -168,7 +168,7 @@ export function DashboardPage() {
     void queryClient.invalidateQueries({ queryKey: dashboardKeys.drivers });
     void queryClient.invalidateQueries({ queryKey: dashboardKeys.routes });
     void queryClient.invalidateQueries({ queryKey: dashboardKeys.orders });
-    if (role === 'admin') void queryClient.invalidateQueries({ queryKey: dashboardKeys.purchaseOrders });
+    if (isAdmin) void queryClient.invalidateQueries({ queryKey: dashboardKeys.purchaseOrders });
   }
 
   // Patches the dashboard orders cache after the weight modal saves an order.
@@ -328,7 +328,7 @@ export function DashboardPage() {
         <Button variant="outline" onClick={refreshDashboard}><RefreshCw className="mr-2 h-4 w-4" />Refresh Dashboard</Button>
         <Button variant="outline" onClick={() => navigate('/orders')}>Orders Queue</Button>
         <Button variant="outline" onClick={() => navigate('/routes')}>Route Workspace</Button>
-        {role === 'admin' ? <Button variant="outline" onClick={() => navigate('/purchasing')}>Purchasing</Button> : null}
+        {isAdmin ? <Button variant="outline" onClick={() => navigate('/purchasing')}>Purchasing</Button> : null}
       </div>
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -339,7 +339,7 @@ export function DashboardPage() {
       </div>
 
       {/* ── AI Anomaly Detection ── */}
-      {(role === 'admin' || role === 'manager') && (
+      {(isAdmin || role === 'manager') && (
         <Card className={anomalies && anomalies.some((a) => a.severity === 'high') ? 'border-red-300 ring-1 ring-red-200' : ''}>
           <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between py-3">
             <div>
@@ -533,7 +533,7 @@ export function DashboardPage() {
         </Card>
       </div>
 
-      {role === 'admin' ? (
+      {isAdmin ? (
         <Card>
           <CardHeader className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
             <div>
@@ -603,7 +603,7 @@ export function DashboardPage() {
       ) : null}
 
       {/* ── Inventory Health ── */}
-      {(role === 'admin' || role === 'manager') && (
+      {(isAdmin || role === 'manager') && (
         <Card>
           <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between py-3">
             <div>

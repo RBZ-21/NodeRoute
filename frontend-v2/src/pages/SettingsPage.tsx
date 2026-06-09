@@ -4,7 +4,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
-import { getUserRole } from '../lib/api';
+import { getUserRole, type Role } from '../lib/api';
 import {
   useChangePassword,
   useCompanySettings,
@@ -13,8 +13,6 @@ import {
   useSaveProfile,
   type CutoffOption,
 } from '../hooks/useSettings';
-
-type Role = 'admin' | 'manager' | 'driver' | 'unknown';
 
 const DEFAULT_HOUR_OPTIONS: CutoffOption[] = [
   { label: '8:00 AM', value: 8 }, { label: '9:00 AM', value: 9 }, { label: '10:00 AM', value: 10 },
@@ -34,7 +32,7 @@ function roleVariant(role: Role): 'success' | 'secondary' | 'neutral' {
 }
 function normalizeRole(value: string | undefined): Role {
   const r = String(value || '').trim().toLowerCase();
-  if (r === 'admin' || r === 'manager' || r === 'driver') return r;
+  if (r === 'superadmin' || r === 'admin' || r === 'manager' || r === 'driver') return r;
   return 'unknown';
 }
 function updateLocalUserName(nextName: string) {
@@ -49,7 +47,7 @@ function updateLocalUserName(nextName: string) {
 
 export function SettingsPage() {
   const role = getUserRole() as Role;
-  const canManageCompanySettings = role === 'admin' || role === 'manager';
+  const canManageCompanySettings = role === 'admin' || role === 'manager' || role === 'superadmin';
 
   const { data: user = {}, isLoading: loadingUser } = useCurrentUser();
   const { data: company = {}, isLoading: loadingCompany } = useCompanySettings();

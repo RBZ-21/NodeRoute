@@ -370,7 +370,10 @@ describe('PurchasingPage', () => {
     expect(screen.getAllByText('$345.50').length).toBeGreaterThan(0);
     expect(screen.queryByText('PO-200')).not.toBeInTheDocument();
 
-    fireEvent.change(screen.getByDisplayValue('Blue Ocean Seafood'), { target: { value: 'Harbor Supply' } });
+    const vendorFilter = screen.getAllByDisplayValue('Blue Ocean Seafood')
+      .find((element) => element.tagName.toLowerCase() === 'select');
+    if (!vendorFilter) throw new Error('Expected vendor filter select');
+    fireEvent.change(vendorFilter, { target: { value: 'Harbor Supply' } });
 
     await waitFor(() => {
       expect(screen.getByText('PO-200')).toBeInTheDocument();
@@ -411,6 +414,7 @@ describe('PurchasingPage', () => {
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/purchase-orders/confirm', 'POST', {
         scan_id: null,
+        draft_id: null,
         vendor: 'Blue Ocean Seafood',
         po_number: 'PO-300',
         notes: 'Cold storage intake',
@@ -447,6 +451,114 @@ describe('PurchasingPage', () => {
 
     expect(await screen.findByText('Lot number is required before confirming mollusk item "Fresh Clams".')).toBeInTheDocument();
     expect(sendWithAuthMock).not.toHaveBeenCalled();
+  });
+
+  it('hydrates a low-stock prefilled PO line from inventory and saves it for later', async () => {
+    sendWithAuthMock.mockResolvedValueOnce({
+      id: 'po-draft-1',
+      po_number: 'PO-DRAFT-1',
+      vendor: null,
+      status: 'draft',
+      total_cost: 150,
+      items: [
+        {
+          description: 'Fresh Salmon',
+          item_number: 'SAL-1',
+          quantity: 12,
+          unit_price: 12.5,
+          unit: 'lb',
+          category: 'Seafood',
+          total: 150,
+        },
+      ],
+    });
+
+    renderPurchasingPage('/purchasing?item=SAL-1&qty=12');
+
+    expect(await screen.findByText('SAL-1', { selector: 'strong' })).toBeInTheDocument();
+    const lineRow = within(confirmPoCard()).getAllByRole('row')[1];
+
+    await waitFor(() => {
+      expect(within(lineRow).getByDisplayValue('Fresh Salmon')).toBeInTheDocument();
+      expect(within(lineRow).getByDisplayValue('SAL-1')).toBeInTheDocument();
+      expect(within(lineRow).getByDisplayValue('Seafood')).toBeInTheDocument();
+    });
+    expect((within(lineRow).getAllByRole('spinbutton')[0] as HTMLInputElement).value).toBe('12');
+    expect((within(lineRow).getAllByRole('spinbutton')[1] as HTMLInputElement).value).toBe('12.5');
+
+    fireEvent.click(screen.getByRole('button', { name: 'Save for Later' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/purchase-orders/draft', 'POST', {
+        id: null,
+        scan_id: null,
+        vendor: null,
+        po_number: null,
+        notes: null,
+        total_cost: 150,
+        items: [
+          {
+            description: 'Fresh Salmon',
+            item_number: 'SAL-1',
+            quantity: 12,
+            unit_price: 12.5,
+            unit: 'lb',
+            category: 'Seafood',
+            lot_number: undefined,
+            expiration_date: undefined,
+            total: 150,
+          },
+        ],
+      });
+    });
+    expect(await screen.findByText('Purchase order draft PO-DRAFT-1 saved. You can return to it from Purchasing Orders.')).toBeInTheDocument();
+  });
+
+  it('resumes and abandons a saved purchase order draft', async () => {
+    mockPurchasingApi({
+      orders: [
+        {
+          id: 'po-draft-1',
+          po_number: 'PO-DRAFT-1',
+          vendor: 'Blue Ocean Seafood',
+          status: 'draft',
+          total_cost: 150,
+          created_at: '2026-04-15T00:00:00Z',
+          items: [
+            {
+              description: 'Fresh Salmon',
+              item_number: 'SAL-1',
+              quantity: 12,
+              unit_price: 12.5,
+              unit: 'lb',
+              category: 'Seafood',
+            },
+          ],
+        },
+      ],
+    });
+    sendWithAuthMock.mockResolvedValueOnce({
+      id: 'po-draft-1',
+      po_number: 'PO-DRAFT-1',
+      status: 'abandoned',
+    });
+
+    renderPurchasingPage();
+
+    expect(await screen.findByText('PO-DRAFT-1')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Resume Draft' }));
+
+    expect(await screen.findByText('Resume Purchase Order Draft')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Blue Ocean Seafood')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('PO-DRAFT-1')).toBeInTheDocument();
+    expect(screen.getByDisplayValue('Fresh Salmon')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Abandon PO' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/purchase-orders/po-draft-1/status', 'PATCH', { status: 'abandoned' });
+    });
+    expect(await screen.findByText('Purchase order PO-DRAFT-1 abandoned.')).toBeInTheDocument();
   });
 
   it('requires a vendor name before confirming a scanned invoice', async () => {

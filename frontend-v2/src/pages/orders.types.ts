@@ -67,6 +67,9 @@ export type Customer = {
   shipping_address?: string;
   ship_to_address?: string;
   phone_number?: string;
+  default_route_id?: string | null;
+  route_id?: string | null;
+  assigned_route_id?: string | null;
 };
 
 export type InventoryProduct = {
