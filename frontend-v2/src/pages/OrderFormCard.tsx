@@ -110,6 +110,10 @@ export function OrderFormCard({
     ).trim();
   }
 
+  function customerRouteValue(customer: Customer) {
+    return String(customer.default_route_id || customer.route_id || customer.assigned_route_id || '').trim();
+  }
+
   async function maybeLookupAddress(name: string) {
     const trimmed = name.trim();
     if (trimmed.length < 3 || lookupDisabledRef.current) return;
@@ -146,6 +150,9 @@ export function OrderFormCard({
     setCustomerPhone(customer.phone_number || '');
     const addr = customerAddressValue(customer);
     setCustomerAddress(addr);
+    const savedRouteId = customerRouteValue(customer);
+    setRouteId(savedRouteId);
+    if (savedRouteId) setFulfillmentType('delivery');
     if (!addr && customer.company_name) {
       void maybeLookupAddress(customer.company_name);
     }

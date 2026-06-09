@@ -48,4 +48,4 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
 
 window.setTimeout(() => {
   void revealTauriMainWindow();
-}, 2500);
+}, 10_000);

@@ -9,6 +9,7 @@ export default defineConfig(({ mode }) => {
   const rootEnv = loadEnv(mode, resolve(__dirname, '..'), '');
   const env = { ...rootEnv, ...frontendEnv };
   const hasSentryReleaseConfig = !!(env.SENTRY_AUTH_TOKEN && env.SENTRY_ORG && env.SENTRY_PROJECT);
+  const desktopApiTarget = (env.VITE_API_BASE_URL || env.VITE_API_URL || 'http://localhost:3001').replace(/\/$/, '');
   const shouldUploadSentrySourcemaps =
     env.CI === 'true' &&
     env.SENTRY_UPLOAD_SOURCEMAPS === 'true' &&
@@ -38,6 +39,20 @@ export default defineConfig(({ mode }) => {
     server: {
       port: 5173,
       strictPort: true,
+      proxy: mode === 'tauri'
+        ? {
+            '/api': {
+              target: desktopApiTarget,
+              changeOrigin: true,
+              secure: false,
+            },
+            '/auth': {
+              target: desktopApiTarget,
+              changeOrigin: true,
+              secure: false,
+            },
+          }
+        : undefined,
     },
     test: {
       environment: 'jsdom',

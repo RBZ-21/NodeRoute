@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -6,11 +6,15 @@ import { Combobox } from '../components/ui/combobox';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import {
+  type InventoryProduct,
   type PoScanResult,
+  type PurchaseOrder,
   scanPoFile,
+  useAbandonPurchaseOrder,
   useConfirmPurchaseOrder,
   useInventoryProducts,
   usePurchaseOrders,
+  useSavePurchaseOrderDraft,
   useVendorPurchaseOrders,
 } from '../hooks/usePurchasing';
 import { useSaveVendorMutation, useVendorsQuery } from '../hooks/useVendors';
@@ -36,7 +40,63 @@ type Props = {
   /** Surfaced in the parent's notice/error banners so messaging stays in one place. */
   setNotice: (message: string) => void;
   setFormError: (message: string) => void;
+  editingDraft?: PurchaseOrder | null;
+  onDraftChange?: (draft: PurchaseOrder | null) => void;
 };
+
+function draftLineFromSavedItem(item: unknown): PurchaseItemDraft {
+  const line = (item && typeof item === 'object' ? item : {}) as Record<string, unknown>;
+  return {
+    ...emptyLine(),
+    description: String(line.description || line.product_name || ''),
+    item_number: String(line.item_number || ''),
+    quantity: line.quantity != null ? String(line.quantity) : '',
+    unit_price: line.unit_price != null ? String(line.unit_price) : line.unit_cost != null ? String(line.unit_cost) : '',
+    unit: String(line.unit || 'lb'),
+    category: String(line.category || 'Other'),
+    lot_number: String(line.lot_number || ''),
+    expiration_date: String(line.expiration_date || ''),
+    count_item_approved: line.count_item_approved === false ? false : true,
+  };
+}
+
+function applyProductToDraftLine(line: PurchaseItemDraft, product: InventoryProduct, fallbackItemNumber: string, fallbackQty?: string): PurchaseItemDraft {
+  return {
+    ...line,
+    description: line.description || product.description || '',
+    item_number: line.item_number || product.item_number || fallbackItemNumber,
+    quantity: line.quantity || fallbackQty || '',
+    unit: product.unit || line.unit || 'lb',
+    unit_price: asNumber(product.cost) > 0 && !line.unit_price ? String(asNumber(product.cost)) : line.unit_price,
+    category: product.category || line.category || 'Other',
+  };
+}
+
+function buildPurchaseItems(lines: PurchaseItemDraft[], requireDescription: boolean) {
+  return lines
+    .map((l) => {
+      const description = l.description.trim();
+      const itemNumber = l.item_number.trim();
+      const quantity = asNumber(l.quantity);
+      const unitPrice = asNumber(l.unit_price);
+      return {
+        description,
+        item_number: itemNumber || undefined,
+        quantity,
+        unit_price: unitPrice,
+        unit: l.unit.trim() || 'lb',
+        category: l.category.trim() || 'Other',
+        lot_number: l.lot_number.trim() || undefined,
+        expiration_date: l.expiration_date || undefined,
+        total: parseFloat((quantity * unitPrice).toFixed(2)),
+      };
+    })
+    .filter((item) => quantityIsPositive(item.quantity) && (requireDescription ? item.description : (item.description || item.item_number)));
+}
+
+function quantityIsPositive(value: number) {
+  return Number.isFinite(value) && value > 0;
+}
 
 /**
  * The "AI PO Scanner" + "Confirm Purchase Order" flow. Owns all create-PO
@@ -45,7 +105,7 @@ type Props = {
  * lead-time history, scan insights), so editing a draft line no longer
  * re-renders the rest of the purchasing page.
  */
-export function CreatePurchaseOrderForm({ setNotice, setFormError }: Props) {
+export function CreatePurchaseOrderForm({ setNotice, setFormError, editingDraft = null, onDraftChange }: Props) {
   const [searchParams] = useSearchParams();
   const vendorParam = String(searchParams.get('vendor') || '').trim();
   const itemParam   = String(searchParams.get('item') || '').trim();
@@ -56,9 +116,11 @@ export function CreatePurchaseOrderForm({ setNotice, setFormError }: Props) {
   const { data: vendorRecords = [], refetch: refetchVendors } = useVendorsQuery();
   const { data: vendorPurchaseOrders = [] } = useVendorPurchaseOrders();
   const confirmPo = useConfirmPurchaseOrder();
+  const saveDraft = useSavePurchaseOrderDraft();
+  const abandonPo = useAbandonPurchaseOrder();
   const saveVendorMutation = useSaveVendorMutation();
 
-  const [vendor, setVendor] = useState('');
+  const [vendor, setVendor] = useState(vendorParam);
   const [poNumber, setPoNumber] = useState('');
   const [notes, setNotes] = useState('');
   const [lines, setLines] = useState<PurchaseItemDraft[]>(() => {
@@ -73,6 +135,38 @@ export function CreatePurchaseOrderForm({ setNotice, setFormError }: Props) {
   const [scannedVendorDraft, setScannedVendorDraft] = useState<VendorDraft | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const prefillHydratedRef = useRef(false);
+
+  useEffect(() => {
+    if (editingDraft) return;
+    if (vendorParam) setVendor((current) => current || vendorParam);
+  }, [editingDraft, vendorParam]);
+
+  useEffect(() => {
+    if (!editingDraft) return;
+    setVendor(String(editingDraft.vendor || ''));
+    setPoNumber(String(editingDraft.po_number || ''));
+    setNotes(String(editingDraft.notes || ''));
+    const savedLines = (Array.isArray(editingDraft.items) ? editingDraft.items : []).map(draftLineFromSavedItem);
+    setLines(savedLines.length ? savedLines : [emptyLine()]);
+    setScanResult(null);
+    setScannedVendorDraft(null);
+    prefillHydratedRef.current = true;
+  }, [editingDraft]);
+
+  useEffect(() => {
+    if (editingDraft || prefillHydratedRef.current || !itemParam || !products.length) return;
+    const product = products.find((p) => normalizeCatalogItemNumber(p.item_number) === normalizeCatalogItemNumber(itemParam));
+    if (!product) return;
+    prefillHydratedRef.current = true;
+    setLines((current) => {
+      const first = current[0] || emptyLine();
+      return [
+        applyProductToDraftLine(first, product, itemParam, qtyParam),
+        ...current.slice(1),
+      ];
+    });
+  }, [editingDraft, itemParam, products, qtyParam]);
 
   const draftTotal = useMemo(
     () => lines.reduce((sum, l) => sum + asNumber(l.quantity) * asNumber(l.unit_price), 0),
@@ -242,6 +336,64 @@ export function CreatePurchaseOrderForm({ setNotice, setFormError }: Props) {
     }
   }
 
+  function resetForm() {
+    setVendor(vendorParam || '');
+    setPoNumber('');
+    setNotes('');
+    setLines([emptyLine()]);
+    setScanResult(null);
+    setScannedVendorDraft(null);
+    prefillHydratedRef.current = true;
+    onDraftChange?.(null);
+  }
+
+  function savePurchaseOrderDraft() {
+    const items = buildPurchaseItems(lines, false);
+    if (!items.length) {
+      setFormError('Add at least one line with item number or description and quantity.');
+      return;
+    }
+
+    setFormError('');
+    const total_cost = items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
+    saveDraft.mutate(
+      {
+        id: editingDraft?.id || null,
+        scan_id: scanResult?.scan_id || null,
+        vendor: vendor || null,
+        po_number: poNumber || null,
+        notes: notes || null,
+        total_cost,
+        items,
+      },
+      {
+        onSuccess: (draft) => {
+          onDraftChange?.(draft);
+          setPoNumber(String(draft.po_number || poNumber || ''));
+          setNotice(`Purchase order draft ${draft.po_number || ''} saved. You can return to it from Purchasing Orders.`);
+        },
+        onError: (err) => setFormError(String((err as Error).message || 'Failed to save purchase order draft')),
+      }
+    );
+  }
+
+  function abandonPurchaseOrder() {
+    if (!editingDraft?.id) {
+      resetForm();
+      setNotice('Unsaved purchase order abandoned.');
+      return;
+    }
+
+    setFormError('');
+    abandonPo.mutate(editingDraft.id, {
+      onSuccess: (draft) => {
+        resetForm();
+        setNotice(`Purchase order ${draft.po_number || ''} abandoned.`);
+      },
+      onError: (err) => setFormError(String((err as Error).message || 'Failed to abandon purchase order')),
+    });
+  }
+
   function submitPurchaseOrder() {
     const unapprovedCountItem = lines.find((line, index) => scanResult?.items[index]?.item_type === 'count' && !line.count_item_approved);
     if (unapprovedCountItem) {
@@ -249,19 +401,7 @@ export function CreatePurchaseOrderForm({ setNotice, setFormError }: Props) {
       return;
     }
 
-    const items = lines
-      .map((l) => ({
-        description: l.description.trim(),
-        item_number: l.item_number.trim() || undefined,
-        quantity: asNumber(l.quantity),
-        unit_price: asNumber(l.unit_price),
-        unit: l.unit.trim() || 'lb',
-        category: l.category.trim() || 'Other',
-        lot_number: l.lot_number.trim() || undefined,
-        expiration_date: l.expiration_date || undefined,
-        total: parseFloat((asNumber(l.quantity) * asNumber(l.unit_price)).toFixed(2)),
-      }))
-      .filter((item) => item.description && item.quantity > 0);
+    const items = buildPurchaseItems(lines, true);
 
     if (!items.length) { setFormError('Add at least one line with description and quantity.'); return; }
     const missingLotItem = items.find((item) => lineRequiresLot(item) && !String(item.lot_number || '').trim());
@@ -278,7 +418,7 @@ export function CreatePurchaseOrderForm({ setNotice, setFormError }: Props) {
     const total_cost = items.reduce((sum, item) => sum + item.quantity * item.unit_price, 0);
 
     confirmPo.mutate(
-      { scan_id: scanResult?.scan_id || null, vendor: vendor || null, po_number: poNumber || null, notes: notes || null, total_cost, items },
+      { draft_id: editingDraft?.id || null, scan_id: scanResult?.scan_id || null, vendor: vendor || null, po_number: poNumber || null, notes: notes || null, total_cost, items },
       {
         onSuccess: (response) => {
           const failed = Array.isArray(response.errors) && response.errors.length;
@@ -287,7 +427,7 @@ export function CreatePurchaseOrderForm({ setNotice, setFormError }: Props) {
           setNotice(failed
             ? `PO saved with ${response.errors?.length || 0} line errors.${poLabel}${lotsMsg}`
             : `Purchase order confirmed and inventory updated.${poLabel}${lotsMsg}`);
-          setVendor(''); setPoNumber(''); setNotes(''); setLines([emptyLine()]); setScanResult(null); setScannedVendorDraft(null);
+          resetForm();
         },
         onError: (err) => setFormError(String((err as Error).message || 'Failed to confirm purchase order')),
       }
@@ -332,10 +472,16 @@ export function CreatePurchaseOrderForm({ setNotice, setFormError }: Props) {
       {/* Confirm PO Form */}
       <Card>
         <CardHeader>
-          <CardTitle>Confirm Purchase Order</CardTitle>
+          <CardTitle>{editingDraft ? 'Resume Purchase Order Draft' : 'Confirm Purchase Order'}</CardTitle>
           <CardDescription>Lot Number is required for FSMA 204 traceability on FDA Food Traceability List products. Expiration date is optional but strongly recommended (enables FEFO picking).</CardDescription>
         </CardHeader>
         <CardContent className="space-y-3">
+          {editingDraft ? (
+            <div className="rounded-lg border border-amber-200 bg-amber-50/80 px-4 py-3 text-sm text-amber-900">
+              Editing saved draft <strong>{editingDraft.po_number || editingDraft.id.slice(0, 8)}</strong>. Confirming it will update inventory; abandoning it will keep the record out of the active workflow.
+            </div>
+          ) : null}
+
           <div className="grid gap-3 md:grid-cols-3">
             <label className="space-y-1 text-sm">
               <span className="font-semibold text-muted-foreground">Vendor</span>
@@ -566,8 +712,14 @@ export function CreatePurchaseOrderForm({ setNotice, setFormError }: Props) {
 
           <div className="flex flex-wrap items-center gap-2">
             <Button variant="outline" onClick={addLine}>Add Line</Button>
-            <Button onClick={submitPurchaseOrder} disabled={confirmPo.isPending}>
+            <Button variant="secondary" onClick={savePurchaseOrderDraft} disabled={saveDraft.isPending || confirmPo.isPending || abandonPo.isPending}>
+              {saveDraft.isPending ? 'Saving...' : 'Save for Later'}
+            </Button>
+            <Button onClick={submitPurchaseOrder} disabled={confirmPo.isPending || saveDraft.isPending || abandonPo.isPending}>
               {confirmPo.isPending ? 'Confirming...' : 'Confirm PO'}
+            </Button>
+            <Button variant="outline" onClick={abandonPurchaseOrder} disabled={abandonPo.isPending || confirmPo.isPending || saveDraft.isPending}>
+              {abandonPo.isPending ? 'Abandoning...' : 'Abandon PO'}
             </Button>
             <div className="ml-auto rounded-md border border-border bg-muted/30 px-3 py-2 text-sm">
               Draft Total: <strong>{money(draftTotal)}</strong>

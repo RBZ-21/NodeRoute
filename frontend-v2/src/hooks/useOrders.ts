@@ -74,6 +74,7 @@ export function useSubmitOrderMutation() {
     },
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: orderKeys.all });
+      void queryClient.invalidateQueries({ queryKey: ['customers'] });
     },
   });
 }
