@@ -165,6 +165,9 @@ export function findNavItem(path: string): NavItem | null {
 }
 
 export function canAccess(item: NavItem, role: Role): boolean {
+  // Superadmin is the platform owner and can access every page, regardless of
+  // an item's explicit roles list. Mirrors the backend requireRole bypass.
+  if (role === 'superadmin') return true;
   if (!item.roles || item.roles.length === 0) return true;
   return item.roles.includes(role);
 }
