@@ -18,6 +18,7 @@ vi.mock('../hooks/useRoutes', () => ({
 function renderOrderForm(overrides: Partial<React.ComponentProps<typeof OrderFormCard>> = {}) {
   const setCustomerName = vi.fn();
   const setCustomerAddress = vi.fn();
+  const setRouteId = vi.fn();
   const props: React.ComponentProps<typeof OrderFormCard> = {
     editingOrderId: null,
     customerName: '',
@@ -31,7 +32,7 @@ function renderOrderForm(overrides: Partial<React.ComponentProps<typeof OrderFor
     fulfillmentType: 'delivery',
     setFulfillmentType: vi.fn(),
     routeId: '',
-    setRouteId: vi.fn(),
+    setRouteId,
     customers: [],
     notes: '',
     setNotes: vi.fn(),
@@ -68,6 +69,7 @@ function renderOrderForm(overrides: Partial<React.ComponentProps<typeof OrderFor
     props,
     setCustomerName,
     setCustomerAddress,
+    setRouteId,
   };
 }
 
@@ -103,5 +105,27 @@ describe('OrderFormCard address lookup', () => {
     });
 
     expect(fetchWithAuthMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('hydrates a saved customer route when a customer is selected', () => {
+    const setFulfillmentType = vi.fn();
+    const { setRouteId } = renderOrderForm({
+      setFulfillmentType,
+      customers: [
+        {
+          id: 'cust-1',
+          company_name: 'Oceanview Market',
+          billing_email: 'buyer@oceanview.test',
+          address: '123 Harbor St',
+          phone_number: '555-0101',
+          default_route_id: 'route-north',
+        },
+      ],
+    });
+
+    fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview Market' } });
+
+    expect(setRouteId).toHaveBeenCalledWith('route-north');
+    expect(setFulfillmentType).toHaveBeenCalledWith('delivery');
   });
 });

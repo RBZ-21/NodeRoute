@@ -1,4 +1,5 @@
 use tauri::Manager;
+use std::time::Duration;
 
 #[tauri::command]
 fn greet(name: &str) -> String {
@@ -13,6 +14,18 @@ pub fn run() {
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            let app_handle = app.handle().clone();
+            std::thread::spawn(move || {
+                std::thread::sleep(Duration::from_secs(10));
+                if let Some(main) = app_handle.get_webview_window("main") {
+                    let _ = main.show();
+                    let _ = main.set_focus();
+                }
+                if let Some(splash) = app_handle.get_webview_window("splashscreen") {
+                    let _ = splash.close();
+                }
+            });
+
             #[cfg(debug_assertions)]
             {
                 let window = app.get_webview_window("main").unwrap();

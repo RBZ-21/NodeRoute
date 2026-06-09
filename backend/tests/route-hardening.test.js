@@ -75,6 +75,21 @@ test('routes backend blocks dispatch without a linked driver id', () => {
   assert.ok(source.includes('dispatchRequested && !hasAssignedDriverId(nextDriverId)'), 'dispatch guard should check the resolved driver_id');
 });
 
+test('orders persist a selected customer route for future orders', () => {
+  const ordersSource = routeSource('orders');
+  const customersSource = routeSource('customers');
+  const migration = fs.readFileSync(
+    path.join(repoRoot, 'supabase', 'migrations', '20260608_customer_default_route.sql'),
+    'utf8'
+  );
+
+  assert.ok(ordersSource.includes('async function persistCustomerDefaultRoute'), 'orders should define customer route persistence');
+  assert.ok(ordersSource.includes('await persistCustomerDefaultRoute(customerName, data.route_id, req.context)'), 'order creation should save selected route to the customer');
+  assert.ok(ordersSource.includes('await persistCustomerDefaultRoute(mergedOrder.customer_name, mergedOrder.route_id, req.context)'), 'order updates should save changed routes to the customer');
+  assert.ok(customersSource.includes("'default_route_id'"), 'customers API should allow default route persistence');
+  assert.match(migration, /add column if not exists default_route_id text/i);
+});
+
 test('processing workflow optional schema fields can be stripped on older databases', () => {
   const { isMissingColumnError } = require('../services/operating-context');
   const source = fs.readFileSync(path.join(repoRoot, 'backend', 'services', 'operating-context.js'), 'utf8');

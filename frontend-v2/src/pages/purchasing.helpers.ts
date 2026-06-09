@@ -315,8 +315,8 @@ export function findReceiveScanMatchIndex(poLines: ReceivePoLine[], item: PoScan
 export function statusTone(status: string | undefined): 'success' | 'warning' | 'secondary' | 'neutral' {
   const normalized = String(status || '').trim().toLowerCase();
   if (normalized === 'received') return 'success';
-  if (normalized === 'backordered') return 'warning';
-  if (normalized === 'partial_received') return 'secondary';
+  if (normalized === 'backordered' || normalized === 'draft') return 'warning';
+  if (normalized === 'partial_received' || normalized === 'abandoned') return 'secondary';
   return 'neutral';
 }
 

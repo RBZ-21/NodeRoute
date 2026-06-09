@@ -48,6 +48,7 @@ const {
   executeWithOptionalScope,
   filterRowsByContext,
   insertRecordWithOptionalScope,
+  isMissingColumnError,
   rowMatchesContext,
   scopeQueryByContext,
 } = require('../services/operating-context');
@@ -73,6 +74,32 @@ function estimateOrderTotal({ items, charges, taxEnabled, taxRate }) {
 
 function normalizeText(value) {
   return String(value ?? '').trim();
+}
+
+async function findCustomerForOrderRoute(customerName, context) {
+  const normalizedName = normalizeText(customerName);
+  if (!normalizedName) return null;
+  const { data, error } = await scopeQueryByContext(
+    supabase.from('Customers').select('*'),
+    context
+  ).eq('company_name', normalizedName).limit(1);
+  if (error || !Array.isArray(data) || !data.length) return null;
+  return filterRowsByContext(data, context)[0] || null;
+}
+
+async function persistCustomerDefaultRoute(customerName, routeId, context) {
+  const normalizedRouteId = normalizeText(routeId);
+  if (!normalizedRouteId) return;
+  const customer = await findCustomerForOrderRoute(customerName, context);
+  if (!customer?.id) return;
+
+  const updateResult = await executeWithOptionalScope(
+    (candidate) => scopeQueryByContext(supabase.from('Customers').update(candidate), context).eq('id', customer.id).select().single(),
+    { default_route_id: normalizedRouteId }
+  );
+  if (updateResult.error && !isMissingColumnError(updateResult.error)) {
+    console.warn('[orders] customer default route sync skipped:', updateResult.error.message);
+  }
 }
 
 function lotMapKey(value) {
@@ -852,6 +879,7 @@ router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole
   }
   const customerPhone = req.body.customerPhone ?? req.body.customer_phone ?? null;
   const fulfillmentType = normalizeFulfillmentType(req.body.fulfillmentType ?? req.body.fulfillment_type);
+  const routeId = normalizeText(req.body.routeId ?? req.body.route_id);
 
   // ── Credit check (runs BEFORE any other order logic) ─────────────────────
   // Blocks the order if the customer is on credit hold OR if the order would
@@ -926,7 +954,7 @@ router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole
     tax_enabled: taxEnabled,
     tax_rate: taxRate,
     driver_name: null,
-    route_id: req.body.routeId || null,
+    route_id: routeId || null,
     stop_id: req.body.stop_id || req.body.stopId || null,
     tracking_token: trackingToken,
     tracking_expires_at: trackingExpiry(),
@@ -934,6 +962,7 @@ router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
   if (!data) return;
+  await persistCustomerDefaultRoute(customerName, data.route_id, req.context);
   // Trigger print job for the newly created order (best-effort, non-fatal if printing fails)
   try {
     await triggerPrintJob(data, enrichedItems, req.context);
@@ -1093,7 +1122,9 @@ router.patch('/:id', validateBody(orderUpdateSchema), authenticateToken, require
   if (req.body.charges !== undefined) updates.charges = Array.isArray(req.body.charges) ? req.body.charges : [];
   if (req.body.status !== undefined) updates.status = req.body.status;
   if (req.body.driverName !== undefined) updates.driver_name = req.body.driverName;
-  if (req.body.routeId !== undefined) updates.route_id = req.body.routeId;
+  if (req.body.routeId !== undefined || req.body.route_id !== undefined) {
+    updates.route_id = req.body.routeId ?? req.body.route_id ?? null;
+  }
   if (req.body.stop_id !== undefined || req.body.stopId !== undefined) {
     updates.stop_id = req.body.stop_id ?? req.body.stopId ?? null;
   }
@@ -1107,6 +1138,7 @@ router.patch('/:id', validateBody(orderUpdateSchema), authenticateToken, require
   const data = await updateRecord('orders', req.params.id, updates, res, req.context);
   if (!data) return;
   const mergedOrder = { ...existing, ...data, ...updates, fulfillment_type: fulfillmentType };
+  await persistCustomerDefaultRoute(mergedOrder.customer_name, mergedOrder.route_id, req.context);
   try {
     await syncOrderStop(mergedOrder, req);
   } catch (stopErr) {
