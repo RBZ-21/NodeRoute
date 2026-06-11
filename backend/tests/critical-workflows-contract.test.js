@@ -87,7 +87,7 @@ test('delivery status update unit: plan-limit errors serialize with payment-requ
 test('critical route integration contract: private order API is mounted behind auth', () => {
   const serverPath = path.join(__dirname, '..', 'server.js');
   const source = fs.readFileSync(serverPath, 'utf8');
-  const publicIndex = source.indexOf("app.use('/api/track', trackingRouter)");
+  const publicIndex = source.indexOf("app.use('/api/track', publicLimiter, trackingRouter)");
   const privateIndex = source.indexOf("app.use('/api/orders', requireApiAuth, ordersRouter)");
   assert.ok(privateIndex > 0, 'orders API must be mounted with requireApiAuth');
   assert.ok(publicIndex > 0 && publicIndex < source.indexOf("app.use('/api', requireApiAuth, deliveriesRouter)"), 'public tracking route must stay before broad protected /api mount');

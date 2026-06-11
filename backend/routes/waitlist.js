@@ -1,12 +1,13 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { waitlistLimiter } = require('../middleware/rateLimiter');
 const { sendWaitlistConfirmationEmail } = require('../services/waitlist-email');
 
 const router = express.Router();
 
 // POST /api/waitlist — public, no auth
-router.post('/', async (req, res) => {
+router.post('/', waitlistLimiter, async (req, res) => {
   const email   = String(req.body?.email   || '').trim().toLowerCase();
   const name    = String(req.body?.name    || '').trim() || null;
   const company = String(req.body?.company || '').trim() || null;
