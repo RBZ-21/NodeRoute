@@ -165,7 +165,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
   });
   if (syncResult.error) return res.status(500).json({ error: syncResult.error.message });
   const data = syncResult.data || route;
-  if (!data) return;
+  if (!data) return res.status(500).json({ error: 'Failed to update route record' });
   res.json(data);
 });
 

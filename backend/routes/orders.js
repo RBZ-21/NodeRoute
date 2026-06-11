@@ -961,7 +961,7 @@ router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole
   }, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
-  if (!data) return;
+  if (!data) return res.status(500).json({ error: 'Failed to create order record' });
   await persistCustomerDefaultRoute(customerName, data.route_id, req.context);
   // Trigger print job for the newly created order (best-effort, non-fatal if printing fails)
   try {
