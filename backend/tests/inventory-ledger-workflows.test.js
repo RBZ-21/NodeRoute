@@ -69,7 +69,7 @@ test('purchase orders are tenant-scoped with company and location context', () =
     ".select('item_number, description, on_hand_qty, cost, unit, is_ftl_regulated, company_id, location_id')",
     "'id, po_number, vendor, total_cost, items, confirmed_by, created_at, company_id, location_id'",
     "filterRowsByContext(result.data || [], req.context)",
-    "const poInsert = await insertRecordWithOptionalScope(supabase, 'purchase_orders', poPayload, req.context)",
+    "poInsert = await insertRecordWithOptionalScope(supabase, 'purchase_orders', poPayload, req.context)",
     "...buildScopeFields(req.context)",
   ]) {
     assert.ok(purchaseOrdersRouteSource.includes(marker), `purchase-orders missing tenant-scope marker ${marker}`);
