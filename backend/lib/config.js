@@ -126,10 +126,12 @@ function validate(logger) {
     if (!process.env.PORTAL_JWT_SECRET || PORTAL_JWT_SECRET === DEV_PORTAL_SECRET)
       warns.push('PORTAL_JWT_SECRET is not set — customer portal JWTs will use the development fallback. Set it before enabling portal auth.');
 
+    // A weak or default bootstrap admin password is a well-known credential —
+    // refuse to start rather than warn (matches the JWT_SECRET treatment).
     if (!process.env.ADMIN_PASSWORD || isWeakPassword(ADMIN_PASSWORD))
-      warns.push(
-        'ADMIN_PASSWORD is missing or too weak. Set a password that is at least ' +
-        '12 characters and includes uppercase, lowercase, a digit, and a special character before relying on bootstrap admin login.'
+      fatal.push(
+        'ADMIN_PASSWORD is missing, default, or too weak. Production requires at least ' +
+        '12 characters including uppercase, lowercase, a digit, and a special character.'
       );
 
     if (!BASE_URL)

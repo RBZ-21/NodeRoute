@@ -1,9 +1,18 @@
 // NodeRoute UI Reconnaissance — map real selectors before full audit
 const { chromium } = require('@playwright/test');
 const fs = require('fs');
+const path = require('path');
 
-const BASE = 'https://noderoutesystems.com';
-const SS = 'C:\\Users\\ryand\\NodeRoute_Fresh\\recon_shots';
+const BASE = process.env.QA_BASE_URL || 'http://localhost:3001';
+const QA_EMAIL = process.env.QA_EMAIL;
+const QA_PASSWORD = process.env.QA_PASSWORD;
+const SS = process.env.QA_SCREENSHOT_DIR || path.join(__dirname, 'recon_shots');
+
+if (!QA_EMAIL || !QA_PASSWORD) {
+  console.error('FATAL: set QA_EMAIL and QA_PASSWORD env vars before running this recon script.');
+  process.exit(1);
+}
+
 if (!fs.existsSync(SS)) fs.mkdirSync(SS, { recursive: true });
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -82,12 +91,12 @@ async function dumpPageInfo(page, label) {
   });
   console.log('  Login inputs:', JSON.stringify(emailSel));
 
-  await page.fill('input[type="email"]', 'admin@noderoutesystems.com').catch(async () => {
+  await page.fill('input[type="email"]', QA_EMAIL).catch(async () => {
     // Try any input that could be email
     const inputs = await page.locator('input').all();
-    if (inputs.length > 0) await inputs[0].fill('admin@noderoutesystems.com');
+    if (inputs.length > 0) await inputs[0].fill(QA_EMAIL);
   });
-  await page.fill('input[type="password"]', 'Admin123').catch(()=>{});
+  await page.fill('input[type="password"]', QA_PASSWORD).catch(()=>{});
   await page.screenshot({ path: `${SS}/01b_login_filled.png` });
 
   // Submit

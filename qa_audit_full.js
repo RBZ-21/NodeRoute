@@ -4,11 +4,16 @@ const { chromium } = require('@playwright/test');
 const fs = require('fs');
 const path = require('path');
 
-const BASE_URL = 'https://noderoutesystems.com';
-const LOGIN_EMAIL = 'admin@noderoutesystems.com';
-const LOGIN_PASSWORD = 'Admin123';
-const SCREENSHOTS = 'C:\\Users\\ryand\\AppData\\Roaming\\Claude\\local-agent-mode-sessions\\334548b1-7929-4435-b39a-7104726c460c\\252c54a5-7477-4a85-9218-dcad5ef10f55\\local_67da9fd9-71e4-4371-8b92-c84074495d1f\\outputs\\qa_screenshots';
-const REPORT_PATH = 'C:\\Users\\ryand\\AppData\\Roaming\\Claude\\local-agent-mode-sessions\\334548b1-7929-4435-b39a-7104726c460c\\252c54a5-7477-4a85-9218-dcad5ef10f55\\local_67da9fd9-71e4-4371-8b92-c84074495d1f\\outputs\\qa_findings_raw.json';
+const BASE_URL = process.env.QA_BASE_URL || 'http://localhost:3001';
+const LOGIN_EMAIL = process.env.QA_EMAIL;
+const LOGIN_PASSWORD = process.env.QA_PASSWORD;
+const SCREENSHOTS = process.env.QA_SCREENSHOT_DIR || path.join(__dirname, 'qa_screenshots');
+const REPORT_PATH = process.env.QA_REPORT_PATH || path.join(__dirname, 'qa_findings_raw.json');
+
+if (!LOGIN_EMAIL || !LOGIN_PASSWORD) {
+  console.error('FATAL: set QA_EMAIL and QA_PASSWORD env vars before running this audit script.');
+  process.exit(1);
+}
 
 if (!fs.existsSync(SCREENSHOTS)) fs.mkdirSync(SCREENSHOTS, { recursive: true });
 

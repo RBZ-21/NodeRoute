@@ -225,6 +225,10 @@ function filterRowsByContext(rows, context) {
   return rows.filter((row) => rowMatchesContext(row, context));
 }
 
+// Sentinel tenant id that can never match a real row. Valid for both uuid
+// and text company_id columns, so the fail-closed filter below works either way.
+const NO_TENANT_MATCH = '00000000-0000-0000-0000-000000000000';
+
 function scopeQueryByContext(query, context, options = {}) {
   if (!query || !context || context.isGlobalOperator) return query;
 
@@ -234,7 +238,12 @@ function scopeQueryByContext(query, context, options = {}) {
   const activeLocationId = normalizeId(context.activeLocationId || context.locationId);
 
   let scopedQuery = query;
-  if (activeCompanyId && companyField) scopedQuery = scopedQuery.eq(companyField, activeCompanyId);
+  if (companyField) {
+    // Fail closed: a non-global user without a tenant context must match
+    // nothing, not everything. Previously this branch skipped the filter
+    // entirely, returning an unscoped (all-tenant) query.
+    scopedQuery = scopedQuery.eq(companyField, activeCompanyId || NO_TENANT_MATCH);
+  }
   if (options.includeLocation && activeLocationId && locationField) scopedQuery = scopedQuery.eq(locationField, activeLocationId);
   return scopedQuery;
 }

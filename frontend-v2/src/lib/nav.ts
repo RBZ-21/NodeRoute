@@ -165,6 +165,7 @@ export function findNavItem(path: string): NavItem | null {
 }
 
 export function canAccess(item: NavItem, role: Role): boolean {
+  if (role === 'superadmin') return true; // platform owner sees everything
   if (!item.roles || item.roles.length === 0) return true;
   return item.roles.includes(role);
 }
