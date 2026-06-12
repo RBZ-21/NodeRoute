@@ -65,10 +65,11 @@ module.exports = { testSend: async function() {
   const { createMailer } = require('./services/email');
   const mailer = createMailer();
   if (!mailer) { console.log('No mailer — cannot send'); return; }
+  if (!process.env.EMAIL_TEST_TO) { console.log('Set EMAIL_TEST_TO env var to the test recipient address.'); return; }
   try {
     await mailer.sendMail({
       from: process.env.EMAIL_FROM || 'test@test.com',
-      to: process.env.EMAIL_TEST_TO || 'ryandb21@gmail.com',
+      to: process.env.EMAIL_TEST_TO,
       subject: 'NodeRoute Email Test',
       html: '<p>Email configuration test from NodeRoute backend.</p>',
     });

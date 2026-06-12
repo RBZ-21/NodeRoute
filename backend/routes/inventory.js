@@ -155,7 +155,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
   }, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
-  if (!data) return;
+  if (!data) return res.status(500).json({ error: 'Failed to create inventory record' });
   res.json(data);
 });
 

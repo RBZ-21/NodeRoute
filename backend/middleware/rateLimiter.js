@@ -62,6 +62,29 @@ const changePasswordLimiter = rateLimit({
   handler: jsonMessage('Too many password change attempts. Please wait 15 minutes before trying again.'),
 });
 
+// 300 requests per 15 minutes per IP — public unauthenticated surfaces (portal,
+// tracking, public inventory). Generous enough for tracking pages polling every
+// 30s and shared NAT IPs, but bounds enumeration and brute-force attempts well
+// below the global limiter.
+const publicLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 300,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: () => isTest,
+  handler: jsonMessage('Too many requests. Please slow down and try again shortly.'),
+});
+
+// 10 signups per hour per IP — waitlist submission is one-shot.
+const waitlistLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: () => isTest,
+  handler: jsonMessage('Too many signups from this address. Please try again later.'),
+});
+
 // 30 requests per 5 minutes — cost protection on OpenAI-backed routes.
 const aiLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
@@ -79,4 +102,6 @@ module.exports = {
   setupPasswordLimiter,
   changePasswordLimiter,
   aiLimiter,
+  publicLimiter,
+  waitlistLimiter,
 };

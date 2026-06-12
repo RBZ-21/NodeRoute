@@ -28,10 +28,11 @@ const purchasingHookSource = fs.readFileSync(
   path.join(repoRoot, 'frontend-v2', 'src', 'hooks', 'usePurchasing.ts'),
   'utf8'
 );
-const purchasingPageSource = fs.readFileSync(
-  path.join(repoRoot, 'frontend-v2', 'src', 'pages', 'PurchasingPage.tsx'),
-  'utf8'
-);
+const purchasingPageSource = [
+  fs.readFileSync(path.join(repoRoot, 'frontend-v2', 'src', 'pages', 'PurchasingPage.tsx'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'frontend-v2', 'src', 'pages', 'CreatePurchaseOrderForm.tsx'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'frontend-v2', 'src', 'pages', 'ReceivePoDrawer.tsx'), 'utf8'),
+].join('\n');
 
 test('purchasing schema migration adds receiving, discrepancy, scan, lot, and lead-time support', () => {
   for (const marker of [

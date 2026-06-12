@@ -13,12 +13,17 @@ const { createMailer, createConfiguredMailers } = require('./services/email');
   }
   console.log('Active provider:', mailer.provider);
 
+  if (!process.env.EMAIL_TEST_TO) {
+    console.log('RESULT: FAIL — set EMAIL_TEST_TO env var to the test recipient address.');
+    return;
+  }
+
   // Test 1: Resend API key test (via Resend SDK)
   console.log('\n--- Test 1: Sending via Resend API ---');
   try {
     const result = await mailer.sendMail({
       from: process.env.EMAIL_FROM,
-      to: 'ryandb21@gmail.com',
+      to: process.env.EMAIL_TEST_TO,
       subject: 'NodeRoute Email Config Test',
       html: '<h2>NodeRoute Email Test</h2><p>If you see this, email is working.</p>',
     });

@@ -294,6 +294,9 @@ router.patch('/:id/role', authenticateToken, requireRole('admin'), validateBody(
   const currentUser = await dbQuery(scopeQueryByContext(supabase.from('users').select('*'), req.context).eq('id', req.params.id).single(), res);
   if (!currentUser) return res.status(404).json({ error: 'User not found' });
   if (!rowMatchesContext(currentUser, req.context)) return res.status(403).json({ error: 'Forbidden' });
+  if (currentUser.role === 'superadmin' && req.user.role !== 'superadmin') {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
   const data = await dbQuery(scopeQueryByContext(supabase.from('users').update({ role }), req.context).eq('id', req.params.id).select('id').single(), res);
   if (!data) return res.status(404).json({ error: 'User not found' });
   res.json({ message: 'Role updated' });
