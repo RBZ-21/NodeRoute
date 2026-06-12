@@ -1,6 +1,6 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
-const { authenticateToken, requireRole } = require('../middleware/auth');
+const { authenticateToken, requireSuperadmin } = require('../middleware/auth');
 const { waitlistLimiter } = require('../middleware/rateLimiter');
 const { sendWaitlistConfirmationEmail } = require('../services/waitlist-email');
 
@@ -36,14 +36,17 @@ router.post('/', waitlistLimiter, async (req, res) => {
   return res.status(201).json({ status: 'ok', message: "You're on the list" });
 });
 
-// GET /api/waitlist — superadmin only
-router.get('/', authenticateToken, requireRole('superadmin'), async (req, res) => {
+// GET /api/waitlist — superadmin only (role + SUPERADMIN_EMAIL pin, matching /api/superadmin/*)
+router.get('/', authenticateToken, requireSuperadmin, async (req, res) => {
   const { data, error } = await supabase
     .from('waitlist')
     .select('id, email, name, company, source, created_at')
     .order('created_at', { ascending: false });
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) {
+    console.error('[waitlist] list error:', error.message);
+    return res.status(500).json({ error: 'Failed to load waitlist' });
+  }
   res.json(data || []);
 });
 

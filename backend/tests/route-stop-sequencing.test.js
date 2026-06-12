@@ -75,15 +75,35 @@ const { synchronizeRouteStopAssignments } = (() => {
   return mod;
 })();
 
+// Chainable query-builder mock: like the real Supabase client, .eq()/.select()
+// can be chained any number of times (scopeQueryByContext adds its own .eq()
+// tenant filter before the route handler's .eq('id', ...)).
+function mockRouteTable(routeRow) {
+  return () => {
+    const selectChain = {
+      eq: () => selectChain,
+      single: async () => ({ data: routeRow, error: null }),
+    };
+    return {
+      select: () => selectChain,
+      update: (payload) => {
+        const updateChain = {
+          eq: () => updateChain,
+          select: () => updateChain,
+          single: async () => ({ data: payload, error: null }),
+        };
+        return updateChain;
+      },
+    };
+  };
+}
+
 test('synchronizeRouteStopAssignments calls rpc with correct name and array params', async () => {
   let capturedRpcName;
   let capturedRpcParams;
 
   const mockSupabase = {
-    from: (table) => ({
-      select: () => ({ eq: () => ({ single: async () => ({ data: { id: 'route-1', stop_ids: [], active_stop_ids: [] }, error: null }) }) }),
-      update: (payload) => ({ eq: () => ({ select: () => ({ single: async () => ({ data: payload, error: null }) }) }) }),
-    }),
+    from: mockRouteTable({ id: 'route-1', stop_ids: [], active_stop_ids: [] }),
     rpc: async (name, params) => {
       capturedRpcName = name;
       capturedRpcParams = params;
@@ -114,10 +134,7 @@ test('synchronizeRouteStopAssignments propagates rpc error without proceeding', 
   let rpcCallCount = 0;
 
   const mockSupabase = {
-    from: (table) => ({
-      select: () => ({ eq: () => ({ single: async () => ({ data: { id: 'route-1', stop_ids: [], active_stop_ids: [] }, error: null }) }) }),
-      update: (payload) => ({ eq: () => ({ select: () => ({ single: async () => ({ data: payload, error: null }) }) }) }),
-    }),
+    from: mockRouteTable({ id: 'route-1', stop_ids: [], active_stop_ids: [] }),
     rpc: async () => {
       rpcCallCount += 1;
       return { error: rpcError };

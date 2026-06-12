@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { findNavItem, navGroups, allNavItems, defaultPath } from './nav';
+import { canAccess, findNavItem, navGroups, allNavItems, defaultPath } from './nav';
 
 describe('findNavItem', () => {
   it('returns the correct item for a known path', () => {
@@ -57,5 +57,23 @@ describe('navGroups integrity', () => {
     for (const group of navGroups) {
       expect(group.items.length).toBeGreaterThan(0);
     }
+  });
+});
+
+describe('canAccess', () => {
+  it('superadmin can access every nav item, including role-restricted ones', () => {
+    for (const item of allNavItems) {
+      expect(canAccess(item, 'superadmin')).toBe(true);
+    }
+  });
+
+  it('items without a roles array are visible to any role', () => {
+    const open = allNavItems.find((i) => !i.roles || i.roles.length === 0)!;
+    expect(canAccess(open, 'driver')).toBe(true);
+  });
+
+  it('role-restricted items stay hidden from roles not in the list', () => {
+    const restricted = allNavItems.find((i) => i.roles?.length && !i.roles.includes('driver'))!;
+    expect(canAccess(restricted, 'driver')).toBe(false);
   });
 });

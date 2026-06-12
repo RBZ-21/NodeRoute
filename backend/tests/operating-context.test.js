@@ -5,8 +5,20 @@ const {
   buildScopeFields,
   filterRowsByContext,
   rowMatchesContext,
+  scopeQueryByContext,
   userResponseWithContext,
 } = require('../services/operating-context');
+
+function fakeQuery() {
+  const calls = [];
+  return {
+    calls,
+    eq(field, value) {
+      calls.push([field, value]);
+      return this;
+    },
+  };
+}
 
 test('buildRequestContext honors allowed requested locations', () => {
   const user = {
@@ -112,6 +124,39 @@ test('buildScopeFields uses active location for new records', () => {
   });
 
   assert.deepEqual(scoped, { company_id: 'company-b', location_id: 'loc-b' });
+});
+
+test('scopeQueryByContext filters by the active company', () => {
+  const query = fakeQuery();
+  scopeQueryByContext(query, {
+    companyId: 'company-a',
+    activeCompanyId: 'company-a',
+    isGlobalOperator: false,
+  });
+
+  assert.deepEqual(query.calls, [['company_id', 'company-a']]);
+});
+
+test('scopeQueryByContext fails closed when no tenant context is present', () => {
+  const query = fakeQuery();
+  scopeQueryByContext(query, {
+    companyId: null,
+    activeCompanyId: null,
+    isGlobalOperator: false,
+  });
+
+  // Must apply a no-match condition, never return the query unscoped.
+  assert.equal(query.calls.length, 1);
+  const [field, value] = query.calls[0];
+  assert.equal(field, 'company_id');
+  assert.equal(value, '00000000-0000-0000-0000-000000000000');
+});
+
+test('scopeQueryByContext leaves global operators unscoped', () => {
+  const query = fakeQuery();
+  scopeQueryByContext(query, { companyId: null, isGlobalOperator: true });
+
+  assert.deepEqual(query.calls, []);
 });
 
 test('userResponseWithContext never includes password hashes', () => {
