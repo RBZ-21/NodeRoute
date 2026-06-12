@@ -205,7 +205,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
   const insertResult = await insertRecordWithOptionalScope(supabase, 'Customers', customerPayload(req.body), req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
-  if (!data) return;
+  if (!data) return res.status(500).json({ error: 'Failed to create customer record' });
   res.json(data);
 });
 
@@ -219,7 +219,7 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   );
   if (updateResult.error) return res.status(500).json({ error: updateResult.error.message });
   const data = updateResult.data;
-  if (!data) return;
+  if (!data) return res.status(500).json({ error: 'Failed to update customer record' });
   res.json(data);
 });
 

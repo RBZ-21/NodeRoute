@@ -12,7 +12,7 @@ const cookieParser = require('cookie-parser');
 const pinoHttp = require('pino-http');
 const fs = require('fs');
 const path = require('path');
-const { globalLimiter, authLimiter, aiLimiter } = require('./middleware/rateLimiter');
+const { globalLimiter, authLimiter, aiLimiter, publicLimiter, waitlistLimiter } = require('./middleware/rateLimiter');
 const { validateJsonMutationBody } = require('./lib/zod-validate');
 
 // Route modules
@@ -194,8 +194,8 @@ app.use('/api/orders', requireApiAuth, ordersRouter);
 app.use('/api/invoices', requireApiAuth, invoicesRouter);
 app.use('/api/inventory', requireApiAuth, inventoryRouter);
 // Public/customer-token API routers must be mounted before the broad /api dispatch router.
-app.use('/api/portal', portalRouter);
-app.use('/api/track', trackingRouter);
+app.use('/api/portal', publicLimiter, portalRouter);
+app.use('/api/track', publicLimiter, trackingRouter);
 app.use('/api/waitlist', waitlistRouter);
 app.use('/api', requireApiAuth, deliveriesRouter);
 app.use('/api/stops', requireApiAuth, stopsRouter);
@@ -232,7 +232,7 @@ app.use('/api/compliance', requireApiAuth, complianceRouter);
 app.use('/api/audit-log', requireApiAuth, auditLogRouter);
 // Bland.ai phone-order integration — authenticated via own webhook secret / API key, not requireApiAuth
 app.use('/api/phone-orders', phoneOrdersRouter);
-app.use('/api/public/inventory', publicInventoryRouter);
+app.use('/api/public/inventory', publicLimiter, publicInventoryRouter);
 
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 
