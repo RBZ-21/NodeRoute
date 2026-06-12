@@ -35,7 +35,7 @@ const envSchema = z.object({
   SMTP_PASS:                  z.string().optional().default(''),
   EMAIL_PROVIDER:             z.string().optional().default('auto'),
   OPENAI_API_KEY:             z.string().optional().default(''),
-  ADMIN_EMAIL:                z.string().optional().default('admin@noderoutesystems.com'),
+  ADMIN_EMAIL:                z.string().optional().default('admin@example.com'),
   ADMIN_PASSWORD:             z.string().optional().default(DEFAULT_ADMIN_PW),
   GOOGLE_MAPS_KEY:            z.string().optional().default(''),
   SENTRY_DSN:                 z.string().optional().default(''),
