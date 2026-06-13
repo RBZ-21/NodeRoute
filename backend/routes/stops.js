@@ -4,6 +4,7 @@ const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { sendInvoiceEmail } = require('../services/invoice-email');
 const deliveryNotifications = require('../services/delivery-notifications');
+const { trackingBaseUrl } = require('../lib/tracking-url');
 const { invalidateDashboardCache } = require('./deliveries');
 const {
   buildScopeFields,
@@ -380,8 +381,9 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
       ...(driverNotes ? { driver_notes: driverNotes } : {}),
     }), req.context).eq('id', req.params.id);
     invalidateDashboardCache(req.context);
-    deliveryNotifications.notifyDeliveryCompleted(supabase, req.params.id, requestInvoiceId || stop.invoice_id || null).catch(() => {});
-    deliveryNotifications.notifyUpcomingStops(supabase, route.id, req.params.id, req.context).catch(() => {});
+    const notifyContext = { ...req.context, trackingBaseUrl: trackingBaseUrl(req) };
+    deliveryNotifications.notifyDeliveryCompleted(supabase, req.params.id, requestInvoiceId || stop.invoice_id || null, notifyContext).catch(() => {});
+    deliveryNotifications.notifyUpcomingStops(supabase, route.id, req.params.id, notifyContext).catch(() => {});
 
     // Fire delivery confirmation email non-fatally using the invoice already linked to this stop
     try {

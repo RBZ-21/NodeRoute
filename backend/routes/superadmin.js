@@ -95,10 +95,12 @@ router.get('/platform-summary', async (req, res) => {
 router.patch('/companies/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const ALLOWED = ['name', 'slug', 'plan', 'status'];
+    const ALLOWED = ['name', 'slug', 'plan', 'status', 'portal_ordering_enabled'];
     const updates = {};
     for (const key of ALLOWED) {
-      if (req.body[key] !== undefined) updates[key] = req.body[key];
+      if (req.body[key] !== undefined) {
+        updates[key] = key === 'portal_ordering_enabled' ? req.body[key] === true || req.body[key] === 'true' : req.body[key];
+      }
     }
     if (Object.keys(updates).length === 0) {
       return res.status(400).json({ error: 'No updatable fields provided.' });
@@ -143,6 +145,7 @@ router.get('/companies', async (req, res) => {
           slug:                 company.slug || null,
           plan:                 company.plan || null,
           status:               company.status || 'active',
+          portal_ordering_enabled: company.portal_ordering_enabled === true,
           admin_email:          adminUser?.email || company.admin_email || null,
           user_count:           companyUsers.length,
           created_at:           company.created_at || null,

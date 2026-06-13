@@ -13,6 +13,7 @@ type Company = {
   slug?: string;
   plan?: string;
   status?: 'active' | 'suspended' | 'trial';
+  portal_ordering_enabled?: boolean;
   user_count?: number;
   admin_email?: string;
   created_at?: string;
@@ -155,6 +156,18 @@ export function CompaniesPage() {
     }
   }
 
+  // Paid add-on: toggle the Customer Portal Ordering feature per company.
+  async function togglePortalOrdering(company: Company) {
+    const next = !company.portal_ordering_enabled;
+    if (!confirm(`${next ? 'Enable' : 'Disable'} online ordering for ${company.name}?`)) return;
+    try {
+      await sendWithAuth(`/api/superadmin/companies/${company.id}`, 'PATCH', { portal_ordering_enabled: next });
+      await load();
+    } catch (err) {
+      alert(String((err as Error).message));
+    }
+  }
+
   return (
     <div className="space-y-5">
       {/* SuperAdmin banner */}
@@ -289,6 +302,15 @@ export function CompaniesPage() {
                         </Button>
                         <Button size="sm" variant="ghost" onClick={() => setConfigDrawer(company)}>
                           Config
+                        </Button>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className={company.portal_ordering_enabled ? 'text-primary' : 'text-muted-foreground'}
+                          title="Customer Portal Ordering add-on"
+                          onClick={() => togglePortalOrdering(company)}
+                        >
+                          {company.portal_ordering_enabled ? 'Ordering: On' : 'Ordering: Off'}
                         </Button>
                       </div>
                     </TableCell>

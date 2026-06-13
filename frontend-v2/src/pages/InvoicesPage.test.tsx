@@ -12,6 +12,7 @@ const { fetchWithAuthMock, sendWithAuthMock } = vi.hoisted(() => ({
 vi.mock('../lib/api', () => ({
   fetchWithAuth: fetchWithAuthMock,
   sendWithAuth: sendWithAuthMock,
+  getUserRole: () => 'admin',
 }));
 
 const todayKey = (() => {

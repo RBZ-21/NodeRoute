@@ -1,6 +1,17 @@
-import { CreditCard, Fish, LifeBuoy, Mail, Package, Receipt } from 'lucide-react';
+import { CreditCard, Fish, LifeBuoy, Mail, Package, Receipt, ShoppingCart } from 'lucide-react';
 
-export type PortalTab = 'orders' | 'invoices' | 'payments' | 'contact' | 'pricing' | 'fresh-fish';
+export type PortalTab = 'shop' | 'orders' | 'invoices' | 'payments' | 'contact' | 'pricing' | 'fresh-fish';
+
+export type PortalCatalogItem = {
+  id: string;
+  item_number?: string;
+  name?: string;
+  category?: string | null;
+  unit?: string;
+  price?: number;
+  stock_state: 'in_stock' | 'limited' | 'out_of_stock';
+  addable: boolean;
+};
 
 export type PortalMe = {
   email: string;
@@ -106,6 +117,7 @@ export type PortalAuthStart = {
 };
 
 export const portalTabs: Array<{ id: PortalTab; label: string; icon: typeof Package }> = [
+  { id: 'shop', label: 'Online Ordering', icon: ShoppingCart },
   { id: 'orders', label: 'Orders', icon: Package },
   { id: 'invoices', label: 'Invoices', icon: Receipt },
   { id: 'payments', label: 'Payments', icon: CreditCard },

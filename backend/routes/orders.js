@@ -45,6 +45,7 @@ const { sendInvoiceEmail } = require('../services/invoice-email');
 const deliveryNotifications = require('../services/delivery-notifications');
 const { invoiceLotEntriesFromItems } = require('../services/invoice-lots');
 const {
+  buildScopeFields,
   executeWithOptionalScope,
   filterRowsByContext,
   insertRecordWithOptionalScope,
@@ -1348,6 +1349,54 @@ router.post('/:id/tracking-link', authenticateToken, requireRole('admin', 'manag
     tracking_expires_at: trackingExpiresAt,
     tracking_url: buildTrackingUrl(req, trackingToken),
   });
+});
+
+// POST /api/orders/bulk-import — CSV bulk order creation.
+// Validates every row first; if any row fails, nothing is committed (the rows
+// are inserted in a single atomic multi-row insert). Returns per-row errors.
+router.post('/bulk-import', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+  if (!rows.length) return res.status(400).json({ error: 'No rows to import.' });
+  if (rows.length > 1000) return res.status(400).json({ error: 'Import is limited to 1000 rows per file.' });
+
+  const errors = [];
+  const prepared = [];
+  rows.forEach((row, index) => {
+    const rowNumber = index + 1;
+    const customerName = String(row.customer_name || '').trim();
+    const items = Array.isArray(row.items) ? row.items : [];
+    const normalizedItems = items
+      .map((it) => ({
+        item_number: String(it.item_number || '').trim() || null,
+        name: String(it.name || it.description || '').trim() || null,
+        unit: String(it.unit || 'each').trim(),
+        quantity: Number(it.quantity ?? it.qty) || 0,
+        unit_price: Number(it.unit_price ?? it.price) || 0,
+      }))
+      .filter((it) => it.quantity > 0 && (it.item_number || it.name));
+    if (!customerName) { errors.push({ row: rowNumber, error: 'Missing customer name.' }); return; }
+    if (!normalizedItems.length) { errors.push({ row: rowNumber, error: 'No valid items with quantity > 0.' }); return; }
+    prepared.push({
+      order_number: 'ORD-' + Date.now().toString().slice(-6) + '-' + rowNumber,
+      customer_name: customerName,
+      customer_email: String(row.customer_email || '').trim() || null,
+      customer_address: String(row.customer_address || '').trim() || null,
+      items: normalizedItems,
+      charges: [],
+      status: 'pending',
+      source: 'csv_import',
+      ...buildScopeFields(req.context),
+    });
+  });
+
+  if (errors.length) {
+    // Reject the whole import — no partial commits.
+    return res.status(422).json({ error: 'Import rejected: fix the row errors and retry.', errors, committed: 0 });
+  }
+
+  const { data, error } = await supabase.from('orders').insert(prepared).select('id, order_number');
+  if (error) return res.status(500).json({ error: error.message, committed: 0 });
+  res.json({ committed: data.length, orders: data });
 });
 
 module.exports = router;

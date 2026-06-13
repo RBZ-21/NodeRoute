@@ -18,6 +18,7 @@ export type Customer = {
   billing_phone?: string;
   billing_address?: string;
   tax_enabled?: boolean;
+  sms_notifications_enabled?: boolean;
   credit_hold?: boolean;
   credit_hold_reason?: string;
   credit_hold_placed_at?: string;

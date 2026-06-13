@@ -88,6 +88,8 @@ function customerPayload(source) {
   if (taxValue !== undefined) payload.tax_enabled = parseBoolean(taxValue);
   const holdValue = source.credit_hold ?? source.creditHold;
   if (holdValue !== undefined) payload.credit_hold = parseBoolean(holdValue);
+  const smsValue = source.sms_notifications_enabled ?? source.smsNotificationsEnabled;
+  if (smsValue !== undefined) payload.sms_notifications_enabled = parseBoolean(smsValue);
   return payload;
 }
 

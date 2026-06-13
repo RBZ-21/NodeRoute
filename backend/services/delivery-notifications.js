@@ -5,7 +5,9 @@ const { sendSms } = require('./sms');
 const { buildTrackingUrlFromBase } = require('../lib/tracking-url');
 const { getMedianDwellMs } = require('./dwell-stats');
 
-const NOTIFY_AT_STOPS_AWAY = 2;
+const NOTIFY_AT_STOPS_AWAY = Math.max(1, Number(process.env.DELIVERY_NOTIFY_STOPS_AWAY) || 3);
+// Per-phone send cap (per rolling hour) — guards against notification storms.
+const SMS_RATE_LIMIT_PER_HOUR = Math.max(1, Number(process.env.SMS_RATE_LIMIT_PER_HOUR) || 6);
 
 function normalizePhone(raw) {
   if (!raw) return null;
@@ -60,23 +62,130 @@ async function loadOrder(client, orderIdOrInvoiceId) {
   return first(client.from('orders').select('*').eq('invoice_id', orderIdOrInvoiceId).limit(1));
 }
 
-async function safeSendSms(to, body, metadata) {
-  const phone = normalizePhone(to);
+// ── Outbound message log, preference, de-dup, rate limit ───────────────────
+// All helpers are defensive: if the outbound_messages table or the Customers
+// preference column is unavailable, sends degrade to the legacy behaviour
+// instead of throwing.
+
+async function logOutboundMessage(client, entry) {
+  try {
+    const { error } = await client.from('outbound_messages').insert([{
+      company_id: entry.companyId ?? null,
+      order_id: entry.orderId ?? null,
+      stop_id: entry.stopId ?? null,
+      event: entry.event,
+      channel: 'sms',
+      phone: entry.phone ?? null,
+      body: entry.body ?? null,
+      status: entry.status,
+      provider_sid: entry.sid ?? null,
+      error: entry.error ?? null,
+    }]);
+    if (error) logger.warn({ event: entry.event, error: error.message }, 'Outbound message log insert failed');
+  } catch (error) {
+    logger.warn({ event: entry.event, error: error?.message || String(error) }, 'Outbound message log unavailable');
+  }
+}
+
+async function alreadySentEvent(client, event, { stopId, orderId }) {
+  try {
+    let query = client
+      .from('outbound_messages')
+      .select('id,status')
+      .eq('event', event)
+      .in('status', ['sent', 'dry_run'])
+      .limit(1);
+    if (stopId) query = query.eq('stop_id', stopId);
+    else if (orderId) query = query.eq('order_id', orderId);
+    else return false;
+    const { data } = await query;
+    return Array.isArray(data) && data.length > 0;
+  } catch {
+    return false;
+  }
+}
+
+async function isRateLimited(client, phone) {
+  try {
+    const since = new Date(Date.now() - 60 * 60 * 1000).toISOString();
+    const { data } = await client
+      .from('outbound_messages')
+      .select('id')
+      .eq('phone', phone)
+      .in('status', ['sent', 'dry_run'])
+      .gte('created_at', since)
+      .limit(SMS_RATE_LIMIT_PER_HOUR);
+    return Array.isArray(data) && data.length >= SMS_RATE_LIMIT_PER_HOUR;
+  } catch {
+    return false;
+  }
+}
+
+async function smsPreferenceAllowed(client, order) {
+  if (!order) return true;
+  try {
+    let customer = null;
+    if (order.customer_id) {
+      customer = await first(client.from('Customers').select('id,sms_notifications_enabled').eq('id', order.customer_id).limit(1));
+    }
+    if (!customer && order.customer_phone) {
+      customer = await first(client.from('Customers').select('id,sms_notifications_enabled').eq('phone', order.customer_phone).limit(1));
+    }
+    if (!customer && order.customer_email) {
+      customer = await first(client.from('Customers').select('id,sms_notifications_enabled').eq('email', order.customer_email).limit(1));
+    }
+    // Default allow: only an explicit opt-out blocks the send.
+    return customer?.sms_notifications_enabled !== false;
+  } catch {
+    return true;
+  }
+}
+
+async function sendEventSms(client, { event, order, stopId, body, metadata = {} }) {
+  const logBase = {
+    event,
+    companyId: order?.company_id || metadata.companyId || null,
+    orderId: order?.id || metadata.orderId || null,
+    stopId: stopId || null,
+    body,
+  };
+
+  const phone = normalizePhone(order?.customer_phone ?? metadata.phone);
   if (!phone) {
-    logger.info({ ...metadata, reason: 'missing_phone' }, 'Delivery SMS skipped');
+    logger.info({ ...metadata, event, reason: 'missing_phone' }, 'Delivery SMS skipped');
     return { sent: false, skipped: true, reason: 'missing_phone' };
+  }
+
+  if (!(await smsPreferenceAllowed(client, order))) {
+    logger.info({ ...metadata, event, phone, reason: 'sms_notifications_disabled' }, 'Delivery SMS skipped');
+    await logOutboundMessage(client, { ...logBase, phone, status: 'skipped', error: 'sms_notifications_disabled' });
+    return { sent: false, skipped: true, reason: 'sms_notifications_disabled' };
+  }
+
+  if (await alreadySentEvent(client, event, { stopId, orderId: order?.id || metadata.orderId })) {
+    logger.info({ ...metadata, event, phone, reason: 'duplicate_event' }, 'Delivery SMS skipped (already sent)');
+    return { sent: false, skipped: true, reason: 'duplicate_event' };
+  }
+
+  if (await isRateLimited(client, phone)) {
+    logger.warn({ ...metadata, event, phone, reason: 'rate_limited' }, 'Delivery SMS skipped (rate limit)');
+    await logOutboundMessage(client, { ...logBase, phone, status: 'skipped', error: 'rate_limited' });
+    return { sent: false, skipped: true, reason: 'rate_limited' };
   }
 
   try {
     const result = await sendSms(phone, body);
     if (result?.success) {
-      logger.info({ ...metadata, phone, sid: result.sid }, 'Delivery SMS sent');
+      logger.info({ ...metadata, event, phone, sid: result.sid }, 'Delivery SMS sent');
+      await logOutboundMessage(client, { ...logBase, phone, status: result.dryRun ? 'dry_run' : 'sent', sid: result.sid || null });
       return { sent: true, phone, sid: result.sid || null };
     }
-    logger.warn({ ...metadata, phone, error: result?.error || 'unknown_error' }, 'Delivery SMS failed');
+    logger.warn({ ...metadata, event, phone, error: result?.error || 'unknown_error' }, 'Delivery SMS failed');
+    await logOutboundMessage(client, { ...logBase, phone, status: 'failed', error: result?.error || 'unknown_error' });
     return { sent: false, phone, error: result?.error || 'unknown_error' };
   } catch (error) {
-    logger.warn({ ...metadata, phone, error: error?.message || String(error) }, 'Delivery SMS threw');
+    logger.warn({ ...metadata, event, phone, error: error?.message || String(error) }, 'Delivery SMS threw');
+    await logOutboundMessage(client, { ...logBase, phone, status: 'failed', error: error?.message || String(error) });
     return { sent: false, phone, error: error?.message || String(error) };
   }
 }
@@ -99,11 +208,13 @@ async function notifyRouteDispatched(client, routeId, trackingBaseUrl) {
         continue;
       }
       const trackingUrl = buildTrackingUrlFromBase(trackingBaseUrl, order.tracking_token);
-      const body = `Hi ${order.customer_name || 'there'}, your NodeRoute delivery is on the way. Track your driver live: ${trackingUrl}`;
-      const result = await safeSendSms(order.customer_phone, body, {
+      const body = `Hi ${order.customer_name || 'there'}, your delivery is on the way. Track your driver live: ${trackingUrl}`;
+      const result = await sendEventSms(client, {
         event: 'route_dispatched',
-        routeId,
-        orderId: order.id,
+        order,
+        stopId: order.stop_id || null,
+        body,
+        metadata: { routeId },
       });
       results.push({ ...result, orderId: order.id });
     }
@@ -119,11 +230,12 @@ async function notifyDriverArriving(client, stopId, routeId) {
     const stop = await loadStop(client, stopId);
     const order = await loadOrderForStop(client, stop);
     const body = `Your NodeRoute driver is arriving now at ${stop?.address || 'your stop'}. Please be ready to receive your delivery.`;
-    return safeSendSms(order?.customer_phone, body, {
+    return sendEventSms(client, {
       event: 'driver_arriving',
+      order,
       stopId,
-      routeId,
-      orderId: order?.id || null,
+      body,
+      metadata: { routeId },
     });
   } catch (error) {
     logger.warn({ stopId, routeId, error: error?.message || String(error) }, 'Delivery arrival SMS failed');
@@ -131,14 +243,24 @@ async function notifyDriverArriving(client, stopId, routeId) {
   }
 }
 
-async function notifyDeliveryCompleted(client, stopId, orderId) {
+async function notifyDeliveryCompleted(client, stopId, orderId, context = {}) {
   try {
     const stop = await loadStop(client, stopId);
     const order = (await loadOrderForStop(client, stop)) || (await loadOrder(client, orderId));
-    return safeSendSms(order?.customer_phone, 'Your NodeRoute delivery has been completed. Thank you!', {
+    // Include a link to the proof-of-delivery (the tracking page shows the
+    // delivered status timeline + POD photo once the stop is completed).
+    let body = 'Your NodeRoute delivery has been completed. Thank you!';
+    if (order?.tracking_token) {
+      const trackingBaseUrl = context?.trackingBaseUrl || context?.tracking_base_url || process.env.BASE_URL || 'http://localhost:3001';
+      const podUrl = buildTrackingUrlFromBase(trackingBaseUrl, order.tracking_token);
+      body = `Your NodeRoute delivery has been completed. View your proof of delivery: ${podUrl}`;
+    }
+    return sendEventSms(client, {
       event: 'delivery_completed',
+      order,
       stopId,
-      orderId: order?.id || orderId || null,
+      body,
+      metadata: { orderId: order?.id || orderId || null },
     });
   } catch (error) {
     logger.warn({ stopId, orderId, error: error?.message || String(error) }, 'Delivery completion SMS failed');
@@ -189,12 +311,12 @@ async function notifyUpcomingStops(client, routeId, completedStopId, context = {
     const trackingUrl = buildTrackingUrlFromBase(trackingBaseUrl, order.tracking_token);
     const body = `Hi ${order.customer_name || 'there'}, your NodeRoute driver is ${NOTIFY_AT_STOPS_AWAY} stops away and heading to you. Estimated arrival: ~${medianStopMinutes} minutes. Track live: ${trackingUrl}`;
 
-    const result = await safeSendSms(order.customer_phone, body, {
+    const result = await sendEventSms(client, {
       event: 'upcoming_stop',
-      routeId,
-      completedStopId,
+      order,
       stopId: targetStop.id,
-      orderId: order.id,
+      body,
+      metadata: { routeId, completedStopId },
     });
 
     if (result.sent) {

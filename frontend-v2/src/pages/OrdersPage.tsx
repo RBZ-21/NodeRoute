@@ -17,6 +17,9 @@ import {
   useSendOrderMutation,
   useSubmitOrderMutation,
 } from '../hooks/useOrders';
+import { SlideOver } from '../components/ui/overlay-panel';
+import { RecurringOrdersTab } from './RecurringOrdersTab';
+import { OrderCsvImport } from './OrderCsvImport';
 import { OrderWeightsBoard } from './OrderWeightsBoard';
 import { OrderFormCard, type OrderFormValidationErrors } from './OrderFormCard';
 import { OrdersWorkbench } from './OrdersWorkbench';
@@ -131,6 +134,9 @@ export function OrdersPage() {
 
   const [notice, setNotice]   = useState('');
   const [error, setError]     = useState('');
+  const [ordersTab, setOrdersTab] = useState<'orders' | 'recurring'>('orders');
+  const [importOpen, setImportOpen] = useState(false);
+  const [formOpen, setFormOpen] = useState(false);
   const [formErrors, setFormErrors] = useState<OrderFormValidationErrors>({});
   const [search, setSearch]   = useState('');
   const [status, setStatus]   = useState<OrderStatus | 'all'>('all');
@@ -153,6 +159,26 @@ export function OrdersPage() {
   // ── Pricing Anomaly Detection ────────────────────────────────────────
   const pricingAnomalies = usePricingAnomalies();
   const [anomalyDays, setAnomalyDays] = useState(30);
+
+  // Unsaved-changes detection. `form.isDirty` only covers edit mode (snapshot
+  // diff); for a brand-new draft, any typed content counts as unsaved.
+  const hasUnsavedChanges =
+    form.isDirty ||
+    (!form.editingOrderId && (
+      form.customerName.trim() !== ''
+      || form.customerEmail.trim() !== ''
+      || form.customerPhone.trim() !== ''
+      || form.customerAddress.trim() !== ''
+      || form.notes.trim() !== ''
+      || form.lines.some((line) => line.productId || line.itemNumber.trim() || line.name.trim() || line.quantity.trim())
+    ));
+
+  function closeOrderForm({ skipConfirm = false }: { skipConfirm?: boolean } = {}) {
+    if (!skipConfirm && hasUnsavedChanges && !confirm('Discard unsaved order changes?')) return;
+    form.reset();
+    setFormErrors({});
+    setFormOpen(false);
+  }
 
   useEffect(() => {
     if (!form.isDirty) return;
@@ -229,6 +255,7 @@ export function OrdersPage() {
       }
       setIntakeOpen(false);
       setIntakeText('');
+      setFormOpen(true);
       setNotice(`Parsed ${matchedLines.length} item(s) from message.${result.warnings?.length ? ' Warnings: ' + result.warnings.join('; ') : ''}`);
     } catch (err) {
       setIntakeError(String((err as Error).message || 'Parse failed'));
@@ -305,7 +332,7 @@ export function OrdersPage() {
           ? sendToProcessing ? 'Order updated and sent to processing.' : 'Order updated.'
           : sendToProcessing ? 'Order created and sent to processing.' : 'Order created.',
       );
-      form.reset();
+      closeOrderForm({ skipConfirm: true });
     } catch (err) {
       setError(String((err as Error).message || 'Could not save order'));
     } finally {
@@ -434,6 +461,8 @@ export function OrdersPage() {
 
   function handleEditOrder(order: Order) {
     form.populate(order);
+    setFormErrors({});
+    setFormOpen(true);
     setNotice(`Editing ${order.order_number || order.id.slice(0, 8)}`);
   }
 
@@ -469,6 +498,25 @@ export function OrdersPage() {
         </div>
       ) : null}
 
+      <div className="flex items-center gap-1 border-b border-border" role="tablist" aria-label="Orders sections">
+        {([['orders', 'Orders'], ['recurring', 'Recurring']] as const).map(([id, label]) => (
+          <button
+            key={id}
+            role="tab"
+            aria-selected={ordersTab === id}
+            onClick={() => setOrdersTab(id)}
+            className={[
+              'border-b-2 px-4 py-2 text-sm font-medium transition-colors -mb-px',
+              ordersTab === id ? 'border-primary text-primary' : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground',
+            ].join(' ')}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {ordersTab === 'recurring' ? <RecurringOrdersTab /> : (
+      <>
       <div className="flex flex-wrap items-end gap-3">
         <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
           <SummaryCard title="Orders"               value={orders.length.toLocaleString()} />
@@ -476,6 +524,12 @@ export function OrdersPage() {
           <SummaryCard title="In Process"           value={summary.inProcess.toLocaleString()} />
           <SummaryCard title="Total Pipeline Value" value={asMoney(summary.totalValue)} />
         </div>
+        <Button onClick={() => { setFormErrors({}); setFormOpen(true); }} className="shrink-0">
+          + New Order
+        </Button>
+        <Button variant="outline" onClick={() => setImportOpen(true)} className="shrink-0">
+          Import Orders
+        </Button>
         <button
           onClick={() => setShowWeightStation((v) => !v)}
           className={[
@@ -538,6 +592,12 @@ export function OrdersPage() {
         </div>
       )}
 
+      <SlideOver
+        open={formOpen}
+        title={form.editingOrderId ? 'Edit Order' : 'New Order'}
+        description={form.editingOrderId ? 'Update the draft order details below.' : 'Create a draft order, then send it to processing.'}
+        onClose={() => closeOrderForm()}
+      >
       <OrderFormCard
         editingOrderId={form.editingOrderId}
         customerName={form.customerName}        setCustomerName={form.setCustomerName}
@@ -567,10 +627,11 @@ export function OrdersPage() {
         addLine={form.addLine}
         removeLine={form.removeLine}
         onSubmit={submitOrder}
-        onCancel={form.reset}
+        onCancel={() => closeOrderForm()}
         submitting={submitting}
         validationErrors={formErrors}
       />
+      </SlideOver>
 
       <OrdersWorkbench
         orders={orders}
@@ -703,6 +764,14 @@ export function OrdersPage() {
           )}
         </Card>
       )}
+      </>
+      )}
+
+      <OrderCsvImport
+        open={importOpen}
+        onClose={() => setImportOpen(false)}
+        onImported={(count) => { setNotice(`Imported ${count} order(s) from CSV.`); void queryClient.invalidateQueries({ queryKey: orderKeys.all }); }}
+      />
     </div>
   );
 }
