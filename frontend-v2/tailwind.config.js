@@ -34,6 +34,26 @@ export default {
           DEFAULT: 'hsl(var(--card))',
           foreground: 'hsl(var(--card-foreground))',
         },
+        // ── NodeRoute brand tokens (shared with landing-v2) ────────────────
+        ink: {
+          0: 'var(--brand-ink-0)',
+          100: 'var(--brand-ink-100)',
+          300: 'var(--brand-ink-300)',
+          500: 'var(--brand-ink-500)',
+        },
+        cream: {
+          DEFAULT: 'var(--brand-cream)',
+          dim: 'var(--brand-cream-dim)',
+        },
+        teal: {
+          DEFAULT: 'hsl(var(--brand-teal))',
+          light: 'hsl(var(--brand-teal-light))',
+          dim: 'hsl(var(--brand-teal-dim))',
+        },
+      },
+      fontFamily: {
+        sans: ['Geist', 'Inter', 'ui-sans-serif', 'system-ui', 'sans-serif'],
+        mono: ['"Geist Mono"', 'ui-monospace', 'SFMono-Regular', 'monospace'],
       },
       borderRadius: {
         lg: 'var(--radius)',

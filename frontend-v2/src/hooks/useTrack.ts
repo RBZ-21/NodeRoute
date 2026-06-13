@@ -3,6 +3,7 @@ import { useQuery } from '@tanstack/react-query';
 export type TrackingData = {
   orderId: string;
   orderNumber: string;
+  company?: { name: string; logoUrl: string | null };
   status: string;
   deliveryAddress: string;
   customerName: string;

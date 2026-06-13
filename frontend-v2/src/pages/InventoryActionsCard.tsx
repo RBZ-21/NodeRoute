@@ -13,9 +13,18 @@ import { asNumber, inventoryActionLabel } from './inventory.helpers';
  * re-render the rest of the (very large) inventory page. TanStack dedupes the
  * mutation hooks by key, so calling them here is free.
  */
-export function InventoryActionsCard({ items }: { items: InventoryItem[] }) {
+export function InventoryActionsCard({
+  items,
+  fixRequest,
+}: {
+  items: InventoryItem[];
+  /** Set by "Fix" buttons next to negative stock readings: pre-selects the SKU
+   *  and pre-fills the adjustment delta needed to bring it back to zero. */
+  fixRequest?: { itemId: string; nonce: number } | null;
+}) {
   const restockMutation = useRestockMutation();
   const adjustMutation = useAdjustMutation();
+  const cardRef = useRef<HTMLDivElement | null>(null);
 
   const [selectedItemId, setSelectedItemId] = useState('');
   const [restockQty, setRestockQty] = useState('');
@@ -35,6 +44,22 @@ export function InventoryActionsCard({ items }: { items: InventoryItem[] }) {
     selectorInitialized.current = true;
     setSelectedItemId(items[0]?.id || '');
   }, [items]);
+
+  // Honour incoming "Fix" requests from negative-stock indicators.
+  useEffect(() => {
+    if (!fixRequest) return;
+    const item = items.find((i) => i.id === fixRequest.itemId);
+    if (!item) return;
+    setSelectedItemId(item.id);
+    const qty = asNumber(item.on_hand_qty);
+    if (qty < 0) {
+      setAdjustDelta(String(-qty));
+      setActionNotes('Negative stock correction');
+    }
+    setActionError('');
+    setActionNotice('');
+    cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }, [fixRequest?.nonce]);
 
   function clearActionFeedback() { setActionError(''); setActionNotice(''); }
 
@@ -82,7 +107,7 @@ export function InventoryActionsCard({ items }: { items: InventoryItem[] }) {
   }
 
   return (
-    <Card>
+    <Card ref={cardRef}>
       <CardHeader><CardTitle>Inventory Actions</CardTitle><CardDescription>Select by item name, then post restocks and adjustments against the matching inventory SKU.</CardDescription></CardHeader>
       <CardContent className="grid gap-3 md:grid-cols-4">
         {/* Inline feedback — shown right here in the card, not at the top of the page */}

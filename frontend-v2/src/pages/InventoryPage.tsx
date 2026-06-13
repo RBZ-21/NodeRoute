@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useCompanyConfig } from '../hooks/useCompanyConfig';
 import { useQueryClient } from '@tanstack/react-query';
 import { Badge } from '../components/ui/badge';
@@ -27,6 +27,8 @@ import { SmartReorderAlertsCard } from './SmartReorderAlertsCard';
 import { InventoryAiHealthCard } from './InventoryAiHealthCard';
 import { InventoryMarkdownRecsCard } from './InventoryMarkdownRecsCard';
 import { InventoryActionsCard } from './InventoryActionsCard';
+import { NegativeStockQty } from '../components/inventory/NegativeStock';
+import { AiInsightBanner } from '../components/ui/ai-insight-banner';
 import { asNumber, inventoryActionLabel } from './inventory.helpers';
 
 function money(v: number) { return v.toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
@@ -93,7 +95,15 @@ function InventoryLotsCell({ lots, isFtlProduct }: { lots: InventoryLotSummary[]
 export function InventoryPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const { features } = useCompanyConfig();
+
+  // "Fix" requests jump into the Inventory Actions adjustment flow pre-filled
+  // with the SKU. Also honoured via /inventory?fix=<item_number> deep links.
+  const [fixRequest, setFixRequest] = useState<{ itemId: string; nonce: number } | null>(null);
+  function requestFix(itemId: string) {
+    setFixRequest({ itemId, nonce: Date.now() });
+  }
 
   // ── Queries ───────────────────────────────────────────────────────────────
   const inventoryQuery = useInventoryQuery();
@@ -118,6 +128,17 @@ export function InventoryPage() {
 
   const lowStockQuery = useLowStockQuery();
   const lowStockItems = lowStockQuery.data ?? [];
+
+  // Deep link: /inventory?fix=<item_number> (used by dashboard negative-stock alerts)
+  const fixParam = String(searchParams.get('fix') || '').trim();
+  useEffect(() => {
+    if (!fixParam || !items.length) return;
+    const target = items.find((i) => String(i.item_number || '').trim().toLowerCase() === fixParam.toLowerCase());
+    if (target) requestFix(target.id);
+    const nextParams = new URLSearchParams(searchParams);
+    nextParams.delete('fix');
+    setSearchParams(nextParams, { replace: true });
+  }, [fixParam, items]);
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const addItemMutation        = useAddInventoryItemMutation();
@@ -307,7 +328,9 @@ export function InventoryPage() {
       .filter((i) => showInactive || i.is_active !== false)
       .filter((i) => !n || [i.item_number, i.description, i.category].filter(Boolean).some((p) => String(p).toLowerCase().includes(n)));
   }, [items, search, showInactive]);
-  const summary = useMemo(() => ({ totalSkus: items.length, lowStock: items.filter((i) => asNumber(i.on_hand_qty) > 0 && asNumber(i.on_hand_qty) <= 10).length, outOfStock: items.filter((i) => asNumber(i.on_hand_qty) <= 0).length, inventoryValue: items.reduce((s, i) => s + asNumber(i.on_hand_qty) * asNumber(i.cost), 0) }), [items]);
+  // Out Of Stock intentionally excludes inactive (seasonal/discontinued) SKUs —
+  // they are not expected to have stock, so counting them inflates the KPI.
+  const summary = useMemo(() => ({ totalSkus: items.length, lowStock: items.filter((i) => asNumber(i.on_hand_qty) > 0 && asNumber(i.on_hand_qty) <= 10).length, outOfStock: items.filter((i) => i.is_active !== false && asNumber(i.on_hand_qty) <= 0).length, inventoryValue: items.reduce((s, i) => s + asNumber(i.on_hand_qty) * asNumber(i.cost), 0) }), [items]);
   const countSheetRows = useMemo(() => {
     const rows = items.map((item) => ({ id: item.id, item_number: String(item.item_number || '').trim(), description: String(item.description || '').trim() || 'Unnamed item', category: String(item.category || 'Uncategorized').trim() || 'Uncategorized', on_hand_qty: asNumber(item.on_hand_qty), unit: String(item.unit || '').trim() })).filter((i) => i.item_number || i.description);
     return rows.filter((i) => countCategoryFilter === 'all' || i.category === countCategoryFilter).filter((i) => includeZeroStockInCounts || i.on_hand_qty > 0).filter((i) => { if (recentSalesExclusionWindow === 'all' || !recentSoldItemKeys) return true; return recentSoldItemKeys.has(i.item_number.trim().toLowerCase()) || recentSoldItemKeys.has(i.description.trim().toLowerCase()); }).sort((a, b) => itemCategoryCompare(a, b) || a.description.localeCompare(b.description) || a.item_number.localeCompare(b.item_number));
@@ -361,6 +384,7 @@ export function InventoryPage() {
       {inventoryQuery.isPending && <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading inventory...</div>}
       {displayError && <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{displayError}</div>}
       {notice && <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div>}
+      <AiInsightBanner types={['reorder']} />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <SummaryCard label="SKUs" value={summary.totalSkus.toLocaleString()} />
         <SummaryCard label="Low Stock" value={summary.lowStock.toLocaleString()} />
@@ -385,7 +409,9 @@ export function InventoryPage() {
                   <div>
                     <div className="text-sm font-medium">{item.description || item.name || item.item_number}</div>
                     <div className="text-xs text-muted-foreground">
-                      On hand: <strong>{asNumber(item.on_hand_qty).toFixed(1)}</strong> · Reorder at: {asNumber(item.reorder_point).toFixed(1)} · Short by: <strong className="text-rose-600">{item.deficit.toFixed(1)}</strong> {item.unit || ''}
+                      On hand: {asNumber(item.on_hand_qty) < 0
+                        ? <NegativeStockQty qty={asNumber(item.on_hand_qty)} onFix={() => { const match = items.find((i) => String(i.item_number || '').trim() === String(item.item_number || '').trim()); if (match) requestFix(match.id); }} />
+                        : <strong>{asNumber(item.on_hand_qty).toFixed(1)}</strong>} · Reorder at: {asNumber(item.reorder_point).toFixed(1)} · Short by: <strong className="text-rose-600">{item.deficit.toFixed(1)}</strong> {item.unit || ''}
                     </div>
                   </div>
                   <Button
@@ -413,7 +439,7 @@ export function InventoryPage() {
       <SmartReorderAlertsCard />
 
       {/* ── Inventory Actions ─────────────────────────────────────────────── */}
-      <InventoryActionsCard items={items} />
+      <InventoryActionsCard items={items} fixRequest={fixRequest} />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <CardHeader><CardTitle>Inventory Count Reports</CardTitle><CardDescription>Print or export count sheets grouped by category.</CardDescription></CardHeader>
@@ -606,7 +632,7 @@ export function InventoryPage() {
                 const qty = asNumber(item.on_hand_qty);
                 const itemLots = activeLotsByProduct.get(String(item.item_number || '').trim()) ?? [];
                 const isInactive = item.is_active === false;
-                const status = qty <= 0 ? <Badge variant="warning">Out</Badge> : qty <= 10 ? <Badge variant="secondary">Low</Badge> : <Badge variant="success">Healthy</Badge>;
+                const status = qty < 0 ? <Badge variant="destructive">Negative</Badge> : qty <= 0 ? <Badge variant="warning">Out</Badge> : qty <= 10 ? <Badge variant="secondary">Low</Badge> : <Badge variant="success">Healthy</Badge>;
                 return (
                   <Fragment key={item.id}>
                   <TableRow className={isInactive ? 'opacity-50' : ''}>
@@ -617,7 +643,11 @@ export function InventoryPage() {
                     <TableCell>{item.description ?? '-'}</TableCell>
                     <TableCell>{item.category ?? '-'}</TableCell>
                     {features.fsmaLotTracking && <TableCell><InventoryLotsCell lots={itemLots} isFtlProduct={item.is_ftl_product} /></TableCell>}
-                    <TableCell>{qty.toLocaleString()} {item.unit ?? ''}</TableCell>
+                    <TableCell>
+                      {qty < 0
+                        ? <NegativeStockQty qty={qty} unit={item.unit ?? ''} onFix={() => requestFix(item.id)} />
+                        : <>{qty.toLocaleString()} {item.unit ?? ''}</>}
+                    </TableCell>
                     <TableCell>{money(asNumber(item.cost))}</TableCell>
                     <TableCell>{status}</TableCell>
                     <TableCell><ReorderPointCell item={item} onSaved={(val) => { setReorderPointMutation.mutate({ itemNumber: item.item_number ?? '', reorderPoint: val }); patchCachedItem({ ...item, reorder_point: val }); }} /></TableCell>

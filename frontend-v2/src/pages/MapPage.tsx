@@ -2,6 +2,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { StatusBadge } from '../components/ui/status-badge';
+import { LiveIndicator } from '../components/ui/live-indicator';
 import { type DriverLocation, type StopMarker, useMapDrivers, useMapStops } from '../hooks/useMap';
 
 const ENV_MAP_KEY = (import.meta.env.VITE_GOOGLE_MAPS_KEY || import.meta.env.VITE_MAP_API_KEY) as string | undefined;
@@ -78,10 +79,8 @@ export function MapPage() {
   const [mapError, setMapError] = useState<string | null>(null);
   const [selectedDriver, setSelectedDriver] = useState<DriverLocation | null>(null);
 
-  const { data: drivers = [], dataUpdatedAt } = useMapDrivers();
-  const { data: stops = [] } = useMapStops();
-
-  const lastUpdated = dataUpdatedAt ? new Date(dataUpdatedAt).toLocaleTimeString() : '';
+  const { data: drivers = [], dataUpdatedAt, refetch: refetchDrivers, isFetching: driversFetching } = useMapDrivers();
+  const { data: stops = [], refetch: refetchMapStops } = useMapStops();
 
   const clearMarkers = useCallback(() => {
     markersRef.current.forEach((m: GMarker) => m.setMap(null));
@@ -173,7 +172,11 @@ export function MapPage() {
         <Card className="overflow-hidden">
           <CardHeader className="flex flex-row items-center justify-between py-3 px-4">
             <CardTitle className="text-base">Live Map</CardTitle>
-            {lastUpdated && <span className="text-xs text-muted-foreground">Updated {lastUpdated}</span>}
+            <LiveIndicator
+              updatedAt={dataUpdatedAt}
+              onRefresh={() => { void refetchDrivers(); void refetchMapStops(); }}
+              refreshing={driversFetching}
+            />
           </CardHeader>
           <CardContent className="p-0">
             {mapGuidance ? (
