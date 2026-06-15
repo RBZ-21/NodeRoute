@@ -41,6 +41,7 @@ export type Order = {
   invoice_id?: string | null;
   invoiceId?: string | null;
   order_number?: string;
+  source?: string;
   customer_name?: string;
   customer_email?: string;
   customer_phone?: string;

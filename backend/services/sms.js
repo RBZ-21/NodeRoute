@@ -12,17 +12,25 @@ const FROM_NUMBER = process.env.TWILIO_FROM_NUMBER || '';
 
 const hasTwilio = !!(ACCOUNT_SID && AUTH_TOKEN && FROM_NUMBER);
 
+// SMS_DRY_RUN=true logs the message and reports success without calling
+// Twilio — for staging/testing without burning real sends.
+const isDryRun = () => ['true', '1', 'yes'].includes(String(process.env.SMS_DRY_RUN || '').toLowerCase());
+
 /**
  * @param {string} to   - E.164 phone number, e.g. '+18435551234'
  * @param {string} body - SMS body text
  */
 async function sendSms(to, body) {
+  if (!to || !body) {
+    return { success: false, error: 'Missing to or body' };
+  }
+  if (isDryRun()) {
+    console.info('[sms] DRY RUN — would send to', to, ':', body);
+    return { success: true, sid: `dry-run-${Date.now()}`, dryRun: true };
+  }
   if (!hasTwilio) {
     console.warn('[sms] Twilio is not configured — skipping SMS to', to);
     return { success: false, error: 'Twilio not configured' };
-  }
-  if (!to || !body) {
-    return { success: false, error: 'Missing to or body' };
   }
 
   // Lazy-require twilio so the server doesn't crash if the package

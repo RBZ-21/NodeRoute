@@ -55,6 +55,19 @@ function makeSupabase(tables) {
       return this;
     }
 
+    gte(field, value) {
+      this.rows = this.rows.filter((row) => new Date(row[field]).getTime() >= new Date(value).getTime());
+      return this;
+    }
+
+    insert(records) {
+      const list = Array.isArray(records) ? records : [records];
+      const target = (tables[this.table] = tables[this.table] || []);
+      for (const record of list) target.push({ id: `gen-${target.length + 1}`, ...record });
+      this.rows = list;
+      return this;
+    }
+
     update(patch) {
       this.patch = patch;
       return this;
@@ -133,7 +146,7 @@ test('notifyDeliveryCompleted does not throw when sendSms throws', async () => {
   await assert.doesNotReject(() => notifications.notifyDeliveryCompleted(supabase, 'stop-1', 'order-1'));
 });
 
-test('notifyUpcomingStops sends SMS to stop at index 1 of remaining queue', async () => {
+test('notifyUpcomingStops sends SMS to the stop 3 positions into the remaining queue', async () => {
   const sent = [];
   const notifications = loadNotifications(async (to, body) => {
     sent.push({ to, body });
@@ -148,8 +161,9 @@ test('notifyUpcomingStops sends SMS to stop at index 1 of remaining queue', asyn
       { id: 's3', status: 'pending', address: '3 Dock St' },
       { id: 's4', status: 'pending', address: '4 Dock St' },
     ],
+    // Remaining queue is [s2, s3, s4]; 3 stops away = s4 (index NOTIFY_AT_STOPS_AWAY - 1).
     orders: [
-      { id: 'o3', stop_id: 's3', customer_name: 'Sea Mart', customer_phone: '(843) 555-0103', tracking_token: 'tok-3' },
+      { id: 'o4', stop_id: 's4', customer_name: 'Sea Mart', customer_phone: '(843) 555-0104', tracking_token: 'tok-4' },
     ],
     dwell_records: [
       { dwell_ms: 600000, arrived_at: '2026-05-19T10:00:00Z' },
@@ -163,9 +177,9 @@ test('notifyUpcomingStops sends SMS to stop at index 1 of remaining queue', asyn
   await notifications.notifyUpcomingStops(supabase, 'route-1', 's1', {});
 
   assert.equal(sent.length, 1);
-  assert.equal(sent[0].to, '+18435550103');
-  assert.match(sent[0].body, /2 stops away/);
-  assert.match(sent[0].body, /~20 minutes/);
+  assert.equal(sent[0].to, '+18435550104');
+  assert.match(sent[0].body, /3 stops away/);
+  assert.match(sent[0].body, /~30 minutes/);
 });
 
 test('notifyUpcomingStops skips stops already proximity notified', async () => {
@@ -180,11 +194,11 @@ test('notifyUpcomingStops skips stops already proximity notified', async () => {
       { id: 's0', status: 'completed' },
       { id: 's1', status: 'completed' },
       { id: 's2', status: 'pending' },
-      { id: 's3', status: 'pending', proximity_notified_at: '2026-05-19T10:00:00Z' },
-      { id: 's4', status: 'pending' },
+      { id: 's3', status: 'pending' },
+      { id: 's4', status: 'pending', proximity_notified_at: '2026-05-19T10:00:00Z' },
     ],
     orders: [
-      { id: 'o3', stop_id: 's3', customer_name: 'Sea Mart', customer_phone: '(843) 555-0103', tracking_token: 'tok-3' },
+      { id: 'o4', stop_id: 's4', customer_name: 'Sea Mart', customer_phone: '(843) 555-0104', tracking_token: 'tok-4' },
     ],
   });
 
@@ -219,4 +233,50 @@ test('notifyUpcomingStops does not throw when sendSms rejects', async () => {
   });
 
   await assert.doesNotReject(() => notifications.notifyUpcomingStops(supabase, 'route-1', 's1', {}));
+});
+
+test('notifyDeliveryCompleted skips when the customer has opted out of SMS', async () => {
+  const sent = [];
+  const notifications = loadNotifications(async (to, body) => {
+    sent.push({ to, body });
+    return { success: true, sid: 'SM999' };
+  });
+  const supabase = makeSupabase({
+    stops: [{ id: 'stop-1', address: '100 Main St' }],
+    orders: [{ id: 'order-1', stop_id: 'stop-1', customer_id: 'cust-1', customer_phone: '+18435550100' }],
+    Customers: [{ id: 'cust-1', sms_notifications_enabled: false }],
+  });
+
+  const result = await notifications.notifyDeliveryCompleted(supabase, 'stop-1', 'order-1');
+
+  assert.equal(sent.length, 0);
+  assert.equal(result.skipped, true);
+  assert.equal(result.reason, 'sms_notifications_disabled');
+});
+
+test('delivery events are logged to outbound_messages and de-duplicated per stop', async () => {
+  const sent = [];
+  const notifications = loadNotifications(async (to, body) => {
+    sent.push({ to, body });
+    return { success: true, sid: 'SM-DEDUP' };
+  });
+  const tables = {
+    stops: [{ id: 'stop-1', address: '100 Main St' }],
+    orders: [{ id: 'order-1', stop_id: 'stop-1', customer_id: 'cust-1', customer_phone: '+18435550100' }],
+    Customers: [{ id: 'cust-1', sms_notifications_enabled: true }],
+    outbound_messages: [],
+  };
+  const supabase = makeSupabase(tables);
+
+  const first = await notifications.notifyDeliveryCompleted(supabase, 'stop-1', 'order-1');
+  assert.equal(first.sent, true);
+  assert.equal(sent.length, 1);
+  // The send was logged.
+  assert.equal(tables.outbound_messages.filter((m) => m.status === 'sent' && m.event === 'delivery_completed').length, 1);
+
+  // A second completion for the same stop must not re-send.
+  const second = await notifications.notifyDeliveryCompleted(supabase, 'stop-1', 'order-1');
+  assert.equal(second.skipped, true);
+  assert.equal(second.reason, 'duplicate_event');
+  assert.equal(sent.length, 1);
 });

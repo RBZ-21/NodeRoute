@@ -80,9 +80,10 @@ function mockRoutesApi({
   });
 }
 
-function renderRoutesPage() {
+// Dispatch Board is the default tab; route-management tests target the Routes tab.
+function renderRoutesPage(initialEntry = '/routes?tab=routes') {
   return renderWithQueryClient(<RoutesPage />, {
-    wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter>,
+    wrapper: ({ children }) => <MemoryRouter initialEntries={[initialEntry]}>{children}</MemoryRouter>,
   });
 }
 
@@ -102,6 +103,9 @@ describe('RoutesPage', () => {
 
     expect(await screen.findByText('North Route')).toBeTruthy();
 
+    // The create form now lives inside the "+ New Route" modal.
+    fireEvent.click(screen.getByRole('button', { name: '+ New Route' }));
+
     fireEvent.click(screen.getByRole('button', { name: 'Create Route' }));
     expect(await screen.findByText('Route name is required.')).toBeTruthy();
 
@@ -120,6 +124,40 @@ describe('RoutesPage', () => {
       });
     });
     expect(await screen.findByText('Route "South Route" created.')).toBeTruthy();
+  });
+
+  it('renders Routes | Deliveries | Stops tabs and honours the ?tab= query param', async () => {
+    renderRoutesPage('/routes?tab=deliveries');
+
+    const tabs = await screen.findAllByRole('tab');
+    expect(tabs.map((t) => t.textContent)).toEqual(['Dispatch Board', 'Routes', 'Deliveries', 'Stops']);
+    expect(screen.getByRole('tab', { name: 'Deliveries' }).getAttribute('aria-selected')).toBe('true');
+    // Routes-tab content is not rendered while another tab is active.
+    expect(screen.queryByText('North Route')).toBeNull();
+
+    fireEvent.click(screen.getByRole('tab', { name: 'Routes' }));
+    expect(await screen.findByText('North Route')).toBeTruthy();
+  });
+
+  it('warns about unsaved changes when closing the create-route modal', async () => {
+    const confirmMock = vi.fn(() => false);
+    vi.stubGlobal('confirm', confirmMock);
+
+    renderRoutesPage();
+    expect(await screen.findByText('North Route')).toBeTruthy();
+
+    fireEvent.click(screen.getByRole('button', { name: '+ New Route' }));
+    fireEvent.change(screen.getByPlaceholderText('Back Side'), { target: { value: 'Half-typed route' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
+
+    expect(confirmMock).toHaveBeenCalledWith('Discard unsaved route details?');
+    expect(screen.getByDisplayValue('Half-typed route')).toBeTruthy();
+
+    confirmMock.mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
+    await waitFor(() => {
+      expect(screen.queryByPlaceholderText('Back Side')).toBeNull();
+    });
   });
 
   it('opens the edit panel, saves changes, adds a stop from a customer, and adds stops from pending orders', async () => {

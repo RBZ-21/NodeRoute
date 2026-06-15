@@ -17,6 +17,9 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { WeightEntryModal } from '../components/dashboard/WeightEntryModal';
+import { NegativeStockQty } from '../components/inventory/NegativeStock';
+import { LiveIndicator } from '../components/ui/live-indicator';
+import { AiInsightBanner } from '../components/ui/ai-insight-banner';
 import { getUserRole, sendWithAuth, type Role } from '../lib/api';
 import { cn } from '../lib/utils';
 import {
@@ -324,8 +327,10 @@ export function DashboardPage() {
         />
       )}
 
+      <AiInsightBanner types={['anomaly', 'reorder', 'collections']} />
+
       <div className="flex flex-wrap items-center gap-2">
-        <Button variant="outline" onClick={refreshDashboard}><RefreshCw className="mr-2 h-4 w-4" />Refresh Dashboard</Button>
+        <LiveIndicator updatedAt={statsQuery.dataUpdatedAt} onRefresh={refreshDashboard} refreshing={statsQuery.isFetching} />
         <Button variant="outline" onClick={() => navigate('/orders')}>Orders Queue</Button>
         <Button variant="outline" onClick={() => navigate('/routes')}>Route Workspace</Button>
         {isAdmin ? <Button variant="outline" onClick={() => navigate('/purchasing')}>Purchasing</Button> : null}
@@ -472,7 +477,7 @@ export function DashboardPage() {
               <CardTitle>Active Deliveries</CardTitle>
               <CardDescription>Live delivery work that still needs attention from dispatch or drivers.</CardDescription>
             </div>
-            <Button variant="outline" onClick={() => navigate('/deliveries')}>Open Deliveries<ArrowRight className="ml-2 h-4 w-4" /></Button>
+            <Button variant="outline" onClick={() => navigate('/routes?tab=deliveries')}>Open Deliveries<ArrowRight className="ml-2 h-4 w-4" /></Button>
           </CardHeader>
           <CardContent className="rounded-lg border border-border bg-card p-2">
             <Table>
@@ -643,7 +648,9 @@ export function DashboardPage() {
                       <div>
                         <div className="text-sm font-medium text-foreground">{item.description || item.name || item.item_number}</div>
                         <div className="text-xs text-muted-foreground">
-                          On hand: <strong>{asNumber(item.on_hand_qty, 0).toFixed(1)}</strong> {item.unit || ''} · Reorder at: {asNumber(item.reorder_point, 0).toFixed(1)} · Short by: <strong className="text-rose-600">{item.deficit.toFixed(1)}</strong>
+                          On hand: {asNumber(item.on_hand_qty, 0) < 0
+                            ? <NegativeStockQty qty={asNumber(item.on_hand_qty, 0)} unit={item.unit || ''} onFix={() => navigate(`/inventory?fix=${encodeURIComponent(item.item_number || '')}`)} />
+                            : <><strong>{asNumber(item.on_hand_qty, 0).toFixed(1)}</strong> {item.unit || ''}</>} · Reorder at: {asNumber(item.reorder_point, 0).toFixed(1)} · Short by: <strong className="text-rose-600">{item.deficit.toFixed(1)}</strong>
                         </div>
                       </div>
                       <Button

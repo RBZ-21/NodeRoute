@@ -1,4 +1,5 @@
 import { type ChangeEvent, useMemo, useState } from 'react';
+import { ShoppingCart } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -277,6 +278,29 @@ export function SettingsPage() {
           <Button variant="outline" onClick={handleSaveCompany} disabled={!canManageCompanySettings || !companyDirty || saveCompany.isPending || loadingCompany}>
             {saveCompany.isPending ? 'Saving Company Controls...' : 'Save Company Controls'}
           </Button>
+        </CardContent>
+      </Card>
+
+      {/* ── Add-on: Customer Portal Online Ordering ── */}
+      <Card className="border-primary/30 bg-primary/5">
+        <CardHeader className="space-y-1">
+          <div className="flex items-center gap-2">
+            <ShoppingCart className="h-5 w-5 text-primary" />
+            <CardTitle>Online Ordering</CardTitle>
+            <Badge variant="secondary">Add-on</Badge>
+          </div>
+          <CardDescription>Let your customers place orders themselves, directly from your live catalog.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3 text-sm">
+          <ul className="grid gap-2 sm:grid-cols-2">
+            <li className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />Customers browse your real-time, in-stock catalog with their pricing.</li>
+            <li className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />Portal orders land in your order queue, flagged as Portal.</li>
+            <li className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />One-tap reordering from any past order.</li>
+            <li className="flex items-start gap-2"><span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-primary" />Fewer phone calls and faxes; faster, more accurate orders.</li>
+          </ul>
+          <div className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+            Online Ordering is a paid add-on. Contact us to enable it for your company.
+          </div>
         </CardContent>
       </Card>
     </div>
