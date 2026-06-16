@@ -81,6 +81,42 @@ function parseSetupPasswordBody(body) {
   };
 }
 
+function parseForgotPasswordBody(body) {
+  const result = z.object({
+    email: z.string().trim().min(1).max(254),
+  }).safeParse(body);
+
+  if (!result.success) {
+    return { success: false, error: 'Email required' };
+  }
+
+  return { success: true, data: { email: result.data.email } };
+}
+
+function parseResetPasswordBody(body) {
+  const baseResult = z.object({
+    token: z.string().trim().min(1).max(256),
+    password: z.string().min(1).max(1024),
+  }).safeParse(body);
+
+  if (!baseResult.success) {
+    return { success: false, error: 'Token and password required' };
+  }
+
+  const passwordResult = z.string().min(minPasswordLength).safeParse(baseResult.data.password);
+  if (!passwordResult.success) {
+    return { success: false, error: setupPasswordLengthMessage };
+  }
+
+  return {
+    success: true,
+    data: {
+      token: baseResult.data.token,
+      password: passwordResult.data,
+    },
+  };
+}
+
 function parseChangePasswordBody(body) {
   const baseResult = z.object({
     currentPassword: z.string().min(1).max(1024),
@@ -112,5 +148,7 @@ module.exports = {
   parseLoginBody,
   parseSignupBody,
   parseSetupPasswordBody,
+  parseForgotPasswordBody,
+  parseResetPasswordBody,
   parseChangePasswordBody,
 };
