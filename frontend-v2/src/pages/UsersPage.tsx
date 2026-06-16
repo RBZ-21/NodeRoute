@@ -16,8 +16,13 @@ const statusColors = { active: 'green', pending: 'yellow', inactive: 'gray' } as
 
 function normalizeRole(value: string | undefined): Role {
   const role = String(value || '').trim().toLowerCase();
-  if (role === 'admin' || role === 'manager' || role === 'driver') return role;
+  if (role === 'superadmin' || role === 'admin' || role === 'manager' || role === 'driver' || role === 'rep') return role;
   return 'driver';
+}
+function roleLabel(role: Role): string {
+  if (role === 'superadmin') return 'Superadmin';
+  if (role === 'rep') return 'Sales Rep';
+  return role.charAt(0).toUpperCase() + role.slice(1);
 }
 function normalizeStatus(value: string | undefined): UserStatus {
   const s = String(value || '').trim().toLowerCase().replace(/[\s_]+/g, '-');
@@ -26,7 +31,8 @@ function normalizeStatus(value: string | undefined): UserStatus {
   if (s === 'inactive') return 'inactive';
   return 'other';
 }
-function roleVariant(role: Role): 'success' | 'secondary' | 'neutral' {
+function roleVariant(role: Role): 'default' | 'success' | 'secondary' | 'neutral' {
+  if (role === 'superadmin') return 'default';
   if (role === 'admin') return 'success';
   if (role === 'manager') return 'secondary';
   return 'neutral';
@@ -208,6 +214,7 @@ export function UsersPage() {
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Role</span>
               <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as RoleFilter)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
                 <option value="all">All Roles</option>
+                <option value="superadmin">Superadmin</option>
                 <option value="admin">Admin</option>
                 <option value="manager">Manager</option>
                 <option value="driver">Driver</option>
@@ -234,17 +241,20 @@ export function UsersPage() {
                 const status = normalizeStatus(user.status);
                 const self = isSelf(user);
                 const busy = changeRole.isPending || removeUser.isPending;
+                // The role dropdown only offers driver/manager/admin; superadmin and
+                // rep accounts are managed elsewhere and shown as read-only here.
+                const editable = canAdminister && !self && (role === 'driver' || role === 'manager' || role === 'admin');
                 return (
                   <TableRow key={user.id || `${user.email || ''}-${user.name || ''}`}>
                     <TableCell className="font-medium">{user.name || '-'}</TableCell>
                     <TableCell>{user.email || '-'}</TableCell>
-                    <TableCell><Badge variant={roleVariant(role)}>{role.charAt(0).toUpperCase() + role.slice(1)}</Badge></TableCell>
+                    <TableCell><Badge variant={roleVariant(role)}>{roleLabel(role)}</Badge></TableCell>
                     <TableCell><StatusBadge status={status === 'other' ? 'unknown' : status} colorMap={statusColors} fallbackLabel="Unknown" /></TableCell>
                     <TableCell>{user.companyName || '-'}</TableCell>
                     <TableCell>{user.locationName || '-'}</TableCell>
                     <TableCell>{formatDate(user.createdAt)}</TableCell>
                     <TableCell>
-                      {canAdminister && !self ? (
+                      {editable ? (
                         <div className="flex flex-wrap items-center gap-2">
                           <select value={role} onChange={(e) => void changeRole.mutateAsync({ id: user.id, role: e.target.value as Role })} disabled={busy} className="h-9 rounded-md border border-input bg-background px-2 text-xs">
                             <option value="driver">Driver</option>
@@ -254,7 +264,7 @@ export function UsersPage() {
                           <Button size="sm" variant="outline" className="border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => { if (window.confirm(`Remove ${user.name || user.email}?`)) void removeUser.mutateAsync(user.id); }} disabled={busy}>Remove</Button>
                         </div>
                       ) : (
-                        <span className="text-xs text-muted-foreground">{self ? 'Signed-in account' : 'View only'}</span>
+                        <span className="text-xs text-muted-foreground">{self ? 'Signed-in account' : role === 'superadmin' || role === 'rep' ? 'Protected role' : 'View only'}</span>
                       )}
                     </TableCell>
                   </TableRow>

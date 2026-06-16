@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   ArrowRight,
   Package,
-  RefreshCw,
   Scale,
   ShoppingCart,
   Truck,
@@ -226,20 +225,6 @@ export function DashboardPage() {
     [deliveries],
   );
 
-  const topDrivers = useMemo(() => {
-    const ranked = analytics?.driverRankings?.length
-      ? analytics.driverRankings
-      : drivers.map((d) => ({
-          name: d.name,
-          stopsPerHour: Number((asNumber(d.totalStopsToday, 0) / 8).toFixed(1)),
-          avgStopMinutes: asNumber(d.avgStopMinutes, 0),
-          avgSpeedMph: asNumber(d.avgSpeedMph, 0),
-          onTimeRate: asNumber(d.onTimeRate, 0),
-          milesToday: asNumber(d.milesToday, 0),
-        }));
-    return [...ranked].sort((a, b) => b.onTimeRate - a.onTimeRate || b.stopsPerHour - a.stopsPerHour).slice(0, 5);
-  }, [analytics, drivers]);
-
   const fleetSummary = useMemo(() => ({
     totalMiles: drivers.reduce((sum, d) => sum + asNumber(d.milesToday, 0), 0),
     totalStops: drivers.reduce((sum, d) => sum + asNumber(d.totalStopsToday, 0), 0),
@@ -380,7 +365,7 @@ export function DashboardPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[1.3fr_1fr_1fr]">
+      <div className="grid gap-4 xl:grid-cols-[1.3fr_1fr]">
         <Card>
           <CardHeader>
             <CardTitle>Operational Snapshot</CardTitle>
@@ -408,33 +393,6 @@ export function DashboardPage() {
               <InsightPill label="Door Codes On File" value={String(analytics?.doorBreakdown?.['Door code on file'] || 0)} tone="emerald" />
               <InsightPill label="No Door Code" value={String(analytics?.doorBreakdown?.['No code'] || 0)} tone="slate" />
             </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Driver Leaderboard</CardTitle>
-            <CardDescription>Best performers today based on on-time rate and stops per hour.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {topDrivers.length ? (
-              topDrivers.map((driver, index) => (
-                <div key={driver.name} className="rounded-lg border border-border bg-muted/20 p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-foreground">#{index + 1} {driver.name}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">{driver.stopsPerHour.toFixed(1)} stops/hr · {driver.avgSpeedMph.toFixed(1)} mph · {driver.avgStopMinutes.toFixed(1)} min avg stop</div>
-                    </div>
-                    <Badge variant={driver.onTimeRate >= 90 ? 'success' : driver.onTimeRate >= 75 ? 'warning' : 'neutral'}>{driver.onTimeRate.toFixed(1)}%</Badge>
-                  </div>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-                    <div className={cn('h-full rounded-full', driver.onTimeRate >= 90 ? 'bg-emerald-500' : driver.onTimeRate >= 75 ? 'bg-amber-500' : 'bg-rose-500')} style={{ width: `${Math.max(6, Math.min(100, driver.onTimeRate))}%` }} />
-                  </div>
-                </div>
-              ))
-            ) : (
-              <EmptyBlock title="No driver performance yet" description="Driver rankings will populate after routes begin logging activity." />
-            )}
           </CardContent>
         </Card>
 
