@@ -7,11 +7,14 @@ const { filterRowsByContext, buildScopeFields, scopeQueryByContext } = require('
 
 const router = express.Router();
 
+// Roles that see every customer/log; everyone else is scoped to their own sales_rep_id.
+const seesAllReps = (user) => ['admin', 'manager', 'superadmin'].includes(user.role);
+
 // GET /api/sales-reps/customers
 router.get('/customers', authenticateToken, async (req, res) => {
   try {
     let query = scopeQueryByContext(supabase.from('Customers').select('*'), req.context).order('company_name', { ascending: true });
-    if (!['admin', 'manager', 'superadmin'].includes(req.user.role)) {
+    if (!seesAllReps(req.user)) {
       query = query.eq('sales_rep_id', req.user.id);
     }
     const { data, error } = await query;
@@ -30,7 +33,7 @@ router.get('/visit-logs', authenticateToken, async (req, res) => {
       .select('*'), req.context)
       .order('visited_at', { ascending: false })
       .limit(500);
-    if (!['admin', 'manager', 'superadmin'].includes(req.user.role)) {
+    if (!seesAllReps(req.user)) {
       query = query.eq('sales_rep_id', req.user.id);
     }
     if (req.query.customer_id) query = query.eq('customer_id', req.query.customer_id);
@@ -84,7 +87,7 @@ router.get('/upsell-alerts', authenticateToken, async (req, res) => {
     const forecasts = forecastResult.data || [];
     const orders = ordersResult.data || [];
     const customers = filterRowsByContext(customersResult.data || [], req.context);
-    const myCustomers = ['admin', 'manager', 'superadmin'].includes(req.user.role)
+    const myCustomers = seesAllReps(req.user)
       ? customers
       : customers.filter((c) => c.sales_rep_id === req.user.id);
 

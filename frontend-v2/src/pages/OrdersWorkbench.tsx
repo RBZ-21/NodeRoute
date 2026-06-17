@@ -203,6 +203,9 @@ export function OrdersWorkbench({
                           onClick={() => pendingWeights ? onToggleWeightCapture(order) : onEdit(order)}
                         >
                           <span className="hover:underline">{order.order_number || order.id.slice(0, 8)}</span>
+                          {String(order.source || '').toLowerCase() === 'portal' && (
+                            <Badge variant="secondary" className="ml-1.5 align-middle text-[10px]">Portal</Badge>
+                          )}
                           {pendingWeights && (
                             <div className="text-xs font-medium text-amber-600">⚠️ Weight Pending</div>
                           )}

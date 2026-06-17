@@ -1,10 +1,12 @@
-import { useMemo, useState } from 'react';
+import { lazy, Suspense, useMemo, useState } from 'react';
 import { getUserRole } from '../lib/api';
-import { useNavigate } from 'react-router-dom';
+import { useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Combobox } from '../components/ui/combobox';
 import { Input } from '../components/ui/input';
+import { Modal } from '../components/ui/overlay-panel';
+import { LiveIndicator } from '../components/ui/live-indicator';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import {
@@ -32,6 +34,21 @@ import { AddStopsModal } from './AddStopsModal';
 import { RouteEditPanel } from './RouteEditPanel';
 import { driverDisplayName, normalizedLocationKey, normalizeDriverKey, resolveDriverSelection } from './routes.helpers';
 
+// Deliveries and Stops render as tabs inside this page (their old URLs
+// redirect here). Lazy so each tab keeps its own chunk.
+const DeliveriesTab = lazy(() => import('./DeliveriesPage').then((m) => ({ default: m.DeliveriesPage })));
+const StopsTab      = lazy(() => import('./StopsPage').then((m) => ({ default: m.StopsPage })));
+const DispatchTab   = lazy(() => import('./DispatchBoard').then((m) => ({ default: m.DispatchBoard })));
+
+type RoutesTab = 'dispatch' | 'routes' | 'deliveries' | 'stops';
+
+const ROUTES_TABS: { id: RoutesTab; label: string }[] = [
+  { id: 'dispatch',   label: 'Dispatch Board' },
+  { id: 'routes',     label: 'Routes' },
+  { id: 'deliveries', label: 'Deliveries' },
+  { id: 'stops',      label: 'Stops' },
+];
+
 type RouteStatus = 'active' | 'pending' | 'completed' | 'cancelled' | 'other';
 
 const statusColors = {
@@ -56,9 +73,21 @@ function resolvedStopIds(route: RouteRecord, allStops: StopRecord[]) {
 }
 
 export function RoutesPage() {
-  const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const { data: routes = [], isLoading, isError, error, refetch } = useRoutes();
+  const tabParam = searchParams.get('tab');
+  // Dispatch Board is the default tab. Deliveries/Stops/Routes are reachable via ?tab=.
+  const activeTab: RoutesTab =
+    tabParam === 'deliveries' || tabParam === 'stops' || tabParam === 'routes' ? tabParam : 'dispatch';
+
+  function switchTab(tab: RoutesTab, extraParams: Record<string, string> = {}) {
+    const next = new URLSearchParams(searchParams);
+    if (tab === 'dispatch') next.delete('tab'); else next.set('tab', tab);
+    for (const [key, value] of Object.entries(extraParams)) next.set(key, value);
+    setSearchParams(next);
+  }
+
+  const { data: routes = [], isLoading, isError, error, refetch, dataUpdatedAt, isFetching } = useRoutes();
   const { data: allStops = [], refetch: refetchStops } = useAllStops();
   const { data: pendingOrders = [] } = usePendingOrders();
   const { data: drivers = [] } = useDrivers();
@@ -74,11 +103,23 @@ export function RoutesPage() {
   const [notice, setNotice] = useState('');
   const [actionError, setActionError] = useState('');
 
-  // Create form
+  // Create form (rendered inside the "+ New Route" modal)
+  const [createOpen, setCreateOpen] = useState(false);
   const [newName, setNewName] = useState('');
   const [newDriverName, setNewDriverName] = useState('');
   const [newDriverId, setNewDriverId] = useState('');
   const [newNotes, setNewNotes] = useState('');
+
+  const createFormDirty = newName.trim() !== '' || newDriverName.trim() !== '' || newNotes.trim() !== '';
+
+  function closeCreateModal({ skipConfirm = false }: { skipConfirm?: boolean } = {}) {
+    if (!skipConfirm && createFormDirty && !confirm('Discard unsaved route details?')) return;
+    setNewName('');
+    setNewDriverName('');
+    setNewDriverId('');
+    setNewNotes('');
+    setCreateOpen(false);
+  }
 
   // Edit panel — parent owns only the selection; the panel owns its draft.
   const [editRoute, setEditRoute] = useState<RouteRecord | null>(null);
@@ -271,10 +312,7 @@ export function RoutesPage() {
       {
         onSuccess: () => {
           setNotice(`Route "${newName.trim()}" created.`);
-          setNewName('');
-          setNewDriverName('');
-          setNewDriverId('');
-          setNewNotes('');
+          closeCreateModal({ skipConfirm: true });
         },
         onError: (err) => setActionError(String((err as Error).message || 'Could not create route')),
       }
@@ -502,6 +540,32 @@ export function RoutesPage() {
 
   return (
     <div className="space-y-5">
+      {/* ── Tabs: Routes | Deliveries | Stops ── */}
+      <div className="flex items-center gap-1 border-b border-border" role="tablist" aria-label="Routes sections">
+        {ROUTES_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            role="tab"
+            aria-selected={activeTab === tab.id}
+            onClick={() => switchTab(tab.id)}
+            className={[
+              'border-b-2 px-4 py-2 text-sm font-medium transition-colors -mb-px',
+              activeTab === tab.id
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground',
+            ].join(' ')}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {activeTab !== 'routes' ? (
+        <Suspense fallback={<div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading…</div>}>
+          {activeTab === 'dispatch' ? <DispatchTab /> : activeTab === 'deliveries' ? <DeliveriesTab /> : <StopsTab />}
+        </Suspense>
+      ) : (
+      <>
       {dispatchCandidate ? (() => {
         const routeLabel = dispatchCandidate.name || dispatchCandidate.id.slice(0, 8);
         const driverLabel = dispatchCandidate.driver || driverDisplayName(driverById.get(String(dispatchCandidate.driver_id || ''))) || 'Unassigned';
@@ -540,51 +604,54 @@ export function RoutesPage() {
       {actionError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{actionError}</div> : null}
       {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard label="Routes" value={routes.length.toLocaleString()} />
-        <SummaryCard label="Active" value={summary.active.toLocaleString()} />
-        <SummaryCard label="Pending" value={summary.pending.toLocaleString()} />
-        <SummaryCard label="Completed" value={summary.completed.toLocaleString()} />
+      <div className="flex flex-wrap items-end gap-3">
+        <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <SummaryCard label="Routes" value={routes.length.toLocaleString()} />
+          <SummaryCard label="Active" value={summary.active.toLocaleString()} />
+          <SummaryCard label="Pending" value={summary.pending.toLocaleString()} />
+          <SummaryCard label="Completed" value={summary.completed.toLocaleString()} />
+        </div>
+        <Button className="shrink-0" onClick={() => setCreateOpen(true)}>+ New Route</Button>
       </div>
 
-      {/* Create Route */}
-      <Card>
-        <CardHeader>
-          <CardTitle>Create Route</CardTitle>
-          <CardDescription>Name the route and assign a driver. Add stops after creation.</CardDescription>
-        </CardHeader>
-        <CardContent>
-          <div className="grid gap-3 md:grid-cols-4">
-            <label className="space-y-1 text-sm">
-              <span className="font-semibold text-muted-foreground">Route Name</span>
-              <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Back Side" />
-            </label>
-            <label className="space-y-1 text-sm">
-              <span className="font-semibold text-muted-foreground">Driver</span>
-              <Combobox
-                value={newDriverName}
-                onChange={handleNewDriverChange}
-                onSelect={(opt) => {
-                  setNewDriverName(opt.label);
-                  setNewDriverId(opt.value);
-                }}
-                options={driverOptions}
-                placeholder="Assign driver"
-              />
-              {linkedNewDriver ? <span className="block text-xs text-muted-foreground">Linked to user account: {linkedNewDriver.email || linkedNewDriver.id}</span> : null}
-            </label>
-            <label className="space-y-1 text-sm">
-              <span className="font-semibold text-muted-foreground">Notes</span>
-              <Input value={newNotes} onChange={(e) => setNewNotes(e.target.value)} placeholder="Optional" />
-            </label>
-            <div className="flex items-end">
-              <Button onClick={handleCreateRoute} disabled={createRoute.isPending} className="w-full">
-                {createRoute.isPending ? 'Creating…' : 'Create Route'}
-              </Button>
-            </div>
+      {/* Create Route modal */}
+      <Modal
+        open={createOpen}
+        title="Create Route"
+        description="Name the route and assign a driver. Add stops after creation."
+        onClose={() => closeCreateModal()}
+      >
+        <div className="grid gap-3">
+          <label className="space-y-1 text-sm">
+            <span className="font-semibold text-muted-foreground">Route Name</span>
+            <Input value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Back Side" />
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="font-semibold text-muted-foreground">Driver</span>
+            <Combobox
+              value={newDriverName}
+              onChange={handleNewDriverChange}
+              onSelect={(opt) => {
+                setNewDriverName(opt.label);
+                setNewDriverId(opt.value);
+              }}
+              options={driverOptions}
+              placeholder="Assign driver"
+            />
+            {linkedNewDriver ? <span className="block text-xs text-muted-foreground">Linked to user account: {linkedNewDriver.email || linkedNewDriver.id}</span> : null}
+          </label>
+          <label className="space-y-1 text-sm">
+            <span className="font-semibold text-muted-foreground">Notes</span>
+            <Input value={newNotes} onChange={(e) => setNewNotes(e.target.value)} placeholder="Optional" />
+          </label>
+          <div className="flex justify-end gap-2 pt-1">
+            <Button variant="ghost" onClick={() => closeCreateModal()}>Cancel</Button>
+            <Button onClick={handleCreateRoute} disabled={createRoute.isPending}>
+              {createRoute.isPending ? 'Creating…' : 'Create Route'}
+            </Button>
           </div>
-        </CardContent>
-      </Card>
+        </div>
+      </Modal>
 
       {/* Edit Panel */}
       {editRoute ? (
@@ -623,7 +690,7 @@ export function RoutesPage() {
             </div>
             <div className="flex gap-2">
               <Button onClick={handleSaveEdit} disabled={updateRoute.isPending}>{updateRoute.isPending ? 'Saving…' : 'Save Changes'}</Button>
-              <Button variant="ghost" onClick={() => navigate(`/stops?routeId=${editRoute.id}`)}>View All Stops</Button>
+              <Button variant="ghost" onClick={() => switchTab('stops', { routeId: editRoute.id })}>View All Stops</Button>
               <Button variant="ghost" className="ml-auto text-destructive hover:text-destructive" onClick={() => handleDeleteRoute(editRoute)}>Delete Route</Button>
             </div>
 
@@ -774,7 +841,7 @@ export function RoutesPage() {
                 <option value="cancelled">Cancelled</option>
               </select>
             </label>
-            <Button variant="outline" onClick={() => refetch()}>Refresh</Button>
+            <LiveIndicator updatedAt={dataUpdatedAt} onRefresh={() => { void refetch(); void refetchStops(); }} refreshing={isFetching} />
           </div>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
@@ -817,7 +884,7 @@ export function RoutesPage() {
                             Add Stops
                           </Button>
                         )}
-                        <Button variant="ghost" size="sm" onClick={() => navigate(`/stops?routeId=${route.id}`)}>Stops</Button>
+                        <Button variant="ghost" size="sm" onClick={() => switchTab('stops', { routeId: route.id })}>Stops</Button>
                         <Button variant="ghost" size="sm" onClick={() => handleRunOptimize(route.id)} disabled={optimizeRoute.isPending && optimizeRouteId === route.id} title="AI optimize stop order">
                           {optimizeRoute.isPending && optimizeRouteId === route.id ? '…' : '❆ Optimize'}
                         </Button>
@@ -870,6 +937,8 @@ export function RoutesPage() {
           setNotice={setNotice}
           setActionError={setActionError}
         />
+      )}
+      </>
       )}
     </div>
   );

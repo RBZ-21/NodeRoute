@@ -131,6 +131,8 @@ describe('OrdersPage', () => {
     sendWithAuthMock.mockResolvedValueOnce({ id: 'new-order-id' });
 
     renderOrdersPage();
+    // The order form now lives inside the "+ New Order" slide-over drawer.
+    fireEvent.click(await screen.findByRole('button', { name: '+ New Order' }));
     await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Create Draft Order' }));
@@ -182,6 +184,8 @@ describe('OrdersPage', () => {
     });
 
     renderOrdersPage();
+    // The order form now lives inside the "+ New Order" slide-over drawer.
+    fireEvent.click(await screen.findByRole('button', { name: '+ New Order' }));
     await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Walkup Cafe' } });
@@ -201,6 +205,8 @@ describe('OrdersPage', () => {
 
   it('hydrates address and email when the typed customer name exactly matches a saved customer', async () => {
     renderOrdersPage();
+    // The order form now lives inside the "+ New Order" slide-over drawer.
+    fireEvent.click(await screen.findByRole('button', { name: '+ New Order' }));
     await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview Market' } });
@@ -215,6 +221,8 @@ describe('OrdersPage', () => {
     sendWithAuthMock.mockResolvedValueOnce({ id: 'pickup-order-id' });
 
     renderOrdersPage();
+    // The order form now lives inside the "+ New Order" slide-over drawer.
+    fireEvent.click(await screen.findByRole('button', { name: '+ New Order' }));
     await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview' } });
@@ -253,6 +261,8 @@ describe('OrdersPage', () => {
     sendWithAuthMock.mockResolvedValueOnce({ id: 'lobster-order-id' });
 
     renderOrdersPage();
+    // The order form now lives inside the "+ New Order" slide-over drawer.
+    fireEvent.click(await screen.findByRole('button', { name: '+ New Order' }));
     await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview Market' } });
@@ -322,6 +332,8 @@ describe('OrdersPage', () => {
     sendWithAuthMock.mockResolvedValueOnce({ id: 'halibut-order-id' });
 
     renderOrdersPage();
+    // The order form now lives inside the "+ New Order" slide-over drawer.
+    fireEvent.click(await screen.findByRole('button', { name: '+ New Order' }));
     await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview Market' } });
@@ -605,6 +617,44 @@ describe('OrdersPage', () => {
     expect(screen.getByText('Swordfish')).toBeInTheDocument();
     expect(screen.getByText((content) => content.includes('ORD-A') && content.includes('Blue Fin'))).toBeInTheDocument();
     expect(screen.queryByText('Salmon')).not.toBeInTheDocument();
+  });
+
+  it('warns about unsaved changes when closing the order drawer and keeps it open on cancel', async () => {
+    const confirmMock = vi.fn(() => false);
+    vi.stubGlobal('confirm', confirmMock);
+
+    renderOrdersPage();
+    fireEvent.click(await screen.findByRole('button', { name: '+ New Order' }));
+    await screen.findByRole('button', { name: 'Create Draft Order' });
+
+    fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Half-typed customer' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }));
+
+    expect(confirmMock).toHaveBeenCalledWith('Discard unsaved order changes?');
+    // Declining the confirm keeps the drawer (and typed value) on screen.
+    expect(screen.getByDisplayValue('Half-typed customer')).toBeInTheDocument();
+
+    confirmMock.mockReturnValue(true);
+    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }));
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Create Draft Order' })).not.toBeInTheDocument();
+    });
+  });
+
+  it('closes the order drawer without a confirm prompt when the form is untouched', async () => {
+    const confirmMock = vi.fn(() => true);
+    vi.stubGlobal('confirm', confirmMock);
+
+    renderOrdersPage();
+    fireEvent.click(await screen.findByRole('button', { name: '+ New Order' }));
+    await screen.findByRole('button', { name: 'Create Draft Order' });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Close panel' }));
+
+    expect(confirmMock).not.toHaveBeenCalled();
+    await waitFor(() => {
+      expect(screen.queryByRole('button', { name: 'Create Draft Order' })).not.toBeInTheDocument();
+    });
   });
 
   it('sends a pending order to processing and opens a print window', async () => {

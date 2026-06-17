@@ -24,6 +24,13 @@ async function httpsRequest(options, body = null) {
 (async () => {
   console.log('=== PRODUCTION EMAIL DIAGNOSTIC ===\n');
 
+  const DIAG_EMAIL = process.env.DIAG_ADMIN_EMAIL;
+  const DIAG_PASSWORD = process.env.DIAG_ADMIN_PASSWORD;
+  if (!DIAG_EMAIL || !DIAG_PASSWORD) {
+    console.log('ABORT: set DIAG_ADMIN_EMAIL and DIAG_ADMIN_PASSWORD env vars to run this diagnostic.');
+    process.exit(1);
+  }
+
   // Try several auth endpoint patterns
   const authPaths = ['/api/auth/login', '/api/login', '/api/users/login', '/auth/login'];
   let token = null;
@@ -34,7 +41,7 @@ async function httpsRequest(options, body = null) {
       const resp = await httpsRequest({
         path: authPath, method: 'POST',
         headers: { 'Content-Type': 'application/json' }
-      }, { email: 'admin@noderoutesystems.com', password: 'Ash&Ein080994$' });
+      }, { email: DIAG_EMAIL, password: DIAG_PASSWORD });
 
       console.log(`  → ${resp.status}`, JSON.stringify(resp.body).slice(0, 120));
       if (resp.status === 200) {
@@ -84,7 +91,7 @@ async function httpsRequest(options, body = null) {
         console.log('   sendInvoiceEmail() returned { sent: false, error: "No email on file..." }');
       } else if (emailResp.status === 200) {
         console.log('\n✅ Email API returned success from production!');
-        console.log('   Check spam folder at ryandb21@gmail.com');
+        console.log('   Check the spam folder of the invoice customer email.');
       } else if (emailResp.status === 500) {
         console.log('\n🔴 ROOT CAUSE: 500 Server Error during email send');
         console.log('   Error:', emailResp.body?.error);

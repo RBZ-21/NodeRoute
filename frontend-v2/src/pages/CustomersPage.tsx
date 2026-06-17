@@ -524,6 +524,22 @@ export function CustomersPage() {
                       <span className="text-sm">{selected.tax_enabled ? 'Yes' : 'No'}</span>
                     )}
                   </div>
+                  <div className="flex items-start gap-3">
+                    <span className="w-36 shrink-0 pt-0.5 text-sm text-muted-foreground">SMS Notifications</span>
+                    {editing ? (
+                      <label className="flex items-center gap-2 text-sm">
+                        {/* Default ON; clearing this opts the customer out of delivery SMS. */}
+                        <input
+                          type="checkbox"
+                          checked={draft.sms_notifications_enabled !== false}
+                          onChange={(e) => setDraft((d) => ({ ...d, sms_notifications_enabled: e.target.checked }))}
+                        />
+                        <span className="text-muted-foreground">Send delivery text updates</span>
+                      </label>
+                    ) : (
+                      <span className="text-sm">{selected.sms_notifications_enabled === false ? 'Off' : 'On'}</span>
+                    )}
+                  </div>
                 </div>
               )}
 

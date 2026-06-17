@@ -12,7 +12,7 @@ const cookieParser = require('cookie-parser');
 const pinoHttp = require('pino-http');
 const fs = require('fs');
 const path = require('path');
-const { globalLimiter, authLimiter, aiLimiter } = require('./middleware/rateLimiter');
+const { globalLimiter, authLimiter, aiLimiter, publicLimiter, waitlistLimiter } = require('./middleware/rateLimiter');
 const { validateJsonMutationBody } = require('./lib/zod-validate');
 
 // Route modules
@@ -27,6 +27,9 @@ const routesRouter        = require('./routes/routes');
 const customersRouter     = require('./routes/customers');
 const forecastRouter      = require('./routes/forecast');
 const aiRouter            = require('./routes/ai');
+const aiInsightsRouter    = require('./routes/ai-insights');
+const recurringOrdersRouter = require('./routes/recurring-orders');
+const searchRouter        = require('./routes/search');
 const portalRouter        = require('./routes/portal');
 const driverRouter        = require('./routes/driver');
 const driversRouter       = require('./routes/drivers');
@@ -194,8 +197,8 @@ app.use('/api/orders', requireApiAuth, ordersRouter);
 app.use('/api/invoices', requireApiAuth, invoicesRouter);
 app.use('/api/inventory', requireApiAuth, inventoryRouter);
 // Public/customer-token API routers must be mounted before the broad /api dispatch router.
-app.use('/api/portal', portalRouter);
-app.use('/api/track', trackingRouter);
+app.use('/api/portal', publicLimiter, portalRouter);
+app.use('/api/track', publicLimiter, trackingRouter);
 app.use('/api/waitlist', waitlistRouter);
 app.use('/api', requireApiAuth, deliveriesRouter);
 app.use('/api/stops', requireApiAuth, stopsRouter);
@@ -203,6 +206,9 @@ app.use('/api/routes', requireApiAuth, routesRouter);
 app.use('/api/customers', requireApiAuth, customersRouter);
 app.use('/api/forecast', requireApiAuth, forecastRouter);
 app.use('/api/ai', aiLimiter, requireApiAuth, aiRouter);
+app.use('/api/ai-insights', requireApiAuth, aiInsightsRouter);
+app.use('/api/recurring-orders', requireApiAuth, recurringOrdersRouter);
+app.use('/api/search', requireApiAuth, searchRouter);
 app.use('/api/driver', requireApiAuth, driverRouter);
 app.use('/api/drivers', requireApiAuth, driversRouter);
 app.use('/api/vendors', requireApiAuth, vendorsRouter);
@@ -232,7 +238,7 @@ app.use('/api/compliance', requireApiAuth, complianceRouter);
 app.use('/api/audit-log', requireApiAuth, auditLogRouter);
 // Bland.ai phone-order integration — authenticated via own webhook secret / API key, not requireApiAuth
 app.use('/api/phone-orders', phoneOrdersRouter);
-app.use('/api/public/inventory', publicInventoryRouter);
+app.use('/api/public/inventory', publicLimiter, publicInventoryRouter);
 
 app.get('/healthz', (req, res) => res.json({ ok: true }));
 

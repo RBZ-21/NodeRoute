@@ -88,6 +88,8 @@ function customerPayload(source) {
   if (taxValue !== undefined) payload.tax_enabled = parseBoolean(taxValue);
   const holdValue = source.credit_hold ?? source.creditHold;
   if (holdValue !== undefined) payload.credit_hold = parseBoolean(holdValue);
+  const smsValue = source.sms_notifications_enabled ?? source.smsNotificationsEnabled;
+  if (smsValue !== undefined) payload.sms_notifications_enabled = parseBoolean(smsValue);
   return payload;
 }
 
@@ -205,7 +207,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
   const insertResult = await insertRecordWithOptionalScope(supabase, 'Customers', customerPayload(req.body), req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
-  if (!data) return;
+  if (!data) return res.status(500).json({ error: 'Failed to create customer record' });
   res.json(data);
 });
 
@@ -219,7 +221,7 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   );
   if (updateResult.error) return res.status(500).json({ error: updateResult.error.message });
   const data = updateResult.data;
-  if (!data) return;
+  if (!data) return res.status(500).json({ error: 'Failed to update customer record' });
   res.json(data);
 });
 

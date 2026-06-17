@@ -8,6 +8,10 @@ import { useTrackingData } from '../hooks/useTrack';
 const ENV_MAP_KEY = (import.meta.env.VITE_GOOGLE_MAPS_KEY || import.meta.env.VITE_MAP_API_KEY) as string | undefined;
 
 function getToken(): string {
+  // Support both the path form (/track/:token) and the legacy query form
+  // (/track?t=token). The path form is the unguessable per-stop link in SMS.
+  const pathMatch = window.location.pathname.match(/^\/track\/([^/?#]+)/);
+  if (pathMatch?.[1]) return decodeURIComponent(pathMatch[1]);
   const params = new URLSearchParams(window.location.search);
   return params.get('t') || params.get('token') || '';
 }
@@ -172,7 +176,14 @@ export function TrackPage() {
     <div className="min-h-screen bg-enterprise-gradient">
       <div className="mx-auto max-w-2xl space-y-4 p-4 pb-12">
         <div className="flex items-center justify-between pt-2">
-          <div className="text-sm font-semibold uppercase tracking-wider text-primary">NodeRoute Delivery Tracker</div>
+          <div className="flex items-center gap-2.5">
+            {d.company?.logoUrl ? (
+              <img src={d.company.logoUrl} alt={d.company?.name || 'Company logo'} className="h-7 w-auto max-w-[140px] object-contain" />
+            ) : null}
+            <div className="text-sm font-semibold uppercase tracking-wider text-primary">
+              {d.company?.name ? `${d.company.name} Delivery Tracker` : 'Delivery Tracker'}
+            </div>
+          </div>
           <button onClick={toggleNotify} className="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs text-muted-foreground transition hover:bg-accent hover:text-foreground" title={notify ? 'Notifications on' : 'Notifications off'}>
             {notify ? <Bell className="h-3.5 w-3.5" /> : <BellOff className="h-3.5 w-3.5" />}
             {notify ? 'Notify me' : 'Notify off'}

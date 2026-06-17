@@ -19,6 +19,8 @@ try {
 
 const logger = require('../services/logger');
 const { runDailyFishBlastForAllCompanies } = require('../services/daily-fish-blast');
+const { runAiInsightsForAllCompanies } = require('../services/ai-insights');
+const { runRecurringOrderGeneration } = require('../services/recurring-orders');
 const creditEngine = require('../services/creditEngine');
 const reorderEngine = require('../services/reorderEngine');
 const { supabase } = require('../services/supabase');
@@ -32,6 +34,10 @@ const BLAST_TZ   = 'America/New_York';
 const REORDER_CHECK_CRON = process.env.REORDER_CHECK_CRON || '0 */4 * * *';
 const REORDER_USAGE_CRON = process.env.REORDER_USAGE_CRON || '0 0 * * 0';
 const REORDER_DIGEST_CRON = process.env.REORDER_DIGEST_CRON || '0 6 * * *';
+// Proactive AI insights (anomalies, smart reorder, collections risk) — every 6 hours.
+const AI_INSIGHTS_CRON = process.env.AI_INSIGHTS_CRON || '0 */6 * * *';
+// Recurring (standing) order generation — 8:00 PM Eastern, the evening before.
+const RECURRING_ORDERS_CRON = process.env.RECURRING_ORDERS_CRON || '0 20 * * *';
 
 async function sendReorderDigest() {
   const mailer = createMailer();
@@ -206,6 +212,37 @@ function startScheduler() {
     }
   }, { timezone: BLAST_TZ });
 
+  // Proactive AI insights — refreshes ai_insights per company; idempotent
+  // (each run replaces the company's unacknowledged rows of the same type).
+  if (cron.validate(AI_INSIGHTS_CRON)) {
+    cron.schedule(AI_INSIGHTS_CRON, async () => {
+      logger.info({ cron: AI_INSIGHTS_CRON }, 'AI insights job started');
+      try {
+        const result = await runAiInsightsForAllCompanies();
+        logger.info({ companies: result.companies }, 'AI insights job completed');
+      } catch (err) {
+        logger.error({ err }, 'AI insights job failed');
+      }
+    }, { timezone: BLAST_TZ });
+  } else {
+    logger.error({ cron: AI_INSIGHTS_CRON }, 'AI_INSIGHTS_CRON invalid — AI insights job not scheduled');
+  }
+
+  // Recurring order generation — runs the evening before each delivery day.
+  if (cron.validate(RECURRING_ORDERS_CRON)) {
+    cron.schedule(RECURRING_ORDERS_CRON, async () => {
+      logger.info({ cron: RECURRING_ORDERS_CRON }, 'Recurring order generation started');
+      try {
+        const result = await runRecurringOrderGeneration();
+        logger.info(result, 'Recurring order generation completed');
+      } catch (err) {
+        logger.error({ err }, 'Recurring order generation failed');
+      }
+    }, { timezone: BLAST_TZ });
+  } else {
+    logger.error({ cron: RECURRING_ORDERS_CRON }, 'RECURRING_ORDERS_CRON invalid — recurring order job not scheduled');
+  }
+
   logger.info({
     dailyFishBlast: BLAST_CRON,
     creditCheck: CREDIT_CHECK_CRON,
@@ -213,6 +250,8 @@ function startScheduler() {
     reorderCheck: REORDER_CHECK_CRON,
     reorderUsage: REORDER_USAGE_CRON,
     reorderDigest: REORDER_DIGEST_CRON,
+    aiInsights: AI_INSIGHTS_CRON,
+    recurringOrders: RECURRING_ORDERS_CRON,
     tz: BLAST_TZ,
   }, 'Scheduler started');
 }

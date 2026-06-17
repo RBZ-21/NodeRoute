@@ -4,6 +4,7 @@ import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '../../lib/utils';
 import { fetchWithAuth } from '../../lib/api';
+import { useAiInsights } from '../../hooks/useAiInsights';
 import {
   type NavGroup, type NavItem, type Role,
   defaultPath, findNavItem, navGroups,
@@ -28,7 +29,20 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
     refetchInterval: 30_000,
     staleTime: 15_000,
   });
-  const badgeCounts: Record<string, number> = { 'phone-orders': phoneOrderDraftCount };
+
+  // Proactive AI insight counts surface as badges on the pages they concern.
+  const { data: aiInsights = [] } = useAiInsights();
+  const insightItemCount = (type: string) =>
+    aiInsights
+      .filter((i) => i.type === type)
+      .reduce((sum, i) => sum + (typeof i.payload?.count === 'number' ? i.payload.count : 1), 0);
+
+  const badgeCounts: Record<string, number> = {
+    'phone-orders': phoneOrderDraftCount,
+    dashboard: insightItemCount('anomaly'),
+    inventory: insightItemCount('reorder'),
+    invoices: insightItemCount('collections'),
+  };
 
   useEffect(() => { onMobileClose(); }, [location.pathname]);
 

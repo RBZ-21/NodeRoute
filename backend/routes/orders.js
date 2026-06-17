@@ -45,6 +45,7 @@ const { sendInvoiceEmail } = require('../services/invoice-email');
 const deliveryNotifications = require('../services/delivery-notifications');
 const { invoiceLotEntriesFromItems } = require('../services/invoice-lots');
 const {
+  buildScopeFields,
   executeWithOptionalScope,
   filterRowsByContext,
   insertRecordWithOptionalScope,
@@ -130,9 +131,11 @@ async function triggerReorderForOrderItems(items, context) {
   }
 }
 
-// ── FSMA 204 lot validation ────────────────────────────────────────────────────
-// For each item that references an FTL-flagged product, lot_id is required.
+// ── Lot tracing validation ────────────────────────────────────────────────────
+// Lot tracing is required only for Fresh Clams and Mussels.
 // Returns null on success, or an error string on validation failure.
+const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
+
 async function validateFtlLots(items) {
   if (!Array.isArray(items) || !items.length) return null;
 
@@ -143,16 +146,16 @@ async function validateFtlLots(items) {
 
   if (!itemNumbers.length) return null;
 
-  // Fetch FTL flags for all referenced products in one query
+  // Fetch product descriptions to determine which items require lot tracing
   const { data: products, error: prodErr } = await supabase
     .from('products')
-    .select('item_number, description, is_ftl_regulated')
+    .select('item_number, description')
     .in('item_number', itemNumbers);
 
-  if (prodErr) return `Could not verify FTL product status: ${prodErr.message}`;
+  if (prodErr) return `Could not verify product lot requirements: ${prodErr.message}`;
 
   const ftlSet = new Set(
-    (products || []).filter((p) => p.is_ftl_regulated).map((p) => p.item_number)
+    (products || []).filter((p) => LOT_REQUIRED.test(p.description || '')).map((p) => p.item_number)
   );
 
   if (!ftlSet.size) return null; // no FTL products in this order — nothing to check
@@ -169,7 +172,7 @@ async function validateFtlLots(items) {
     if (!ftlSet.has(itemNum)) continue;
     if (!item.lot_id) {
       const prodName = (products || []).find((p) => p.item_number === itemNum)?.description || itemNum;
-      return `Lot assignment is required for FTL product "${prodName}" (item ${itemNum}). Assign a lot before confirming this order.`;
+      return `Lot assignment is required for "${prodName}" (item ${itemNum}). Assign a lot before confirming this order.`;
     }
   }
 
@@ -959,7 +962,7 @@ router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole
   }, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
-  if (!data) return;
+  if (!data) return res.status(500).json({ error: 'Failed to create order record' });
   await persistCustomerDefaultRoute(customerName, data.route_id, req.context);
   // Trigger print job for the newly created order (best-effort, non-fatal if printing fails)
   try {
@@ -1348,6 +1351,54 @@ router.post('/:id/tracking-link', authenticateToken, requireRole('admin', 'manag
     tracking_expires_at: trackingExpiresAt,
     tracking_url: buildTrackingUrl(req, trackingToken),
   });
+});
+
+// POST /api/orders/bulk-import — CSV bulk order creation.
+// Validates every row first; if any row fails, nothing is committed (the rows
+// are inserted in a single atomic multi-row insert). Returns per-row errors.
+router.post('/bulk-import', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const rows = Array.isArray(req.body?.rows) ? req.body.rows : [];
+  if (!rows.length) return res.status(400).json({ error: 'No rows to import.' });
+  if (rows.length > 1000) return res.status(400).json({ error: 'Import is limited to 1000 rows per file.' });
+
+  const errors = [];
+  const prepared = [];
+  rows.forEach((row, index) => {
+    const rowNumber = index + 1;
+    const customerName = String(row.customer_name || '').trim();
+    const items = Array.isArray(row.items) ? row.items : [];
+    const normalizedItems = items
+      .map((it) => ({
+        item_number: String(it.item_number || '').trim() || null,
+        name: String(it.name || it.description || '').trim() || null,
+        unit: String(it.unit || 'each').trim(),
+        quantity: Number(it.quantity ?? it.qty) || 0,
+        unit_price: Number(it.unit_price ?? it.price) || 0,
+      }))
+      .filter((it) => it.quantity > 0 && (it.item_number || it.name));
+    if (!customerName) { errors.push({ row: rowNumber, error: 'Missing customer name.' }); return; }
+    if (!normalizedItems.length) { errors.push({ row: rowNumber, error: 'No valid items with quantity > 0.' }); return; }
+    prepared.push({
+      order_number: 'ORD-' + Date.now().toString().slice(-6) + '-' + rowNumber,
+      customer_name: customerName,
+      customer_email: String(row.customer_email || '').trim() || null,
+      customer_address: String(row.customer_address || '').trim() || null,
+      items: normalizedItems,
+      charges: [],
+      status: 'pending',
+      source: 'csv_import',
+      ...buildScopeFields(req.context),
+    });
+  });
+
+  if (errors.length) {
+    // Reject the whole import — no partial commits.
+    return res.status(422).json({ error: 'Import rejected: fix the row errors and retry.', errors, committed: 0 });
+  }
+
+  const { data, error } = await supabase.from('orders').insert(prepared).select('id, order_number');
+  if (error) return res.status(500).json({ error: error.message, committed: 0 });
+  res.json({ committed: data.length, orders: data });
 });
 
 module.exports = router;

@@ -5,6 +5,11 @@ const nodemailer = require('nodemailer');
 
 (async () => {
   const { SMTP_HOST, SMTP_PORT, SMTP_SECURE, SMTP_USER, SMTP_PASS, EMAIL_FROM, RESEND_API_KEY } = process.env;
+  const TEST_TO = process.env.EMAIL_TEST_TO;
+  if (!TEST_TO) {
+    console.log('ABORT: set EMAIL_TEST_TO env var to the test recipient address.');
+    return;
+  }
 
   console.log('=== SMTP-ONLY EMAIL TEST ===\n');
   console.log('SMTP_HOST:        ', SMTP_HOST);
@@ -46,11 +51,11 @@ const nodemailer = require('nodemailer');
     return;
   }
 
-  console.log('\nSending test email via SMTP to ryandb21@gmail.com...');
+  console.log(`\nSending test email via SMTP to ${TEST_TO}...`);
   try {
     const info = await transporter.sendMail({
       from: EMAIL_FROM || `NodeRoute Systems <noreply@noderoutesystems.com>`,
-      to: 'ryandb21@gmail.com',
+      to: TEST_TO,
       subject: 'NodeRoute SMTP Test — Fix Confirmed',
       html: `
         <div style="font-family:Arial,sans-serif;max-width:600px">
@@ -68,7 +73,7 @@ const nodemailer = require('nodemailer');
     console.log('\n✅ PASS — Email sent successfully via SMTP');
     console.log('   Message ID:', info.messageId);
     console.log('   Response:  ', info.response);
-    console.log('\n   Check ryandb21@gmail.com inbox (subject: "NodeRoute SMTP Test — Fix Confirmed")');
+    console.log(`\n   Check ${TEST_TO} inbox (subject: "NodeRoute SMTP Test — Fix Confirmed")`);
   } catch (err) {
     console.log('\n❌ FAIL — SMTP send error:', err.message);
     if (/535|auth/i.test(err.message))  console.log('   DIAGNOSIS: Auth rejected — SMTP_PASS is still not the API key');

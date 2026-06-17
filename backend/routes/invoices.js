@@ -205,7 +205,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
   }, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
   const data = insertResult.data;
-  if (!data) return;
+  if (!data) return res.status(500).json({ error: 'Failed to create invoice record' });
 
   // Credit reactor: balance changed; may need to place a hold or warning.
   // Fire-and-forget — never block the invoice response on a credit decision.
