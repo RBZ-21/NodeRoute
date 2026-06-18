@@ -5,6 +5,7 @@ import { StatusBadge } from '../components/ui/status-badge';
 import { LiveIndicator } from '../components/ui/live-indicator';
 import { type DriverLocation, type StopMarker, useMapDrivers, useMapStops } from '../hooks/useMap';
 import { DriverLeaderboard } from '../components/map/DriverLeaderboard';
+import { OperationalSnapshot } from '../components/map/OperationalSnapshot';
 
 const ENV_MAP_KEY = (import.meta.env.VITE_GOOGLE_MAPS_KEY || import.meta.env.VITE_MAP_API_KEY) as string | undefined;
 
@@ -243,7 +244,7 @@ export function MapPage() {
         </div>
       </div>
 
-      <div className="w-full lg:w-72 space-y-4">
+      <div className="w-full lg:w-80 xl:w-96 space-y-4">
         {selectedDriver && (
           <Card>
             <CardHeader className="py-3 px-4 flex flex-row items-center justify-between">
@@ -281,6 +282,7 @@ export function MapPage() {
             )}
           </CardContent>
         </Card>
+        <OperationalSnapshot />
         <DriverLeaderboard />
         <Card>
           <CardHeader className="py-3 px-4"><CardTitle className="text-sm">Stop Summary</CardTitle></CardHeader>
