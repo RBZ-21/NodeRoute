@@ -20,6 +20,13 @@
       "runtimeExecutable": "python3",
       "runtimeArgs": ["-m", "http.server", "3000", "--directory", "frontend"],
       "port": 3000
+    },
+    {
+      "name": "Frontend v2 (dev)",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "dev", "--", "--port", "5174"],
+      "cwd": "frontend-v2",
+      "port": 5174
     }
   ]
 }

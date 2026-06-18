@@ -160,6 +160,70 @@ test('auth.js setup-password requires both token and password', () => {
   assert.ok(authValidationSource.includes('Token and password required'), 'must require both fields');
 });
 
+// ── Password reset flow checks ───────────────────────────────────────────────
+
+test('ForgotPasswordPage POSTs to /auth/forgot-password', () => {
+  const src = fs.readFileSync(path.join(frontendV2, 'pages/ForgotPasswordPage.tsx'), 'utf8');
+  assert.ok(src.includes('/auth/forgot-password'), 'must POST to /auth/forgot-password');
+  assert.ok(src.includes('export function ForgotPasswordPage'), 'must be a named export');
+});
+
+test('ResetPasswordPage POSTs to /auth/reset-password and reads ?token=', () => {
+  const src = fs.readFileSync(path.join(frontendV2, 'pages/ResetPasswordPage.tsx'), 'utf8');
+  assert.ok(src.includes('/auth/reset-password'), 'must POST to /auth/reset-password');
+  assert.ok(src.includes("params.get('token')"), 'must read ?token= param');
+  assert.ok(src.includes('export function ResetPasswordPage'), 'must be a named export');
+});
+
+test('ResetPasswordPage validates length and matching passwords', () => {
+  const src = fs.readFileSync(path.join(frontendV2, 'pages/ResetPasswordPage.tsx'), 'utf8');
+  assert.ok(src.includes('MIN_PASSWORD_LENGTH') && src.includes('12'), 'must enforce 12-char minimum to match backend');
+  assert.ok(src.includes('password !== confirm'), 'must check passwords match');
+});
+
+test('LoginPage links to forgot-password and drops the Sentry test button', () => {
+  const src = fs.readFileSync(path.join(frontendV2, 'pages/LoginPage.tsx'), 'utf8');
+  assert.ok(src.includes('/forgot-password'), 'login must link to /forgot-password');
+  assert.ok(!src.includes('Break the world'), 'login must not render the Break the world button');
+});
+
+test('App.tsx renders forgot/reset password pages', () => {
+  const src = fs.readFileSync(path.join(frontendV2, 'App.tsx'), 'utf8');
+  assert.ok(src.includes('<ForgotPasswordPage'), 'must render <ForgotPasswordPage />');
+  assert.ok(src.includes('<ResetPasswordPage'), 'must render <ResetPasswordPage />');
+  assert.ok(src.includes("'/forgot-password'") && src.includes("'/reset-password'"), 'must route both paths');
+});
+
+test('useAuth treats forgot/reset password as public paths', () => {
+  const src = fs.readFileSync(path.join(frontendV2, 'hooks/useAuth.ts'), 'utf8');
+  assert.ok(src.includes('/forgot-password') && src.includes('/reset-password'), 'both paths must bypass the auth redirect');
+});
+
+test('server.js serves v2 index.html for /forgot-password and /reset-password', () => {
+  const src = fs.readFileSync(path.join(backendRoot, 'server.js'), 'utf8');
+  assert.ok(src.includes("app.get('/forgot-password'"), '/forgot-password route must exist');
+  assert.ok(src.includes("app.get('/reset-password'"), '/reset-password route must exist');
+});
+
+test('auth.js forgot-password is enumeration-safe and hashes the reset token', () => {
+  const src = fs.readFileSync(path.join(backendRoutes, 'auth.js'), 'utf8');
+  assert.ok(src.includes('If an account exists for that email'), 'must return a generic response regardless of account existence');
+  assert.ok(src.includes('hashResetToken'), 'must store a hashed token, never the raw value');
+  assert.ok(src.includes('reset_expires'), 'must set a reset expiry');
+});
+
+test('auth.js reset-password checks expiry, clears the token, and rate-limits', () => {
+  const src = fs.readFileSync(path.join(backendRoutes, 'auth.js'), 'utf8');
+  assert.ok(src.includes('This reset link is invalid or has expired.'), 'must reject invalid/expired tokens');
+  assert.ok(src.includes('reset_token: null'), 'must clear the token after use');
+  assert.ok(src.includes('passwordResetLimiter'), 'reset endpoints must be rate-limited');
+});
+
+test('auth-schemas exports forgot/reset password parsers', () => {
+  assert.ok(authValidationSource.includes('parseForgotPasswordBody'), 'must export parseForgotPasswordBody');
+  assert.ok(authValidationSource.includes('parseResetPasswordBody'), 'must export parseResetPasswordBody');
+});
+
 // ── portal.js auth hardening checks ──────────────────────────────────────────
 
 test('portal.js uses Supabase portal_challenges table not in-memory Map', () => {
