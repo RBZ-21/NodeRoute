@@ -149,7 +149,7 @@ export function RoutesPage() {
   const [statusFilter, setStatusFilter] = useState<'all' | RouteStatus>('all');
 
   const role = getUserRole();
-  const canManageStops = role === 'admin' || role === 'manager';
+  const canManageStops = role === 'admin' || role === 'manager' || role === 'superadmin';
 
   const driverById = useMemo(
     () => new Map(drivers.map((driver) => [String(driver.id), driver])),
