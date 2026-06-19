@@ -2,7 +2,7 @@
 
 const express = require('express');
 const { supabase } = require('../services/supabase');
-const { authenticateToken } = require('../middleware/auth');
+const { authenticateToken, requireRole } = require('../middleware/auth');
 const { filterRowsByContext, buildScopeFields, scopeQueryByContext } = require('../services/operating-context');
 
 const router = express.Router();
