@@ -394,24 +394,24 @@ export function InventoryPage() {
 
       {/* ── Low-Stock Alert Banner ─────────────────────────────────────── */}
       {lowStockItems.length > 0 && (
-        <Card className="border-rose-200 bg-rose-50">
+        <Card className="border-rose-200 bg-rose-50 dark:border-rose-800 dark:bg-rose-950/30">
           <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between py-3">
             <div>
-              <CardTitle className="text-base text-rose-700">{lowStockItems.length} Item{lowStockItems.length !== 1 ? 's' : ''} Below Reorder Threshold</CardTitle>
-              <CardDescription className="text-rose-600">These items have fallen at or below their set reorder points. Create purchase orders to replenish stock.</CardDescription>
+              <CardTitle className="text-base text-rose-700 dark:text-rose-300">{lowStockItems.length} Item{lowStockItems.length !== 1 ? 's' : ''} Below Reorder Threshold</CardTitle>
+              <CardDescription className="text-rose-600 dark:text-rose-300">These items have fallen at or below their set reorder points. Create purchase orders to replenish stock.</CardDescription>
             </div>
             <Button size="sm" variant="outline" onClick={() => navigate('/purchasing')}>Open Purchasing</Button>
           </CardHeader>
           <CardContent>
             <div className="grid gap-2 sm:grid-cols-2 xl:grid-cols-3">
               {lowStockItems.map((item) => (
-                <div key={item.item_number} className="flex items-center justify-between rounded-lg border border-rose-200 bg-white px-3 py-2">
+                <div key={item.item_number} className="flex items-center justify-between rounded-lg border border-rose-200 bg-white px-3 py-2 dark:border-rose-800 dark:bg-rose-950/40">
                   <div>
-                    <div className="text-sm font-medium">{item.description || item.name || item.item_number}</div>
+                    <div className="text-sm font-medium text-foreground">{item.description || item.name || item.item_number}</div>
                     <div className="text-xs text-muted-foreground">
                       On hand: {asNumber(item.on_hand_qty) < 0
                         ? <NegativeStockQty qty={asNumber(item.on_hand_qty)} onFix={() => { const match = items.find((i) => String(i.item_number || '').trim() === String(item.item_number || '').trim()); if (match) requestFix(match.id); }} />
-                        : <strong>{asNumber(item.on_hand_qty).toFixed(1)}</strong>} · Reorder at: {asNumber(item.reorder_point).toFixed(1)} · Short by: <strong className="text-rose-600">{item.deficit.toFixed(1)}</strong> {item.unit || ''}
+                        : <strong className="text-foreground">{asNumber(item.on_hand_qty).toFixed(1)}</strong>} · Reorder at: {asNumber(item.reorder_point).toFixed(1)} · Short by: <strong className="text-rose-600 dark:text-rose-300">{item.deficit.toFixed(1)}</strong> {item.unit || ''}
                     </div>
                   </div>
                   <Button
