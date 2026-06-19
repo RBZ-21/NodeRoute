@@ -190,6 +190,25 @@ router.get('/:token', async (req, res) => {
   const driverName = order.driver_name || route?.driver || 'NodeRoute Driver';
   const outingStarted = routeHasStarted(route);
 
+  // Branding for the public tracking page: company display name + logo.
+  // Only non-sensitive presentation fields are exposed (no order contents,
+  // pricing, or any other tenant data).
+  let company = { name: 'NodeRoute', logoUrl: null };
+  if (order.company_id) {
+    const { data: companyRow } = await supabase
+      .from('companies')
+      .select('id,name,settings')
+      .eq('id', order.company_id)
+      .single();
+    if (companyRow) {
+      const settings = companyRow.settings || {};
+      company = {
+        name: companyRow.name || company.name,
+        logoUrl: settings.invoice_logo_data_url || settings.logo_url || null,
+      };
+    }
+  }
+
   const driverLocationQuery = route?.driver_id
     ? scopeQueryByContext(supabase.from('driver_locations').select('*'), trackingContext).eq('user_id', route.driver_id)
     : scopeQueryByContext(supabase.from('driver_locations').select('*'), trackingContext).ilike('driver_name', driverName);
@@ -242,6 +261,7 @@ router.get('/:token', async (req, res) => {
   res.json({
     orderId: order.id,
     orderNumber: order.order_number,
+    company,
     status: order.status,
     deliveryAddress: order.customer_address,
     customerName: order.customer_name,

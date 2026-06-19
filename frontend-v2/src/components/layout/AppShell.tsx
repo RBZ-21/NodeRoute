@@ -7,8 +7,19 @@ import { PageSkeleton } from './PageSkeleton';
 import { ImpersonationBanner } from '../ImpersonationBanner';
 import { SessionExpiryBanner } from '../SessionExpiryBanner';
 import { AIAskBar } from './AIAskBar';
+import { CommandPalette } from './CommandPalette';
 import { getUserRole } from '../../lib/api';
-import { allNavItems, defaultPath, findNavItem, routePath, canAccess } from '../../lib/nav';
+import { allNavItems, defaultPath, findNavItem, navRedirects, routePath, canAccess, type NavRedirect } from '../../lib/nav';
+
+/** Redirects a legacy path (e.g. /stops) to its new home (e.g. /routes?tab=stops),
+ *  preserving any existing query params such as routeId. */
+function LegacyRedirect({ redirect }: { redirect: NavRedirect }) {
+  const { search } = useLocation();
+  const params = new URLSearchParams(search);
+  if (redirect.tab) params.set('tab', redirect.tab);
+  const query = params.toString();
+  return <Navigate to={`${redirect.to}${query ? `?${query}` : ''}`} replace />;
+}
 
 const showSentryTestButton =
   import.meta.env.DEV || new URLSearchParams(window.location.search).has('sentry-test');
@@ -111,6 +122,13 @@ export function AppShell() {
           <main className="flex-1 overflow-y-auto p-4 md:p-6">
             <Routes>
               <Route index element={<Navigate to={defaultPath} replace />} />
+              {navRedirects.map((redirect) => (
+                <Route
+                  key={redirect.id}
+                  path={routePath(redirect.from)}
+                  element={<LegacyRedirect redirect={redirect} />}
+                />
+              ))}
               {allNavItems.map((item) => {
                 // Route-level guard: redirect unauthorised users
                 if (!canAccess(item, role)) {
@@ -143,6 +161,7 @@ export function AppShell() {
       </div>
 
       {role !== 'driver' && <AIAskBar />}
+      <CommandPalette />
     </div>
   );
 }

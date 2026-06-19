@@ -25,9 +25,10 @@ function hasExactTextContent(text: string) {
 function stubGoogleMaps() {
   const googleMock = {
     maps: {
-      Map: function MockMap() { return {}; },
+      Map: function MockMap() { return { setCenter: vi.fn(), setZoom: vi.fn(), fitBounds: vi.fn() }; },
       Marker: function MockMarker() { return { addListener: vi.fn(), setMap: vi.fn() }; },
       InfoWindow: function MockInfoWindow() { return { open: vi.fn() }; },
+      LatLngBounds: function MockLatLngBounds() { return { extend: vi.fn(), getCenter: vi.fn(() => ({ lat: 0, lng: 0 })) }; },
       SymbolPath: { CIRCLE: 0 },
       Size: function MockSize() {},
       Point: function MockPoint() {},
@@ -42,7 +43,57 @@ describe('MapPage', () => {
     fetchWithAuthMock.mockReset();
     useMapDriversMock.mockReset();
     useMapStopsMock.mockReset();
-    fetchWithAuthMock.mockResolvedValue({ key: 'test-map-key' });
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url === '/api/stats') {
+        return {
+          totalDeliveries: 12,
+          completedToday: 8,
+          onTimeRate: 92,
+          activeDrivers: 3,
+          totalDrivers: 4,
+          failed: 1,
+          pendingCount: 2,
+          inTransitCount: 2,
+          yesterday: {
+            totalDeliveries: 10,
+            completedToday: 7,
+            onTimeRate: 88,
+            activeDrivers: 2,
+            totalDrivers: 4,
+            failed: 0,
+            pendingCount: 1,
+            inTransitCount: 1,
+          },
+        };
+      }
+      if (url === '/api/analytics') {
+        return {
+          avgStopTime: '14.2',
+          onTimeRate: '92',
+          avgSpeed: '31.4',
+          driverRankings: [
+            { name: 'Alex Driver', stopsPerHour: 2.4, avgStopMinutes: 14.2, avgSpeedMph: 31.4, onTimeRate: 96, milesToday: 42 },
+          ],
+          doorBreakdown: { 'Door code on file': 5, 'No code': 2 },
+        };
+      }
+      if (url === '/api/deliveries') {
+        return [
+          { id: 1, orderId: 'ORD-1', restaurantName: 'Blue Fin', driverName: 'Alex Driver', status: 'pending', deliveryDoor: 'Back', distanceMiles: 8.5, routeId: 'route-1', createdAt: '2026-04-10T00:00:00Z' },
+        ];
+      }
+      if (url === '/api/drivers') {
+        return [
+          { id: 'd1', name: 'Alex Driver', status: 'on-duty', totalStopsToday: 10, milesToday: 42, avgStopMinutes: 14, avgSpeedMph: 31, onTimeRate: 96 },
+        ];
+      }
+      if (url === '/api/routes') {
+        return [
+          { id: 'route-1', name: 'North Route', driver: 'Alex Driver', stop_ids: ['s1', 's2'], active_stop_ids: ['s1', 's2'], created_at: '2026-04-10T00:00:00Z' },
+        ];
+      }
+      return [];
+    });
     stubGoogleMaps();
   });
 
@@ -53,6 +104,8 @@ describe('MapPage', () => {
     renderWithQueryClient(<MapPage />);
 
     expect(await screen.findByText('Live map waiting on route movement')).toBeInTheDocument();
+    expect(await screen.findByText('Operational Snapshot')).toBeInTheDocument();
+    expect(screen.getByText('Driver Leaderboard')).toBeInTheDocument();
     expect(screen.getByText(/Dispatch a route once the truck leaves the shop to start live tracking/i)).toBeInTheDocument();
     expect(screen.getByText(hasExactTextContent('Drivers on duty: 0'))).toBeInTheDocument();
     expect(screen.getByText(hasExactTextContent('Drivers sending GPS: 0'))).toBeInTheDocument();

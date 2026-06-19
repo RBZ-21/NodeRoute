@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canAccess, findNavItem, navGroups, allNavItems, defaultPath } from './nav';
+import { canAccess, findNavItem, navGroups, navRedirects, allNavItems, defaultPath } from './nav';
 
 describe('findNavItem', () => {
   it('returns the correct item for a known path', () => {
@@ -56,6 +56,36 @@ describe('navGroups integrity', () => {
   it('all groups have at least one item', () => {
     for (const group of navGroups) {
       expect(group.items.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('matches the consolidated group structure', () => {
+    expect(navGroups.map((g) => g.label)).toEqual([
+      'Dispatch', 'Inventory', 'Customers', 'Financials', 'Insights', 'Admin',
+    ]);
+    const dispatch = navGroups.find((g) => g.id === 'dispatch');
+    expect(dispatch?.items.map((i) => i.id)).toEqual(['dashboard', 'orders', 'routes', 'map']);
+  });
+
+  it('preserves role guards after the nav consolidation', () => {
+    const phoneOrders = allNavItems.find((i) => i.id === 'phone-orders');
+    expect(phoneOrders?.roles).toEqual(['admin', 'manager']);
+    const companies = allNavItems.find((i) => i.id === 'companies');
+    expect(companies?.roles).toEqual(['superadmin']);
+  });
+});
+
+describe('navRedirects', () => {
+  it('redirects retired Deliveries and Stops paths into Routes tabs', () => {
+    const byFrom = Object.fromEntries(navRedirects.map((r) => [r.from, r]));
+    expect(byFrom['/deliveries']).toMatchObject({ to: '/routes', tab: 'deliveries' });
+    expect(byFrom['/stops']).toMatchObject({ to: '/routes', tab: 'stops' });
+  });
+
+  it('never shadows a live nav item path', () => {
+    const livePaths = new Set(allNavItems.map((i) => i.path));
+    for (const redirect of navRedirects) {
+      expect(livePaths.has(redirect.from)).toBe(false);
     }
   });
 });

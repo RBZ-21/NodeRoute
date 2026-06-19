@@ -186,6 +186,29 @@ async function sendPortalCodeEmail({ email, name, code }) {
   throw lastError || new Error('Could not send portal verification email');
 }
 
+// Gate for the paid Customer Portal Ordering add-on. Must run AFTER
+// authenticatePortalToken so req.portalContext.companyId is populated.
+// Returns 403 FEATURE_NOT_ENABLED when the company has not purchased the add-on.
+async function requirePortalOrdering(req, res, next) {
+  try {
+    const companyId = req.portalContext?.companyId || req.portalContext?.activeCompanyId || null;
+    if (!companyId) {
+      return res.status(403).json({ error: 'Online ordering is not available.', code: 'FEATURE_NOT_ENABLED' });
+    }
+    const { data, error } = await supabase
+      .from('companies')
+      .select('portal_ordering_enabled')
+      .eq('id', companyId)
+      .single();
+    if (error || !data || data.portal_ordering_enabled !== true) {
+      return res.status(403).json({ error: 'Online ordering is not enabled for this account.', code: 'FEATURE_NOT_ENABLED' });
+    }
+    next();
+  } catch (err) {
+    return res.status(403).json({ error: 'Online ordering is not enabled for this account.', code: 'FEATURE_NOT_ENABLED' });
+  }
+}
+
 function authenticatePortalToken(req, res, next) {
   const auth = req.headers.authorization;
   if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
@@ -215,6 +238,7 @@ module.exports = {
   PORTAL_MAX_VERIFY_ATTEMPTS,
   PORTAL_RESEND_COOLDOWN_MS,
   authenticatePortalToken,
+  requirePortalOrdering,
   canRequestCode,
   codesMatch,
   generateVerificationCode,

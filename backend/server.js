@@ -27,6 +27,9 @@ const routesRouter        = require('./routes/routes');
 const customersRouter     = require('./routes/customers');
 const forecastRouter      = require('./routes/forecast');
 const aiRouter            = require('./routes/ai');
+const aiInsightsRouter    = require('./routes/ai-insights');
+const recurringOrdersRouter = require('./routes/recurring-orders');
+const searchRouter        = require('./routes/search');
 const portalRouter        = require('./routes/portal');
 const driverRouter        = require('./routes/driver');
 const driversRouter       = require('./routes/drivers');
@@ -203,6 +206,9 @@ app.use('/api/routes', requireApiAuth, routesRouter);
 app.use('/api/customers', requireApiAuth, customersRouter);
 app.use('/api/forecast', requireApiAuth, forecastRouter);
 app.use('/api/ai', aiLimiter, requireApiAuth, aiRouter);
+app.use('/api/ai-insights', requireApiAuth, aiInsightsRouter);
+app.use('/api/recurring-orders', requireApiAuth, recurringOrdersRouter);
+app.use('/api/search', requireApiAuth, searchRouter);
 app.use('/api/driver', requireApiAuth, driverRouter);
 app.use('/api/drivers', requireApiAuth, driversRouter);
 app.use('/api/vendors', requireApiAuth, vendorsRouter);
@@ -280,6 +286,8 @@ app.get('/customer-portal', (req, res) => res.sendFile(frontendV2Entry));
 app.get('/track',           (req, res) => res.sendFile(frontendV2Entry));
 app.get('/track/:token',    (req, res) => res.redirect(`/track?t=${encodeURIComponent(req.params.token)}`));
 app.get('/setup-password',  (req, res) => res.sendFile(frontendV2Entry));
+app.get('/forgot-password', (req, res) => res.sendFile(frontendV2Entry));
+app.get('/reset-password',  (req, res) => res.sendFile(frontendV2Entry));
 
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'Not found' });

@@ -14,6 +14,7 @@ const fetchMock = vi.fn<(...args: unknown[]) => Promise<MockResponse>>();
 const baseTrackingData = {
   orderId: 'ord-100',
   orderNumber: '100',
+  company: { name: 'Harbor Seafood Co', logoUrl: null },
   status: 'processed',
   deliveryAddress: '123 Harbor Way',
   customerName: 'Harbor Cafe',
@@ -99,7 +100,7 @@ describe('TrackPage', () => {
 
     renderWithQueryClient(<TrackPage />);
 
-    expect(await screen.findByText('NodeRoute Delivery Tracker')).toBeInTheDocument();
+    expect(await screen.findByText('Harbor Seafood Co Delivery Tracker')).toBeInTheDocument();
     expect(screen.getByText('Order #100')).toBeInTheDocument();
     expect(screen.getByRole('heading', { name: 'Harbor Cafe' })).toBeInTheDocument();
     expect(screen.getAllByText('Out for Delivery')).toHaveLength(2);
@@ -113,6 +114,21 @@ describe('TrackPage', () => {
     await waitFor(() => {
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(fetchMock).toHaveBeenCalledWith('/api/track/track-token');
+    });
+  });
+
+  it('reads the token from the /track/:token path form and fetches only that token', async () => {
+    // Path form is the unguessable per-stop link used in dispatch SMS. The page
+    // requests exactly one token and never enumerates neighbouring stops.
+    window.history.pushState({}, '', '/track/per-stop-uuid-abc123');
+    fetchMock.mockResolvedValueOnce(mockJsonResponse(baseTrackingData));
+
+    renderWithQueryClient(<TrackPage />);
+
+    expect(await screen.findByText('Order #100')).toBeInTheDocument();
+    await waitFor(() => {
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).toHaveBeenCalledWith('/api/track/per-stop-uuid-abc123');
     });
   });
 

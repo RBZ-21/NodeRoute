@@ -18,6 +18,7 @@ import {
   PaymentsTab,
   PricingTab,
 } from './PortalTabViews';
+import { PortalOrderingTab } from './PortalOrderingTab';
 
 export function CustomerPortalPage() {
   const auth = usePortalAuth();
@@ -216,6 +217,9 @@ export function CustomerPortalPage() {
 
         <main className="mt-4">
           {portal.loading ? <LoadingCard message="Loading your customer portal..." /> : null}
+          {!portal.loading && activeTab === 'shop' ? (
+            <PortalOrderingTab pastOrders={portal.orders} onSubmitted={() => void portal.loadPortalData('refresh')} />
+          ) : null}
           {!portal.loading && activeTab === 'orders' ? <OrdersTab orders={portal.orders} /> : null}
           {!portal.loading && activeTab === 'invoices' ? (
             <InvoicesTab invoices={portal.invoices} onDownload={(id) => void portal.downloadInvoice(id)} />

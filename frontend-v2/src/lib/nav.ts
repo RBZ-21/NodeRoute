@@ -8,7 +8,7 @@
 import { lazy, type ComponentType } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
-  LayoutDashboard, Package, Map, Truck, MapPin, Globe2,
+  LayoutDashboard, Package, Map, Globe2,
   Factory, ShoppingCart, Warehouse, Search,
   Users, Handshake, ClipboardList, Briefcase,
   DollarSign, Receipt, Lock,
@@ -52,8 +52,6 @@ function lazyNamed<TModule, TKey extends keyof TModule>(
 const DashboardPage    = lazyNamed(() => import('../pages/DashboardPage'), 'DashboardPage');
 const OrdersPage       = lazyNamed(() => import('../pages/OrdersPage'), 'OrdersPage');
 const RoutesPage       = lazyNamed(() => import('../pages/RoutesPage'), 'RoutesPage');
-const DeliveriesPage   = lazyNamed(() => import('../pages/DeliveriesPage'), 'DeliveriesPage');
-const StopsPage        = lazyNamed(() => import('../pages/StopsPage'), 'StopsPage');
 const MapPage          = lazyNamed(() => import('../pages/MapPage'), 'MapPage');
 const InventoryPage    = lazyNamed(() => import('../pages/InventoryPage'), 'InventoryPage');
 const PurchasingPage   = lazyNamed(() => import('../pages/PurchasingPage'), 'PurchasingPage');
@@ -83,15 +81,12 @@ const PhoneOrdersPage  = lazyNamed(() => import('../pages/PhoneOrdersPage'), 'Ph
 
 export const navGroups: NavGroup[] = [
   {
-    id: 'operations',
-    label: 'Operations',
+    id: 'dispatch',
+    label: 'Dispatch',
     items: [
       { id: 'dashboard',    label: 'Dashboard',    path: '/dashboard',    icon: LayoutDashboard, component: DashboardPage },
       { id: 'orders',       label: 'Orders',       path: '/orders',       icon: Package,         component: OrdersPage },
-      { id: 'phone-orders', label: 'Phone Orders', path: '/phone-orders', icon: Phone,           component: PhoneOrdersPage, roles: ['admin', 'manager'] },
       { id: 'routes',       label: 'Routes',       path: '/routes',       icon: Map,             component: RoutesPage },
-      { id: 'deliveries',   label: 'Deliveries',   path: '/deliveries',   icon: Truck,           component: DeliveriesPage },
-      { id: 'stops',        label: 'Stops',        path: '/stops',        icon: MapPin,          component: StopsPage },
       { id: 'map',          label: 'Map',          path: '/map',          icon: Globe2,          component: MapPage },
     ],
   },
@@ -111,8 +106,8 @@ export const navGroups: NavGroup[] = [
     items: [
       { id: 'customers',    label: 'Customers',    path: '/customers',    icon: Users,           component: CustomersPage },
       { id: 'vendors',      label: 'Vendors',      path: '/vendors',      icon: Handshake,       component: VendorsPage },
-      { id: 'dsr',          label: 'DSR',          path: '/dsr',          icon: ClipboardList,   component: DSRPage },
       { id: 'sales-rep',    label: 'Sales Rep',    path: '/sales-rep',    icon: Briefcase,       component: SalesRepPage },
+      { id: 'phone-orders', label: 'Phone Orders', path: '/phone-orders', icon: Phone,           component: PhoneOrdersPage, roles: ['admin', 'manager'] },
     ],
   },
   {
@@ -125,10 +120,11 @@ export const navGroups: NavGroup[] = [
     ],
   },
   {
-    id: 'intelligence',
-    label: 'Intelligence',
+    id: 'insights',
+    label: 'Insights',
     items: [
       { id: 'analytics',    label: 'Analytics',    path: '/analytics',    icon: BarChart2,       component: AnalyticsPage },
+      { id: 'dsr',          label: 'DSR',          path: '/dsr',          icon: ClipboardList,   component: DSRPage },
       { id: 'forecasting',  label: 'Forecasting',  path: '/forecasting',  icon: Sparkles,        component: ForecastPage },
       { id: 'reports',      label: 'Reports',      path: '/reports',      icon: FileText,        component: ReportsPage },
       { id: 'ai-help',      label: 'AI Help',      path: '/ai-help',      icon: Bot,             component: AIHelpPage },
@@ -149,6 +145,25 @@ export const navGroups: NavGroup[] = [
   },
 ];
 
+// ── Legacy path redirects ─────────────────────────────────────────────────────
+// Deliveries and Stops now live as tabs inside the Routes page. Their old URLs
+// keep resolving via these redirects (query params are preserved by AppShell).
+
+export interface NavRedirect {
+  id: string;
+  /** Old path that should keep working. */
+  from: string;
+  /** Destination path. */
+  to: string;
+  /** Tab query param appended on redirect. */
+  tab?: string;
+}
+
+export const navRedirects: NavRedirect[] = [
+  { id: 'deliveries-redirect', from: '/deliveries', to: '/routes', tab: 'deliveries' },
+  { id: 'stops-redirect',      from: '/stops',      to: '/routes', tab: 'stops' },
+];
+
 // ── Derived helpers ───────────────────────────────────────────────────────────
 
 export const allNavItems: NavItem[] = navGroups.flatMap((g) => g.items);
@@ -165,7 +180,9 @@ export function findNavItem(path: string): NavItem | null {
 }
 
 export function canAccess(item: NavItem, role: Role): boolean {
-  if (role === 'superadmin') return true; // platform owner sees everything
+  // Superadmin is the platform owner and can access every page, regardless of
+  // an item's explicit roles list. Mirrors the backend requireRole bypass.
+  if (role === 'superadmin') return true;
   if (!item.roles || item.roles.length === 0) return true;
   return item.roles.includes(role);
 }

@@ -86,7 +86,9 @@ test('operations workspace tabs are registered in the React nav', () => {
   for (const tabId of ['purchasing', 'warehouse', 'planning', 'integrations']) {
     assert.ok(frontendNavSource.includes(`id: '${tabId}'`), `missing nav tab id '${tabId}'`);
   }
-  assert.ok(frontendNavSource.includes("label: 'Operations'"), 'operations nav group should be present');
+  // Nav was consolidated (Priority 2): the top dispatch group is now 'Dispatch'
+  // and Purchasing/Warehouse live under the 'Inventory' group.
+  assert.ok(frontendNavSource.includes("label: 'Dispatch'"), 'dispatch nav group should be present');
   assert.ok(frontendNavSource.includes("label: 'Purchasing'"), 'purchasing nav item should be present');
   assert.ok(frontendNavSource.includes("label: 'Warehouse'"), 'warehouse nav item should be present');
 });

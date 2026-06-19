@@ -65,11 +65,14 @@ export type AssignmentsResult = {
 
 // ── Queries ────────────────────────────────────────────────────────────────────
 
+// Live data: the Routes workspace polls every 30s (no manual Refresh needed).
+// TanStack Query clears the interval automatically on unmount.
 export function useRoutes() {
   return useQuery<RouteRecord[]>({
     queryKey: ['routes'],
     queryFn: () => fetchWithAuth<RouteRecord[]>('/api/routes').then((d) => Array.isArray(d) ? d : []),
     staleTime: 30_000,
+    refetchInterval: 30_000,
   });
 }
 
@@ -78,6 +81,7 @@ export function useAllStops() {
     queryKey: ['stops'],
     queryFn: () => fetchWithAuth<StopRecord[]>('/api/stops').then((d) => Array.isArray(d) ? d : []),
     staleTime: 30_000,
+    refetchInterval: 30_000,
   });
 }
 

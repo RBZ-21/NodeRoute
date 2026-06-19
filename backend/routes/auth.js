@@ -7,15 +7,20 @@ const jwt = require('jsonwebtoken');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken } = require('../middleware/auth');
 const { getUserOperatingContext, userResponseWithContext } = require('../services/operating-context');
+const { createConfiguredMailers } = require('../services/email');
+const logger = require('../services/logger');
 const {
   parseLoginBody,
   parseSignupBody,
   parseSetupPasswordBody,
+  parseForgotPasswordBody,
+  parseResetPasswordBody,
   parseChangePasswordBody,
 } = require('../lib/auth-schemas');
 const {
   loginLimiter,
   setupPasswordLimiter,
+  passwordResetLimiter,
   changePasswordLimiter,
 } = require('../middleware/rateLimiter');
 
@@ -37,10 +42,87 @@ const REFRESH_SESSION_TABLE = 'auth_refresh_sessions';
 const TEMPLATES_PATH = path.join(__dirname, '../../supabase/seeds/inventory_templates.json');
 
 const IS_PROD = process.env.NODE_ENV === 'production';
+const BASE_URL = process.env.BASE_URL || `http://localhost:${process.env.PORT || 3001}`;
+const EMAIL_SEND_TIMEOUT_MS = Number(process.env.EMAIL_SEND_TIMEOUT_MS || 5000);
+// How long a password reset link stays valid.
+const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 let _templates = null;
 
 function hashPassword(pw) { return bcrypt.hashSync(pw, 10); }
+
+function hashResetToken(token) {
+  return crypto.createHash('sha256').update(String(token || '')).digest('hex');
+}
+
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
+function maskEmail(email) {
+  const [local, domain] = String(email).split('@');
+  if (!domain) return '***';
+  return `${local.slice(0, 2)}***@${domain}`;
+}
+
+function withEmailTimeout(promise, provider) {
+  if (!EMAIL_SEND_TIMEOUT_MS || EMAIL_SEND_TIMEOUT_MS <= 0) return promise;
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => reject(new Error(`${provider || 'email provider'} timed out`)), EMAIL_SEND_TIMEOUT_MS);
+  });
+  return Promise.race([promise.finally(() => clearTimeout(timeoutId)), timeoutPromise]);
+}
+
+// Sends the password reset email. Tries each configured provider in order and
+// resolves quietly — callers must not surface delivery state to the client, to
+// keep /forgot-password enumeration-safe.
+async function sendPasswordResetEmail({ name, email, resetUrl }) {
+  const mailers = createConfiguredMailers();
+  if (!mailers.length) {
+    logger.warn({ email: maskEmail(email) }, 'Password reset requested but no email provider is configured');
+    return;
+  }
+  const safeName = escapeHtml(name || 'there');
+  for (const mailer of mailers) {
+    try {
+      await withEmailTimeout(mailer.sendMail({
+        from: process.env.EMAIL_FROM,
+        to: email,
+        subject: 'Reset your NodeRoute password',
+        html: `
+          <div style="font-family:Arial,sans-serif;max-width:600px;margin:0 auto">
+            <div style="background:#050d2a;padding:24px;border-radius:12px 12px 0 0;text-align:center">
+              <h1 style="color:#3dba7f;margin:0;font-size:24px">NodeRoute Systems</h1>
+            </div>
+            <div style="background:#f8faff;padding:32px;border-radius:0 0 12px 12px">
+              <h2 style="color:#0d1b3e;margin-bottom:8px">Hi ${safeName},</h2>
+              <p style="color:#334;font-size:15px;line-height:1.6">
+                We received a request to reset the password for your NodeRoute account.
+                Click the button below to choose a new password.
+              </p>
+              <div style="text-align:center;margin:32px 0">
+                <a href="${escapeHtml(resetUrl)}" style="background:#3dba7f;color:#fff;padding:14px 32px;border-radius:8px;text-decoration:none;font-size:16px;font-weight:600;display:inline-block">
+                  Reset Password
+                </a>
+              </div>
+              <p style="color:#667;font-size:13px">This link expires in 1 hour. If you didn't request a reset, you can safely ignore this email.</p>
+            </div>
+          </div>
+        `,
+      }), mailer.provider);
+      logger.info({ provider: mailer.provider, email: maskEmail(email) }, 'Password reset email sent');
+      return;
+    } catch (providerErr) {
+      logger.error({ provider: mailer.provider, err: providerErr.message }, 'Password reset email delivery failed');
+    }
+  }
+}
 
 function getTemplates() {
   if (!_templates) {
@@ -624,6 +706,78 @@ router.post('/setup-password', setupPasswordLimiter, async (req, res) => {
     invite_token: null,
     invite_expires: null
   }).eq('id', u.id);
+  try {
+    await setAuthCookies(res, u);
+  } catch (error) {
+    return sendRefreshSessionStoreError(res, error);
+  }
+  res.json({ user: userResponseWithContext(u) });
+});
+
+// POST /auth/forgot-password — 5 attempts / 15 min.
+// Always returns the same generic response so the endpoint can't be used to
+// probe which emails have accounts.
+router.post('/forgot-password', passwordResetLimiter, async (req, res) => {
+  await authDelay();
+  const parsed = parseForgotPasswordBody(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error });
+  const email = parsed.data.email.toLowerCase().trim();
+
+  const genericResponse = { message: 'If an account exists for that email, a password reset link has been sent.' };
+
+  try {
+    const { data: user } = await supabase.from('users').select('id, name, email, status').eq('email', email).single();
+    if (user && user.status === 'active') {
+      const rawToken = crypto.randomBytes(32).toString('hex');
+      const expires = new Date(Date.now() + RESET_TOKEN_TTL_MS).toISOString();
+      await supabase.from('users').update({ reset_token: hashResetToken(rawToken), reset_expires: expires }).eq('id', user.id);
+
+      const resetUrl = `${BASE_URL}/reset-password?token=${rawToken}`;
+      // Fire-and-forget so response timing doesn't depend on the mail provider.
+      void sendPasswordResetEmail({ name: user.name, email: user.email, resetUrl });
+      logger.info({ email: maskEmail(email) }, 'Password reset requested');
+    }
+  } catch (err) {
+    // Never leak failures to the caller — log and still return the generic response.
+    logger.error({ err: err.message }, 'forgot-password processing failed');
+  }
+
+  return res.json(genericResponse);
+});
+
+// POST /auth/reset-password — 5 attempts / 15 min.
+// Consumes a reset token, sets the new password, revokes existing sessions, and
+// signs the user in.
+router.post('/reset-password', passwordResetLimiter, async (req, res) => {
+  await authDelay();
+  const parsed = parseResetPasswordBody(req.body);
+  if (!parsed.success) return res.status(400).json({ error: parsed.error });
+  const { token, password } = parsed.data;
+
+  const users = await dbQuery(supabase.from('users').select('*').eq('reset_token', hashResetToken(token)).limit(1), res);
+  if (!users) return;
+  const u = users[0];
+  if (!u || !u.reset_expires || new Date() > new Date(u.reset_expires)) {
+    return res.status(400).json({ error: 'This reset link is invalid or has expired.' });
+  }
+
+  await supabase.from('users').update({
+    password_hash: hashPassword(password),
+    status: 'active',
+    reset_token: null,
+    reset_expires: null,
+  }).eq('id', u.id);
+
+  // Revoke any live sessions so an attacker who had access can't ride through the reset.
+  try {
+    await supabase.from(REFRESH_SESSION_TABLE)
+      .update({ revoked_at: new Date().toISOString() })
+      .eq('user_id', u.id)
+      .is('revoked_at', null);
+  } catch (err) {
+    logger.warn({ err: err.message }, 'Could not revoke sessions during password reset');
+  }
+
   try {
     await setAuthCookies(res, u);
   } catch (error) {
