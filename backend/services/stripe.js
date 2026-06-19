@@ -5,14 +5,191 @@
  * verifyWebhookSignature — validates the Stripe-Signature header and rejects
  * payloads with missing, non-numeric, or stale timestamps before Stripe's own
  * library can parse them. This prevents replay attacks and forged events.
+ *
+ * The payment helpers (customers, payment methods, intents, checkout) call
+ * Stripe's REST API directly with the secret key. They are consumed by the
+ * customer-portal payment routes via routes/portal/payments-shared.js —
+ * tests/stripe-service-contract.test.js pins this module's export surface so
+ * a refactor can never silently drop a function the routes depend on again.
  */
 const config = require('../lib/config');
+
+const STRIPE_API_BASE = 'https://api.stripe.com/v1';
+
+function stripeSecretKey() {
+  return process.env.STRIPE_SECRET_KEY || '';
+}
+
+function isStripeConfigured() {
+  return !!stripeSecretKey();
+}
 
 let _client = null;
 function getClient() {
   const Stripe = require('stripe');
-  if (!_client) _client = new Stripe(process.env.STRIPE_SECRET_KEY || '', { apiVersion: '2023-10-16' });
+  if (!_client) _client = new Stripe(stripeSecretKey(), { apiVersion: '2023-10-16' });
   return _client;
+}
+
+function normalizeAmountToCents(amount) {
+  const cents = Math.round((parseFloat(amount || 0) || 0) * 100);
+  return Math.max(0, cents);
+}
+
+function toFormBody(fields = {}) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined || value === null || value === '') continue;
+    params.append(key, String(value));
+  }
+  return params;
+}
+
+async function stripeRequest(path, { method = 'GET', fields = null, idempotencyKey = null } = {}) {
+  const secretKey = stripeSecretKey();
+  if (!secretKey) {
+    throw new Error('Stripe is not configured. Set STRIPE_SECRET_KEY.');
+  }
+
+  const headers = {
+    Authorization: `Bearer ${secretKey}`,
+  };
+
+  const init = { method, headers };
+  if (idempotencyKey) headers['Idempotency-Key'] = idempotencyKey;
+  if (fields && method !== 'GET') {
+    headers['Content-Type'] = 'application/x-www-form-urlencoded';
+    init.body = toFormBody(fields);
+  }
+
+  const response = await fetch(`${STRIPE_API_BASE}${path}`, init);
+  const payload = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const message = payload?.error?.message || `Stripe request failed (${response.status})`;
+    const err = new Error(message);
+    err.status = response.status;
+    err.stripe = payload?.error || null;
+    throw err;
+  }
+  return payload;
+}
+
+async function findOrCreateCustomer({ email, name = null, metadata = {} }) {
+  const normalizedEmail = String(email || '').trim().toLowerCase();
+  if (!normalizedEmail) throw new Error('Customer email is required for Stripe customer lookup');
+
+  const list = await stripeRequest(`/customers?email=${encodeURIComponent(normalizedEmail)}&limit=1`);
+  const existing = Array.isArray(list?.data) ? list.data[0] : null;
+  if (existing) return existing;
+
+  const fields = { email: normalizedEmail };
+  if (name) fields.name = String(name).trim();
+  for (const [key, value] of Object.entries(metadata || {})) {
+    if (value == null || value === '') continue;
+    fields[`metadata[${key}]`] = value;
+  }
+  return stripeRequest('/customers', { method: 'POST', fields });
+}
+
+function paymentMethodTypeForPortalType(methodType) {
+  return methodType === 'ach_bank' ? 'us_bank_account' : 'card';
+}
+
+function portalMethodTypeForStripeType(stripeType) {
+  if (stripeType === 'us_bank_account') return 'ach_bank';
+  return 'debit_card';
+}
+
+async function createSetupIntent({ customerId, methodType = 'debit_card', metadata = {} }) {
+  const stripePmType = paymentMethodTypeForPortalType(methodType);
+  const fields = {
+    customer: customerId,
+    usage: 'off_session',
+    'payment_method_types[0]': stripePmType,
+  };
+
+  if (stripePmType === 'us_bank_account') {
+    fields['payment_method_options[us_bank_account][verification_method]'] = 'automatic';
+  }
+
+  for (const [key, value] of Object.entries(metadata || {})) {
+    if (value == null || value === '') continue;
+    fields[`metadata[${key}]`] = value;
+  }
+
+  return stripeRequest('/setup_intents', { method: 'POST', fields });
+}
+
+async function retrievePaymentMethod(paymentMethodId) {
+  if (!paymentMethodId) throw new Error('paymentMethodId is required');
+  return stripeRequest(`/payment_methods/${encodeURIComponent(paymentMethodId)}`);
+}
+
+async function attachPaymentMethod({ paymentMethodId, customerId }) {
+  if (!paymentMethodId || !customerId) throw new Error('paymentMethodId and customerId are required');
+  return stripeRequest(`/payment_methods/${encodeURIComponent(paymentMethodId)}/attach`, {
+    method: 'POST',
+    fields: { customer: customerId },
+  });
+}
+
+async function detachPaymentMethod(paymentMethodId) {
+  if (!paymentMethodId) throw new Error('paymentMethodId is required');
+  return stripeRequest(`/payment_methods/${encodeURIComponent(paymentMethodId)}/detach`, { method: 'POST', fields: {} });
+}
+
+async function createPaymentIntent({ amount, currency = 'usd', customerId, paymentMethodId, description = null, metadata = {}, offSession = true, confirm = true, idempotencyKey = null }) {
+  const amountCents = normalizeAmountToCents(amount);
+  if (!amountCents) throw new Error('Payment amount must be greater than zero');
+  if (!customerId) throw new Error('customerId is required');
+
+  const fields = {
+    amount: amountCents,
+    currency,
+    customer: customerId,
+    confirm: confirm ? 'true' : 'false',
+  };
+
+  if (paymentMethodId) fields.payment_method = paymentMethodId;
+  if (offSession) fields.off_session = 'true';
+  if (description) fields.description = description;
+
+  for (const [key, value] of Object.entries(metadata || {})) {
+    if (value == null || value === '') continue;
+    fields[`metadata[${key}]`] = value;
+  }
+
+  return stripeRequest('/payment_intents', {
+    method: 'POST',
+    fields,
+    idempotencyKey,
+  });
+}
+
+async function createCheckoutSession({ customerId, amount, currency = 'usd', successUrl, cancelUrl, metadata = {} }) {
+  const amountCents = normalizeAmountToCents(amount);
+  if (!amountCents) throw new Error('Checkout amount must be greater than zero');
+  if (!successUrl || !cancelUrl) throw new Error('successUrl and cancelUrl are required for checkout');
+
+  const fields = {
+    mode: 'payment',
+    customer: customerId,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    'line_items[0][price_data][currency]': currency,
+    'line_items[0][price_data][unit_amount]': amountCents,
+    'line_items[0][price_data][product_data][name]': 'NodeRoute Portal Balance Payment',
+    'line_items[0][quantity]': 1,
+    'payment_method_types[0]': 'card',
+    'payment_method_types[1]': 'us_bank_account',
+  };
+
+  for (const [key, value] of Object.entries(metadata || {})) {
+    if (value == null || value === '') continue;
+    fields[`metadata[${key}]`] = value;
+  }
+
+  return stripeRequest('/checkout/sessions', { method: 'POST', fields });
 }
 
 /**
@@ -57,4 +234,18 @@ function verifyWebhookSignature(rawBody, sigHeader, secret) {
   return getClient().webhooks.constructEvent(rawBody, sigHeader, secret);
 }
 
-module.exports = { getClient, verifyWebhookSignature };
+module.exports = {
+  getClient,
+  verifyWebhookSignature,
+  isStripeConfigured,
+  normalizeAmountToCents,
+  paymentMethodTypeForPortalType,
+  portalMethodTypeForStripeType,
+  findOrCreateCustomer,
+  createSetupIntent,
+  retrievePaymentMethod,
+  attachPaymentMethod,
+  detachPaymentMethod,
+  createPaymentIntent,
+  createCheckoutSession,
+};

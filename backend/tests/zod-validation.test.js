@@ -118,7 +118,10 @@ test('config does not exit for degraded production-only optional settings', () =
     ...requiredConfigEnv,
     NODE_ENV: 'production',
     PORTAL_JWT_SECRET: undefined,
-    ADMIN_PASSWORD: undefined,
+    // ADMIN_PASSWORD is no longer optional in production — a missing or weak
+    // value is fatal (see the test below). Provide a strong one here so the
+    // genuinely optional settings still exercise the non-fatal path.
+    ADMIN_PASSWORD: 'Str0ng!ProdPassw0rd#2026',
     SUPERADMIN_EMAIL: undefined,
   }, () => {
     const config = loadFreshConfig();
@@ -146,9 +149,45 @@ test('config does not exit for degraded production-only optional settings', () =
     assert.ok(logs.warn.some((message) => message.includes('SUPERADMIN_EMAIL is not set')));
     assert.ok(logs.warn.some((message) => message.includes('SESSION_SECRET or CSRF_SECRET is not set')));
     assert.ok(logs.warn.some((message) => message.includes('PORTAL_JWT_SECRET is not set')));
-    assert.ok(logs.warn.some((message) => message.includes('ADMIN_PASSWORD is missing or too weak')));
     assert.equal(logs.fatal.length, 0);
   });
+});
+
+test('config exits in production when ADMIN_PASSWORD is missing or weak', () => {
+  for (const adminPassword of [undefined, 'Admin@123', 'short1!A']) {
+    withEnv({
+      ...requiredConfigEnv,
+      NODE_ENV: 'production',
+      ADMIN_PASSWORD: adminPassword,
+    }, () => {
+      const config = loadFreshConfig();
+      const logs = { warn: [], error: [], fatal: [], info: [] };
+      const logger = {
+        warn(message) { logs.warn.push(message); },
+        error(message) { logs.error.push(message); },
+        fatal(message) { logs.fatal.push(message); },
+        info(message) { logs.info.push(message); },
+      };
+      const originalExit = process.exit;
+      let exitCode = null;
+      process.exit = (code) => {
+        exitCode = code;
+        throw new Error(`process.exit:${code}`);
+      };
+
+      try {
+        assert.throws(() => config.validate(logger), /process\.exit:1/);
+      } finally {
+        process.exit = originalExit;
+      }
+
+      assert.equal(exitCode, 1);
+      assert.ok(
+        logs.fatal.some((message) => message.includes('ADMIN_PASSWORD is missing, default, or too weak')),
+        `expected fatal ADMIN_PASSWORD message for ${JSON.stringify(adminPassword)}`
+      );
+    });
+  }
 });
 
 test('config derives session and csrf secrets from jwt secret when unset', () => {

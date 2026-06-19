@@ -28,13 +28,15 @@ function ensureBackupRoot() {
 }
 
 function defaultState() {
+  // Lazy require so config parses env after the dotenv load above.
+  const { ADMIN_EMAIL, ADMIN_PASSWORD } = require('../lib/config');
   return {
     users: [
       {
         id: 'admin-001',
         name: 'Admin',
-        email: process.env.ADMIN_EMAIL || 'admin@noderoutesystems.com',
-        password_hash: bcrypt.hashSync(process.env.ADMIN_PASSWORD || 'Admin@123', 10),
+        email: ADMIN_EMAIL,
+        password_hash: bcrypt.hashSync(ADMIN_PASSWORD, 10),
         role: 'admin',
         status: 'active',
         invite_token: null,

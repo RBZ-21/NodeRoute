@@ -1,4 +1,5 @@
 const express = require('express');
+const { randomUUID } = require('crypto');
 const {
   PORTAL_PAYMENT_CURRENCY,
   PORTAL_PAYMENT_ENABLED,
@@ -28,6 +29,21 @@ function portalCompanyId(context = {}) {
 
 function portalLocationId(context = {}) {
   return context.activeLocationId || context.locationId || '';
+}
+
+/**
+ * Stripe idempotency key for one user action.
+ *
+ * Stripe dedupes charges only when the SAME key is sent again, so the key
+ * must be stable across retries of the same action. The client may send
+ * `idempotency_key` in the body (generated once per tap/click and re-sent on
+ * network retry); when absent we mint a UUID, which still guarantees
+ * uniqueness per attempt. Never derive the suffix from Date.now() — a retry
+ * gets a different timestamp and Stripe would charge twice.
+ */
+function actionIdempotencySuffix(req) {
+  const supplied = String(req.body?.idempotency_key || '').trim();
+  return /^[A-Za-z0-9_-]{8,64}$/.test(supplied) ? supplied : randomUUID();
 }
 
 function scopedInvoiceUpdate(invoiceId, portalContext, updates) {
@@ -72,6 +88,9 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
       }
 
       const customer = await ensureStripePortalCustomer(req);
+      // One suffix per autopay run; combined with the invoice id below this
+      // keeps each invoice's key unique while staying stable on retry.
+      const runSuffix = actionIdempotencySuffix(req);
       const maxAmount = Number.isFinite(parseFloat(paymentState.settings.max_amount))
         ? toMoney(paymentState.settings.max_amount)
         : null;
@@ -97,7 +116,7 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
               company_id: portalCompanyId(req.portalContext),
               location_id: portalLocationId(req.portalContext),
             },
-            idempotencyKey: `portal-autopay-${invoice.id}-${Date.now()}`,
+            idempotencyKey: `portal-autopay-${invoice.id}-${runSuffix}`,
           });
 
           const status = String(intent.status || 'queued');
@@ -285,7 +304,7 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
           company_id: portalCompanyId(req.portalContext),
           location_id: portalLocationId(req.portalContext),
         },
-        idempotencyKey: `portal-invoice-pay-${invoiceRow.id}-${Date.now()}`,
+        idempotencyKey: `portal-invoice-pay-${invoiceRow.id}-${actionIdempotencySuffix(req)}`,
       });
 
       const paymentStatus = String(intent.status || 'queued');

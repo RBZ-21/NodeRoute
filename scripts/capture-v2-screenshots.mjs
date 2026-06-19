@@ -2,13 +2,18 @@ import { chromium } from 'playwright';
 
 const baseUrl = process.env.CAPTURE_BASE_URL || 'http://127.0.0.1:3001';
 
+if (!process.env.CAPTURE_EMAIL || !process.env.CAPTURE_PASSWORD) {
+  console.error('FATAL: set CAPTURE_EMAIL and CAPTURE_PASSWORD env vars before running screenshot capture.');
+  process.exit(1);
+}
+
 async function login() {
   const response = await fetch(`${baseUrl}/auth/login`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
-      email: process.env.CAPTURE_EMAIL || 'admin@noderoutesystems.com',
-      password: process.env.CAPTURE_PASSWORD || 'Admin@123',
+      email: process.env.CAPTURE_EMAIL,
+      password: process.env.CAPTURE_PASSWORD,
     }),
   });
   const data = await response.json();
