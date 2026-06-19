@@ -13,7 +13,17 @@ const { JWT_SECRET, SUPERADMIN_EMAIL } = require('../lib/config');
 const CSRF_METHODS = new Set(['POST', 'PATCH', 'DELETE', 'PUT']);
 
 // Routes that are exempt from CSRF (they set or refresh non-cookie credentials).
-const CSRF_EXEMPT = new Set(['/login', '/signup', '/setup-password', '/forgot-password', '/reset-password', '/refresh', '/logout', '/driver/login', '/driver/refresh']);
+const CSRF_EXEMPT = new Set([
+  '/login', '/signup', '/setup-password', '/forgot-password', '/reset-password',
+  '/refresh', '/logout', '/driver/login', '/driver/refresh',
+]);
+
+// Columns safe to attach to req.user — never load password_hash or token fields.
+const USER_AUTH_FIELDS = [
+  'id', 'name', 'email', 'role', 'status', 'company_id', 'location_id',
+  'company_name', 'location_name', 'platform_role', 'phone', 'vehicle_id',
+  'created_at',
+].join(',');
 
 function normalizeId(value) {
   if (value === null || value === undefined) return '';
@@ -43,7 +53,7 @@ async function findUserFromTokenPayload(payload) {
   if (tokenUserId) {
     const { data, error } = await supabase
       .from('users')
-      .select('*')
+      .select(USER_AUTH_FIELDS)
       .eq('id', tokenUserId)
       .single();
     if (!error && data) return { user: data, dbError: null, notFound: false };
@@ -55,7 +65,7 @@ async function findUserFromTokenPayload(payload) {
   if (tokenEmail) {
     const { data, error } = await supabase
       .from('users')
-      .select('*')
+      .select(USER_AUTH_FIELDS)
       .eq('email', tokenEmail)
       .single();
     if (!error && data) return { user: data, dbError: null, notFound: false };

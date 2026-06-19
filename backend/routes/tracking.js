@@ -3,6 +3,7 @@ const { supabase } = require('../services/supabase');
 const { filterRowsByContext, rowMatchesContext, scopeQueryByContext } = require('../services/operating-context');
 const { buildDeliveryWindow } = require('../lib/delivery-window');
 const { getMedianDwellMs } = require('../services/dwell-stats');
+const { clientError } = require('../lib/safe-error');
 
 const router = express.Router();
 const STALE_THRESHOLD_SECONDS = 120;
@@ -166,7 +167,7 @@ router.get('/:token', async (req, res) => {
       .eq('id', order.route_id)
       .single();
     if (routeError && routeError.code !== 'PGRST116') {
-      return res.status(500).json({ error: routeError.message });
+      return res.status(500).json({ error: clientError(routeError, 'Failed to load route details') });
     }
     route = routeData && rowMatchesContext(routeData, trackingContext) ? routeData : null;
 
@@ -176,7 +177,7 @@ router.get('/:token', async (req, res) => {
         .select('*')
         .in('id', route.stop_ids);
       if (stopsError) {
-        return res.status(500).json({ error: stopsError.message });
+        return res.status(500).json({ error: clientError(stopsError, 'Failed to load route stops') });
       }
 
       const scopedStops = filterRowsByContext(routeStops || [], trackingContext);
@@ -216,7 +217,7 @@ router.get('/:token', async (req, res) => {
     .order('updated_at', { ascending: false })
     .limit(10);
   if (driverLocationError) {
-    return res.status(500).json({ error: driverLocationError.message });
+    return res.status(500).json({ error: clientError(driverLocationError, 'Failed to load driver location') });
   }
 
   const scopedDriverLocations = filterRowsByContext(driverLocations || [], trackingContext);
@@ -265,8 +266,6 @@ router.get('/:token', async (req, res) => {
     status: order.status,
     deliveryAddress: order.customer_address,
     customerName: order.customer_name,
-    customerEmail: order.customer_email || null,
-    customerPhone: order.customer_phone || null,
     outingStarted,
     routeDispatchedAt: route?.dispatched_at || null,
     lastUpdatedSecondsAgo,

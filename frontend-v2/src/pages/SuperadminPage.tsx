@@ -257,7 +257,7 @@ function SuperadminDashboard() {
             <CardDescription>Last 5 companies to join the platform</CardDescription>
           </div>
           <Button variant="ghost" size="sm" asChild>
-            <a href="/superadmin/companies" className="flex items-center gap-1 text-xs">
+            <a href="/companies" className="flex items-center gap-1 text-xs">
               View all <ArrowRight className="h-3.5 w-3.5" />
             </a>
           </Button>
@@ -294,7 +294,7 @@ function SuperadminDashboard() {
 
       {/* Quick links */}
       <div className="grid gap-3 sm:grid-cols-3">
-        <QuickLink href="/superadmin/companies" label="All Companies"     description="View, inspect, suspend tenants"   icon={<Building2  className="h-5 w-5" />} />
+        <QuickLink href="/companies" label="All Companies"     description="View, inspect, suspend tenants"   icon={<Building2  className="h-5 w-5" />} />
         <QuickLink href="/superadmin/waitlist"  label="Waitlist"          description="Manage signup waitlist"          icon={<Users      className="h-5 w-5" />} />
         <QuickLink href="/settings"             label="Platform Settings" description="Global config & integrations"    icon={<TrendingUp className="h-5 w-5" />} />
       </div>

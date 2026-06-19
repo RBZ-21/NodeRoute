@@ -15,8 +15,9 @@ type LoginResponse = {
 function nextDestination(search: string) {
   const params = new URLSearchParams(search);
   const next = params.get('next') || '';
-  if (!next || !next.startsWith('/')) return '';
-  if (next.startsWith('//')) return '';
+  if (!next || !next.startsWith('/') || next.startsWith('//')) return '';
+  if (next.includes('\\')) return '';
+  if (!/^\/[a-z0-9/_\-?=&%.]*$/i.test(next)) return '';
   return next;
 }
 

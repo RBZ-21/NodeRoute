@@ -152,7 +152,7 @@ router.get('/routes', authenticateToken, requireRole('driver'), async (req, res)
   })));
 });
 
-router.get('/location', authenticateToken, async (req, res) => {
+router.get('/location', authenticateToken, requireRole('driver', 'admin', 'manager'), async (req, res) => {
   try {
     const locations = await loadDriverLocationRows(req);
     res.json(locations[0] || null);

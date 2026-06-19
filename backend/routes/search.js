@@ -15,7 +15,31 @@ const router = express.Router();
 const PER_TYPE_LIMIT = 6;
 
 function escapeLike(value) {
-  return String(value).replace(/[%_]/g, (m) => `\\${m}`);
+  return String(value).replace(/[%_\\]/g, (m) => `\\${m}`);
+}
+
+function dedupeById(rows) {
+  const seen = new Set();
+  const out = [];
+  for (const row of rows || []) {
+    const key = String(row?.id ?? '');
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+  }
+  return out;
+}
+
+async function searchIlikeScoped(table, select, fields, like, context) {
+  const results = await Promise.all(fields.map(async (field) => {
+    const { data, error } = await scopeQueryByContext(
+      supabase.from(table).select(select),
+      context,
+    ).ilike(field, like).limit(PER_TYPE_LIMIT);
+    if (error) return [];
+    return filterRowsByContext(data || [], context);
+  }));
+  return dedupeById(results.flat()).slice(0, PER_TYPE_LIMIT);
 }
 
 router.get('/', authenticateToken, async (req, res) => {
@@ -23,27 +47,42 @@ router.get('/', authenticateToken, async (req, res) => {
   if (q.length < 2) return res.json({ query: q, groups: [] });
   const like = `%${escapeLike(q)}%`;
 
-  async function run(builder) {
-    try {
-      const { data, error } = await builder;
-      if (error) return [];
-      return filterRowsByContext(data || [], req.context);
-    } catch {
-      return [];
-    }
-  }
-
   const [orders, customers, invoices, products, lots] = await Promise.all([
-    run(scopeQueryByContext(supabase.from('orders').select('id,order_number,customer_name,status,company_id,location_id'), req.context)
-      .or(`order_number.ilike.${like},customer_name.ilike.${like}`).limit(PER_TYPE_LIMIT)),
-    run(scopeQueryByContext(supabase.from('Customers').select('id,company_name,billing_email,company_id,location_id'), req.context)
-      .ilike('company_name', like).limit(PER_TYPE_LIMIT)),
-    run(scopeQueryByContext(supabase.from('invoices').select('id,invoice_number,customer_name,status,company_id,location_id'), req.context)
-      .or(`invoice_number.ilike.${like},customer_name.ilike.${like}`).limit(PER_TYPE_LIMIT)),
-    run(scopeQueryByContext(supabase.from('products').select('id,item_number,description,company_id,location_id'), req.context)
-      .or(`item_number.ilike.${like},description.ilike.${like}`).limit(PER_TYPE_LIMIT)),
-    run(scopeQueryByContext(supabase.from('lot_codes').select('id,lot_number,product_id,company_id,location_id'), req.context)
-      .ilike('lot_number', like).limit(PER_TYPE_LIMIT)),
+    searchIlikeScoped(
+      'orders',
+      'id,order_number,customer_name,status,company_id,location_id',
+      ['order_number', 'customer_name'],
+      like,
+      req.context,
+    ),
+    searchIlikeScoped(
+      'Customers',
+      'id,company_name,billing_email,company_id,location_id',
+      ['company_name'],
+      like,
+      req.context,
+    ),
+    searchIlikeScoped(
+      'invoices',
+      'id,invoice_number,customer_name,status,company_id,location_id',
+      ['invoice_number', 'customer_name'],
+      like,
+      req.context,
+    ),
+    searchIlikeScoped(
+      'products',
+      'id,item_number,description,company_id,location_id',
+      ['item_number', 'description'],
+      like,
+      req.context,
+    ),
+    searchIlikeScoped(
+      'lot_codes',
+      'id,lot_number,product_id,company_id,location_id',
+      ['lot_number'],
+      like,
+      req.context,
+    ),
   ]);
 
   const groups = [];

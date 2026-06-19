@@ -13,7 +13,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
-import { sendWithAuth } from '../lib/api';
+import { sendWithAuth, logoutSession } from '../lib/api';
 import { useDriverWorkspace } from '../hooks/useDriverWorkspace';
 import { useLocationSharing } from '../hooks/useLocationSharing';
 import { DriverRouteTab } from './DriverRouteTab';
@@ -62,12 +62,9 @@ export function DriverPage() {
     };
   }, [ws.deliveries, progress.completed]);
 
-  function logout() {
+  async function logout() {
     loc.stopLocationSharing();
-    localStorage.removeItem('nr_token');
-    localStorage.removeItem('nr_user');
-    sessionStorage.removeItem('drv_token');
-    sessionStorage.removeItem('drv_user');
+    await logoutSession();
     window.location.href = '/login?next=%2Fdriver';
   }
 

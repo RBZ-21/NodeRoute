@@ -77,7 +77,7 @@ router.post('/complete', authenticateToken, requireRole('admin'), async (req, re
     });
   }
 
-  const companyId = req.context?.company_id;
+  const companyId = req.context?.companyId || req.context?.activeCompanyId;
   if (!companyId) return res.status(400).json({ error: 'No company context.' });
 
   const cfg = parsed.data;

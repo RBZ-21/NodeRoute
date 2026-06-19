@@ -55,10 +55,10 @@ describe('UsersPage', () => {
     mockUsersApi();
   });
 
-  it('creates an active user and sends an invite with manual link support', async () => {
+  it('creates an active user and sends an invite without exposing manual links', async () => {
     sendWithAuthMock
       .mockResolvedValueOnce({})
-      .mockResolvedValueOnce({ inviteUrl: 'https://invite.test/token', emailSent: false });
+      .mockResolvedValueOnce({ emailSent: false, emailError: 'No email provider configured' });
 
     renderWithQueryClient(<UsersPage />);
 
@@ -95,8 +95,8 @@ describe('UsersPage', () => {
         role: 'driver',
       });
     });
-    expect(await screen.findByText(/Invite created\. No email provider configured/)).toBeInTheDocument();
-    expect(screen.getByText('https://invite.test/token')).toBeInTheDocument();
+    expect(await screen.findByText(/Invite created/)).toBeInTheDocument();
+    expect(screen.queryByText('https://invite.test/token')).not.toBeInTheDocument();
   });
 
   it('filters the directory and supports role updates and removal', async () => {

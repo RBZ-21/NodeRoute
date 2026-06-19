@@ -212,12 +212,11 @@ test('tracking route uses dwell stats service for median dwell ETA', () => {
   assert.ok(src.includes('medianDwellMs'), 'tracking route should pass median dwell into buildEta');
 });
 
-test('tracking API response includes customerEmail and customerPhone fields', () => {
+test('tracking API response omits customer email and phone from public payload', () => {
   const src = fs.readFileSync(path.join(__dirname, '..', 'routes', 'tracking.js'), 'utf8');
-  assert.ok(src.includes('customerEmail:'), 'response must include customerEmail');
-  assert.ok(src.includes('customerPhone:'), 'response must include customerPhone');
-  assert.ok(src.includes('order.customer_email'), 'customerEmail must come from order');
-  assert.ok(src.includes('order.customer_phone'), 'customerPhone must come from order');
+  assert.ok(!src.includes('customerEmail:'), 'response must not include customerEmail');
+  assert.ok(!src.includes('customerPhone:'), 'response must not include customerPhone');
+  assert.ok(src.includes('customerName:'), 'response may include customerName for delivery context');
 });
 
 test('tracking API response exposes outing dispatch state and pauses ETA before departure', () => {

@@ -1,19 +1,23 @@
 const express = require('express');
 const crypto = require('crypto');
 const { supabase } = require('../../services/supabase');
+const { portalVerifyLimiter } = require('../../middleware/rateLimiter');
 const {
   PORTAL_CODE_TTL_MS,
   PORTAL_MAX_VERIFY_ATTEMPTS,
   PORTAL_RESEND_COOLDOWN_MS,
   authenticatePortalToken,
   canRequestCode,
+  clearPortalAuthCookie,
   codesMatch,
   generateVerificationCode,
   hashCode,
+  maskEmailAddress,
   normalizeEmail,
   pruneExpiredChallenges,
   resolvePortalCustomer,
   sendPortalCodeEmail,
+  setPortalAuthCookie,
   signPortalJWT,
   touchRateLimitBucket,
 } = require('./shared');
@@ -30,11 +34,18 @@ module.exports = function buildPortalAuthRouter() {
       return res.status(429).json({ error: 'Too many portal login attempts. Please wait a few minutes and try again.' });
     }
 
+    const genericResponse = {
+      maskedEmail: maskEmailAddress(normalized),
+      expiresInSeconds: Math.floor(PORTAL_CODE_TTL_MS / 1000),
+      message: 'If your email is registered, a verification code has been sent.',
+    };
+
     try {
       const customer = await resolvePortalCustomer(normalized);
+      await touchRateLimitBucket(normalized);
+
       if (!customer) {
-        await touchRateLimitBucket(normalized);
-        return res.status(404).json({ error: 'No account found for that email. Contact your NodeRoute representative.' });
+        return res.json(genericResponse);
       }
 
       const nowIso = new Date().toISOString();
@@ -69,21 +80,20 @@ module.exports = function buildPortalAuthRouter() {
         company_id: customer.companyId || null,
         location_id: customer.locationId || null,
       });
-      await touchRateLimitBucket(normalized);
 
       return res.json({
+        ...genericResponse,
         challengeId,
-        maskedEmail: customer.email.replace(/(^.).*(@.*$)/, '$1***$2'),
         name: customer.name,
-        expiresInSeconds: Math.floor(PORTAL_CODE_TTL_MS / 1000),
+        maskedEmail: maskEmailAddress(customer.email),
       });
     } catch (error) {
       console.error('portal/auth:', error.message);
-      return res.status(500).json({ error: error.message || 'Could not start customer portal sign-in' });
+      return res.status(500).json({ error: 'Could not start customer portal sign-in' });
     }
   });
 
-  router.post('/verify', async (req, res) => {
+  router.post('/verify', portalVerifyLimiter, async (req, res) => {
     await pruneExpiredChallenges();
 
     const challengeId = String(req.body?.challengeId || '').trim();
@@ -110,14 +120,23 @@ module.exports = function buildPortalAuthRouter() {
     }
 
     await supabase.from('portal_challenges').delete().eq('id', challengeId);
+
+    const portalToken = signPortalJWT(challenge.email, challenge.name, {
+      companyId: challenge.company_id,
+      locationId: challenge.location_id,
+    });
+    setPortalAuthCookie(res, portalToken);
+
     return res.json({
-      token: signPortalJWT(challenge.email, challenge.name, {
-        companyId: challenge.company_id,
-        locationId: challenge.location_id,
-      }),
+      ok: true,
       name: challenge.name,
       email: challenge.email,
     });
+  });
+
+  router.post('/logout', (req, res) => {
+    clearPortalAuthCookie(res);
+    res.json({ ok: true });
   });
 
   router.get('/me', authenticatePortalToken, (req, res) => {

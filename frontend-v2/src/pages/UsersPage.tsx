@@ -72,7 +72,6 @@ export function UsersPage() {
 
   const [notice, setNotice] = useState('');
   const [errorMessage, setErrorMessage] = useState('');
-  const [inviteUrl, setInviteUrl] = useState('');
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
   const [inviteName, setInviteName] = useState('');
@@ -114,7 +113,6 @@ export function UsersPage() {
       setErrorMessage('');
       const data = await inviteUser.mutateAsync({ name, email, role: inviteRole });
       setNotice(inviteStatusMessage(data));
-      setInviteUrl(data.inviteUrl || '');
       setInviteName(''); setInviteEmail(''); setInviteRole('driver');
     } catch (err) {
       setErrorMessage(String((err as Error)?.message || 'Failed to send invite'));
@@ -138,18 +136,6 @@ export function UsersPage() {
       setAddName(''); setAddEmail(''); setAddPassword(''); setAddRole('driver');
     } catch (err) {
       setErrorMessage(String((err as Error)?.message || 'Failed to create user'));
-    }
-  }
-
-  async function copyInviteUrl() {
-    if (!inviteUrl) return;
-    try {
-      await navigator.clipboard.writeText(inviteUrl);
-      setErrorMessage('');
-      setNotice('Invite link copied to clipboard.');
-    } catch {
-      setErrorMessage('');
-      setNotice('Invite link is available below; clipboard copy is not available in this browser context.');
     }
   }
 
@@ -196,13 +182,6 @@ export function UsersPage() {
             <Button onClick={submitInvite} disabled={!canInvite || inviteUser.isPending}>{inviteUser.isPending ? 'Sending Invite...' : 'Send Invite'}</Button>
           </div>
           {!canInvite && <div className="text-xs text-muted-foreground">Only admin and manager accounts can send invites.</div>}
-          {inviteUrl && (
-            <div className="rounded-md border border-border bg-muted/30 p-3 text-sm">
-              <div className="font-medium text-foreground">Manual invite link</div>
-              <div className="mt-1 break-all text-muted-foreground">{inviteUrl}</div>
-              <div className="mt-2"><Button size="sm" variant="outline" onClick={copyInviteUrl}>Copy Link</Button></div>
-            </div>
-          )}
         </CardContent>
       </Card>
 

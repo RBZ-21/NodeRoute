@@ -11,6 +11,21 @@ const PORTAL_MAX_VERIFY_ATTEMPTS = Number(process.env.PORTAL_MAX_VERIFY_ATTEMPTS
 const PORTAL_RESEND_COOLDOWN_MS = Number(process.env.PORTAL_RESEND_COOLDOWN_MS || 60 * 1000);
 const PORTAL_AUTH_RATE_WINDOW_MS = Number(process.env.PORTAL_AUTH_RATE_WINDOW_MS || 15 * 60 * 1000);
 const PORTAL_AUTH_RATE_LIMIT = Number(process.env.PORTAL_AUTH_RATE_LIMIT || 5);
+const IS_PROD = (process.env.NODE_ENV || '').toLowerCase() === 'production';
+const PORTAL_COOKIE = 'portal_token';
+
+function escapeHtml(str) {
+  return String(str ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#x27;');
+}
+
+function maskEmailAddress(email) {
+  return String(email || '').replace(/(^.).*(@.*$)/, '$1***$2');
+}
 
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
@@ -162,7 +177,7 @@ async function sendPortalCodeEmail({ email, name, code }) {
               <h1 style="color:#3dba7f;margin:0;font-size:24px">NodeRoute Customer Portal</h1>
             </div>
             <div style="background:#f8faff;padding:32px;border:1px solid #dde3f5;border-top:none;border-radius:0 0 12px 12px">
-              <p style="font-size:15px;line-height:1.6;margin:0 0 16px">Hi ${name || 'there'},</p>
+              <p style="font-size:15px;line-height:1.6;margin:0 0 16px">Hi ${escapeHtml(name || 'there')},</p>
               <p style="font-size:15px;line-height:1.6;margin:0 0 20px">
                 Use the verification code below to access your customer portal. The code expires in 10 minutes.
               </p>
@@ -209,13 +224,41 @@ async function requirePortalOrdering(req, res, next) {
   }
 }
 
-function authenticatePortalToken(req, res, next) {
+function extractPortalToken(req) {
+  const cookieToken = req.cookies?.[PORTAL_COOKIE];
+  if (cookieToken) return cookieToken;
+
   const auth = req.headers.authorization;
-  if (!auth || !auth.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+  if (auth && auth.startsWith('Bearer ')) return auth.slice(7);
+  return null;
+}
+
+function setPortalAuthCookie(res, token) {
+  res.cookie(PORTAL_COOKIE, token, {
+    httpOnly: true,
+    secure: IS_PROD,
+    sameSite: 'strict',
+    maxAge: 24 * 60 * 60 * 1000,
+    path: '/',
+  });
+}
+
+function clearPortalAuthCookie(res) {
+  res.clearCookie(PORTAL_COOKIE, {
+    httpOnly: true,
+    secure: IS_PROD,
+    sameSite: 'strict',
+    path: '/',
+  });
+}
+
+function authenticatePortalToken(req, res, next) {
+  const token = extractPortalToken(req);
+  if (!token) return res.status(401).json({ error: 'Unauthorized' });
 
   let payload;
   try {
-    payload = jwt.verify(auth.slice(7), PORTAL_JWT_SECRET);
+    payload = jwt.verify(token, PORTAL_JWT_SECRET);
   } catch {
     return res.status(401).json({ error: 'Invalid or expired session' });
   }
@@ -241,12 +284,16 @@ module.exports = {
   requirePortalOrdering,
   canRequestCode,
   codesMatch,
+  clearPortalAuthCookie,
+  extractPortalToken,
   generateVerificationCode,
   hashCode,
+  maskEmailAddress,
   normalizeEmail,
   pruneExpiredChallenges,
   resolvePortalCustomer,
   sendPortalCodeEmail,
+  setPortalAuthCookie,
   signPortalJWT,
   touchRateLimitBucket,
 };

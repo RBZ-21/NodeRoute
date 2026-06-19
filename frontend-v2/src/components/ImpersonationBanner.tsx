@@ -33,7 +33,7 @@ export function ImpersonationBanner() {
       await sendWithAuth('/api/superadmin/restore-session', 'POST');
       localStorage.removeItem('nr_impersonating');
       localStorage.removeItem('nr_user');
-      window.location.replace('/superadmin/companies');
+      window.location.replace('/companies');
     } catch (err) {
       alert(`Could not restore superadmin session: ${(err as Error).message}`);
       setRestoring(false);

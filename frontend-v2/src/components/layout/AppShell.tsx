@@ -8,7 +8,7 @@ import { ImpersonationBanner } from '../ImpersonationBanner';
 import { SessionExpiryBanner } from '../SessionExpiryBanner';
 import { AIAskBar } from './AIAskBar';
 import { CommandPalette } from './CommandPalette';
-import { getUserRole } from '../../lib/api';
+import { getUserRole, logoutSession } from '../../lib/api';
 import { allNavItems, defaultPath, findNavItem, navRedirects, routePath, canAccess, type NavRedirect } from '../../lib/nav';
 
 /** Redirects a legacy path (e.g. /stops) to its new home (e.g. /routes?tab=stops),
@@ -53,9 +53,8 @@ export function AppShell() {
     try { localStorage.setItem('nr_theme', dark ? 'dark' : 'light'); } catch {}
   }, [dark]);
 
-  function handleLogout() {
-    localStorage.removeItem('nr_token');
-    localStorage.removeItem('nr_user');
+  async function handleLogout() {
+    await logoutSession();
     window.location.href = '/login';
   }
 
