@@ -13,7 +13,7 @@ const { JWT_SECRET, SUPERADMIN_EMAIL } = require('../lib/config');
 const CSRF_METHODS = new Set(['POST', 'PATCH', 'DELETE', 'PUT']);
 
 // Routes that are exempt from CSRF (they set or refresh non-cookie credentials).
-const CSRF_EXEMPT = new Set(['/login', '/signup', '/setup-password', '/refresh', '/logout', '/driver/login', '/driver/refresh']);
+const CSRF_EXEMPT = new Set(['/login', '/signup', '/setup-password', '/forgot-password', '/reset-password', '/refresh', '/logout', '/driver/login', '/driver/refresh']);
 
 function normalizeId(value) {
   if (value === null || value === undefined) return '';

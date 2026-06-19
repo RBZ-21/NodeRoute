@@ -121,7 +121,8 @@ describe('DashboardPage', () => {
   it('renders admin dashboard data and navigates from command buttons', async () => {
     renderDashboardPage();
 
-    expect(await screen.findByText('Operational Snapshot')).toBeInTheDocument();
+    expect(await screen.findByText('Weight Entry Queue')).toBeInTheDocument();
+    expect(screen.queryByText('Operational Snapshot')).not.toBeInTheDocument();
     expect(await screen.findByText('12')).toBeInTheDocument();
     expect(screen.getAllByText('92%').length).toBeGreaterThan(0);
     expect(screen.getByText('Alex Driver')).toBeInTheDocument();

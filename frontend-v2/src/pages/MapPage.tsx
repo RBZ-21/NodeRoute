@@ -4,6 +4,8 @@ import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card'
 import { StatusBadge } from '../components/ui/status-badge';
 import { LiveIndicator } from '../components/ui/live-indicator';
 import { type DriverLocation, type StopMarker, useMapDrivers, useMapStops } from '../hooks/useMap';
+import { DriverLeaderboard } from '../components/map/DriverLeaderboard';
+import { OperationalSnapshot } from '../components/map/OperationalSnapshot';
 
 const ENV_MAP_KEY = (import.meta.env.VITE_GOOGLE_MAPS_KEY || import.meta.env.VITE_MAP_API_KEY) as string | undefined;
 
@@ -55,8 +57,8 @@ async function resolveMapKey(): Promise<string> {
   return ENV_MAP_KEY || '';
 }
 
-function loadGoogleMapsScript(apiKey: string): Promise<void> {
-  return new Promise((resolve, reject) => {
+async function loadGoogleMapsScript(apiKey: string): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
     const g = (window as GMaps).google;
     if (g && g.maps) { resolve(); return; }
     const existing = document.getElementById('gmaps-script');
@@ -68,12 +70,22 @@ function loadGoogleMapsScript(apiKey: string): Promise<void> {
     script.onload = () => resolve(); script.onerror = reject;
     document.head.appendChild(script);
   });
+  // With loading=async the `google.maps` namespace exists before the Map
+  // constructor is actually ready, so a synchronous `new google.maps.Map()`
+  // throws "Map is not a constructor" on first load. importLibrary resolves
+  // only once the core classes are available, closing that race.
+  const gmaps = (window as GMaps).google?.maps;
+  if (gmaps && typeof gmaps.importLibrary === 'function' && typeof gmaps.Map !== 'function') {
+    await gmaps.importLibrary('maps');
+  }
 }
 
 export function MapPage() {
   const mapRef = useRef<HTMLDivElement>(null);
   const googleMapRef = useRef<GMaps>(null);
   const markersRef = useRef<GMarker[]>([]);
+  // Fit the viewport to the live delivery area once, the first time we have points.
+  const didFitRef = useRef(false);
 
   const [mapReady, setMapReady] = useState(false);
   const [mapError, setMapError] = useState<string | null>(null);
@@ -128,7 +140,31 @@ export function MapPage() {
 
   // Re-plot whenever React Query refreshes data
   useEffect(() => {
-    if (mapReady) plotMarkers(drivers, stops);
+    if (!mapReady) return;
+    plotMarkers(drivers, stops);
+
+    // Once we first have real coordinates, frame the viewport to the delivery
+    // area instead of sitting on the wide default. Only done once so we don't
+    // yank the map out from under the user on every background refresh.
+    if (didFitRef.current || !googleMapRef.current) return;
+    const gm = (window as GMaps).google.maps;
+    const bounds = new gm.LatLngBounds();
+    let count = 0;
+    [...stops, ...drivers].forEach((p) => {
+      const lat = toLatLng(p.lat);
+      const lng = toLatLng(p.lng);
+      if (lat === null || lng === null) return;
+      bounds.extend({ lat, lng });
+      count += 1;
+    });
+    if (count === 0) return;
+    didFitRef.current = true;
+    if (count === 1) {
+      googleMapRef.current.setCenter(bounds.getCenter());
+      googleMapRef.current.setZoom(15);
+    } else {
+      googleMapRef.current.fitBounds(bounds, 64);
+    }
   }, [drivers, stops, mapReady, plotMarkers]);
 
   // Init map once
@@ -208,7 +244,7 @@ export function MapPage() {
         </div>
       </div>
 
-      <div className="w-full lg:w-72 space-y-4">
+      <div className="w-full lg:w-80 xl:w-96 space-y-4">
         {selectedDriver && (
           <Card>
             <CardHeader className="py-3 px-4 flex flex-row items-center justify-between">
@@ -246,6 +282,8 @@ export function MapPage() {
             )}
           </CardContent>
         </Card>
+        <OperationalSnapshot />
+        <DriverLeaderboard />
         <Card>
           <CardHeader className="py-3 px-4"><CardTitle className="text-sm">Stop Summary</CardTitle></CardHeader>
           <CardContent className="pt-0 px-4 pb-4">

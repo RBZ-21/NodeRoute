@@ -7,7 +7,7 @@ import {
   requireAuthToken,
 } from '../lib/api';
 
-const PUBLIC_PATHS = ['/login', '/signup', '/portal', '/customer-portal', '/setup-password'];
+const PUBLIC_PATHS = ['/login', '/signup', '/portal', '/customer-portal', '/setup-password', '/forgot-password', '/reset-password'];
 
 function isPublicPath(pathname: string) {
   return (

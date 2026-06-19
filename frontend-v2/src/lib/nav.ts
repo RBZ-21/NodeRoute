@@ -106,7 +106,6 @@ export const navGroups: NavGroup[] = [
     items: [
       { id: 'customers',    label: 'Customers',    path: '/customers',    icon: Users,           component: CustomersPage },
       { id: 'vendors',      label: 'Vendors',      path: '/vendors',      icon: Handshake,       component: VendorsPage },
-      { id: 'dsr',          label: 'DSR',          path: '/dsr',          icon: ClipboardList,   component: DSRPage },
       { id: 'sales-rep',    label: 'Sales Rep',    path: '/sales-rep',    icon: Briefcase,       component: SalesRepPage },
       { id: 'phone-orders', label: 'Phone Orders', path: '/phone-orders', icon: Phone,           component: PhoneOrdersPage, roles: ['admin', 'manager'] },
     ],
@@ -125,6 +124,7 @@ export const navGroups: NavGroup[] = [
     label: 'Insights',
     items: [
       { id: 'analytics',    label: 'Analytics',    path: '/analytics',    icon: BarChart2,       component: AnalyticsPage },
+      { id: 'dsr',          label: 'DSR',          path: '/dsr',          icon: ClipboardList,   component: DSRPage },
       { id: 'forecasting',  label: 'Forecasting',  path: '/forecasting',  icon: Sparkles,        component: ForecastPage },
       { id: 'reports',      label: 'Reports',      path: '/reports',      icon: FileText,        component: ReportsPage },
       { id: 'ai-help',      label: 'AI Help',      path: '/ai-help',      icon: Bot,             component: AIHelpPage },

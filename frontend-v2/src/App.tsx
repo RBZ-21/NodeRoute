@@ -26,6 +26,8 @@ const SignupPage         = lazy(() => import('./pages/SignupPage').then(m => ({ 
 const CustomerPortalPage = lazy(() => import('./pages/CustomerPortalPage').then(m => ({ default: m.CustomerPortalPage })));
 const TrackPage          = lazy(() => import('./pages/TrackPage').then(m => ({ default: m.TrackPage })));
 const SetupPasswordPage  = lazy(() => import('./pages/SetupPasswordPage').then(m => ({ default: m.SetupPasswordPage })));
+const ForgotPasswordPage = lazy(() => import('./pages/ForgotPasswordPage').then(m => ({ default: m.ForgotPasswordPage })));
+const ResetPasswordPage  = lazy(() => import('./pages/ResetPasswordPage').then(m => ({ default: m.ResetPasswordPage })));
 const DriverPage         = lazy(() => import('./pages/DriverPage').then(m => ({ default: m.DriverPage })));
 
 function withStatuspage(element: JSX.Element) {
@@ -66,6 +68,10 @@ export function App() {
     return withStatuspage(<Suspense fallback={<PageSkeleton />}><LoginPage /></Suspense>);
   if (pathname === '/signup')
     return withStatuspage(<Suspense fallback={<PageSkeleton />}><SignupPage /></Suspense>);
+  if (pathname === '/forgot-password')
+    return withStatuspage(<Suspense fallback={<PageSkeleton />}><ForgotPasswordPage /></Suspense>);
+  if (pathname === '/reset-password')
+    return withStatuspage(<Suspense fallback={<PageSkeleton />}><ResetPasswordPage /></Suspense>);
   if (pathname === '/portal' || pathname === '/customer-portal')
     return withStatuspage(<Suspense fallback={<PageSkeleton />}><CustomerPortalPage /></Suspense>);
   if (isTrackRoute)

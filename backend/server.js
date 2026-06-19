@@ -286,6 +286,8 @@ app.get('/customer-portal', (req, res) => res.sendFile(frontendV2Entry));
 app.get('/track',           (req, res) => res.sendFile(frontendV2Entry));
 app.get('/track/:token',    (req, res) => res.redirect(`/track?t=${encodeURIComponent(req.params.token)}`));
 app.get('/setup-password',  (req, res) => res.sendFile(frontendV2Entry));
+app.get('/forgot-password', (req, res) => res.sendFile(frontendV2Entry));
+app.get('/reset-password',  (req, res) => res.sendFile(frontendV2Entry));
 
 app.use('/api', (_req, res) => {
   res.status(404).json({ error: 'Not found' });

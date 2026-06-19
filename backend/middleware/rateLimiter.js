@@ -52,6 +52,17 @@ const setupPasswordLimiter = rateLimit({
   handler: jsonMessage('Too many setup attempts. Please wait an hour before trying again.'),
 });
 
+// 5 attempts per 15 minutes per IP — bounds password-reset request/confirm abuse
+// (email-bombing on /forgot-password, token brute force on /reset-password).
+const passwordResetLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 5,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: () => isTest,
+  handler: jsonMessage('Too many password reset attempts. Please wait 15 minutes before trying again.'),
+});
+
 // 5 attempts per 15 minutes per IP — protect change-password from credential stuffing.
 const changePasswordLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -100,6 +111,7 @@ module.exports = {
   authLimiter,
   loginLimiter,
   setupPasswordLimiter,
+  passwordResetLimiter,
   changePasswordLimiter,
   aiLimiter,
   publicLimiter,

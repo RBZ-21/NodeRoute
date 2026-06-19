@@ -3,7 +3,6 @@ import {
   AlertTriangle,
   ArrowRight,
   Package,
-  RefreshCw,
   Scale,
   ShoppingCart,
   Truck,
@@ -28,7 +27,6 @@ import {
   type OrderRecord,
   type RouteRecord,
   dashboardKeys,
-  useAnalyticsQuery,
   useDashboardOrdersQuery,
   useDeliveriesQuery,
   useDriversQuery,
@@ -112,7 +110,6 @@ export function DashboardPage() {
 
   // ── Queries ───────────────────────────────────────────────────────────────
   const statsQuery         = useStatsQuery(active);
-  const analyticsQuery     = useAnalyticsQuery(active);
   const deliveriesQuery    = useDeliveriesQuery(active);
   const driversQuery       = useDriversQuery(active);
   const routesQuery        = useRoutesQuery(active);
@@ -121,7 +118,6 @@ export function DashboardPage() {
   const lowStockQuery       = useLowStockQuery(active && (isAdmin || role === 'manager'));
 
   const stats     = statsQuery.data     ?? null;
-  const analytics = analyticsQuery.data ?? null;
   const deliveries: Delivery[]     = useMemo(() => deliveriesQuery.data ?? [], [deliveriesQuery.data]);
   const drivers:   DriverSummary[] = useMemo(() => driversQuery.data ?? [], [driversQuery.data]);
   const routes:    RouteRecord[]   = useMemo(() => routesQuery.data ?? [], [routesQuery.data]);
@@ -135,7 +131,7 @@ export function DashboardPage() {
   );
 
   // First error across all queries — mirrors the original Promise.allSettled behaviour.
-  const fetchError = [statsQuery, analyticsQuery, deliveriesQuery, driversQuery, routesQuery, ordersQuery]
+  const fetchError = [statsQuery, deliveriesQuery, driversQuery, routesQuery, ordersQuery]
     .map((q) => (q.error ? String((q.error as Error).message || '') : ''))
     .find(Boolean) || '';
 
@@ -166,7 +162,6 @@ export function DashboardPage() {
 
   function refreshDashboard() {
     void queryClient.invalidateQueries({ queryKey: dashboardKeys.stats });
-    void queryClient.invalidateQueries({ queryKey: dashboardKeys.analytics });
     void queryClient.invalidateQueries({ queryKey: dashboardKeys.deliveries });
     void queryClient.invalidateQueries({ queryKey: dashboardKeys.drivers });
     void queryClient.invalidateQueries({ queryKey: dashboardKeys.routes });
@@ -185,7 +180,7 @@ export function DashboardPage() {
   const deliverySummary = stats ?? {
     totalDeliveries: deliveries.length,
     completedToday: deliveries.filter((d) => d.status === 'delivered').length,
-    onTimeRate: asNumber(analytics?.onTimeRate, 0),
+    onTimeRate: 0,
     activeDrivers: drivers.filter((d) => String(d.status || '').toLowerCase() === 'on-duty').length,
     totalDrivers: drivers.length,
     failed: deliveries.filter((d) => d.status === 'failed').length,
@@ -225,28 +220,6 @@ export function DashboardPage() {
         .slice(0, 8),
     [deliveries],
   );
-
-  const topDrivers = useMemo(() => {
-    const ranked = analytics?.driverRankings?.length
-      ? analytics.driverRankings
-      : drivers.map((d) => ({
-          name: d.name,
-          stopsPerHour: Number((asNumber(d.totalStopsToday, 0) / 8).toFixed(1)),
-          avgStopMinutes: asNumber(d.avgStopMinutes, 0),
-          avgSpeedMph: asNumber(d.avgSpeedMph, 0),
-          onTimeRate: asNumber(d.onTimeRate, 0),
-          milesToday: asNumber(d.milesToday, 0),
-        }));
-    return [...ranked].sort((a, b) => b.onTimeRate - a.onTimeRate || b.stopsPerHour - a.stopsPerHour).slice(0, 5);
-  }, [analytics, drivers]);
-
-  const fleetSummary = useMemo(() => ({
-    totalMiles: drivers.reduce((sum, d) => sum + asNumber(d.milesToday, 0), 0),
-    totalStops: drivers.reduce((sum, d) => sum + asNumber(d.totalStopsToday, 0), 0),
-    activeVehicles: drivers.filter((d) => String(d.status || '').toLowerCase() === 'on-duty').length,
-    openDeliveries: activeDeliveries.length,
-    routesRunning: activeRoutes.filter((r) => r.relatedDeliveries.some((d) => d.status === 'pending' || d.status === 'in-transit')).length,
-  }), [drivers, activeDeliveries, activeRoutes]);
 
   const purchasingSnapshot = useMemo(() => ({
     open: vendorPurchaseOrders.filter((po) => String(po.status || '').toLowerCase() === 'open').length,
@@ -380,95 +353,36 @@ export function DashboardPage() {
         </Card>
       )}
 
-      <div className="grid gap-4 xl:grid-cols-[1.3fr_1fr_1fr]">
-        <Card>
-          <CardHeader>
-            <CardTitle>Operational Snapshot</CardTitle>
-            <CardDescription>Real-time view of service quality, route flow, and stop efficiency.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <MiniMetric label="Avg Stop Duration" value={`${analytics?.avgStopTime || '0.0'} min`} />
-              <MiniMetric label="Avg Speed" value={`${analytics?.avgSpeed || '0.0'} mph`} />
-              <MiniMetric label="Completed Today" value={deliverySummary.completedToday.toLocaleString()} />
-              <MiniMetric label="Open Deliveries" value={(deliverySummary.pendingCount + deliverySummary.inTransitCount).toLocaleString()} />
+      <Card>
+        <CardHeader>
+          <CardTitle>Weight Entry Queue</CardTitle>
+          <CardDescription>Click a block to open the inline weight entry list — enter all weights and print invoices without leaving this screen.</CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {weightQueueSummary.needsWeights.length || weightQueueSummary.weightsEntered.length ? (
+            <div className="grid gap-3 md:grid-cols-2">
+              <QueueCard
+                icon={Scale}
+                title="Orders Needing Weights"
+                count={weightQueueSummary.needsWeights.length}
+                description="Click to open the weight entry list. Enter weights and print invoices right here."
+                tone="amber"
+                onClick={() => setWeightModalOpen(true)}
+              />
+              <QueueCard
+                icon={Scale}
+                title="Weights Entered"
+                count={weightQueueSummary.weightsEntered.length}
+                description="Open orders whose weight-managed items already have actual weights entered."
+                tone="emerald"
+                onClick={() => navigate('/orders?action=weights-entered')}
+              />
             </div>
-            <div className="rounded-lg border border-border bg-muted/30 p-4">
-              <div className="text-sm font-semibold text-foreground">Fleet Summary</div>
-              <div className="mt-3 grid gap-3 sm:grid-cols-2">
-                <SummaryLine label="Fleet miles today" value={`${fleetSummary.totalMiles.toFixed(1)} mi`} />
-                <SummaryLine label="Completed stops" value={fleetSummary.totalStops.toLocaleString()} />
-                <SummaryLine label="Active vehicles" value={`${fleetSummary.activeVehicles} of ${drivers.length}`} />
-                <SummaryLine label="Routes in motion" value={fleetSummary.routesRunning.toLocaleString()} />
-              </div>
-            </div>
-            <div className="grid gap-2 sm:grid-cols-2">
-              <InsightPill label="Pending" value={deliverySummary.pendingCount.toLocaleString()} tone="amber" />
-              <InsightPill label="In Transit" value={deliverySummary.inTransitCount.toLocaleString()} tone="blue" />
-              <InsightPill label="Door Codes On File" value={String(analytics?.doorBreakdown?.['Door code on file'] || 0)} tone="emerald" />
-              <InsightPill label="No Door Code" value={String(analytics?.doorBreakdown?.['No code'] || 0)} tone="slate" />
-            </div>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Driver Leaderboard</CardTitle>
-            <CardDescription>Best performers today based on on-time rate and stops per hour.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {topDrivers.length ? (
-              topDrivers.map((driver, index) => (
-                <div key={driver.name} className="rounded-lg border border-border bg-muted/20 p-3">
-                  <div className="flex items-start justify-between gap-3">
-                    <div>
-                      <div className="text-sm font-semibold text-foreground">#{index + 1} {driver.name}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">{driver.stopsPerHour.toFixed(1)} stops/hr · {driver.avgSpeedMph.toFixed(1)} mph · {driver.avgStopMinutes.toFixed(1)} min avg stop</div>
-                    </div>
-                    <Badge variant={driver.onTimeRate >= 90 ? 'success' : driver.onTimeRate >= 75 ? 'warning' : 'neutral'}>{driver.onTimeRate.toFixed(1)}%</Badge>
-                  </div>
-                  <div className="mt-3 h-2 overflow-hidden rounded-full bg-muted">
-                    <div className={cn('h-full rounded-full', driver.onTimeRate >= 90 ? 'bg-emerald-500' : driver.onTimeRate >= 75 ? 'bg-amber-500' : 'bg-rose-500')} style={{ width: `${Math.max(6, Math.min(100, driver.onTimeRate))}%` }} />
-                  </div>
-                </div>
-              ))
-            ) : (
-              <EmptyBlock title="No driver performance yet" description="Driver rankings will populate after routes begin logging activity." />
-            )}
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader>
-            <CardTitle>Weight Entry Queue</CardTitle>
-            <CardDescription>Click a block to open the inline weight entry list — enter all weights and print invoices without leaving this screen.</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            {weightQueueSummary.needsWeights.length || weightQueueSummary.weightsEntered.length ? (
-              <div className="grid gap-3">
-                <QueueCard
-                  icon={Scale}
-                  title="Orders Needing Weights"
-                  count={weightQueueSummary.needsWeights.length}
-                  description="Click to open the weight entry list. Enter weights and print invoices right here."
-                  tone="amber"
-                  onClick={() => setWeightModalOpen(true)}
-                />
-                <QueueCard
-                  icon={Scale}
-                  title="Weights Entered"
-                  count={weightQueueSummary.weightsEntered.length}
-                  description="Open orders whose weight-managed items already have actual weights entered."
-                  tone="emerald"
-                  onClick={() => navigate('/orders?action=weights-entered')}
-                />
-              </div>
-            ) : (
-              <EmptyBlock title="No weight queue yet" description="Open weight-managed orders will appear here once processing starts capturing actual weights." />
-            )}
-          </CardContent>
-        </Card>
-      </div>
+          ) : (
+            <EmptyBlock title="No weight queue yet" description="Open weight-managed orders will appear here once processing starts capturing actual weights." />
+          )}
+        </CardContent>
+      </Card>
 
       <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
         <Card>
@@ -702,24 +616,6 @@ function MiniMetric({ label, value }: { label: string; value: string }) {
   );
 }
 
-function SummaryLine({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3 border-b border-border/70 pb-2 text-sm last:border-b-0 last:pb-0">
-      <span className="text-muted-foreground">{label}</span>
-      <span className="font-semibold text-foreground">{value}</span>
-    </div>
-  );
-}
-
-function InsightPill({ label, value, tone }: { label: string; value: string; tone: 'emerald' | 'amber' | 'blue' | 'slate' }) {
-  return (
-    <div className={cn('rounded-lg border px-3 py-2', insightToneClass(tone))}>
-      <div className="text-xs font-semibold uppercase tracking-wide">{label}</div>
-      <div className="mt-1 text-lg font-semibold">{value}</div>
-    </div>
-  );
-}
-
 function EmptyBlock({ title, description }: { title: string; description: string }) {
   return (
     <div className="rounded-lg border border-dashed border-border bg-muted/10 px-4 py-6 text-sm text-muted-foreground">
@@ -762,11 +658,4 @@ function trendToneClass(tone: 'positive' | 'negative' | 'neutral') {
   if (tone === 'positive') return 'text-emerald-600';
   if (tone === 'negative') return 'text-rose-600';
   return 'text-muted-foreground';
-}
-
-function insightToneClass(tone: 'emerald' | 'amber' | 'blue' | 'slate') {
-  if (tone === 'emerald') return 'border-emerald-200 bg-emerald-50 text-emerald-700';
-  if (tone === 'amber') return 'border-amber-200 bg-amber-50 text-amber-700';
-  if (tone === 'blue') return 'border-blue-200 bg-blue-50 text-blue-700';
-  return 'border-slate-200 bg-slate-50 text-slate-700';
 }
