@@ -31,7 +31,7 @@ function authDelay() {
   return new Promise((r) => setTimeout(r, 200 + Math.floor(Math.random() * 200)));
 }
 
-const { JWT_SECRET } = require('../lib/config');
+const { JWT_SECRET, ALLOW_PUBLIC_SIGNUP } = require('../lib/config');
 const ACCESS_TOKEN_EXPIRY = '15m';
 const REFRESH_TOKEN_EXPIRY = '7d';
 const DRIVER_ACCESS_EXPIRY = '15m';
@@ -565,6 +565,9 @@ router.post('/driver/refresh', async (req, res) => {
 });
 
 router.post('/signup', loginLimiter, async (req, res) => {
+  if (!ALLOW_PUBLIC_SIGNUP) {
+    return res.status(403).json({ error: 'Self-service signup is not available. Contact your NodeRoute representative.' });
+  }
   await authDelay();
   const parsed = parseSignupBody(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error });

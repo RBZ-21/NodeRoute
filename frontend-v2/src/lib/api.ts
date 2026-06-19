@@ -21,6 +21,18 @@ export function readAndClearAuthError(): string {
   } catch { return ''; }
 }
 
+export async function logoutSession() {
+  try {
+    await fetch('/auth/logout', {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 'X-CSRF-Token': getCsrfToken() },
+    });
+  } finally {
+    clearSession();
+  }
+}
+
 export function clearSession() {
   // JWT migration Steps 1-3 complete for the browser app: tokens live only in
   // HttpOnly cookies, so there is no longer a legacy nr_token to wipe here.
@@ -159,7 +171,7 @@ export async function fetchCurrentUser<T>(): Promise<T> {
  * driver      — Only their own assigned routes and invoices.
  * unknown     — Not authenticated / unrecognised role.
  */
-export type Role = 'superadmin' | 'admin' | 'manager' | 'driver' | 'unknown';
+export type Role = 'superadmin' | 'admin' | 'manager' | 'driver' | 'rep' | 'unknown';
 
 export function getUserRole(): Role {
   try {
@@ -167,7 +179,7 @@ export function getUserRole(): Role {
     if (!raw) return 'unknown';
     const parsed = JSON.parse(raw);
     const role = String(parsed?.role || '').toLowerCase();
-    if (role === 'superadmin' || role === 'admin' || role === 'manager' || role === 'driver') {
+    if (role === 'superadmin' || role === 'admin' || role === 'manager' || role === 'driver' || role === 'rep') {
       return role as Role;
     }
   } catch { return 'unknown'; }
@@ -176,7 +188,7 @@ export function getUserRole(): Role {
 
 /** Returns true if the user's role meets or exceeds the required minimum. */
 export function hasRole(userRole: Role, required: Role): boolean {
-  const order: Role[] = ['unknown', 'driver', 'manager', 'admin', 'superadmin'];
+  const order: Role[] = ['unknown', 'driver', 'rep', 'manager', 'admin', 'superadmin'];
   return order.indexOf(userRole) >= order.indexOf(required);
 }
 

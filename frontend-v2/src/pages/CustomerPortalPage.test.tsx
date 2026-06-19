@@ -25,6 +25,7 @@ vi.mock('../lib/portalApi', () => ({
   getPortalToken: getPortalTokenMock,
   sendWithPortalAuth: sendWithPortalAuthMock,
   setPortalToken: setPortalTokenMock,
+  PORTAL_SESSION_MARKER: 'portal-cookie-session',
 }));
 
 function mockJsonResponse(body: unknown, ok = true, status = 200) {
@@ -49,11 +50,13 @@ describe('CustomerPortalPage', () => {
     const fetchMock = vi.mocked(fetch);
     fetchMock.mockImplementation((input: RequestInfo | URL) => {
       const url = String(input);
+      if (url === '/api/portal/me') {
+        return mockJsonResponse({}, false, 401);
+      }
       if (url === '/api/portal/auth') {
         return mockJsonResponse({ challengeId: 'challenge-123', maskedEmail: 'b***@example.com' });
       }
       if (url === '/api/portal/verify') {
-        getPortalTokenMock.mockReturnValue('portal-token');
         fetchWithPortalAuthMock.mockImplementation(async (apiUrl: string) => {
           if (apiUrl === '/api/portal/me') return { email: 'buyer@example.com', name: 'Blue Fin' };
           if (apiUrl === '/api/portal/orders') return [{ id: 'o1', order_number: 'ORD-9', customer_name: 'Blue Fin', status: 'pending', created_at: '2026-04-01T00:00:00Z' }];
@@ -64,7 +67,7 @@ describe('CustomerPortalPage', () => {
           if (apiUrl === '/api/portal/payments/profile') return { payment_methods: [], autopay: { enabled: false }, balance: { openBalance: 125, openInvoiceCount: 1, invoiceCount: 1 } };
           return null;
         });
-        return mockJsonResponse({ token: 'portal-token', name: 'Blue Fin', email: 'buyer@example.com' });
+        return mockJsonResponse({ ok: true, name: 'Blue Fin', email: 'buyer@example.com' });
       }
       return mockJsonResponse({}, false, 404);
     });
@@ -82,11 +85,18 @@ describe('CustomerPortalPage', () => {
 
     expect(await screen.findByText('NodeRoute Customer Portal')).toBeInTheDocument();
     expect(await screen.findByText('ORD-9')).toBeInTheDocument();
-    expect(setPortalTokenMock).toHaveBeenCalledWith('portal-token');
+    expect(setPortalTokenMock).toHaveBeenCalledWith('portal-cookie-session');
   });
 
   it('renders invoice display and order history for an authenticated customer', async () => {
-    getPortalTokenMock.mockReturnValue('portal-token');
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/portal/me') {
+        return mockJsonResponse({ email: 'buyer@example.com', name: 'Harbor Cafe' });
+      }
+      return mockJsonResponse({}, false, 404);
+    });
     fetchWithPortalAuthMock.mockImplementation(async (url: string) => {
       if (url === '/api/portal/me') return { email: 'buyer@example.com', name: 'Harbor Cafe' };
       if (url === '/api/portal/orders') return [{ id: 'o1', order_number: 'ORD-101', customer_name: 'Harbor Cafe', customer_address: '1 Dock St', status: 'pending', created_at: '2026-04-01T00:00:00Z', items: [{ description: 'Salmon' }] }];
@@ -108,7 +118,14 @@ describe('CustomerPortalPage', () => {
   });
 
   it('shows empty states when the customer has no order or invoice history', async () => {
-    getPortalTokenMock.mockReturnValue('portal-token');
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/portal/me') {
+        return mockJsonResponse({ email: 'buyer@example.com', name: 'Quiet Account' });
+      }
+      return mockJsonResponse({}, false, 404);
+    });
     fetchWithPortalAuthMock.mockImplementation(async (url: string) => {
       if (url === '/api/portal/me') return { email: 'buyer@example.com', name: 'Quiet Account' };
       if (url === '/api/portal/orders') return [];
@@ -128,7 +145,14 @@ describe('CustomerPortalPage', () => {
   });
 
   it('surfaces failed portal API calls', async () => {
-    getPortalTokenMock.mockReturnValue('portal-token');
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/portal/me') {
+        return mockJsonResponse({ email: 'buyer@example.com', name: 'Buyer' });
+      }
+      return mockJsonResponse({}, false, 404);
+    });
     fetchWithPortalAuthMock.mockImplementation(async (url: string) => {
       if (url === '/api/portal/me') throw new Error('Portal backend unavailable');
       return [];

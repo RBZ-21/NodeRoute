@@ -13,6 +13,9 @@ const logger = require('../services/logger');
 
 const router = express.Router();
 
+// Credit data is sensitive — restrict read endpoints to admin/manager roles.
+const creditReaders = requireRole('admin', 'manager');
+
 const VALID_TERMS = ['COD', 'NET7', 'NET14', 'NET21', 'NET30', 'NET45', 'NET60', 'NET90', 'PREPAY'];
 const VALID_HOLD_REASONS = ['over_limit', 'past_due', 'manual', 'new_account', 'bounced_check', 'disputed_invoice'];
 
@@ -45,7 +48,7 @@ async function loadCustomerOr403(req, res) {
 }
 
 // ── 3A. GET /api/credit/customer/:id/status ────────────────────────────────
-router.get('/customer/:id/status', authenticateToken, async (req, res) => {
+router.get('/customer/:id/status', authenticateToken, creditReaders, async (req, res) => {
   const customer = await loadCustomerOr403(req, res);
   if (!customer) return;
 
@@ -264,7 +267,7 @@ router.patch('/customer/:id/settings', authenticateToken, requireRole('admin', '
 });
 
 // ── 3F. GET /api/credit/customer/:id/history ───────────────────────────────
-router.get('/customer/:id/history', authenticateToken, async (req, res) => {
+router.get('/customer/:id/history', authenticateToken, creditReaders, async (req, res) => {
   const customer = await loadCustomerOr403(req, res);
   if (!customer) return;
 

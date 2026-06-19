@@ -1,9 +1,9 @@
-import { useState } from 'react';
-import { clearPortalSession, getPortalToken, setPortalToken } from '../lib/portalApi';
+import { useEffect, useState } from 'react';
+import { clearPortalSession, getPortalToken, PORTAL_SESSION_MARKER, setPortalToken } from '../lib/portalApi';
 import type { PortalAuthStart, PortalMe } from '../pages/portal.types';
 
 export function usePortalAuth() {
-  const [token, setToken] = useState(() => getPortalToken());
+  const [token, setToken] = useState(() => getPortalToken() || '');
   const [authStep, setAuthStep] = useState<'email' | 'code'>('email');
   const [email, setEmail] = useState('');
   const [code, setCode] = useState('');
@@ -12,6 +12,23 @@ export function usePortalAuth() {
   const [authError, setAuthError] = useState('');
   const [authSubmitting, setAuthSubmitting] = useState(false);
   const [me, setMe] = useState<PortalMe | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const response = await fetch('/api/portal/me', { credentials: 'include' });
+        if (!response.ok || cancelled) return;
+        const payload = (await response.json()) as PortalMe;
+        if (!payload?.email || cancelled) return;
+        setToken(PORTAL_SESSION_MARKER);
+        setMe({ name: payload.name || payload.email, email: payload.email });
+      } catch {
+        // No active portal cookie session.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
 
   async function requestCode() {
     setAuthSubmitting(true);
@@ -48,14 +65,15 @@ export function usePortalAuth() {
       const response = await fetch('/api/portal/verify', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify({ challengeId, code: code.trim() }),
       });
-      const payload = (await response.json()) as { token?: string; name?: string; email?: string; error?: string };
-      if (!response.ok || !payload.token) {
+      const payload = (await response.json()) as { ok?: boolean; name?: string; email?: string; error?: string };
+      if (!response.ok || !payload.email) {
         throw new Error(payload.error || 'Verification failed.');
       }
-      setPortalToken(payload.token);
-      setToken(payload.token);
+      setPortalToken(PORTAL_SESSION_MARKER);
+      setToken(PORTAL_SESSION_MARKER);
       setMe({ name: payload.name || email.trim(), email: payload.email || email.trim() });
       setAuthStep('email');
       setChallengeId('');
@@ -77,7 +95,7 @@ export function usePortalAuth() {
   }
 
   function logout() {
-    clearPortalSession();
+    void clearPortalSession();
     setToken('');
     setMe(null);
     setAuthStep('email');

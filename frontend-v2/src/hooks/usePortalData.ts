@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { clearPortalSession, fetchPortalBlob, fetchWithPortalAuth, getPortalToken, sendWithPortalAuth } from '../lib/portalApi';
+import { clearPortalSession, fetchPortalBlob, fetchWithPortalAuth, sendWithPortalAuth } from '../lib/portalApi';
 import type {
   PortalContact,
   PortalInvoice,
@@ -29,7 +29,7 @@ export function usePortalData(token: string, setToken: (t: string) => void, setM
   const [fishSearch, setFishSearch] = useState('');
 
   async function loadPortalData(mode: 'initial' | 'refresh' = 'initial') {
-    if (!getPortalToken()) return;
+    if (!token) return;
     if (mode === 'initial') setLoading(true);
     if (mode === 'refresh') setRefreshing(true);
     setError('');

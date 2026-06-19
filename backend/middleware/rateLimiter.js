@@ -106,6 +106,16 @@ const aiLimiter = rateLimit({
   handler: jsonMessage('AI request limit reached. Please wait a few minutes before trying again.'),
 });
 
+// 10 verify attempts per 15 minutes per IP — bounds portal code brute force.
+const portalVerifyLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: () => isTest,
+  handler: jsonMessage('Too many verification attempts. Please wait 15 minutes before trying again.'),
+});
+
 module.exports = {
   globalLimiter,
   authLimiter,
@@ -116,4 +126,5 @@ module.exports = {
   aiLimiter,
   publicLimiter,
   waitlistLimiter,
+  portalVerifyLimiter,
 };

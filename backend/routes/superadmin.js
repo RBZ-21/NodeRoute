@@ -13,10 +13,32 @@
 const express = require('express');
 const jwt     = require('jsonwebtoken');
 const { supabase } = require('../services/supabase');
-const { JWT_SECRET } = require('../lib/config');
+const { JWT_SECRET, SUPERADMIN_EMAIL } = require('../lib/config');
 const { authenticateToken, requireSuperadmin } = require('../middleware/auth');
 
 const router = express.Router();
+
+const USER_PUBLIC_FIELDS = 'id,name,email,role,status,company_id,location_id,created_at,phone,vehicle_id';
+
+function sanitizeUserRow(user) {
+  if (!user) return null;
+  return {
+    id: user.id,
+    name: user.name,
+    email: user.email,
+    role: user.role,
+    status: user.status,
+    company_id: user.company_id ?? null,
+    location_id: user.location_id ?? null,
+    created_at: user.created_at ?? null,
+    phone: user.phone ?? null,
+    vehicle_id: user.vehicle_id ?? null,
+  };
+}
+
+function normalizeEmail(value) {
+  return String(value || '').trim().toLowerCase();
+}
 
 // All superadmin routes require authentication + role AND email double-check.
 router.use(authenticateToken);
@@ -209,12 +231,11 @@ router.get('/companies/:id', async (req, res) => {
   try {
     const { id } = req.params;
     const [usersResult, companyResult, configResult] = await Promise.all([
-      supabase.from('users').select('*'),
+      supabase.from('users').select(USER_PUBLIC_FIELDS).eq('company_id', id),
       supabase.from('companies').select('*').eq('id', id).single(),
       supabase.from('company_config').select('*').eq('company_id', id).single(),
     ]);
-    const allUsers     = extractRows(usersResult);
-    const companyUsers = allUsers.filter((u) => String(u.company_id || u.id) === id);
+    const companyUsers = extractRows(usersResult).map(sanitizeUserRow);
     res.json({
       id,
       company: companyResult?.data ?? null,
@@ -239,13 +260,16 @@ const IS_PROD = process.env.NODE_ENV === 'production';
 router.post('/companies/:id/impersonate', async (req, res) => {
   try {
     const { id } = req.params;
-    const usersResult = await supabase.from('users').select('*');
-    const allUsers = extractRows(usersResult);
+    const usersResult = await supabase
+      .from('users')
+      .select(USER_PUBLIC_FIELDS)
+      .eq('company_id', id);
 
+    const companyUsers = extractRows(usersResult);
     const targetUser =
-      allUsers.find(
-        (u) => (String(u.company_id || u.id) === id) && (u.role === 'admin' || u.role === 'manager'),
-      ) || allUsers.find((u) => String(u.company_id || u.id) === id);
+      companyUsers.find((u) => u.role === 'admin' || u.role === 'manager') ||
+      companyUsers[0] ||
+      null;
 
     if (!targetUser) return res.status(404).json({ error: 'No users found for this company.' });
 
@@ -256,6 +280,8 @@ router.post('/companies/:id/impersonate', async (req, res) => {
         sub:             targetUser.id,
         email:           targetUser.email,
         role:            targetUser.role,
+        companyId:       targetUser.company_id || id,
+        locationId:      targetUser.location_id || null,
         impersonated_by: req.user.id,
       },
       JWT_SECRET,
@@ -327,6 +353,12 @@ const restoreSessionHandler = async (req, res) => {
     catch { return res.status(400).json({ error: 'Saved session has expired. Please log in again.' }); }
 
     if (payload?.role !== 'superadmin') {
+      return res.status(403).json({ error: 'Saved session is not a superadmin session.' });
+    }
+
+    const configuredEmail = normalizeEmail(SUPERADMIN_EMAIL);
+    const tokenEmail = normalizeEmail(payload?.email);
+    if (configuredEmail && configuredEmail !== '__superadmin_unset__' && tokenEmail !== configuredEmail) {
       return res.status(403).json({ error: 'Saved session is not a superadmin session.' });
     }
 

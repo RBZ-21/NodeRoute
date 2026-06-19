@@ -38,23 +38,28 @@ function parseCompanySecrets() {
   }
 }
 
+function readIncomingSecret(req) {
+  const authHeader = String(req.headers.authorization || '');
+  if (authHeader) {
+    return authHeader.replace(/^Bearer\s+/i, '').trim();
+  }
+
+  const headerSecret = req.headers['x-webhook-secret'] || req.headers['x-bland-webhook-secret'];
+  return headerSecret ? String(headerSecret).trim() : '';
+}
+
 /**
  * Resolve the caller's secret to a company.
  * Returns { authorized, companyId }. Fail-closed: no configured secrets, or
  * no match, means unauthorized. A matched secret with no resolvable company
  * is authorized:false at the order level (handled by the route with a 400).
  *
- * The secret is read from the Authorization header (raw value or
- * "Bearer <secret>") — never from the query string, which would leak it
- * into access logs. If the Bland dashboard cannot send custom headers for
- * your plan, do NOT fall back to query params; instead have Bland sign the
- * payload (HMAC of the raw body with the shared secret in an
- * X-Bland-Signature header) and verify the digest here with
- * crypto.timingSafeEqual, mirroring services/stripe.js verifyWebhookSignature.
+ * The secret is read from Authorization (raw value or "Bearer <secret>") or
+ * X-Webhook-Secret / X-Bland-Webhook-Secret — never from the query string,
+ * which would leak it into access logs.
  */
 function resolveWebhookCompany(req) {
-  const header = String(req.headers.authorization || '');
-  const incoming = header.replace(/^Bearer\s+/i, '').trim();
+  const incoming = readIncomingSecret(req);
   if (!incoming) return { authorized: false, companyId: null };
 
   for (const [secret, companyId] of Object.entries(parseCompanySecrets())) {
@@ -71,6 +76,10 @@ function resolveWebhookCompany(req) {
   return { authorized: false, companyId: null };
 }
 
+function resolveLocationId() {
+  return String(process.env.BLAND_DEFAULT_LOCATION_ID || DEFAULT_LOCATION_ID || '').trim() || null;
+}
+
 router.post('/', async (req, res) => {
   const { authorized, companyId } = resolveWebhookCompany(req);
   if (!authorized) {
@@ -85,7 +94,6 @@ router.post('/', async (req, res) => {
 
   const { status, transcript, summary, call_id, from } = req.body || {};
 
-  // Only process completed calls that have a transcript
   if (status !== 'completed' || !transcript) {
     return res.json({ ok: true });
   }
@@ -99,7 +107,7 @@ router.post('/', async (req, res) => {
         source: 'phone',
         status: 'draft',
         company_id: companyId,
-        location_id: DEFAULT_LOCATION_ID || null,
+        location_id: resolveLocationId(),
         caller_phone: from || null,
         call_id: call_id || null,
         transcript,

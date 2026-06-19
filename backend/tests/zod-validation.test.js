@@ -113,11 +113,45 @@ test('config exits when a required secret is missing', () => {
   });
 });
 
-test('config does not exit for degraded production-only optional settings', () => {
+test('config exits in production when PORTAL_JWT_SECRET is unset', () => {
   withEnv({
     ...requiredConfigEnv,
     NODE_ENV: 'production',
     PORTAL_JWT_SECRET: undefined,
+    ADMIN_PASSWORD: 'MyStr0ng!Pass123',
+    SUPERADMIN_EMAIL: 'admin@example.com',
+  }, () => {
+    const config = loadFreshConfig();
+    const logs = { warn: [], error: [], fatal: [], info: [] };
+    const logger = {
+      warn(message) { logs.warn.push(message); },
+      error(message) { logs.error.push(message); },
+      fatal(message) { logs.fatal.push(message); },
+      info(message) { logs.info.push(message); },
+    };
+    const originalExit = process.exit;
+    let exitCode = null;
+    process.exit = (code) => {
+      exitCode = code;
+      throw new Error(`process.exit:${code}`);
+    };
+
+    try {
+      assert.throws(() => config.validate(logger), /process\.exit:1/);
+    } finally {
+      process.exit = originalExit;
+    }
+
+    assert.equal(exitCode, 1);
+    assert.ok(logs.fatal.some((message) => message.includes('PORTAL_JWT_SECRET is not set')));
+  });
+});
+
+test('config does not exit for degraded production-only optional settings', () => {
+  withEnv({
+    ...requiredConfigEnv,
+    NODE_ENV: 'production',
+    PORTAL_JWT_SECRET: 'prod-portal-secret-value',
     // ADMIN_PASSWORD is no longer optional in production — a missing or weak
     // value is fatal (see the test below). Provide a strong one here so the
     // genuinely optional settings still exercise the non-fatal path.
@@ -148,7 +182,6 @@ test('config does not exit for degraded production-only optional settings', () =
     assert.equal(exitCalled, false);
     assert.ok(logs.warn.some((message) => message.includes('SUPERADMIN_EMAIL is not set')));
     assert.ok(logs.warn.some((message) => message.includes('SESSION_SECRET or CSRF_SECRET is not set')));
-    assert.ok(logs.warn.some((message) => message.includes('PORTAL_JWT_SECRET is not set')));
     assert.equal(logs.fatal.length, 0);
   });
 });

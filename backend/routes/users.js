@@ -243,10 +243,15 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), valid
     }, 'Invite email result');
   }
 
-  // Only surface the invite URL when email delivery failed — the admin needs it
-  // to manually deliver the link. When email was sent successfully the token
-  // should not be exposed in the API response.
-  const responseBody = {
+  // Never return the raw invite URL/token in API responses — deliver via email only.
+  if (!emailResult.emailSent) {
+    logger.warn(
+      { userId: newUser.id, email: maskEmail(email) },
+      'Invite email failed — admin must resend invite from the Users page',
+    );
+  }
+
+  res.json({
     message: `Invite created for ${maskEmail(email)}`,
     userId: newUser.id,
     emailSent: emailResult.emailSent,
@@ -254,12 +259,7 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), valid
     emailError: emailResult.emailError,
     emailProvider: emailResult.emailProvider,
     emailAttempts: emailResult.emailAttempts,
-  };
-  if (!emailResult.emailSent) {
-    responseBody.inviteUrl = inviteUrl;
-  }
-
-  res.json(responseBody);
+  });
 });
 
 // Any user can update their own profile; admins can update anyone

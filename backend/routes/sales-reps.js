@@ -7,7 +7,7 @@ const { filterRowsByContext, buildScopeFields, scopeQueryByContext } = require('
 
 const router = express.Router();
 
-// Roles that see every customer/log; everyone else is scoped to their own sales_rep_id.
+router.use(authenticateToken, requireRole('admin', 'manager', 'rep'));
 const seesAllReps = (user) => ['admin', 'manager', 'superadmin'].includes(user.role);
 
 // GET /api/sales-reps/customers

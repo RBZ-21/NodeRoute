@@ -58,6 +58,7 @@ const envSchema = z.object({
   // Superadmin email gate — must match the user's email for requireSuperadmin to pass.
   // Sentinel value '__superadmin_unset__' ensures the check fails closed when unset.
   SUPERADMIN_EMAIL:           z.string().optional().default('__superadmin_unset__'),
+  ALLOW_PUBLIC_SIGNUP:        z.string().optional().default(''),
 }).passthrough();
 
 const rawEnv       = envSchema.parse(process.env);
@@ -106,6 +107,9 @@ const COMPANY_NAME        = rawEnv.COMPANY_NAME;
 const DAILY_BLAST_CRON    = rawEnv.DAILY_BLAST_CRON;
 const hasTwilio           = !!(TWILIO_ACCOUNT_SID && TWILIO_AUTH_TOKEN && TWILIO_FROM_NUMBER);
 const SUPERADMIN_EMAIL    = rawEnv.SUPERADMIN_EMAIL;
+const ALLOW_PUBLIC_SIGNUP = isProduction
+  ? String(rawEnv.ALLOW_PUBLIC_SIGNUP || '').toLowerCase() === 'true'
+  : String(rawEnv.ALLOW_PUBLIC_SIGNUP || 'true').toLowerCase() !== 'false';
 
 function validate(logger) {
   const fatal  = [];
@@ -124,7 +128,7 @@ function validate(logger) {
 
   if (isProduction) {
     if (!process.env.PORTAL_JWT_SECRET || PORTAL_JWT_SECRET === DEV_PORTAL_SECRET)
-      warns.push('PORTAL_JWT_SECRET is not set — customer portal JWTs will use the development fallback. Set it before enabling portal auth.');
+      fatal.push('PORTAL_JWT_SECRET is not set');
 
     // A weak or default bootstrap admin password is a well-known credential —
     // refuse to start rather than warn (matches the JWT_SECRET treatment).
@@ -133,6 +137,9 @@ function validate(logger) {
         'ADMIN_PASSWORD is missing, default, or too weak. Production requires at least ' +
         '12 characters including uppercase, lowercase, a digit, and a special character.'
       );
+
+    if (ALLOW_PUBLIC_SIGNUP && !process.env.ALLOW_PUBLIC_SIGNUP)
+      warns.push('Public signup is enabled in production. Set ALLOW_PUBLIC_SIGNUP=false unless self-service signup is intentional.');
 
     if (!BASE_URL)
       errors.push('BASE_URL is not set — invite links and Stripe redirects will not work');
@@ -228,4 +235,5 @@ module.exports = {
   DAILY_BLAST_CRON,
   hasTwilio,
   SUPERADMIN_EMAIL,
+  ALLOW_PUBLIC_SIGNUP,
 };

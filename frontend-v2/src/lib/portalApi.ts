@@ -1,26 +1,34 @@
-const PORTAL_TOKEN_KEY = 'portal_token';
+/** Portal auth uses an HttpOnly cookie set by POST /api/portal/verify. */
+
+export const PORTAL_SESSION_MARKER = 'portal-cookie-session';
 
 export function getPortalToken(): string {
   try {
-    return sessionStorage.getItem(PORTAL_TOKEN_KEY) || '';
+    sessionStorage.removeItem('portal_token');
   } catch {
-    return '';
+    // Ignore legacy cleanup failures.
+  }
+  return '';
+}
+
+export function setPortalToken(_token: string) {
+  try {
+    sessionStorage.removeItem('portal_token');
+  } catch {
+    // Token is stored in an HttpOnly cookie by the server.
   }
 }
 
-export function setPortalToken(token: string) {
+export async function clearPortalSession() {
   try {
-    sessionStorage.setItem(PORTAL_TOKEN_KEY, token);
-  } catch {
-    // Ignore storage failures and rely on in-memory state.
-  }
-}
-
-export function clearPortalSession() {
-  try {
-    sessionStorage.removeItem(PORTAL_TOKEN_KEY);
+    sessionStorage.removeItem('portal_token');
   } catch {
     // Ignore storage failures.
+  }
+  try {
+    await fetch('/api/portal/logout', { method: 'POST', credentials: 'include' });
+  } catch {
+    // Best-effort server logout.
   }
 }
 
@@ -29,7 +37,7 @@ async function parsePortalResponse<T>(response: Response, url: string): Promise<
   const data = contentType.includes('application/json') ? await response.json() : null;
 
   if (response.status === 401) {
-    clearPortalSession();
+    await clearPortalSession();
     throw new Error(String(data?.error || 'Your portal session expired. Please sign in again.'));
   }
 
@@ -41,10 +49,7 @@ async function parsePortalResponse<T>(response: Response, url: string): Promise<
 }
 
 export async function fetchWithPortalAuth<T>(url: string): Promise<T> {
-  const token = getPortalToken();
-  const response = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const response = await fetch(url, { credentials: 'include' });
   return parsePortalResponse<T>(response, url);
 }
 
@@ -53,12 +58,11 @@ export async function sendWithPortalAuth<T>(
   method: 'POST' | 'PATCH' | 'DELETE',
   body?: unknown
 ): Promise<T> {
-  const token = getPortalToken();
   const response = await fetch(url, {
     method,
+    credentials: 'include',
     headers: {
       'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
@@ -66,13 +70,10 @@ export async function sendWithPortalAuth<T>(
 }
 
 export async function fetchPortalBlob(url: string): Promise<Blob> {
-  const token = getPortalToken();
-  const response = await fetch(url, {
-    headers: token ? { Authorization: `Bearer ${token}` } : {},
-  });
+  const response = await fetch(url, { credentials: 'include' });
 
   if (response.status === 401) {
-    clearPortalSession();
+    await clearPortalSession();
     throw new Error('Your portal session expired. Please sign in again.');
   }
   if (!response.ok) {
