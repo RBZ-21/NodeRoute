@@ -35,7 +35,7 @@ const envSchema = z.object({
   SMTP_PASS:                  z.string().optional().default(''),
   EMAIL_PROVIDER:             z.string().optional().default('auto'),
   OPENAI_API_KEY:             z.string().optional().default(''),
-  ADMIN_EMAIL:                z.string().optional().default('admin@noderoutesystems.com'),
+  ADMIN_EMAIL:                z.string().optional().default('admin@example.com'),
   ADMIN_PASSWORD:             z.string().optional().default(DEFAULT_ADMIN_PW),
   GOOGLE_MAPS_KEY:            z.string().optional().default(''),
   SENTRY_DSN:                 z.string().optional().default(''),
@@ -130,10 +130,12 @@ function validate(logger) {
     if (!process.env.PORTAL_JWT_SECRET || PORTAL_JWT_SECRET === DEV_PORTAL_SECRET)
       fatal.push('PORTAL_JWT_SECRET is not set');
 
+    // A weak or default bootstrap admin password is a well-known credential —
+    // refuse to start rather than warn (matches the JWT_SECRET treatment).
     if (!process.env.ADMIN_PASSWORD || isWeakPassword(ADMIN_PASSWORD))
-      warns.push(
-        'ADMIN_PASSWORD is missing or too weak. Set a password that is at least ' +
-        '12 characters and includes uppercase, lowercase, a digit, and a special character before relying on bootstrap admin login.'
+      fatal.push(
+        'ADMIN_PASSWORD is missing, default, or too weak. Production requires at least ' +
+        '12 characters including uppercase, lowercase, a digit, and a special character.'
       );
 
     if (ALLOW_PUBLIC_SIGNUP && !process.env.ALLOW_PUBLIC_SIGNUP)

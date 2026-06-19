@@ -1,5 +1,6 @@
 'use strict';
 
+const crypto = require('crypto');
 const express = require('express');
 const { supabase } = require('../../services/supabase');
 const logger = require('../../services/logger');
@@ -9,37 +10,86 @@ const { DEFAULT_COMPANY_ID, DEFAULT_LOCATION_ID } = require('../../lib/config');
 
 const router = express.Router();
 
-function verifyWebhookSecret(req) {
-  const secret = process.env.BLAND_WEBHOOK_SECRET || '';
-  if (!secret) return false;
+function timingSafeMatch(incoming, expected) {
+  const a = Buffer.from(String(incoming || ''), 'utf8');
+  const b = Buffer.from(String(expected || ''), 'utf8');
+  if (a.length === 0 || b.length === 0 || a.length !== b.length) return false;
+  return crypto.timingSafeEqual(a, b);
+}
 
+/**
+ * Per-company webhook secrets, so each tenant's Bland agent posts with its
+ * own credential and orders land in the right company.
+ *
+ *   BLAND_COMPANY_SECRETS='{"<secret-for-acme>":"<acme-company-id>", ...}'
+ *
+ * The shared BLAND_WEBHOOK_SECRET remains supported for single-tenant
+ * deployments and maps to DEFAULT_COMPANY_ID.
+ */
+function parseCompanySecrets() {
+  const raw = process.env.BLAND_COMPANY_SECRETS || '';
+  if (!raw.trim()) return {};
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  } catch (err) {
+    logger.error({ err: err.message }, 'BLAND_COMPANY_SECRETS is not valid JSON — per-company webhook auth disabled');
+    return {};
+  }
+}
+
+function readIncomingSecret(req) {
   const authHeader = String(req.headers.authorization || '');
-  if (authHeader.toLowerCase().startsWith('bearer ')) {
-    return authHeader.slice(7) === secret;
+  if (authHeader) {
+    return authHeader.replace(/^Bearer\s+/i, '').trim();
   }
 
   const headerSecret = req.headers['x-webhook-secret'] || req.headers['x-bland-webhook-secret'];
-  if (headerSecret && headerSecret === secret) return true;
-
-  // Deprecated — query param may appear in access logs.
-  return req.query.secret === secret;
+  return headerSecret ? String(headerSecret).trim() : '';
 }
 
-function resolveTenantScope() {
-  const companyId = String(process.env.BLAND_DEFAULT_COMPANY_ID || DEFAULT_COMPANY_ID || '').trim();
-  const locationId = String(process.env.BLAND_DEFAULT_LOCATION_ID || DEFAULT_LOCATION_ID || '').trim() || null;
-  return { companyId: companyId || null, locationId };
+/**
+ * Resolve the caller's secret to a company.
+ * Returns { authorized, companyId }. Fail-closed: no configured secrets, or
+ * no match, means unauthorized. A matched secret with no resolvable company
+ * is authorized:false at the order level (handled by the route with a 400).
+ *
+ * The secret is read from Authorization (raw value or "Bearer <secret>") or
+ * X-Webhook-Secret / X-Bland-Webhook-Secret — never from the query string,
+ * which would leak it into access logs.
+ */
+function resolveWebhookCompany(req) {
+  const incoming = readIncomingSecret(req);
+  if (!incoming) return { authorized: false, companyId: null };
+
+  for (const [secret, companyId] of Object.entries(parseCompanySecrets())) {
+    if (timingSafeMatch(incoming, secret)) {
+      return { authorized: true, companyId: String(companyId || '').trim() || DEFAULT_COMPANY_ID || null };
+    }
+  }
+
+  const sharedSecret = process.env.BLAND_WEBHOOK_SECRET || '';
+  if (sharedSecret && timingSafeMatch(incoming, sharedSecret)) {
+    return { authorized: true, companyId: DEFAULT_COMPANY_ID || null };
+  }
+
+  return { authorized: false, companyId: null };
+}
+
+function resolveLocationId() {
+  return String(process.env.BLAND_DEFAULT_LOCATION_ID || DEFAULT_LOCATION_ID || '').trim() || null;
 }
 
 router.post('/', async (req, res) => {
-  if (!verifyWebhookSecret(req)) {
+  const { authorized, companyId } = resolveWebhookCompany(req);
+  if (!authorized) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
-
-  const { companyId, locationId } = resolveTenantScope();
   if (!companyId) {
-    logger.error('Bland webhook rejected: BLAND_DEFAULT_COMPANY_ID or DEFAULT_COMPANY_ID is not configured');
-    return res.status(503).json({ error: 'Phone order integration is not configured' });
+    // Never create an order without a tenant — it would be invisible to every
+    // company's scoped queries and unreachable from the dashboard.
+    logger.error('Bland webhook rejected: secret matched but no company mapping and DEFAULT_COMPANY_ID is unset');
+    return res.status(400).json({ error: 'Webhook is not mapped to a company' });
   }
 
   const { status, transcript, summary, call_id, from } = req.body || {};
@@ -57,7 +107,7 @@ router.post('/', async (req, res) => {
         source: 'phone',
         status: 'draft',
         company_id: companyId,
-        location_id: locationId,
+        location_id: resolveLocationId(),
         caller_phone: from || null,
         call_id: call_id || null,
         transcript,

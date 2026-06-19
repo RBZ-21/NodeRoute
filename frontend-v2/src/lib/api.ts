@@ -162,7 +162,7 @@ export async function fetchCurrentUser<T>(): Promise<T> {
  * Role hierarchy (highest to lowest):
  *   superadmin > admin > manager > driver > unknown
  *
- * superadmin  — NodeRoute platform owner (admin@noderoutesystems.com)
+ * superadmin  — NodeRoute platform owner.
  *               Sees all tenant companies and every page.
  * admin       — Business owner / manager of a single tenant company.
  *               Full access to their own company; no cross-tenant visibility.
