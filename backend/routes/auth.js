@@ -757,19 +757,26 @@ router.post('/reset-password', passwordResetLimiter, async (req, res) => {
   if (!parsed.success) return res.status(400).json({ error: parsed.error });
   const { token, password } = parsed.data;
 
-  const users = await dbQuery(supabase.from('users').select('*').eq('reset_token', hashResetToken(token)).limit(1), res);
+  const users = await dbQuery(
+    supabase
+      .from('users')
+      .update({
+        password_hash: hashPassword(password),
+        status: 'active',
+        reset_token: null,
+        reset_expires: null,
+      })
+      .eq('reset_token', hashResetToken(token))
+      .gt('reset_expires', new Date().toISOString())
+      .select('*')
+      .limit(1),
+    res
+  );
   if (!users) return;
   const u = users[0];
-  if (!u || !u.reset_expires || new Date() > new Date(u.reset_expires)) {
+  if (!u) {
     return res.status(400).json({ error: 'This reset link is invalid or has expired.' });
   }
-
-  await supabase.from('users').update({
-    password_hash: hashPassword(password),
-    status: 'active',
-    reset_token: null,
-    reset_expires: null,
-  }).eq('id', u.id);
 
   // Revoke any live sessions so an attacker who had access can't ride through the reset.
   try {

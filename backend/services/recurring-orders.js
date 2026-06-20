@@ -18,6 +18,20 @@ const { supabase } = require('./supabase');
 
 const DAY_MS = 86_400_000;
 
+function normalizeIdArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .filter((item, index, all) => all.indexOf(item) === index);
+}
+
+function scopedRouteQuery(routeId, template) {
+  let query = supabase.from('routes').select('id, stop_ids, active_stop_ids').eq('id', routeId);
+  if (template.company_id) query = query.eq('company_id', template.company_id);
+  return query;
+}
+
 function toDateKey(date) {
   return new Date(date).toISOString().slice(0, 10);
 }
@@ -44,6 +58,97 @@ function trackingToken() {
   } catch {
     return `rt-${Date.now()}-${Math.random().toString(36).slice(2)}`;
   }
+}
+
+async function appendStopToRoute(routeId, stopId, template) {
+  if (!routeId || !stopId) return;
+
+  const { data: route, error: routeError } = await scopedRouteQuery(routeId, template).single();
+  if (routeError || !route) {
+    throw routeError || new Error('Route template not found for recurring order');
+  }
+
+  const stopIds = normalizeIdArray(route.stop_ids);
+  const activeStopIds = normalizeIdArray(route.active_stop_ids);
+  const normalizedStopId = String(stopId);
+  const nextStopIds = stopIds.includes(normalizedStopId) ? stopIds : [...stopIds, normalizedStopId];
+  const nextActiveStopIds = activeStopIds.includes(normalizedStopId) ? activeStopIds : [...activeStopIds, normalizedStopId];
+
+  const { error: updateError } = await supabase
+    .from('routes')
+    .update({ stop_ids: nextStopIds, active_stop_ids: nextActiveStopIds })
+    .eq('id', routeId);
+  if (updateError) throw updateError;
+}
+
+async function removeStopFromRoute(routeId, stopId) {
+  if (!routeId || !stopId) return;
+  const { data: route } = await supabase
+    .from('routes')
+    .select('id, stop_ids, active_stop_ids')
+    .eq('id', routeId)
+    .single();
+  if (!route) return;
+
+  const normalizedStopId = String(stopId);
+  await supabase
+    .from('routes')
+    .update({
+      stop_ids: normalizeIdArray(route.stop_ids).filter((id) => id !== normalizedStopId),
+      active_stop_ids: normalizeIdArray(route.active_stop_ids).filter((id) => id !== normalizedStopId),
+    })
+    .eq('id', routeId);
+}
+
+async function deleteGeneratedArtifacts(orderId, stopId, routeId) {
+  if (stopId) {
+    await removeStopFromRoute(routeId, stopId);
+    await supabase.from('stops').delete().eq('id', stopId);
+  }
+  if (orderId) {
+    await supabase.from('orders').delete().eq('id', orderId);
+  }
+}
+
+async function createStopForGeneratedOrder(record, template, orderId) {
+  const routeId = record.route_id;
+  const name = String(record.customer_name || '').trim();
+  const address = String(record.customer_address || '').trim();
+  if (!routeId || !name || !address) return null;
+
+  const stopPayload = {
+    name,
+    address,
+    lat: 0,
+    lng: 0,
+    notes: `Order ${record.order_number || orderId}`,
+    route_id: routeId,
+    company_id: record.company_id,
+    location_id: record.location_id,
+  };
+
+  const { data: stop, error: stopError } = await supabase
+    .from('stops')
+    .insert([stopPayload])
+    .select('id')
+    .single();
+  if (stopError) throw stopError;
+
+  try {
+    await appendStopToRoute(routeId, stop.id, template);
+
+    const { error: orderUpdateError } = await supabase
+      .from('orders')
+      .update({ stop_id: stop.id })
+      .eq('id', orderId);
+    if (orderUpdateError) throw orderUpdateError;
+  } catch (error) {
+    await removeStopFromRoute(routeId, stop.id);
+    await supabase.from('stops').delete().eq('id', stop.id);
+    throw error;
+  }
+
+  return stop.id;
 }
 
 async function generateOrderForTemplate(template, runDateKey) {
@@ -82,7 +187,16 @@ async function generateOrderForTemplate(template, runDateKey) {
     if (String(error.code) === '23505') return { skipped: true, reason: 'duplicate' };
     throw error;
   }
-  return { created: true, orderId: data.id, orderNumber: data.order_number };
+
+  let stopId = null;
+  try {
+    stopId = await createStopForGeneratedOrder(record, template, data.id);
+  } catch (error) {
+    await deleteGeneratedArtifacts(data.id, stopId, record.route_id);
+    throw error;
+  }
+
+  return { created: true, orderId: data.id, orderNumber: data.order_number, stopId };
 }
 
 /**
