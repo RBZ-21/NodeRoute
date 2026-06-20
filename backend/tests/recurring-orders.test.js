@@ -8,6 +8,8 @@ const supabasePath = require.resolve('../services/supabase');
 // Minimal fake supabase covering the recurring generator's calls:
 //   recurring_orders: select().eq(active,true)  /  update().eq(id)
 //   orders:           select().eq().eq().limit()  /  insert().select().single()
+//   stops:            insert().select().single()
+//   routes:           select().eq(id).single() / update().eq(id)
 function makeSupabase(tables) {
   class Query {
     constructor(table) {
@@ -83,10 +85,12 @@ test('recurring generation is idempotent — running twice does not duplicate or
   const target = new Date('2026-06-17T12:00:00Z');
   const tables = {
     recurring_orders: [
-      { id: 'rec-1', company_id: 'co-1', customer_name: 'Standing Cafe', schedule_days: [3, 5], items: [{ item_number: 'SAL-01', name: 'Salmon', quantity: 4, unit: 'lb', unit_price: 12 }], active: true, route_template_id: 'route-9' },
+      { id: 'rec-1', company_id: 'co-1', location_id: 'loc-1', customer_name: 'Standing Cafe', customer_address: '100 Dock St', schedule_days: [3, 5], items: [{ item_number: 'SAL-01', name: 'Salmon', quantity: 4, unit: 'lb', unit_price: 12 }], active: true, route_template_id: 'route-9' },
       { id: 'rec-2', company_id: 'co-1', customer_name: 'Tuesday Only', schedule_days: [2], items: [{ item_number: 'TUN-01', name: 'Tuna', quantity: 2, unit: 'lb', unit_price: 18 }], active: true },
     ],
     orders: [],
+    stops: [],
+    routes: [{ id: 'route-9', company_id: 'co-1', stop_ids: [], active_stop_ids: [] }],
   };
   const service = loadServiceWithSupabase(tables);
 
@@ -97,6 +101,13 @@ test('recurring generation is idempotent — running twice does not duplicate or
   assert.equal(tables.orders[0].source, 'recurring');
   assert.equal(tables.orders[0].route_id, 'route-9'); // pre-assigned to route template
   assert.equal(tables.orders[0].status, 'pending');
+  assert.equal(tables.stops.length, 1);
+  assert.equal(tables.stops[0].route_id, 'route-9');
+  assert.equal(tables.stops[0].company_id, 'co-1');
+  assert.equal(tables.stops[0].location_id, 'loc-1');
+  assert.equal(tables.orders[0].stop_id, tables.stops[0].id);
+  assert.deepEqual(tables.routes[0].stop_ids, [tables.stops[0].id]);
+  assert.deepEqual(tables.routes[0].active_stop_ids, [tables.stops[0].id]);
 
   const second = await service.runRecurringOrderGeneration(target);
   assert.equal(second.created, 0);

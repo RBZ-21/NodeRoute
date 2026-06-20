@@ -23,6 +23,14 @@ function extractOrderNumberFromStop(stop) {
   return match ? match[1] : null;
 }
 
+function normalizeIdArray(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .map((item) => String(item || '').trim())
+    .filter(Boolean)
+    .filter((item, index, all) => all.indexOf(item) === index);
+}
+
 async function first(queryResult) {
   const result = await queryResult;
   if (result?.error) return null;
@@ -193,16 +201,28 @@ async function sendEventSms(client, { event, order, stopId, body, metadata = {} 
 async function notifyRouteDispatched(client, routeId, trackingBaseUrl) {
   try {
     if (!routeId) return { sent: 0, skipped: true, reason: 'missing_route_id' };
+    const route = await first(client.from('routes').select('id, stop_ids, active_stop_ids').eq('id', routeId).limit(1));
+    const routeStopIds = normalizeIdArray(route?.active_stop_ids).length
+      ? normalizeIdArray(route.active_stop_ids)
+      : normalizeIdArray(route?.stop_ids);
+    if (!routeStopIds.length) {
+      return { sent: 0, skipped: true, reason: 'empty_route_queue' };
+    }
+
     const { data: orders, error } = await client
       .from('orders')
-      .select('id, order_number, customer_name, customer_phone, tracking_token, stop_id')
-      .eq('route_id', routeId);
+      .select('id, order_number, customer_name, customer_phone, tracking_token, stop_id, status')
+      .in('stop_id', routeStopIds);
     if (error || !Array.isArray(orders) || !orders.length) {
       return { sent: 0, skipped: true, reason: error?.message || 'no_orders' };
     }
 
     const results = [];
     for (const order of orders) {
+      if (['cancelled', 'completed', 'delivered', 'invoiced'].includes(String(order.status || '').toLowerCase())) {
+        results.push({ sent: false, skipped: true, reason: 'inactive_order_status', orderId: order.id });
+        continue;
+      }
       if (!order.tracking_token) {
         results.push({ sent: false, skipped: true, reason: 'missing_tracking_token', orderId: order.id });
         continue;

@@ -182,6 +182,28 @@ test('notifyUpcomingStops sends SMS to the stop 3 positions into the remaining q
   assert.match(sent[0].body, /~30 minutes/);
 });
 
+test('notifyRouteDispatched sends only to orders in the active route queue', async () => {
+  const sent = [];
+  const notifications = loadNotifications(async (to, body) => {
+    sent.push({ to, body });
+    return { success: true, sid: 'SM-DISPATCH' };
+  });
+  const supabase = makeSupabase({
+    routes: [{ id: 'route-1', stop_ids: ['active-stop', 'inactive-stop'], active_stop_ids: ['active-stop'] }],
+    orders: [
+      { id: 'active-order', route_id: 'route-1', stop_id: 'active-stop', customer_name: 'Active Cafe', customer_phone: '(843) 555-0200', tracking_token: 'active-token', status: 'pending' },
+      { id: 'stale-order', route_id: 'route-1', stop_id: 'inactive-stop', customer_name: 'Stale Cafe', customer_phone: '(843) 555-0201', tracking_token: 'stale-token', status: 'pending' },
+    ],
+  });
+
+  const result = await notifications.notifyRouteDispatched(supabase, 'route-1', 'https://app.example/track?t=');
+
+  assert.equal(result.sent, 1);
+  assert.equal(sent.length, 1);
+  assert.equal(sent[0].to, '+18435550200');
+  assert.match(sent[0].body, /active-token/);
+});
+
 test('notifyUpcomingStops skips stops already proximity notified', async () => {
   const sent = [];
   const notifications = loadNotifications(async (to, body) => {
