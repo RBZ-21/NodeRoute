@@ -6,6 +6,29 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import { fetchWithAuth, sendWithAuth } from '../../lib/api';
 import type { InventoryItem } from '../../types/inventory.types';
 
+function asNumber(value: unknown): number {
+  const parsed = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+function money(value: unknown): string {
+  return asNumber(value).toLocaleString('en-US', { style: 'currency', currency: 'USD' });
+}
+function reportDescription(item: InventoryItem): string {
+  return item.description_line_1 || item.description || item.name || '';
+}
+function reportClassName(item: InventoryItem): string {
+  return item.class_name || item.category || '';
+}
+function reportCostBase(item: InventoryItem): unknown {
+  return item.cost_base ?? item.base_cost ?? item.cost;
+}
+function reportCostReal(item: InventoryItem): unknown {
+  return item.cost_real ?? item.real_cost ?? item.cost;
+}
+function reportOnHandQuantity(item: InventoryItem): unknown {
+  return item.on_hand_quantity ?? item.on_hand_qty ?? item.quantity;
+}
+
 export function InventoryTab({
   initialInventory,
   onNotice,
@@ -43,9 +66,9 @@ export function InventoryTab({
     setSaving(true);
     try {
       await sendWithAuth(`/api/warehouse/inventory/${item.id}`, 'PATCH', { quantity: qty });
-      setInventory((prev) => prev.map((i) => i.id === item.id ? { ...i, quantity: qty, on_hand_qty: qty } : i));
+      setInventory((prev) => prev.map((i) => i.id === item.id ? { ...i, quantity: qty, on_hand_qty: qty, on_hand_quantity: qty } : i));
       setEditingId(null);
-      onNotice(`${item.description || item.name || 'Item'} quantity updated.`);
+      onNotice(`${reportDescription(item) || 'Item'} quantity updated.`);
     } catch (err) {
       onError(String((err as Error).message));
     } finally {
@@ -53,25 +76,31 @@ export function InventoryTab({
     }
   }
 
-  const categories = Array.from(new Set(inventory.map((i) => i.category).filter(Boolean))) as string[];
+  const categories = Array.from(new Set(inventory.map((i) => reportClassName(i)).filter(Boolean))) as string[];
 
   const filtered = inventory.filter((item) => {
-    const name = (item.description || item.name || '').toLowerCase();
+    const name = reportDescription(item).toLowerCase();
     const matchSearch = !search || name.includes(search.toLowerCase()) || (item.item_number || '').toLowerCase().includes(search.toLowerCase());
-    const matchCat = !categoryFilter || item.category === categoryFilter;
+    const matchCat = !categoryFilter || reportClassName(item) === categoryFilter;
     return matchSearch && matchCat;
   });
 
   function exportCsv() {
     const rows = [
-      ['Item', 'Category', 'Qty', 'Unit', 'Status', 'Cost'],
+      ['Item Number', 'Description Line 1', 'Class Name', 'Allocated Quantity', 'On Hand Weight', 'On Hand Quantity', 'Unit', 'Cost: Base', 'Cost: Real', 'Value at Cost', 'Value at Level 1', 'Status'],
       ...filtered.map((i) => [
-        i.description || i.name || '',
-        i.category || '',
-        i.on_hand_qty ?? i.quantity ?? '',
+        i.item_number || '',
+        reportDescription(i),
+        reportClassName(i),
+        i.allocated_quantity ?? '',
+        i.on_hand_weight ?? '',
+        reportOnHandQuantity(i) ?? '',
         i.unit || '',
+        reportCostBase(i) ?? '',
+        reportCostReal(i) ?? '',
+        i.value_at_cost ?? '',
+        i.value_at_level_1 ?? '',
         i.status || '',
-        i.cost ?? '',
       ]),
     ];
     const csv = rows.map((r) => r.map((c) => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
@@ -82,9 +111,9 @@ export function InventoryTab({
 
   const getStatus = (item: InventoryItem) => item.status || 'active';
   const getQty = (item: InventoryItem): number | null => {
-    const raw = item.on_hand_qty ?? item.quantity;
+    const raw = reportOnHandQuantity(item);
     if (raw == null || raw === '') return null;
-    const n = Number(raw);
+    const n = asNumber(raw);
     return Number.isFinite(n) ? n : null;
   };
 
@@ -107,7 +136,7 @@ export function InventoryTab({
             onChange={(e) => setCategoryFilter(e.target.value)}
             className="rounded border border-input bg-background px-2 py-1.5 text-sm"
           >
-            <option value="">All Categories</option>
+            <option value="">All Class Names</option>
             {categories.map((c) => <option key={c} value={c}>{c}</option>)}
           </select>
           <Button variant="outline" size="sm" onClick={exportCsv}>Export CSV</Button>
@@ -115,13 +144,21 @@ export function InventoryTab({
         </div>
       </CardHeader>
       <CardContent className="rounded-lg border border-border bg-card p-2">
+        <div className="overflow-x-auto">
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Item</TableHead>
-              <TableHead>Category</TableHead>
-              <TableHead>Qty</TableHead>
+              <TableHead>Item Number</TableHead>
+              <TableHead>Description Line 1</TableHead>
+              <TableHead>Class Name</TableHead>
+              <TableHead>Allocated Quantity</TableHead>
+              <TableHead>On Hand Weight</TableHead>
+              <TableHead>On Hand Quantity</TableHead>
               <TableHead>Unit</TableHead>
+              <TableHead>Cost: Base</TableHead>
+              <TableHead>Cost: Real</TableHead>
+              <TableHead>Value at Cost</TableHead>
+              <TableHead>Value at Level 1</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Actions</TableHead>
             </TableRow>
@@ -129,8 +166,11 @@ export function InventoryTab({
           <TableBody>
             {filtered.length ? filtered.map((item) => (
               <TableRow key={String(item.id)}>
-                <TableCell className="font-medium">{item.description || item.name || '-'}</TableCell>
-                <TableCell>{item.category || '-'}</TableCell>
+                <TableCell className="font-medium">{item.item_number || '-'}</TableCell>
+                <TableCell>{reportDescription(item) || '-'}</TableCell>
+                <TableCell>{reportClassName(item) || '-'}</TableCell>
+                <TableCell>{asNumber(item.allocated_quantity).toLocaleString()}</TableCell>
+                <TableCell>{asNumber(item.on_hand_weight).toLocaleString()}</TableCell>
                 <TableCell>
                   {editingId === item.id ? (
                     <input
@@ -147,6 +187,10 @@ export function InventoryTab({
                   )}
                 </TableCell>
                 <TableCell>{item.unit || '-'}</TableCell>
+                <TableCell>{money(reportCostBase(item))}</TableCell>
+                <TableCell>{money(reportCostReal(item))}</TableCell>
+                <TableCell>{money(item.value_at_cost)}</TableCell>
+                <TableCell>{money(item.value_at_level_1)}</TableCell>
                 <TableCell>
                   <Badge variant={getStatus(item) === 'active' ? 'success' : getStatus(item) === 'low' ? 'warning' : 'secondary'}>
                     {getStatus(item)}
@@ -164,10 +208,11 @@ export function InventoryTab({
                 </TableCell>
               </TableRow>
             )) : (
-              <TableRow><TableCell colSpan={6} className="text-muted-foreground">No items match filters.</TableCell></TableRow>
+              <TableRow><TableCell colSpan={13} className="text-muted-foreground">No items match filters.</TableCell></TableRow>
             )}
           </TableBody>
         </Table>
+        </div>
       </CardContent>
     </Card>
   );

@@ -254,7 +254,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     for (let index = 0; index < queuedLogs.length; index += 1) {
       const entry = queuedLogs[index];
       try {
-        await submitTemperatureLog(entry.payload);
+        await submitTemperatureLog(entry.payload, entry.id);
         flushedCount += 1;
       } catch (error) {
         if (error instanceof ApiError && error.status === 401) {
@@ -294,7 +294,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     for (let index = 0; index < queuedUpdates.length; index += 1) {
       const entry = queuedUpdates[index];
       try {
-        await patchStop(entry.stopId, { driver_notes: entry.driverNotes });
+        await patchStop(entry.stopId, { driver_notes: entry.driverNotes }, entry.id);
         applyStopPatchLocally(entry.stopId, { driver_notes: entry.driverNotes });
         flushedCount += 1;
       } catch (error) {
@@ -433,8 +433,9 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     stop: DriverStop,
     action: StatusAction,
     payload: Record<string, unknown> = {},
+    clientActionId = crypto.randomUUID(),
   ) {
-    await enqueueStatusAction(stop.id, action, payload);
+    await enqueueStatusAction(stop.id, action, payload, clientActionId);
     applyStopPatchLocally(stop.id, { status: statusForAction(action) });
     pushToast(`Offline: ${stop.name || 'stop'} status queued for sync.`, 'info');
   }
@@ -443,12 +444,12 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     const stop = stopById(entry.stopId) || { id: entry.stopId };
 
     if (entry.action === 'arrived') {
-      await dispatchMarkArrived(stop);
+      await dispatchMarkArrived(stop, entry.id);
       return;
     }
 
     if (entry.action === 'skipped') {
-      await dispatchDeferStop(stop);
+      await dispatchDeferStop(stop, entry.id);
       return;
     }
 
@@ -457,7 +458,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
         stop,
         typeof entry.payload.proofImage === 'string' ? entry.payload.proofImage : null,
         typeof entry.payload.notes === 'string' ? entry.payload.notes : '',
-        { deliveryMode: entry.action === 'dropoff' ? 'drop_off' : 'standard' },
+        { deliveryMode: entry.action === 'dropoff' ? 'drop_off' : 'standard', clientActionId: entry.id },
       );
       return;
     }
@@ -466,6 +467,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
       stop,
       typeof entry.payload.reason === 'string' ? entry.payload.reason : '',
       typeof entry.payload.notes === 'string' ? entry.payload.notes : '',
+      entry.id,
     );
   }
 
@@ -488,8 +490,8 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     if (navigator.onLine) void drainOfflineStatusQueue();
   }
 
-  async function dispatchMarkArrived(stop: DriverStop) {
-    await markStopArrived(stop.id);
+  async function dispatchMarkArrived(stop: DriverStop, clientActionId?: string) {
+    await markStopArrived(stop.id, clientActionId);
     const linkedDelivery = findLinkedDelivery(stop, deliveries);
     if (linkedDelivery?.orderDbId) {
       try {
@@ -502,16 +504,17 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
   }
 
   async function markArrived(stop: DriverStop) {
+    const clientActionId = crypto.randomUUID();
     if (!navigator.onLine) {
-      await queueStatusAction(stop, 'arrived');
+      await queueStatusAction(stop, 'arrived', {}, clientActionId);
       return;
     }
 
     try {
-      await dispatchMarkArrived(stop);
+      await dispatchMarkArrived(stop, clientActionId);
     } catch (error) {
       if (!(error instanceof ApiError)) {
-        await queueStatusAction(stop, 'arrived');
+        await queueStatusAction(stop, 'arrived', {}, clientActionId);
         return;
       }
       throw error;
@@ -520,22 +523,23 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     await refreshData(true);
   }
 
-  async function dispatchDeferStop(stop: DriverStop) {
-    await deferStop(stop.id);
+  async function dispatchDeferStop(stop: DriverStop, clientActionId?: string) {
+    await deferStop(stop.id, clientActionId);
     applyStopPatchLocally(stop.id, { status: 'skipped' });
   }
 
   async function deferStopToEnd(stop: DriverStop) {
+    const clientActionId = crypto.randomUUID();
     if (!navigator.onLine) {
-      await queueStatusAction(stop, 'skipped');
+      await queueStatusAction(stop, 'skipped', {}, clientActionId);
       return;
     }
 
     try {
-      await dispatchDeferStop(stop);
+      await dispatchDeferStop(stop, clientActionId);
     } catch (error) {
       if (!(error instanceof ApiError)) {
-        await queueStatusAction(stop, 'skipped');
+        await queueStatusAction(stop, 'skipped', {}, clientActionId);
         return;
       }
       throw error;
@@ -557,7 +561,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     stop: DriverStop,
     proofImage: string | null,
     notes: string,
-    options: { deliveryMode?: 'standard' | 'drop_off' } = {},
+    options: { deliveryMode?: 'standard' | 'drop_off'; clientActionId?: string } = {},
   ) {
     const activeStop = stopById(stop.id) || stop;
     const deliveryMode = options.deliveryMode === 'drop_off' ? 'drop_off' : 'standard';
@@ -582,24 +586,28 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     }
 
     if (combinedNotes) {
-      await patchStop(activeStop.id, { driver_notes: combinedNotes });
+      await patchStop(activeStop.id, { driver_notes: combinedNotes }, options.clientActionId ? `${options.clientActionId}-notes` : undefined);
     }
 
     if (!isArrivedStatus(activeStop.status) && !isDeliveredStatus(activeStop.status)) {
       try {
-        await markStopArrived(activeStop.id);
+        await markStopArrived(activeStop.id, options.clientActionId ? `${options.clientActionId}-arrive` : undefined);
       } catch {
         // If an open dwell record already exists we can still continue to completion.
       }
     }
 
     try {
-      await markStopDeparted(activeStop.id, deliveryMode === 'drop_off' ? { completion_type: 'drop_off' } : undefined);
+      await markStopDeparted(
+        activeStop.id,
+        deliveryMode === 'drop_off' ? { completion_type: 'drop_off' } : undefined,
+        options.clientActionId ? `${options.clientActionId}-depart` : undefined,
+      );
     } catch {
       await patchStop(activeStop.id, {
         status: 'completed',
         ...(combinedNotes ? { driver_notes: combinedNotes } : {}),
-      });
+      }, options.clientActionId ? `${options.clientActionId}-complete` : undefined);
     }
 
     const linkedDelivery = findLinkedDelivery(activeStop, deliveries);
@@ -626,22 +634,23 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     options: { deliveryMode?: 'standard' | 'drop_off' } = {},
   ) {
     const activeStop = stopById(stop.id) || stop;
+    const clientActionId = crypto.randomUUID();
     if (!navigator.onLine) {
       await queueStatusAction(stop, options.deliveryMode === 'drop_off' ? 'dropoff' : 'delivered', {
         proofImage,
         notes,
-      });
+      }, clientActionId);
       return;
     }
 
     try {
-      await dispatchMarkDelivered(stop, proofImage, notes, options);
+      await dispatchMarkDelivered(stop, proofImage, notes, { ...options, clientActionId });
     } catch (error) {
       if (!(error instanceof ApiError)) {
         await queueStatusAction(stop, options.deliveryMode === 'drop_off' ? 'dropoff' : 'delivered', {
           proofImage,
           notes,
-        });
+        }, clientActionId);
         return;
       }
       throw error;
@@ -656,7 +665,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     await refreshData(true);
   }
 
-  async function dispatchMarkFailed(stop: DriverStop, reason: string, notes: string) {
+  async function dispatchMarkFailed(stop: DriverStop, reason: string, notes: string, clientActionId?: string) {
     const trimmedReason = reason.trim();
     const trimmedNotes = notes.trim();
     const driverNotes = [
@@ -667,7 +676,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     await patchStop(stop.id, {
       status: 'failed',
       driver_notes: driverNotes || `Marked failed at ${new Date().toLocaleTimeString()}`,
-    });
+    }, clientActionId);
     applyStopPatchLocally(stop.id, {
       status: 'failed',
       driver_notes: driverNotes || `Marked failed at ${new Date().toLocaleTimeString()}`,
@@ -675,16 +684,17 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
   }
 
   async function markFailed(stop: DriverStop, reason: string, notes: string) {
+    const clientActionId = crypto.randomUUID();
     if (!navigator.onLine) {
-      await queueStatusAction(stop, 'failed', { reason, notes });
+      await queueStatusAction(stop, 'failed', { reason, notes }, clientActionId);
       return;
     }
 
     try {
-      await dispatchMarkFailed(stop, reason, notes);
+      await dispatchMarkFailed(stop, reason, notes, clientActionId);
     } catch (error) {
       if (!(error instanceof ApiError)) {
-        await queueStatusAction(stop, 'failed', { reason, notes });
+        await queueStatusAction(stop, 'failed', { reason, notes }, clientActionId);
         return;
       }
       throw error;
@@ -699,9 +709,10 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
   }
 
   async function submitLog(payload: Record<string, unknown>) {
+    const clientActionId = crypto.randomUUID();
     if (!navigator.onLine) {
       enqueueTemperatureLog({
-        id: `temp-log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: clientActionId,
         createdAt: new Date().toISOString(),
         payload,
       });
@@ -712,12 +723,12 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      await submitTemperatureLog(payload);
+      await submitTemperatureLog(payload, clientActionId);
       pushToast('Temperature log saved.', 'success');
     } catch (error) {
       if (!(error instanceof ApiError)) {
         enqueueTemperatureLog({
-          id: `temp-log-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          id: clientActionId,
           createdAt: new Date().toISOString(),
           payload,
         });
@@ -732,9 +743,10 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
 
   async function saveStopNotes(stopId: string, notes: string) {
     const trimmedNotes = notes.trim();
+    const clientActionId = crypto.randomUUID();
     if (!navigator.onLine) {
       enqueueStopNoteUpdate({
-        id: `stop-note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        id: clientActionId,
         stopId,
         createdAt: new Date().toISOString(),
         driverNotes: trimmedNotes,
@@ -748,13 +760,13 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     }
 
     try {
-      await patchStop(stopId, { driver_notes: trimmedNotes });
+      await patchStop(stopId, { driver_notes: trimmedNotes }, clientActionId);
       applyStopPatchLocally(stopId, { driver_notes: trimmedNotes });
       pushToast('Stop notes saved.', 'success');
     } catch (error) {
       if (!(error instanceof ApiError)) {
         enqueueStopNoteUpdate({
-          id: `stop-note-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          id: clientActionId,
           stopId,
           createdAt: new Date().toISOString(),
           driverNotes: trimmedNotes,

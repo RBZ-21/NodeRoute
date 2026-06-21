@@ -56,7 +56,7 @@ function maskEmail(email) {
   return `${local.slice(0, 2)}***@${domain}`;
 }
 
-async function sendInviteEmail({ name, email, role, inviteUrl }) {
+async function sendInviteEmail({ name, email, role, inviteUrl, idempotencyKey }) {
   const result = {
     emailSent: false,
     emailError: null,
@@ -100,7 +100,8 @@ async function sendInviteEmail({ name, email, role, inviteUrl }) {
               <p style="color:#667;font-size:13px">This link expires in 48 hours.</p>
             </div>
           </div>
-        `
+        `,
+        idempotencyKey,
       }), EMAIL_SEND_TIMEOUT_MS, result.emailProvider);
       result.emailSent = true;
       result.emailError = null;
@@ -234,7 +235,13 @@ router.post('/invite', authenticateToken, requireRole('admin', 'manager'), valid
   };
 
   if (emailQueued) {
-    emailResult = await sendInviteEmail({ name, email, role, inviteUrl });
+    emailResult = await sendInviteEmail({
+      name,
+      email,
+      role,
+      inviteUrl,
+      idempotencyKey: `user-invite/${newUser.id}`,
+    });
     logger.info({
       userId: newUser.id,
       provider: emailResult.emailProvider,

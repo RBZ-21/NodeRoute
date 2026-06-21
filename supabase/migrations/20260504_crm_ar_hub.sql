@@ -3,7 +3,7 @@
 
 -- 1. Add sales_rep_id to Customers
 ALTER TABLE "Customers"
-  ADD COLUMN IF NOT EXISTS sales_rep_id UUID REFERENCES users(id) ON DELETE SET NULL;
+  ADD COLUMN IF NOT EXISTS sales_rep_id TEXT REFERENCES users(id) ON DELETE SET NULL;
 
 CREATE INDEX IF NOT EXISTS idx_customers_sales_rep_id ON "Customers"(sales_rep_id);
 
@@ -12,7 +12,7 @@ CREATE TABLE IF NOT EXISTS customer_visit_logs (
   id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   customer_id     TEXT NOT NULL,
   customer_name   TEXT,
-  sales_rep_id    UUID REFERENCES users(id) ON DELETE SET NULL,
+  sales_rep_id    TEXT REFERENCES users(id) ON DELETE SET NULL,
   sales_rep_name  TEXT,
   notes           TEXT,
   outcome         TEXT,

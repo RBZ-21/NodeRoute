@@ -100,6 +100,25 @@ function normalizeTableName(tableName) {
   return tableName;
 }
 
+function formatOrFilterValue(value) {
+  if (value === null || value === undefined) return 'null';
+  const raw = String(value);
+  if (/^[a-zA-Z0-9_-]+$/.test(raw)) return raw;
+  return `"${raw.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`;
+}
+
+function buildOrExpression(candidates) {
+  return (candidates || [])
+    .filter((candidate) => candidate?.field && candidate?.type)
+    .map((candidate) => {
+      const field = String(candidate.field);
+      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(field)) return null;
+      return `${field}.${candidate.type}.${formatOrFilterValue(candidate.value)}`;
+    })
+    .filter(Boolean)
+    .join(',');
+}
+
 function parseOrExpression(expression) {
   return String(expression || '')
     .split(',')
@@ -548,11 +567,8 @@ class ResilientQuery {
       if (filter.type === 'lt' && typeof query.lt === 'function') query = query.lt(filter.field, filter.value);
       if (filter.type === 'not' && typeof query.not === 'function') query = query.not(filter.field, filter.operator, filter.value);
       if (filter.type === 'or' && typeof query.or === 'function') {
-        const expression = (filter.value || []).map((candidate) => {
-          const rawValue = candidate.value === null ? 'null' : candidate.value;
-          return `${candidate.field}.${candidate.type}.${rawValue}`;
-        }).join(',');
-        query = query.or(expression);
+        const expression = buildOrExpression(filter.value);
+        if (expression) query = query.or(expression);
       }
       if (filter.type === 'contains' && typeof query.contains === 'function') query = query.contains(filter.field, filter.value);
     }

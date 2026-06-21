@@ -185,8 +185,10 @@ export function useOfflineQueue({
     stopId: string,
     action: StatusAction,
     payload: Record<string, unknown> = {},
+    id = crypto.randomUUID(),
   ) => {
     const entry: QueuedStatusAction = {
+      id,
       stopId,
       action,
       payload,

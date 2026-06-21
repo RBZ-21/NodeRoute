@@ -12,6 +12,7 @@ import { getApiBaseUrl } from '@/lib/utils';
 type RequestOptions = RequestInit & {
   skipAuth?: boolean;
   responseType?: 'json' | 'blob';
+  clientActionId?: string;
 };
 
 export class ApiError extends Error {
@@ -41,7 +42,7 @@ async function request<T>(path: string, options: RequestOptions = {}) {
 }
 
 async function requestWithRefresh<T>(path: string, options: RequestOptions = {}, allowRefresh: boolean): Promise<T> {
-  const { skipAuth = false, responseType = 'json', headers, ...rest } = options;
+  const { skipAuth = false, responseType = 'json', clientActionId, headers, ...rest } = options;
   const nextHeaders = new Headers(headers);
 
   if (!nextHeaders.has('Content-Type') && rest.body && !(rest.body instanceof FormData)) {
@@ -52,6 +53,9 @@ async function requestWithRefresh<T>(path: string, options: RequestOptions = {},
   if (['POST', 'PATCH', 'PUT', 'DELETE'].includes(method.toUpperCase())) {
     const csrfToken = readCsrfToken();
     if (csrfToken) nextHeaders.set('X-CSRF-Token', csrfToken);
+  }
+  if (clientActionId) {
+    nextHeaders.set('X-Client-Action-Id', clientActionId);
   }
 
   const response = await fetch(buildUrl(path), {
@@ -136,29 +140,33 @@ export async function pingDriverLocation(payload: {
   });
 }
 
-export async function markStopArrived(stopId: string) {
+export async function markStopArrived(stopId: string, clientActionId?: string) {
   return request(`/api/stops/${stopId}/arrive`, {
     method: 'POST',
+    clientActionId,
   });
 }
 
-export async function markStopDeparted(stopId: string, payload?: Record<string, unknown>) {
+export async function markStopDeparted(stopId: string, payload?: Record<string, unknown>, clientActionId?: string) {
   return request(`/api/stops/${stopId}/depart`, {
     method: 'POST',
     body: payload ? JSON.stringify(payload) : undefined,
+    clientActionId,
   });
 }
 
-export async function deferStop(stopId: string) {
+export async function deferStop(stopId: string, clientActionId?: string) {
   return request(`/api/stops/${stopId}/defer`, {
     method: 'POST',
+    clientActionId,
   });
 }
 
-export async function patchStop(stopId: string, payload: Record<string, unknown>) {
+export async function patchStop(stopId: string, payload: Record<string, unknown>, clientActionId?: string) {
   return request(`/api/stops/${stopId}`, {
     method: 'PATCH',
     body: JSON.stringify(payload),
+    clientActionId,
   });
 }
 
@@ -192,10 +200,11 @@ export async function fetchInvoicePdf(invoiceId: string) {
   });
 }
 
-export async function submitTemperatureLog(payload: Record<string, unknown>) {
+export async function submitTemperatureLog(payload: Record<string, unknown>, clientActionId?: string) {
   return request('/api/temperature-logs', {
     method: 'POST',
     body: JSON.stringify(payload),
+    clientActionId,
   });
 }
 

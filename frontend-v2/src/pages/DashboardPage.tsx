@@ -1,14 +1,17 @@
 import {
   Activity,
   AlertTriangle,
+  ArrowDownRight,
   ArrowRight,
+  ArrowUpRight,
   Package,
   Scale,
   ShoppingCart,
+  Sparkles,
   Truck,
   Users,
 } from 'lucide-react';
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type ReactNode } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Badge } from '../components/ui/badge';
@@ -54,10 +57,10 @@ function activeStopsForRoute(route: RouteRecord): string[] {
 
 function trendText(current: number, previous: number, higherIsBetter = true) {
   const diff = current - previous;
-  if (diff === 0) return { label: 'No change vs yesterday', tone: 'neutral' as const };
+  if (diff === 0) return { shortLabel: 'No change', tone: 'neutral' as const };
   const positive = (diff > 0) === higherIsBetter;
   return {
-    label: `${diff > 0 ? '+' : '-'}${Math.abs(diff)} vs yesterday`,
+    shortLabel: `${diff > 0 ? '+' : '-'}${Math.abs(diff)}`,
     tone: positive ? ('positive' as const) : ('negative' as const),
   };
 }
@@ -302,48 +305,74 @@ export function DashboardPage() {
 
       <AiInsightBanner types={['anomaly', 'reorder', 'collections']} />
 
-      <div className="flex flex-wrap items-center gap-2">
-        <LiveIndicator updatedAt={statsQuery.dataUpdatedAt} onRefresh={refreshDashboard} refreshing={statsQuery.isFetching} />
-        <Button variant="outline" onClick={() => navigate('/orders')}>Orders Queue</Button>
-        <Button variant="outline" onClick={() => navigate('/routes')}>Route Workspace</Button>
-        {isAdmin ? <Button variant="outline" onClick={() => navigate('/purchasing')}>Purchasing</Button> : null}
+      {/* ── Page header ── */}
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
+        <div>
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">Operations Overview</h1>
+          <div className="mt-2.5">
+            <LiveIndicator updatedAt={statsQuery.dataUpdatedAt} onRefresh={refreshDashboard} refreshing={statsQuery.isFetching} />
+          </div>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <Button variant="outline" onClick={() => navigate('/orders')}>Orders Queue</Button>
+          <Button variant="outline" onClick={() => navigate('/routes')}>Route Workspace</Button>
+          {isAdmin ? <Button onClick={() => navigate('/purchasing')}>Purchasing</Button> : null}
+        </div>
       </div>
 
-      <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <MetricCard icon={Truck}          label="Total Deliveries" value={deliverySummary.totalDeliveries.toLocaleString()} trend={trendText(deliverySummary.totalDeliveries, deliverySummary.yesterday.totalDeliveries)} />
-        <MetricCard icon={Activity}       label="On-Time Rate"     value={`${deliverySummary.onTimeRate}%`} valueTone={deliverySummary.onTimeRate >= 90 ? 'emerald' : deliverySummary.onTimeRate >= 75 ? 'amber' : 'rose'} trend={trendText(deliverySummary.onTimeRate, deliverySummary.yesterday.onTimeRate)} />
-        <MetricCard icon={Users}          label="Active Drivers"   value={`${deliverySummary.activeDrivers} / ${deliverySummary.totalDrivers}`} trend={trendText(deliverySummary.activeDrivers, deliverySummary.yesterday.activeDrivers)} />
-        <MetricCard icon={AlertTriangle}  label="Failed Deliveries" value={deliverySummary.failed.toLocaleString()} valueTone={deliverySummary.failed > 0 ? 'rose' : 'emerald'} trend={trendText(deliverySummary.failed, deliverySummary.yesterday.failed, false)} />
+      <div className="grid gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+        <MetricCard icon={Truck}          iconTone="muted" label="Total Deliveries" value={deliverySummary.totalDeliveries.toLocaleString()} trend={trendText(deliverySummary.totalDeliveries, deliverySummary.yesterday.totalDeliveries)} />
+        <MetricCard icon={Activity}       iconTone="muted" label="On-Time Rate"     value={`${deliverySummary.onTimeRate}%`} valueTone={deliverySummary.onTimeRate >= 90 ? 'emerald' : deliverySummary.onTimeRate >= 75 ? 'amber' : 'rose'} trend={trendText(deliverySummary.onTimeRate, deliverySummary.yesterday.onTimeRate)} />
+        <MetricCard icon={Users}          iconTone="muted" label="Active Drivers"   value={`${deliverySummary.activeDrivers} / ${deliverySummary.totalDrivers}`} trend={trendText(deliverySummary.activeDrivers, deliverySummary.yesterday.activeDrivers)} />
+        <MetricCard icon={AlertTriangle}  iconTone={deliverySummary.failed > 0 ? 'rose' : 'emerald'} label="Failed Deliveries" value={deliverySummary.failed.toLocaleString()} valueTone={deliverySummary.failed > 0 ? 'rose' : 'emerald'} trend={trendText(deliverySummary.failed, deliverySummary.yesterday.failed, false)} />
+        <MetricCard
+          icon={Scale}
+          iconTone="amber"
+          label="Needs Weights"
+          value={weightQueueSummary.needsWeights.length.toLocaleString()}
+          valueTone={weightQueueSummary.needsWeights.length > 0 ? 'amber' : 'slate'}
+          hint="Orders awaiting weight capture"
+          onClick={weightQueueSummary.needsWeights.length > 0 ? () => setWeightModalOpen(true) : undefined}
+        />
+        <MetricCard
+          icon={Scale}
+          iconTone="emerald"
+          label="Weights Entered"
+          value={weightQueueSummary.weightsEntered.length.toLocaleString()}
+          valueTone={weightQueueSummary.weightsEntered.length > 0 ? 'emerald' : 'slate'}
+          hint="Ready to invoice & dispatch"
+          onClick={() => navigate('/orders?action=weights-entered')}
+        />
       </div>
 
       {/* ── AI Anomaly Detection ── */}
       {(isAdmin || role === 'manager') && (
-        <Card className={anomalies && anomalies.some((a) => a.severity === 'high') ? 'border-red-300 ring-1 ring-red-200' : ''}>
-          <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between py-3">
-            <div>
-              <CardTitle className="flex items-center gap-2 text-base">✦ AI Anomaly Detection</CardTitle>
-              {anomalySummary && <CardDescription>{anomalySummary}</CardDescription>}
-            </div>
-            <Button size="sm" variant="outline" onClick={() => void runAnomalyDetection()} disabled={anomalyLoading}>
-              {anomalyLoading ? 'Scanning…' : anomalies ? 'Re-scan' : 'Scan for Anomalies'}
-            </Button>
-          </CardHeader>
+        <Card className={cn('overflow-hidden rounded-2xl', anomalies && anomalies.some((a) => a.severity === 'high') && 'border-rose-300 ring-1 ring-rose-200 dark:border-rose-800 dark:ring-rose-900')}>
+          <SectionHeader
+            icon={Sparkles}
+            iconTone="primary"
+            title="AI Anomaly Detection"
+            description={anomalySummary || 'Scan recent operations for unusual patterns across the last 7 days.'}
+            actions={
+              <Button size="sm" variant="outline" onClick={() => void runAnomalyDetection()} disabled={anomalyLoading}>
+                {anomalyLoading ? 'Scanning…' : anomalies ? 'Re-scan' : 'Scan for Anomalies'}
+              </Button>
+            }
+          />
           {anomalies && (
-            <CardContent>
+            <CardContent className="p-5">
               {anomalies.length === 0 ? (
-                <p className="text-sm text-emerald-600">No anomalies detected in the last 7 days.</p>
+                <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">No anomalies detected in the last 7 days.</p>
               ) : (
-                <div className="space-y-2">
+                <div className="space-y-2.5">
                   {anomalies.map((a, i) => (
-                    <div key={i} className={`rounded-lg border px-4 py-3 text-sm ${a.severity === 'high' ? 'border-red-200 bg-red-50' : a.severity === 'medium' ? 'border-yellow-200 bg-yellow-50' : 'border-border bg-muted/30'}`}>
-                      <div className="flex items-start justify-between gap-3">
-                        <div>
-                          <span className={`mr-2 rounded-full px-2 py-0.5 text-xs font-semibold ${a.severity === 'high' ? 'bg-red-100 text-red-700' : a.severity === 'medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-muted text-muted-foreground'}`}>{a.severity}</span>
-                          <span className="font-medium">{a.affected_entity}</span>
-                          <p className="mt-1 text-muted-foreground">{a.description}</p>
-                          <p className="mt-0.5 text-xs text-muted-foreground">→ {a.recommended_action}</p>
-                        </div>
+                    <div key={i} className={cn('rounded-xl border px-4 py-3 text-sm', a.severity === 'high' ? 'border-rose-200 bg-rose-50 dark:border-rose-900 dark:bg-rose-950/30' : a.severity === 'medium' ? 'border-amber-200 bg-amber-50 dark:border-amber-900 dark:bg-amber-950/30' : 'border-border bg-muted/30')}>
+                      <div className="flex items-center gap-2.5">
+                        <span className={cn('rounded-full px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide', a.severity === 'high' ? 'bg-rose-100 text-rose-700 dark:bg-rose-900/60 dark:text-rose-200' : a.severity === 'medium' ? 'bg-amber-100 text-amber-700 dark:bg-amber-900/60 dark:text-amber-200' : 'bg-muted text-muted-foreground')}>{a.severity}</span>
+                        <span className="font-semibold text-foreground">{a.affected_entity}</span>
                       </div>
+                      <p className="mt-1.5 leading-relaxed text-muted-foreground">{a.description}</p>
+                      <p className="mt-1 text-xs font-medium text-primary">→ {a.recommended_action}</p>
                     </div>
                   ))}
                 </div>
@@ -353,47 +382,16 @@ export function DashboardPage() {
         </Card>
       )}
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Weight Entry Queue</CardTitle>
-          <CardDescription>Click a block to open the inline weight entry list — enter all weights and print invoices without leaving this screen.</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          {weightQueueSummary.needsWeights.length || weightQueueSummary.weightsEntered.length ? (
-            <div className="grid gap-3 md:grid-cols-2">
-              <QueueCard
-                icon={Scale}
-                title="Orders Needing Weights"
-                count={weightQueueSummary.needsWeights.length}
-                description="Click to open the weight entry list. Enter weights and print invoices right here."
-                tone="amber"
-                onClick={() => setWeightModalOpen(true)}
-              />
-              <QueueCard
-                icon={Scale}
-                title="Weights Entered"
-                count={weightQueueSummary.weightsEntered.length}
-                description="Open orders whose weight-managed items already have actual weights entered."
-                tone="emerald"
-                onClick={() => navigate('/orders?action=weights-entered')}
-              />
-            </div>
-          ) : (
-            <EmptyBlock title="No weight queue yet" description="Open weight-managed orders will appear here once processing starts capturing actual weights." />
-          )}
-        </CardContent>
-      </Card>
-
-      <div className="grid gap-4 xl:grid-cols-[1.2fr_1fr]">
-        <Card>
-          <CardHeader className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+      <div className="grid gap-4 xl:grid-cols-[1.55fr_1fr]">
+        <Card className="overflow-hidden rounded-2xl">
+          <CardHeader className="flex flex-col gap-3 border-b border-border p-5 md:flex-row md:items-center md:justify-between md:space-y-0">
             <div>
-              <CardTitle>Active Deliveries</CardTitle>
-              <CardDescription>Live delivery work that still needs attention from dispatch or drivers.</CardDescription>
+              <CardTitle className="text-[15px]">Active Deliveries</CardTitle>
+              <CardDescription className="mt-0.5">Live delivery work that still needs attention from dispatch or drivers.</CardDescription>
             </div>
-            <Button variant="outline" onClick={() => navigate('/routes?tab=deliveries')}>Open Deliveries<ArrowRight className="ml-2 h-4 w-4" /></Button>
+            <Button size="sm" variant="outline" onClick={() => navigate('/routes?tab=deliveries')}>Open Deliveries<ArrowRight className="ml-1.5 h-3.5 w-3.5" /></Button>
           </CardHeader>
-          <CardContent className="rounded-lg border border-border bg-card p-2">
+          <CardContent className="p-0">
             <Table>
               <TableHeader>
                 <TableRow>
@@ -420,24 +418,24 @@ export function DashboardPage() {
           </CardContent>
         </Card>
 
-        <Card>
-          <CardHeader className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+        <Card className="overflow-hidden rounded-2xl">
+          <CardHeader className="flex flex-col gap-3 border-b border-border p-5 md:flex-row md:items-center md:justify-between md:space-y-0">
             <div>
-              <CardTitle>Active Routes</CardTitle>
-              <CardDescription>Saved templates with today's active stop selections and assigned drivers.</CardDescription>
+              <CardTitle className="text-[15px]">Active Routes</CardTitle>
+              <CardDescription className="mt-0.5">Saved templates with today's active stop selections and assigned drivers.</CardDescription>
             </div>
-            <Button variant="outline" onClick={() => navigate('/routes')}>Open Routes<ArrowRight className="ml-2 h-4 w-4" /></Button>
+            <Button size="sm" variant="outline" onClick={() => navigate('/routes')}>Open Routes<ArrowRight className="ml-1.5 h-3.5 w-3.5" /></Button>
           </CardHeader>
-          <CardContent className="space-y-3">
+          <CardContent className="space-y-2.5 p-5">
             {activeRoutes.length ? (
               activeRoutes.map((route) => {
                 const inMotion = route.relatedDeliveries.filter((d) => d.status === 'pending' || d.status === 'in-transit').length;
                 return (
-                  <div key={route.id} className="rounded-lg border border-border bg-muted/20 p-3">
+                  <div key={route.id} className="rounded-xl border border-border bg-muted/30 p-3.5">
                     <div className="flex items-start justify-between gap-3">
-                      <div>
+                      <div className="min-w-0">
                         <div className="text-sm font-semibold text-foreground">{route.name || `Route ${route.id.slice(0, 8)}`}</div>
-                        <div className="mt-1 text-xs text-muted-foreground">Driver: {route.driver || 'Unassigned'} · {route.activeStopCount} active today · {route.savedStopCount} saved stops</div>
+                        <div className="mt-1 font-mono text-[11px] text-muted-foreground">Driver: {route.driver || 'Unassigned'} · {route.activeStopCount} active today · {route.savedStopCount} saved stops</div>
                         {route.notes ? <div className="mt-2 text-xs text-muted-foreground">{route.notes}</div> : null}
                       </div>
                       <Badge variant={inMotion > 0 ? 'secondary' : 'neutral'}>{inMotion > 0 ? `${inMotion} open` : 'Staged'}</Badge>
@@ -453,15 +451,17 @@ export function DashboardPage() {
       </div>
 
       {isAdmin ? (
-        <Card>
-          <CardHeader className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
-            <div>
-              <CardTitle>Purchasing Command Center</CardTitle>
-              <CardDescription>Jump directly into vendor PO creation, receiving, backorders, and procurement oversight.</CardDescription>
-            </div>
-            <Button onClick={() => navigate('/purchasing')}><ShoppingCart className="mr-2 h-4 w-4" />Open Purchasing Workspace</Button>
-          </CardHeader>
-          <CardContent className="space-y-4">
+        <Card className="overflow-hidden rounded-2xl">
+          <SectionHeader
+            icon={ShoppingCart}
+            iconTone="primary"
+            title="Purchasing Command Center"
+            description="Jump directly into vendor PO creation, receiving, backorders, and procurement oversight."
+            actions={
+              <Button size="sm" onClick={() => navigate('/purchasing')}><ShoppingCart className="mr-1.5 h-3.5 w-3.5" />Open Purchasing Workspace</Button>
+            }
+          />
+          <CardContent className="space-y-4 p-5">
             <div className="grid gap-3 md:grid-cols-3">
               <MiniMetric label="Open Vendor POs" value={purchasingSnapshot.open.toLocaleString()} />
               <MiniMetric label="Backordered POs" value={purchasingSnapshot.backordered.toLocaleString()} />
@@ -523,68 +523,62 @@ export function DashboardPage() {
 
       {/* ── Inventory Health ── */}
       {(isAdmin || role === 'manager') && (
-        <Card>
-          <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between py-3">
+        <Card className="overflow-hidden rounded-2xl">
+          <SectionHeader
+            icon={Package}
+            iconTone={lowStockItems.length > 0 ? 'rose' : 'emerald'}
+            title="Inventory Health"
+            description={lowStockItems.length > 0
+              ? `${lowStockItems.length} item${lowStockItems.length === 1 ? '' : 's'} below reorder point — review before the next dispatch`
+              : 'Live stock levels, low-stock alerts, and open purchase order status.'}
+            actions={
+              <>
+                <Button size="sm" variant="outline" onClick={() => navigate('/inventory')}>View Inventory<ArrowRight className="ml-1.5 h-3.5 w-3.5" /></Button>
+                <Button size="sm" onClick={() => navigate('/purchasing')}>Open POs</Button>
+              </>
+            }
+          />
+          <CardContent className="grid gap-4 p-5 lg:grid-cols-[260px_minmax(0,1fr)]">
+            <div className="flex flex-col gap-2.5">
+              <StatTile label="Low-stock items" sub="At or below reorder point" value={lowStockItems.length.toString()} tone={lowStockItems.length > 0 ? 'rose' : 'emerald'} />
+              <StatTile label="Open POs" sub="Awaiting receipt" value={purchasingSnapshot.open.toString()} tone={purchasingSnapshot.open > 0 ? 'amber' : 'slate'} />
+              <StatTile label="Open PO Value" sub="Committed spend" value={money(purchasingSnapshot.spend)} tone="slate" />
+            </div>
             <div>
-              <CardTitle className="flex items-center gap-2 text-base"><Package className="h-4 w-4" /> Inventory Health</CardTitle>
-              <CardDescription>Live stock levels, low-stock alerts, and open purchase order status.</CardDescription>
-            </div>
-            <div className="flex gap-2">
-              <Button size="sm" variant="outline" onClick={() => navigate('/inventory')}>View Inventory <ArrowRight className="ml-1 h-3 w-3" /></Button>
-              <Button size="sm" variant="outline" onClick={() => navigate('/purchasing')}>Open POs <ArrowRight className="ml-1 h-3 w-3" /></Button>
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="grid gap-3 sm:grid-cols-3 mb-4">
-              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Low-Stock Items</div>
-                <div className={cn('mt-1 text-2xl font-semibold', lowStockItems.length > 0 ? 'text-rose-600' : 'text-emerald-600')}>{lowStockItems.length}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">{lowStockItems.length === 0 ? 'All items above reorder points' : 'Items at or below reorder threshold'}</div>
-              </div>
-              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Open POs</div>
-                <div className={cn('mt-1 text-2xl font-semibold', purchasingSnapshot.open > 0 ? 'text-amber-600' : 'text-foreground')}>{purchasingSnapshot.open}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">Awaiting receipt from vendors</div>
-              </div>
-              <div className="rounded-lg border border-border bg-muted/30 px-4 py-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Open PO Value</div>
-                <div className="mt-1 text-2xl font-semibold">{money(purchasingSnapshot.spend)}</div>
-                <div className="text-xs text-muted-foreground mt-0.5">Total committed spend</div>
-              </div>
-            </div>
-
-            {lowStockItems.length > 0 && (
-              <div className="space-y-2">
-                <div className="text-sm font-semibold text-foreground">Items Needing Reorder</div>
-                <div className="grid gap-2 sm:grid-cols-2">
-                  {lowStockItems.slice(0, 6).map((item) => (
-                    <div key={item.item_number} className="flex items-center justify-between rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 dark:border-rose-800 dark:bg-rose-950/40">
-                      <div>
-                        <div className="text-sm font-medium text-foreground">{item.description || item.name || item.item_number}</div>
-                        <div className="text-xs text-muted-foreground">
-                          On hand: {asNumber(item.on_hand_qty, 0) < 0
-                            ? <NegativeStockQty qty={asNumber(item.on_hand_qty, 0)} unit={item.unit || ''} onFix={() => navigate(`/inventory?fix=${encodeURIComponent(item.item_number || '')}`)} />
-                            : <><strong className="text-foreground">{asNumber(item.on_hand_qty, 0).toFixed(1)}</strong> {item.unit || ''}</>} · Reorder at: {asNumber(item.reorder_point, 0).toFixed(1)} · Short by: <strong className="text-rose-600 dark:text-rose-300">{item.deficit.toFixed(1)}</strong>
+              <div className="mb-2.5 font-mono text-[10px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/80">Items needing reorder</div>
+              {lowStockItems.length > 0 ? (
+                <>
+                  <div className="grid gap-2.5 sm:grid-cols-2">
+                    {lowStockItems.slice(0, 6).map((item) => (
+                      <div key={item.item_number} className="flex items-center justify-between gap-2.5 rounded-xl border border-rose-200 bg-rose-50 px-3.5 py-3 dark:border-rose-900 dark:bg-rose-950/30">
+                        <div className="min-w-0">
+                          <div className="truncate text-sm font-semibold text-foreground">{item.description || item.name || item.item_number}</div>
+                          <div className="mt-1 font-mono text-[11px] text-muted-foreground">
+                            On hand: {asNumber(item.on_hand_qty, 0) < 0
+                              ? <NegativeStockQty qty={asNumber(item.on_hand_qty, 0)} unit={item.unit || ''} onFix={() => navigate(`/inventory?fix=${encodeURIComponent(item.item_number || '')}`)} />
+                              : <><strong className="text-foreground">{asNumber(item.on_hand_qty, 0).toFixed(1)}</strong> {item.unit || ''}</>} · Reorder at: {asNumber(item.reorder_point, 0).toFixed(1)} · Short by: <strong className="text-rose-600 dark:text-rose-300">{item.deficit.toFixed(1)}</strong>
+                          </div>
                         </div>
+                        <Button
+                          size="sm"
+                          className="h-8 shrink-0 px-3 text-xs"
+                          onClick={() => navigate(`/purchasing?item=${encodeURIComponent(item.item_number || '')}&qty=${Math.ceil(item.deficit)}`)}
+                        >
+                          Order
+                        </Button>
                       </div>
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="ml-2 shrink-0 text-xs"
-                        onClick={() => navigate(`/purchasing?item=${encodeURIComponent(item.item_number || '')}&qty=${Math.ceil(item.deficit)}`)}
-                      >
-                        Order
-                      </Button>
-                    </div>
-                  ))}
-                </div>
-                {lowStockItems.length > 6 && (
-                  <Button variant="ghost" size="sm" className="text-xs" onClick={() => navigate('/inventory')}>
-                    + {lowStockItems.length - 6} more low-stock items
-                  </Button>
-                )}
-              </div>
-            )}
+                    ))}
+                  </div>
+                  {lowStockItems.length > 6 && (
+                    <Button variant="ghost" size="sm" className="mt-2.5 text-xs" onClick={() => navigate('/inventory')}>
+                      + {lowStockItems.length - 6} more low-stock items
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <EmptyBlock title="All stock above reorder points" description="Items that drop to or below their reorder threshold will appear here, ready to reorder in one click." />
+              )}
+            </div>
           </CardContent>
         </Card>
       )}
@@ -592,26 +586,88 @@ export function DashboardPage() {
   );
 }
 
-function MetricCard({ icon: Icon, label, value, trend, valueTone = 'slate' }: { icon: typeof Truck; label: string; value: string; trend: { label: string; tone: 'positive' | 'negative' | 'neutral' }; valueTone?: 'slate' | 'emerald' | 'amber' | 'rose' }) {
-  return (
-    <Card>
-      <CardHeader className="space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <CardDescription className="text-xs font-semibold uppercase tracking-wide">{label}</CardDescription>
-          <div className="rounded-full bg-secondary p-2 text-muted-foreground"><Icon className="h-4 w-4" /></div>
+type IconTone = 'muted' | 'emerald' | 'amber' | 'rose' | 'primary';
+
+function iconChipClass(tone: IconTone) {
+  if (tone === 'emerald') return 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400';
+  if (tone === 'amber') return 'bg-amber-50 text-amber-600 dark:bg-amber-950/40 dark:text-amber-400';
+  if (tone === 'rose') return 'bg-rose-50 text-rose-600 dark:bg-rose-950/40 dark:text-rose-400';
+  if (tone === 'primary') return 'bg-primary/10 text-primary';
+  return 'bg-muted text-muted-foreground';
+}
+
+function MetricCard({ icon: Icon, iconTone = 'muted', label, value, trend, hint, valueTone = 'slate', onClick }: { icon: typeof Truck; iconTone?: IconTone; label: string; value: string; trend?: { shortLabel: string; tone: 'positive' | 'negative' | 'neutral' }; hint?: string; valueTone?: 'slate' | 'emerald' | 'amber' | 'rose'; onClick?: () => void }) {
+  const TrendIcon = trend?.tone === 'positive' ? ArrowUpRight : trend?.tone === 'negative' ? ArrowDownRight : null;
+  const interactive = typeof onClick === 'function';
+  const inner = (
+    <div className="flex flex-col gap-3.5 p-5">
+      <div className="flex items-center justify-between gap-3">
+        <span className="font-mono text-[11px] font-semibold uppercase tracking-[0.1em] text-muted-foreground/80">{label}</span>
+        <span className={cn('flex h-8 w-8 items-center justify-center rounded-lg', iconChipClass(iconTone))}><Icon className="h-4 w-4" /></span>
+      </div>
+      <div className={cn('text-[2rem] font-semibold leading-none tracking-tight', valueToneClass(valueTone))}>{value}</div>
+      {trend ? (
+        <div className="flex items-center gap-1.5 text-xs">
+          <span className={cn('inline-flex items-center gap-0.5 font-semibold', trendToneClass(trend.tone))}>
+            {TrendIcon ? <TrendIcon className="h-3.5 w-3.5" /> : null}{trend.shortLabel}
+          </span>
+          <span className="text-muted-foreground/70">vs yesterday</span>
         </div>
-        <div className={cn('text-3xl font-semibold', valueToneClass(valueTone))}>{value}</div>
-        <div className={cn('text-xs font-medium', trendToneClass(trend.tone))}>{trend.label}</div>
-      </CardHeader>
-    </Card>
+      ) : (
+        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground/70">
+          <span>{hint}</span>
+          {interactive ? <ArrowRight className="h-3.5 w-3.5 text-muted-foreground/60" /> : null}
+        </div>
+      )}
+    </div>
+  );
+
+  if (interactive) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        className="rounded-2xl border bg-card text-left text-card-foreground shadow-panel transition-colors hover:border-foreground/20 hover:bg-muted/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        {inner}
+      </button>
+    );
+  }
+  return <Card className="rounded-2xl">{inner}</Card>;
+}
+
+function SectionHeader({ icon: Icon, iconTone = 'muted', title, description, actions }: { icon: typeof Truck; iconTone?: IconTone; title: string; description?: string; actions?: ReactNode }) {
+  return (
+    <CardHeader className="flex flex-col gap-3 space-y-0 border-b border-border p-5 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center gap-3">
+        <span className={cn('flex h-9 w-9 flex-none items-center justify-center rounded-lg', iconChipClass(iconTone))}><Icon className="h-4 w-4" /></span>
+        <div>
+          <CardTitle className="text-[15px]">{title}</CardTitle>
+          {description ? <CardDescription className="mt-0.5">{description}</CardDescription> : null}
+        </div>
+      </div>
+      {actions ? <div className="flex flex-wrap gap-2">{actions}</div> : null}
+    </CardHeader>
+  );
+}
+
+function StatTile({ label, sub, value, tone }: { label: string; sub: string; value: string; tone: 'slate' | 'emerald' | 'amber' | 'rose' }) {
+  return (
+    <div className="flex items-center justify-between gap-3 rounded-xl border border-border bg-muted/30 px-3.5 py-3">
+      <div className="min-w-0">
+        <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">{label}</div>
+        <div className="mt-0.5 text-[11px] text-muted-foreground">{sub}</div>
+      </div>
+      <div className={cn('text-[1.75rem] font-semibold leading-none tracking-tight', valueToneClass(tone))}>{value}</div>
+    </div>
   );
 }
 
 function MiniMetric({ label, value }: { label: string; value: string }) {
   return (
-    <div className="rounded-lg border border-border bg-muted/20 p-3">
-      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
-      <div className="mt-2 text-xl font-semibold text-foreground">{value}</div>
+    <div className="rounded-xl border border-border bg-muted/30 p-3.5">
+      <div className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-muted-foreground/80">{label}</div>
+      <div className="mt-1.5 text-xl font-semibold text-foreground">{value}</div>
     </div>
   );
 }
@@ -622,28 +678,6 @@ function EmptyBlock({ title, description }: { title: string; description: string
       <div className="font-semibold text-foreground">{title}</div>
       <div className="mt-1">{description}</div>
     </div>
-  );
-}
-
-function QueueCard({ icon: Icon, title, count, description, tone, onClick }: { icon: typeof Scale; title: string; count: number; description: string; tone: 'emerald' | 'amber'; onClick: () => void }) {
-  return (
-    <button type="button" onClick={onClick} className="w-full rounded-lg border border-border bg-muted/20 p-4 text-left transition-colors hover:bg-muted/35">
-      <div className="flex items-start justify-between gap-3">
-        <div className="flex items-start gap-3">
-          <div className={cn('rounded-md border p-2', tone === 'emerald' ? 'border-emerald-200 bg-emerald-50 text-emerald-700' : 'border-amber-200 bg-amber-50 text-amber-700')}>
-            <Icon className="h-4 w-4" />
-          </div>
-          <div>
-            <div className="text-sm font-semibold text-foreground">{title}</div>
-            <div className="mt-1 text-xs text-muted-foreground">{description}</div>
-          </div>
-        </div>
-        <div className="text-right">
-          <div className={cn('text-2xl font-semibold', tone === 'emerald' ? 'text-emerald-600' : 'text-amber-600')}>{count}</div>
-          <div className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">Orders</div>
-        </div>
-      </div>
-    </button>
   );
 }
 

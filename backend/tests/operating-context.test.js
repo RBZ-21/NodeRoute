@@ -97,7 +97,7 @@ test('rowMatchesContext enforces company and active location boundaries', () => 
   assert.equal(rowMatchesContext({ company_id: 'company-a', location_id: 'loc-b' }, context), false);
 });
 
-test('filterRowsByContext keeps legacy unscoped rows visible', () => {
+test('filterRowsByContext excludes legacy unscoped rows without company_id', () => {
   const context = {
     companyId: 'company-a',
     activeCompanyId: 'company-a',
@@ -112,7 +112,7 @@ test('filterRowsByContext keeps legacy unscoped rows visible', () => {
     { id: 3, company_id: 'company-b', location_id: 'loc-a' },
   ];
 
-  assert.deepEqual(filterRowsByContext(rows, context).map(row => row.id), [1, 2]);
+  assert.deepEqual(filterRowsByContext(rows, context).map(row => row.id), [1]);
 });
 
 test('buildScopeFields uses active location for new records', () => {

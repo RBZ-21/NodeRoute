@@ -108,6 +108,7 @@ export type QueuedStopNoteUpdate = {
 export type StatusAction = 'arrived' | 'delivered' | 'skipped' | 'dropoff' | 'failed';
 
 export type QueuedStatusAction = {
+  id: string;
   stopId: string;
   action: StatusAction;
   payload: Record<string, unknown>;

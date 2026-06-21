@@ -49,7 +49,7 @@ const RESET_TOKEN_TTL_MS = 60 * 60 * 1000; // 1 hour
 
 let _templates = null;
 
-function hashPassword(pw) { return bcrypt.hashSync(pw, 10); }
+function hashPassword(pw) { return bcrypt.hash(pw, 10); }
 
 function hashResetToken(token) {
   return crypto.createHash('sha256').update(String(token || '')).digest('hex');
@@ -240,17 +240,25 @@ function sendRefreshSessionStoreError(res, error) {
 
 async function revokeRefreshSession(refreshToken) {
   if (!refreshToken) return;
+  let payload;
   try {
-    const payload = jwt.verify(refreshToken, JWT_SECRET);
-    if (payload?.tokenType !== 'refresh' || !payload?.sessionId) return;
-    await supabase
-      .from(REFRESH_SESSION_TABLE)
-      .update({ revoked_at: new Date().toISOString() })
-      .eq('id', payload.sessionId)
-      .eq('token_hash', hashRefreshToken(refreshToken))
-      .is('revoked_at', null);
+    payload = jwt.verify(refreshToken, JWT_SECRET);
   } catch {
-    // Invalid or expired refresh tokens are already unusable; still clear cookies.
+    // Invalid or expired refresh tokens are already unusable.
+    return;
+  }
+  if (payload?.tokenType !== 'refresh' || !payload?.sessionId) return;
+
+  const { error } = await supabase
+    .from(REFRESH_SESSION_TABLE)
+    .update({ revoked_at: new Date().toISOString() })
+    .eq('id', payload.sessionId)
+    .eq('token_hash', hashRefreshToken(refreshToken))
+    .is('revoked_at', null);
+  if (error) {
+    const err = new Error('Failed to revoke refresh session');
+    err.cause = error;
+    throw err;
   }
 }
 
@@ -627,7 +635,7 @@ router.post('/signup', loginLimiter, async (req, res) => {
     id: userId,
     name: fullName,
     email: normalizedEmail,
-    password_hash: hashPassword(password),
+    password_hash: await hashPassword(password),
     role: 'admin',
     status: 'active',
     company_id: company.id,
@@ -702,7 +710,7 @@ router.post('/setup-password', setupPasswordLimiter, async (req, res) => {
     supabase
       .from('users')
       .update({
-        password_hash: hashPassword(password),
+        password_hash: await hashPassword(password),
         status: 'active',
         invite_token: null,
         invite_expires: null,
@@ -768,7 +776,7 @@ router.post('/reset-password', passwordResetLimiter, async (req, res) => {
     supabase
       .from('users')
       .update({
-        password_hash: hashPassword(password),
+        password_hash: await hashPassword(password),
         status: 'active',
         reset_token: null,
         reset_expires: null,
@@ -825,7 +833,12 @@ router.post('/refresh', async (req, res) => {
 });
 
 router.post('/logout', async (req, res) => {
-  await revokeRefreshSession(req.cookies?.['refresh-token']);
+  try {
+    await revokeRefreshSession(req.cookies?.['refresh-token']);
+  } catch (err) {
+    logger.error({ err: err.message }, 'Refresh session revocation failed during logout');
+    return res.status(500).json({ error: 'Failed to revoke session' });
+  }
   clearAuthCookies(res);
   res.json({ message: 'Logged out' });
 });
@@ -839,7 +852,7 @@ router.post('/change-password', authenticateToken, changePasswordLimiter, async 
   if (error || !user) return res.status(404).json({ error: 'User not found' });
   const { valid } = verifyPassword(currentPassword, user.password_hash);
   if (!valid) return res.status(401).json({ error: 'Current password is incorrect' });
-  await supabase.from('users').update({ password_hash: bcrypt.hashSync(newPassword, 10) }).eq('id', req.user.id);
+  await supabase.from('users').update({ password_hash: await bcrypt.hash(newPassword, 10) }).eq('id', req.user.id);
   res.json({ message: 'Password updated' });
 });
 

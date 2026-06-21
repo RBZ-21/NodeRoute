@@ -148,6 +148,14 @@ backend/data/
 # Local agent worktrees
 .claude/worktrees/
 
+# History-cleanup / nested repository artifacts
+NodeRoute.git/
+NodeRoute_purge.git/
+*.bundle
+
+# Generated data exports
+output/
+
 # Rust/Tauri build output
 frontend-v2/src-tauri/target/
 

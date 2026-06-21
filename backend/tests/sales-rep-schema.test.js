@@ -17,7 +17,7 @@ test('Sales Rep Hub tables and columns are backed by migrations', () => {
   for (const marker of [
     'ADD COLUMN IF NOT EXISTS sales_rep_id',
     'CREATE TABLE IF NOT EXISTS customer_visit_logs',
-    'sales_rep_id    UUID REFERENCES users(id) ON DELETE SET NULL',
+    'sales_rep_id    TEXT REFERENCES users(id) ON DELETE SET NULL',
   ]) {
     assert.ok(crmMigration.includes(marker), `CRM migration missing marker ${marker}`);
   }
