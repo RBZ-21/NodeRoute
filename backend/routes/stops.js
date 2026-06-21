@@ -187,7 +187,7 @@ router.get('/:id', authenticateToken, async (req, res) => {
     const { data, error } = await scopeQueryByContext(supabase.from('stops').select('*'), req.context)
       .eq('id', req.params.id)
       .single();
-    if (error) return res.status(404).json({ error: 'Stop not found' });
+    if (error || !data) return res.status(404).json({ error: 'Stop not found' });
     if (req.user.role === 'driver' && String(data.driver_id) !== String(req.user.id)) {
       return res.status(403).json({ error: 'Access denied' });
     }
