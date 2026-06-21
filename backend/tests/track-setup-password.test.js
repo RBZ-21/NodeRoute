@@ -216,6 +216,9 @@ test('auth.js reset-password checks expiry, clears the token, and rate-limits', 
   const src = fs.readFileSync(path.join(backendRoutes, 'auth.js'), 'utf8');
   assert.ok(src.includes('This reset link is invalid or has expired.'), 'must reject invalid/expired tokens');
   assert.ok(src.includes('reset_token: null'), 'must clear the token after use');
+  assert.ok(src.includes(".update({\n        password_hash: hashPassword(password),"), 'must consume reset tokens through the password update');
+  assert.ok(src.includes(".eq('reset_token', hashResetToken(token))"), 'reset update must match the submitted token');
+  assert.ok(src.includes(".gt('reset_expires', new Date().toISOString())"), 'reset update must reject expired tokens atomically');
   assert.ok(src.includes('passwordResetLimiter'), 'reset endpoints must be rate-limited');
 });
 
