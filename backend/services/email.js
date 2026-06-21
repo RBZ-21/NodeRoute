@@ -100,7 +100,7 @@ function createResendMailer() {
 
   return {
     provider: 'resend',
-    sendMail: async ({ from, to, subject, html, text, attachments }) => {
+    sendMail: async ({ from, to, subject, html, text, attachments, idempotencyKey }) => {
       const payload = {
         from: from || resolveFromAddress('resend'),
         to: Array.isArray(to) ? to : [to],
@@ -115,7 +115,8 @@ function createResendMailer() {
         }));
       }
 
-      const { data, error } = await withTimeout(resend.emails.send(payload), timeoutMs, 'resend');
+      const options = idempotencyKey ? { idempotencyKey } : undefined;
+      const { data, error } = await withTimeout(resend.emails.send(payload, options), timeoutMs, 'resend');
       if (error) throw new Error(error.message);
       return data;
     },
