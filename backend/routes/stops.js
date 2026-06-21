@@ -185,11 +185,15 @@ router.get('/', authenticateToken, async (req, res) => {
 // GET /api/stops/:id
 router.get('/:id', authenticateToken, async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from('stops').select('*').eq('id', req.params.id).single();
-    if (error) return res.status(404).json({ error: 'Stop not found' });
+    const { data, error } = await scopeQueryByContext(supabase.from('stops').select('*'), req.context)
+      .eq('id', req.params.id)
+      .single();
+    if (error || !data) return res.status(404).json({ error: 'Stop not found' });
     if (req.user.role === 'driver' && String(data.driver_id) !== String(req.user.id)) {
       return res.status(403).json({ error: 'Access denied' });
+    }
+    if (!rowMatchesContext(data, req.context)) {
+      return res.status(403).json({ error: 'Forbidden' });
     }
     res.json(data);
   } catch (err) {
