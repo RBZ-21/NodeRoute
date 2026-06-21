@@ -153,11 +153,21 @@ test('auth.js setup-password enforces minimum 12-character password', () => {
 test('auth.js setup-password checks invite token expiry', () => {
   const src = fs.readFileSync(path.join(backendRoutes, 'auth.js'), 'utf8');
   assert.ok(src.includes('invite_expires'), 'must validate invite_expires timestamp');
-  assert.ok(src.includes('Invite link expired'), 'must return expiry error message');
+  assert.ok(src.includes(".gt('invite_expires', new Date().toISOString())"), 'must reject expired invites during token consumption');
+  assert.ok(src.includes('Invite link is invalid or has expired.'), 'must return generic invite failure message');
 });
 
 test('auth.js setup-password requires both token and password', () => {
   assert.ok(authValidationSource.includes('Token and password required'), 'must require both fields');
+});
+
+test('auth.js setup-password atomically consumes invite tokens', () => {
+  const src = fs.readFileSync(path.join(backendRoutes, 'auth.js'), 'utf8');
+  assert.ok(src.includes(".from('users')\n      .update({\n        password_hash: hashPassword(password),"), 'must consume invites through the password update');
+  assert.ok(src.includes(".eq('invite_token', token)"), 'setup update must match the submitted invite token');
+  assert.ok(src.includes('invite_token: null'), 'setup update must clear the invite token');
+  assert.ok(src.includes('invite_expires: null'), 'setup update must clear invite expiry');
+  assert.equal(src.includes("select('*').eq('invite_token', token)"), false, 'must not read invite token before consuming it');
 });
 
 // ── Password reset flow checks ───────────────────────────────────────────────
