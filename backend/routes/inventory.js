@@ -31,14 +31,28 @@ const router = express.Router();
 // Products whose names match this pattern require a lot number on every receipt.
 const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
 const needsLot = desc => LOT_REQUIRED.test(desc || '');
+const toFiniteNumber = (value, fallback = 0) => {
+  const parsed = Number(String(value ?? '').replace(/,/g, ''));
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
 const inventoryCreateBodySchema = z.object({
   description: z.string().trim().min(1, 'Product description required'),
+  description_line_1: z.string().trim().min(1).optional(),
   item_number: z.string().trim().min(1, 'item_number required'),
   category: z.string().optional(),
+  class_name: z.string().optional(),
   unit: z.string().optional(),
   cost: z.union([z.number(), z.string()]).optional(),
+  base_cost: z.union([z.number(), z.string()]).optional(),
+  cost_base: z.union([z.number(), z.string()]).optional(),
+  real_cost: z.union([z.number(), z.string()]).optional(),
+  cost_real: z.union([z.number(), z.string()]).optional(),
+  allocated_quantity: z.union([z.number(), z.string()]).optional(),
   on_hand_qty: z.coerce.number().finite().min(0, 'on_hand_qty must be a finite number ≥ 0'),
+  on_hand_quantity: z.union([z.number(), z.string()]).optional(),
   on_hand_weight: z.union([z.number(), z.string()]).optional(),
+  value_at_cost: z.union([z.number(), z.string()]).optional(),
+  value_at_level_1: z.union([z.number(), z.string()]).optional(),
   lot_item: z.string().optional(),
   notes: z.any().optional(),
 }).passthrough();
@@ -136,20 +150,55 @@ router.get('/', authenticateToken, async (req, res) => {
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryCreateBodySchema), async (req, res) => {
-  const { description, category, item_number, unit, cost, on_hand_qty, on_hand_weight, lot_item, notes } = req.validated.body;
+  const {
+    description,
+    description_line_1,
+    category,
+    class_name,
+    item_number,
+    unit,
+    cost,
+    base_cost,
+    cost_base,
+    real_cost,
+    cost_real,
+    allocated_quantity,
+    on_hand_qty,
+    on_hand_quantity,
+    on_hand_weight,
+    value_at_cost,
+    value_at_level_1,
+    lot_item,
+    notes,
+  } = req.validated.body;
+  const reportDescription = description_line_1 || description;
+  const reportClassName = class_name || category || 'Other';
+  const reportCostBase = toFiniteNumber(cost_base ?? base_cost ?? cost, 0);
+  const reportCostReal = toFiniteNumber(cost_real ?? real_cost ?? reportCostBase, reportCostBase);
+  const reportOnHandQuantity = toFiniteNumber(on_hand_quantity ?? on_hand_qty, 0);
   // Always set is_active: true explicitly so the GET filter never hides the
   // new row (Postgres neq/or logic excludes NULLs in certain drivers).
   const insertResult = await insertRecordWithOptionalScope(supabase, 'products', {
-    name:           description,   // products.name is the canonical column; description is a generated alias
+    name:           reportDescription,   // products.name is the canonical column; description is a generated alias
+    description_line_1: reportDescription,
     default_unit:   unit           || 'lb',
-    category:       category       || 'Other',
+    category:       reportClassName,
+    class_name:     reportClassName,
     item_number,
     unit:           unit           || 'lb',
-    cost:           parseFloat(cost)           || 0,
-    price_per_unit: parseFloat(cost)           || 0,
-    on_hand_qty,
-    on_hand_weight: parseFloat(on_hand_weight) || 0,
-    lot_item:       needsLot(description) ? 'Y' : (lot_item || 'N'),
+    cost:           reportCostBase,
+    base_cost:      reportCostBase,
+    cost_base:      reportCostBase,
+    real_cost:      reportCostReal,
+    cost_real:      reportCostReal,
+    price_per_unit: reportCostBase,
+    allocated_quantity: toFiniteNumber(allocated_quantity, 0),
+    on_hand_qty:    reportOnHandQuantity,
+    on_hand_quantity: reportOnHandQuantity,
+    on_hand_weight: toFiniteNumber(on_hand_weight, 0),
+    value_at_cost:  toFiniteNumber(value_at_cost, 0),
+    value_at_level_1: toFiniteNumber(value_at_level_1, 0),
+    lot_item:       needsLot(reportDescription) ? 'Y' : (lot_item || 'N'),
     notes:          notes || null,
     is_active:      true,
   }, req.context);
@@ -165,21 +214,21 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
 router.get('/low-stock', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { data, error } = await supabase
     .from('products')
-    .select('item_number, name, category, unit, on_hand_qty, cost, reorder_point, barcode, is_active, company_id, location_id')
+    .select('item_number, name, description_line_1, category, class_name, unit, on_hand_qty, on_hand_quantity, cost, cost_base, reorder_point, barcode, is_active, company_id, location_id')
     .not('reorder_point', 'is', null)
     .gt('reorder_point', 0);
   if (error) return res.status(500).json({ error: error.message });
   const scoped = filterRowsByContext(data || [], req.context);
   const low = scoped
     .filter((p) => {
-      const qty = toNumber(p.on_hand_qty, 0);
+      const qty = toNumber(p.on_hand_quantity ?? p.on_hand_qty, 0);
       const threshold = toNumber(p.reorder_point, 0);
       return qty <= threshold;
     })
     .map((p) => ({
       ...p,
-      description: p.name,
-      deficit: Math.max(0, toNumber(p.reorder_point, 0) - toNumber(p.on_hand_qty, 0)),
+      description: p.description_line_1 || p.name,
+      deficit: Math.max(0, toNumber(p.reorder_point, 0) - toNumber(p.on_hand_quantity ?? p.on_hand_qty, 0)),
     }));
   res.json(low);
 });
@@ -457,6 +506,7 @@ router.patch('/lots/:lotId', authenticateToken, requireRole('admin', 'manager'),
   const fields = req.validated.body;
   const { data, error } = await scopeQueryByContext(supabase.from('inventory_lots').update(fields), req.context).eq('id', req.params.lotId).select().single();
   if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: 'Lot not found' });
   const { data: prod } = await scopeQueryByContext(supabase.from('products'), req.context).select('description').eq('item_number', data.item_number).single();
   res.json({ ...data, item_description: prod?.description || null });
 });
@@ -870,18 +920,48 @@ router.post('/:id/reorder-alert', authenticateToken, requireRole('admin', 'manag
 
 // ── EXISTING CRUD (must come after named sub-routes) ─────────────────────────
 
-const COST_FIELDS = ['cost', 'base_cost', 'landed_cost', 'lot_cost', 'market_cost', 'real_cost'];
+const COST_FIELDS = ['cost', 'base_cost', 'cost_base', 'landed_cost', 'lot_cost', 'market_cost', 'real_cost', 'cost_real'];
 
 router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryProductPatchBodySchema), async (req, res) => {
   const existing = await dbQuery(scopeQueryByContext(supabase.from('products').select('*'), req.context).eq('item_number', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Product not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });
   const fields = { ...req.validated.body };
+  if (fields.description_line_1 !== undefined && fields.description === undefined) {
+    fields.description = fields.description_line_1;
+  }
   // Map description → name (description is a generated column; name is canonical)
   if (fields.description !== undefined) {
     if (needsLot(fields.description)) fields.lot_item = 'Y';
     fields.name = fields.description;
+    fields.description_line_1 = fields.description;
     delete fields.description;
+  }
+  if (fields.class_name !== undefined && fields.category === undefined) {
+    fields.category = fields.class_name;
+  }
+  if (fields.category !== undefined && fields.class_name === undefined) {
+    fields.class_name = fields.category;
+  }
+  if (fields.cost_base !== undefined) {
+    fields.base_cost = fields.cost_base;
+    fields.cost = fields.cost_base;
+    fields.price_per_unit = fields.cost_base;
+  } else if (fields.base_cost !== undefined) {
+    fields.cost_base = fields.base_cost;
+  } else if (fields.cost !== undefined) {
+    fields.cost_base = fields.cost;
+    fields.price_per_unit = fields.cost;
+  }
+  if (fields.cost_real !== undefined) {
+    fields.real_cost = fields.cost_real;
+  } else if (fields.real_cost !== undefined) {
+    fields.cost_real = fields.real_cost;
+  }
+  if (fields.on_hand_quantity !== undefined && fields.on_hand_qty === undefined) {
+    fields.on_hand_qty = fields.on_hand_quantity;
+  } else if (fields.on_hand_qty !== undefined) {
+    fields.on_hand_quantity = fields.on_hand_qty;
   }
   // Keep default_unit in sync when unit is patched
   if (fields.unit !== undefined) {

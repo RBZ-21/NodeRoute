@@ -10,6 +10,7 @@
 -- Schema notes:
 --   * The Customers table is mixed-case ("Customers") and Customers.id is
 --     an integer column in this deployment, so FKs use BIGINT.
+--   * public.users.id is TEXT in this deployment, so user FKs use TEXT.
 --   * order_id / invoice_id are stored as TEXT with no FK so the audit log
 --     remains valid across deployments where those PKs may be UUID or BIGINT.
 --   * Existing columns (credit_hold, credit_hold_reason, credit_hold_placed_at,
@@ -24,7 +25,7 @@ ALTER TABLE "Customers" ADD COLUMN IF NOT EXISTS credit_limit DECIMAL(12,2) DEFA
 ALTER TABLE "Customers" ADD COLUMN IF NOT EXISTS credit_terms VARCHAR(30);
 ALTER TABLE "Customers" ADD COLUMN IF NOT EXISTS current_balance DECIMAL(12,2) DEFAULT 0;
 ALTER TABLE "Customers" ADD COLUMN IF NOT EXISTS credit_status VARCHAR(20) DEFAULT 'good';
-ALTER TABLE "Customers" ADD COLUMN IF NOT EXISTS hold_placed_by UUID REFERENCES users(id);
+ALTER TABLE "Customers" ADD COLUMN IF NOT EXISTS hold_placed_by TEXT REFERENCES users(id);
 ALTER TABLE "Customers" ADD COLUMN IF NOT EXISTS hold_notes TEXT;
 ALTER TABLE "Customers" ADD COLUMN IF NOT EXISTS auto_hold_enabled BOOLEAN DEFAULT true;
 ALTER TABLE "Customers" ADD COLUMN IF NOT EXISTS warning_threshold_pct DECIMAL(5,2) DEFAULT 80.00;
@@ -34,7 +35,7 @@ ALTER TABLE "Customers" ADD COLUMN IF NOT EXISTS avg_days_to_pay INTEGER DEFAULT
 ALTER TABLE "Customers" ADD COLUMN IF NOT EXISTS payment_count INTEGER DEFAULT 0;
 ALTER TABLE "Customers" ADD COLUMN IF NOT EXISTS oldest_unpaid_invoice_date DATE;
 ALTER TABLE "Customers" ADD COLUMN IF NOT EXISTS credit_reviewed_at TIMESTAMPTZ;
-ALTER TABLE "Customers" ADD COLUMN IF NOT EXISTS credit_reviewed_by UUID REFERENCES users(id);
+ALTER TABLE "Customers" ADD COLUMN IF NOT EXISTS credit_reviewed_by TEXT REFERENCES users(id);
 
 -- credit_status: 'good' | 'warning' | 'hold' | 'suspended' | 'prepay_only'
 DO $$
@@ -61,7 +62,7 @@ CREATE TABLE IF NOT EXISTS credit_hold_log (
   new_credit_terms            VARCHAR(30),
   customer_balance_at_event   DECIMAL(12,2),
   triggered_by                VARCHAR(20),
-  performed_by                UUID REFERENCES users(id),
+  performed_by                TEXT REFERENCES users(id),
   order_id                    TEXT,
   invoice_id                  TEXT,
   override_reason             TEXT,
@@ -94,7 +95,7 @@ CREATE TABLE IF NOT EXISTS credit_hold_overrides (
   id                            UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   customer_id                   BIGINT NOT NULL REFERENCES "Customers"(id) ON DELETE CASCADE,
   order_id                      TEXT NOT NULL,
-  overridden_by                 UUID NOT NULL REFERENCES users(id),
+  overridden_by                 TEXT NOT NULL REFERENCES users(id),
   override_reason               TEXT NOT NULL CHECK (length(btrim(override_reason)) > 0),
   customer_balance_at_override  DECIMAL(12,2),
   credit_limit_at_override      DECIMAL(12,2),

@@ -32,7 +32,13 @@ import { AiInsightBanner } from '../components/ui/ai-insight-banner';
 import { asNumber, inventoryActionLabel } from './inventory.helpers';
 
 function money(v: number) { return v.toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
-function csvEscape(v: string) { return `"${String(v).replace(/"/g, '""')}`; }
+function reportNumber(v: unknown) { return asNumber(v).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
+function reportDescription(item: InventoryItem) { return item.description_line_1 || item.description || item.name || ''; }
+function reportClassName(item: InventoryItem) { return item.class_name || item.category || ''; }
+function reportCostBase(item: InventoryItem) { return item.cost_base ?? item.base_cost ?? item.cost; }
+function reportCostReal(item: InventoryItem) { return item.cost_real ?? item.real_cost ?? item.cost; }
+function reportOnHandQuantity(item: InventoryItem) { return item.on_hand_quantity ?? item.on_hand_qty; }
+function csvEscape(v: string) { return `"${String(v).replace(/"/g, '""')}"`; }
 function downloadCsv(filename: string, rows: string[][]) {
   const csv = rows.map((r) => r.map(csvEscape).join(',')).join('\n');
   const href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
@@ -59,7 +65,7 @@ function countSheetEmptyMessage({
   includeZeroStockInCounts: boolean;
 }) {
   const reasons: string[] = [];
-  if (countCategoryFilter !== 'all') reasons.push(`category scope is limited to ${countCategoryFilter}`);
+  if (countCategoryFilter !== 'all') reasons.push(`class name scope is limited to ${countCategoryFilter}`);
   if (recentSalesExclusionWindow !== 'all') reasons.push(`items not sold in the last ${recentSalesExclusionWindow} days are excluded`);
   if (!includeZeroStockInCounts) reasons.push('zero-stock items are hidden');
   if (!reasons.length) return 'No inventory rows are available for a count sheet yet.';
@@ -202,10 +208,17 @@ export function InventoryPage() {
       await addItemMutation.mutateAsync({
         item_number: addForm.item_number.trim(),
         description: addForm.description.trim(),
+        description_line_1: addForm.description.trim(),
         category: addForm.category.trim() || 'Other',
+        class_name: addForm.category.trim() || 'Other',
         unit: addForm.unit.trim() || 'lb',
         cost: addForm.cost !== '' ? Number(addForm.cost) : undefined,
+        base_cost: addForm.cost !== '' ? Number(addForm.cost) : undefined,
+        cost_base: addForm.cost !== '' ? Number(addForm.cost) : undefined,
+        real_cost: addForm.cost !== '' ? Number(addForm.cost) : undefined,
+        cost_real: addForm.cost !== '' ? Number(addForm.cost) : undefined,
         on_hand_qty: Number(addForm.on_hand_qty) || 0,
+        on_hand_quantity: Number(addForm.on_hand_qty) || 0,
         reorder_point: addForm.reorder_point !== '' ? Number(addForm.reorder_point) : null,
         barcode: addForm.barcode.trim() || null,
       });
@@ -221,15 +234,15 @@ export function InventoryPage() {
     setEditingItemNumber(item.item_number ?? '');
     setEditForm({
       item_number:   String(item.item_number ?? ''),
-      description:   String(item.description ?? item.name ?? ''),
-      category:      String(item.category ?? ''),
+      description:   String(reportDescription(item)),
+      category:      String(reportClassName(item)),
       unit:          String(item.unit ?? 'lb'),
       cost:          item.cost != null ? String(asNumber(item.cost)) : '',
-      base_cost:     item.base_cost   != null ? String(asNumber(item.base_cost))   : '',
+      base_cost:     reportCostBase(item) != null ? String(asNumber(reportCostBase(item))) : '',
       landed_cost:   item.landed_cost != null ? String(asNumber(item.landed_cost)) : '',
       lot_cost:      item.lot_cost    != null ? String(asNumber(item.lot_cost))    : '',
       market_cost:   item.market_cost != null ? String(asNumber(item.market_cost)) : '',
-      real_cost:     item.real_cost   != null ? String(asNumber(item.real_cost))   : '',
+      real_cost:     reportCostReal(item) != null ? String(asNumber(reportCostReal(item))) : '',
       reorder_point: item.reorder_point != null ? String(asNumber(item.reorder_point)) : '',
       barcode:       String(item.barcode ?? ''),
     });
@@ -248,15 +261,19 @@ export function InventoryPage() {
         patch: {
           item_number:   editForm.item_number.trim(),
           description:   editForm.description.trim(),
+          description_line_1: editForm.description.trim(),
           category:      editForm.category.trim() || undefined,
+          class_name:    editForm.category.trim() || undefined,
           unit:          editForm.unit || undefined,
           cost:          editForm.cost !== '' ? Number(editForm.cost) : undefined,
           ...(canEditCosts ? {
             base_cost:   editForm.base_cost   !== '' ? Number(editForm.base_cost)   : undefined,
+            cost_base:   editForm.base_cost   !== '' ? Number(editForm.base_cost)   : undefined,
             landed_cost: editForm.landed_cost !== '' ? Number(editForm.landed_cost) : undefined,
             lot_cost:    editForm.lot_cost    !== '' ? Number(editForm.lot_cost)    : undefined,
             market_cost: editForm.market_cost !== '' ? Number(editForm.market_cost) : undefined,
             real_cost:   editForm.real_cost   !== '' ? Number(editForm.real_cost)   : undefined,
+            cost_real:   editForm.real_cost   !== '' ? Number(editForm.real_cost)   : undefined,
           } : {}),
           reorder_point: editForm.reorder_point !== '' ? Number(editForm.reorder_point) : null,
           barcode:       editForm.barcode.trim() || null,
@@ -326,16 +343,16 @@ export function InventoryPage() {
     const n = search.trim().toLowerCase();
     return items
       .filter((i) => showInactive || i.is_active !== false)
-      .filter((i) => !n || [i.item_number, i.description, i.category].filter(Boolean).some((p) => String(p).toLowerCase().includes(n)));
+      .filter((i) => !n || [i.item_number, reportDescription(i), reportClassName(i)].filter(Boolean).some((p) => String(p).toLowerCase().includes(n)));
   }, [items, search, showInactive]);
   // Out Of Stock intentionally excludes inactive (seasonal/discontinued) SKUs —
   // they are not expected to have stock, so counting them inflates the KPI.
-  const summary = useMemo(() => ({ totalSkus: items.length, lowStock: items.filter((i) => asNumber(i.on_hand_qty) > 0 && asNumber(i.on_hand_qty) <= 10).length, outOfStock: items.filter((i) => i.is_active !== false && asNumber(i.on_hand_qty) <= 0).length, inventoryValue: items.reduce((s, i) => s + asNumber(i.on_hand_qty) * asNumber(i.cost), 0) }), [items]);
+  const summary = useMemo(() => ({ totalSkus: items.length, lowStock: items.filter((i) => asNumber(reportOnHandQuantity(i)) > 0 && asNumber(reportOnHandQuantity(i)) <= 10).length, outOfStock: items.filter((i) => i.is_active !== false && asNumber(reportOnHandQuantity(i)) <= 0).length, inventoryValue: items.reduce((s, i) => s + (asNumber(i.value_at_cost) || asNumber(reportOnHandQuantity(i)) * asNumber(reportCostBase(i))), 0) }), [items]);
   const countSheetRows = useMemo(() => {
-    const rows = items.map((item) => ({ id: item.id, item_number: String(item.item_number || '').trim(), description: String(item.description || '').trim() || 'Unnamed item', category: String(item.category || 'Uncategorized').trim() || 'Uncategorized', on_hand_qty: asNumber(item.on_hand_qty), unit: String(item.unit || '').trim() })).filter((i) => i.item_number || i.description);
+    const rows = items.map((item) => ({ id: item.id, item_number: String(item.item_number || '').trim(), description: String(reportDescription(item)).trim() || 'Unnamed item', category: String(reportClassName(item) || 'Uncategorized').trim() || 'Uncategorized', on_hand_qty: asNumber(reportOnHandQuantity(item)), unit: String(item.unit || '').trim() })).filter((i) => i.item_number || i.description);
     return rows.filter((i) => countCategoryFilter === 'all' || i.category === countCategoryFilter).filter((i) => includeZeroStockInCounts || i.on_hand_qty > 0).filter((i) => { if (recentSalesExclusionWindow === 'all' || !recentSoldItemKeys) return true; return recentSoldItemKeys.has(i.item_number.trim().toLowerCase()) || recentSoldItemKeys.has(i.description.trim().toLowerCase()); }).sort((a, b) => itemCategoryCompare(a, b) || a.description.localeCompare(b.description) || a.item_number.localeCompare(b.item_number));
   }, [items, countCategoryFilter, includeZeroStockInCounts, recentSalesExclusionWindow, recentSoldItemKeys]);
-  const countCategories = useMemo(() => [...new Set(items.map((i) => String(i.category || 'Uncategorized').trim() || 'Uncategorized'))].sort((a, b) => a.localeCompare(b)), [items]);
+  const countCategories = useMemo(() => [...new Set(items.map((i) => String(reportClassName(i) || 'Uncategorized').trim() || 'Uncategorized'))].sort((a, b) => a.localeCompare(b)), [items]);
   const countSheetGroups = useMemo(() => { const g = new Map<string, CountSheetRow[]>(); for (const r of countSheetRows) { const l = g.get(r.category) ?? []; l.push(r); g.set(r.category, l); } return [...g.entries()].map(([category, rows]) => ({ category, rows })); }, [countSheetRows]);
   const countSheetEmptyState = useMemo(() => countSheetEmptyMessage({
     countCategoryFilter,
@@ -363,14 +380,14 @@ export function InventoryPage() {
 
   function exportCountSheetCsv() {
     const scope = countCategoryFilter === 'all' ? 'all-categories' : countCategoryFilter.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-    downloadCsv(`inventory-count-sheet-${scope}.csv`, [['Category','Item #','Description','Current On Hand','Unit','Physical Count'], ...countSheetRows.map((i) => [i.category, i.item_number, i.description, i.on_hand_qty.toLocaleString(), i.unit, ''])]);
+    downloadCsv(`inventory-count-sheet-${scope}.csv`, [['Class Name','Item Number','Description Line 1','On Hand Quantity','Unit','Physical Count'], ...countSheetRows.map((i) => [i.category, i.item_number, i.description, i.on_hand_qty.toLocaleString(), i.unit, ''])]);
   }
   function printCountSheet() {
     const popup = window.open('', '_blank', 'width=1100,height=800');
     if (!popup) { setError('Could not open the print view. Please allow pop-ups and try again.'); return; }
-    const scopeLabel = countCategoryFilter === 'all' ? 'All Categories' : countCategoryFilter;
-    const sections = countSheetGroups.map((g) => `<section class="category-block"><h2>${sanitizeHtml(g.category)}</h2><table><thead><tr><th>Item #</th><th>Description</th><th>Current On Hand</th><th>Unit</th><th>Physical Count</th></tr></thead><tbody>${g.rows.map((i) => `<tr><td>${sanitizeHtml(i.item_number||'-')}</td><td>${sanitizeHtml(i.description)}</td><td>${sanitizeHtml(i.on_hand_qty.toLocaleString())}</td><td>${sanitizeHtml(i.unit||'-')}</td><td class="blank-cell"></td></tr>`).join('')}</tbody></table></section>`).join('');
-    popup.document.write(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>Inventory Count Sheet</title><style>body{font-family:Arial,sans-serif;margin:24px;color:#111827}h1{margin:0 0 6px;font-size:24px}.meta{margin-bottom:18px;color:#4b5563;font-size:12px}.category-block{margin-bottom:28px;page-break-inside:avoid}h2{margin:0 0 10px;font-size:18px;border-bottom:1px solid #d1d5db;padding-bottom:4px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #d1d5db;padding:8px 10px;font-size:12px;text-align:left}th{background:#f3f4f6}.blank-cell{min-width:140px;height:28px}@media print{body{margin:12px}}</style></head><body><h1>Inventory Count Sheet</h1><div class="meta">Category scope: ${sanitizeHtml(scopeLabel)} · Generated ${sanitizeHtml(new Date().toLocaleString())}</div>${sections||'<p>No inventory rows match the selected filters.</p>'}</body></html>`);
+    const scopeLabel = countCategoryFilter === 'all' ? 'All Class Names' : countCategoryFilter;
+    const sections = countSheetGroups.map((g) => `<section class="category-block"><h2>${sanitizeHtml(g.category)}</h2><table><thead><tr><th>Item Number</th><th>Description Line 1</th><th>On Hand Quantity</th><th>Unit</th><th>Physical Count</th></tr></thead><tbody>${g.rows.map((i) => `<tr><td>${sanitizeHtml(i.item_number||'-')}</td><td>${sanitizeHtml(i.description)}</td><td>${sanitizeHtml(i.on_hand_qty.toLocaleString())}</td><td>${sanitizeHtml(i.unit||'-')}</td><td class="blank-cell"></td></tr>`).join('')}</tbody></table></section>`).join('');
+    popup.document.write(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>Inventory Count Sheet</title><style>body{font-family:Arial,sans-serif;margin:24px;color:#111827}h1{margin:0 0 6px;font-size:24px}.meta{margin-bottom:18px;color:#4b5563;font-size:12px}.category-block{margin-bottom:28px;page-break-inside:avoid}h2{margin:0 0 10px;font-size:18px;border-bottom:1px solid #d1d5db;padding-bottom:4px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #d1d5db;padding:8px 10px;font-size:12px;text-align:left}th{background:#f3f4f6}.blank-cell{min-width:140px;height:28px}@media print{body{margin:12px}}</style></head><body><h1>Inventory Count Sheet</h1><div class="meta">Class Name scope: ${sanitizeHtml(scopeLabel)} · Generated ${sanitizeHtml(new Date().toLocaleString())}</div>${sections||'<p>No inventory rows match the selected filters.</p>'}</body></html>`);
     popup.document.close(); popup.focus(); popup.print();
   }
 
@@ -407,11 +424,11 @@ export function InventoryPage() {
               {lowStockItems.map((item) => (
                 <div key={item.item_number} className="flex items-center justify-between rounded-lg border border-rose-200 bg-white px-3 py-2 dark:border-rose-800 dark:bg-rose-950/40">
                   <div>
-                    <div className="text-sm font-medium text-foreground">{item.description || item.name || item.item_number}</div>
+                    <div className="text-sm font-medium text-foreground">{reportDescription(item) || item.item_number}</div>
                     <div className="text-xs text-muted-foreground">
-                      On hand: {asNumber(item.on_hand_qty) < 0
-                        ? <NegativeStockQty qty={asNumber(item.on_hand_qty)} onFix={() => { const match = items.find((i) => String(i.item_number || '').trim() === String(item.item_number || '').trim()); if (match) requestFix(match.id); }} />
-                        : <strong className="text-foreground">{asNumber(item.on_hand_qty).toFixed(1)}</strong>} · Reorder at: {asNumber(item.reorder_point).toFixed(1)} · Short by: <strong className="text-rose-600 dark:text-rose-300">{item.deficit.toFixed(1)}</strong> {item.unit || ''}
+                      On Hand Quantity: {asNumber(reportOnHandQuantity(item)) < 0
+                        ? <NegativeStockQty qty={asNumber(reportOnHandQuantity(item))} onFix={() => { const match = items.find((i) => String(i.item_number || '').trim() === String(item.item_number || '').trim()); if (match) requestFix(match.id); }} />
+                        : <strong className="text-foreground">{asNumber(reportOnHandQuantity(item)).toFixed(1)}</strong>} · Reorder at: {asNumber(item.reorder_point).toFixed(1)} · Short by: <strong className="text-rose-600 dark:text-rose-300">{item.deficit.toFixed(1)}</strong> {item.unit || ''}
                     </div>
                   </div>
                   <Button
@@ -442,12 +459,12 @@ export function InventoryPage() {
       <InventoryActionsCard items={items} fixRequest={fixRequest} />
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
-          <CardHeader><CardTitle>Inventory Count Reports</CardTitle><CardDescription>Print or export count sheets grouped by category.</CardDescription></CardHeader>
+          <CardHeader><CardTitle>Inventory Count Reports</CardTitle><CardDescription>Print or export count sheets grouped by class name.</CardDescription></CardHeader>
           <CardContent className="space-y-3">
             <div className="grid gap-3 md:grid-cols-3">
-              <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Category Scope</span>
+              <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Class Name Scope</span>
                 <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={countCategoryFilter} onChange={(e) => setCountCategoryFilter(e.target.value)}>
-                  <option value="all">All Categories</option>{countCategories.map((c) => <option key={c} value={c}>{c}</option>)}
+                  <option value="all">All Class Names</option>{countCategories.map((c) => <option key={c} value={c}>{c}</option>)}
                 </select>
               </label>
               <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Recent Sales Filter</span>
@@ -466,7 +483,7 @@ export function InventoryPage() {
               <div className="rounded-md border border-amber-300/80 bg-amber-50 px-4 py-3 text-sm text-amber-900">
                 <div className="font-semibold">No count-sheet rows match the current filters.</div>
                 <div className="mt-1">{countSheetEmptyState}</div>
-                <div className="mt-1">Try switching Category Scope to `All Categories`, re-enabling zero-stock items, or widening the recent-sales filter.</div>
+                <div className="mt-1">Try switching Class Name Scope to `All Class Names`, re-enabling zero-stock items, or widening the recent-sales filter.</div>
               </div>
             )}
             <div className="flex flex-wrap gap-2">
@@ -554,18 +571,18 @@ export function InventoryPage() {
           <div className="border-b border-border bg-muted/30 px-4 py-4">
             <form onSubmit={(e) => { void handleAddItem(e); }} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
               <label className="space-y-1 text-sm">
-                <span className="font-semibold">Item # <span className="text-destructive">*</span></span>
+                <span className="font-semibold">Item Number <span className="text-destructive">*</span></span>
                 <Input value={addForm.item_number} onChange={(e) => setAddForm((f) => ({ ...f, item_number: e.target.value }))} placeholder="e.g. SALMON-001" required />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="font-semibold">Description <span className="text-destructive">*</span></span>
+                <span className="font-semibold">Description Line 1 <span className="text-destructive">*</span></span>
                 <Input value={addForm.description} onChange={(e) => setAddForm((f) => ({ ...f, description: e.target.value }))} placeholder="e.g. Atlantic Salmon Fillet" required />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="font-semibold">Category</span>
+                <span className="font-semibold">Class Name</span>
                 <Input value={addForm.category} onChange={(e) => setAddForm((f) => ({ ...f, category: e.target.value }))} placeholder="e.g. Seafood" list="inv-category-list" />
                 <datalist id="inv-category-list">
-                  {[...new Set(items.map((i) => i.category).filter(Boolean))].sort().map((c) => <option key={c as string} value={c as string} />)}
+                  {[...new Set(items.map((i) => reportClassName(i)).filter(Boolean))].sort().map((c) => <option key={c as string} value={c as string} />)}
                 </datalist>
               </label>
               <label className="space-y-1 text-sm">
@@ -584,11 +601,11 @@ export function InventoryPage() {
                 </select>
               </label>
               <label className="space-y-1 text-sm">
-                <span className="font-semibold">Cost per unit ($)</span>
+                <span className="font-semibold">Cost: Base ($)</span>
                 <Input type="number" min="0" step="0.01" value={addForm.cost} onChange={(e) => setAddForm((f) => ({ ...f, cost: e.target.value }))} placeholder="0.00" />
               </label>
               <label className="space-y-1 text-sm">
-                <span className="font-semibold">On-hand qty</span>
+                <span className="font-semibold">On Hand Quantity</span>
                 <Input type="number" min="0" step="0.01" value={addForm.on_hand_qty} onChange={(e) => setAddForm((f) => ({ ...f, on_hand_qty: e.target.value }))} placeholder="0" />
               </label>
               <label className="space-y-1 text-sm">
@@ -611,14 +628,20 @@ export function InventoryPage() {
         )}
 
         <CardContent className="rounded-lg border border-border bg-card p-2">
+          <div className="overflow-x-auto">
           <Table>
             <TableHeader><TableRow>
-              <TableHead>Item #</TableHead>
-              <TableHead>Description</TableHead>
-              <TableHead>Category</TableHead>
+              <TableHead>Item Number</TableHead>
+              <TableHead>Description Line 1</TableHead>
+              <TableHead>Class Name</TableHead>
               {features.fsmaLotTracking && <TableHead>Active Lots</TableHead>}
-              <TableHead>On Hand</TableHead>
-              <TableHead>Cost</TableHead>
+              <TableHead>Allocated Quantity</TableHead>
+              <TableHead>On Hand Weight</TableHead>
+              <TableHead>On Hand Quantity</TableHead>
+              <TableHead>Cost: Base</TableHead>
+              <TableHead>Cost: Real</TableHead>
+              <TableHead>Value at Cost</TableHead>
+              <TableHead>Value at Level 1</TableHead>
               <TableHead>Status</TableHead>
               <TableHead title="Stock level that triggers a reorder alert">Reorder Pt</TableHead>
               <TableHead title="Active items appear in orders and counts; inactive = seasonal/off-season">Active</TableHead>
@@ -629,7 +652,7 @@ export function InventoryPage() {
             </TableRow></TableHeader>
             <TableBody>
               {filtered.length ? filtered.map((item) => {
-                const qty = asNumber(item.on_hand_qty);
+                const qty = asNumber(reportOnHandQuantity(item));
                 const itemLots = activeLotsByProduct.get(String(item.item_number || '').trim()) ?? [];
                 const isInactive = item.is_active === false;
                 const status = qty < 0 ? <Badge variant="destructive">Negative</Badge> : qty <= 0 ? <Badge variant="warning">Out</Badge> : qty <= 10 ? <Badge variant="secondary">Low</Badge> : <Badge variant="success">Healthy</Badge>;
@@ -640,15 +663,20 @@ export function InventoryPage() {
                       {item.item_number ?? '-'}
                       {isInactive && <span className="ml-1.5 rounded bg-gray-200 px-1 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-gray-500">Inactive</span>}
                     </TableCell>
-                    <TableCell>{item.description ?? '-'}</TableCell>
-                    <TableCell>{item.category ?? '-'}</TableCell>
+                    <TableCell>{reportDescription(item) || '-'}</TableCell>
+                    <TableCell>{reportClassName(item) || '-'}</TableCell>
                     {features.fsmaLotTracking && <TableCell><InventoryLotsCell lots={itemLots} isFtlProduct={item.is_ftl_product} /></TableCell>}
+                    <TableCell>{reportNumber(item.allocated_quantity)}</TableCell>
+                    <TableCell>{reportNumber(item.on_hand_weight)}</TableCell>
                     <TableCell>
                       {qty < 0
                         ? <NegativeStockQty qty={qty} unit={item.unit ?? ''} onFix={() => requestFix(item.id)} />
                         : <>{qty.toLocaleString()} {item.unit ?? ''}</>}
                     </TableCell>
-                    <TableCell>{money(asNumber(item.cost))}</TableCell>
+                    <TableCell>{money(asNumber(reportCostBase(item)))}</TableCell>
+                    <TableCell>{money(asNumber(reportCostReal(item)))}</TableCell>
+                    <TableCell>{money(asNumber(item.value_at_cost))}</TableCell>
+                    <TableCell>{money(asNumber(item.value_at_level_1))}</TableCell>
                     <TableCell>{status}</TableCell>
                     <TableCell><ReorderPointCell item={item} onSaved={(val) => { setReorderPointMutation.mutate({ itemNumber: item.item_number ?? '', reorderPoint: val }); patchCachedItem({ ...item, reorder_point: val }); }} /></TableCell>
                     <TableCell><ActiveToggle item={item} onToggled={patchCachedItem} /></TableCell>
@@ -661,18 +689,18 @@ export function InventoryPage() {
                   </TableRow>
                   {editingItemNumber === item.item_number && (
                     <TableRow>
-                      <TableCell colSpan={9 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0)} className="bg-muted/30 p-0">
+                      <TableCell colSpan={14 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0)} className="bg-muted/30 p-0">
                         <form onSubmit={(e) => { void handleEditItem(e); }} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 px-4 py-4">
                           <label className="space-y-1 text-sm">
-                            <span className="font-semibold">Item # <span className="text-destructive">*</span></span>
+                            <span className="font-semibold">Item Number <span className="text-destructive">*</span></span>
                             <Input value={editForm.item_number} onChange={(e) => setEditForm((f) => ({ ...f, item_number: e.target.value }))} required />
                           </label>
                           <label className="space-y-1 text-sm">
-                            <span className="font-semibold">Description <span className="text-destructive">*</span></span>
+                            <span className="font-semibold">Description Line 1 <span className="text-destructive">*</span></span>
                             <Input value={editForm.description} onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))} required />
                           </label>
                           <label className="space-y-1 text-sm">
-                            <span className="font-semibold">Category</span>
+                            <span className="font-semibold">Class Name</span>
                             <Input value={editForm.category} onChange={(e) => setEditForm((f) => ({ ...f, category: e.target.value }))} list="inv-category-list" />
                           </label>
                           <label className="space-y-1 text-sm">
@@ -687,7 +715,7 @@ export function InventoryPage() {
                             </select>
                           </label>
                           <label className="space-y-1 text-sm">
-                            <span className="font-semibold">Cost per unit ($)</span>
+                            <span className="font-semibold">Cost: Base ($)</span>
                             <Input type="number" min="0" step="0.01" value={editForm.cost} onChange={(e) => setEditForm((f) => ({ ...f, cost: e.target.value }))} />
                           </label>
                           <label className="space-y-1 text-sm">
@@ -706,7 +734,7 @@ export function InventoryPage() {
                               </div>
                               <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-5">
                                 <label className="space-y-1 text-sm">
-                                  <span className="font-semibold" title="Standard purchase cost from the vendor">Base Cost ($)</span>
+                                  <span className="font-semibold" title="Standard purchase cost from the vendor">Cost: Base ($)</span>
                                   <Input type="number" min="0" step="0.0001" value={editForm.base_cost} onChange={(e) => setEditForm((f) => ({ ...f, base_cost: e.target.value }))} />
                                 </label>
                                 <label className="space-y-1 text-sm">
@@ -722,7 +750,7 @@ export function InventoryPage() {
                                   <Input type="number" min="0" step="0.0001" value={editForm.market_cost} onChange={(e) => setEditForm((f) => ({ ...f, market_cost: e.target.value }))} />
                                 </label>
                                 <label className="space-y-1 text-sm">
-                                  <span className="font-semibold" title="True all-in cost after overrides / catch-weight reconciliation">Real Cost ($)</span>
+                                  <span className="font-semibold" title="True all-in cost after overrides / catch-weight reconciliation">Cost: Real ($)</span>
                                   <Input type="number" min="0" step="0.0001" value={editForm.real_cost} onChange={(e) => setEditForm((f) => ({ ...f, real_cost: e.target.value }))} />
                                 </label>
                               </div>
@@ -739,9 +767,10 @@ export function InventoryPage() {
                   )}
                   </Fragment>
                 );
-              }) : <TableRow><TableCell colSpan={9 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0)} className="text-muted-foreground">No inventory rows available.</TableCell></TableRow>}
+              }) : <TableRow><TableCell colSpan={14 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0)} className="text-muted-foreground">No inventory rows available.</TableCell></TableRow>}
             </TableBody>
           </Table>
+          </div>
         </CardContent>
       </Card>
     </div>

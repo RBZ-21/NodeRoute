@@ -356,6 +356,23 @@ const restoreSessionHandler = async (req, res) => {
       return res.status(403).json({ error: 'Saved session is not a superadmin session.' });
     }
 
+    const userId = payload?.userId || payload?.id || payload?.sub;
+    if (userId) {
+      const { data: userRow, error: userErr } = await supabase
+        .from('users')
+        .select('id, email, role, status')
+        .eq('id', userId)
+        .single();
+      if (userErr || !userRow || userRow.role !== 'superadmin' || userRow.status !== 'active') {
+        return res.status(403).json({ error: 'Saved session is not a superadmin session.' });
+      }
+      const configuredEmail = normalizeEmail(SUPERADMIN_EMAIL);
+      const dbEmail = normalizeEmail(userRow.email);
+      if (configuredEmail && configuredEmail !== '__superadmin_unset__' && dbEmail !== configuredEmail) {
+        return res.status(403).json({ error: 'Saved session is not a superadmin session.' });
+      }
+    }
+
     const configuredEmail = normalizeEmail(SUPERADMIN_EMAIL);
     const tokenEmail = normalizeEmail(payload?.email);
     if (configuredEmail && configuredEmail !== '__superadmin_unset__' && tokenEmail !== configuredEmail) {

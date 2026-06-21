@@ -177,6 +177,11 @@ function rowMatchesContext(row, context) {
   const activeCompanyId = normalizeId(context.activeCompanyId || context.companyId);
   const allowedCompanies = Array.isArray(context.accessibleCompanyIds) ? context.accessibleCompanyIds : [];
 
+  // Fail closed: rows without company_id must not leak across tenants.
+  if (activeCompanyId && !rowCompanyId) return false;
+  if (!activeCompanyId && context.companyId && !rowCompanyId) return false;
+  if (!activeCompanyId && allowedCompanies.length && !rowCompanyId) return false;
+
   if (activeCompanyId && rowCompanyId && rowCompanyId !== activeCompanyId) return false;
   if (!activeCompanyId && context.companyId && rowCompanyId && rowCompanyId !== context.companyId) return false;
   if (!activeCompanyId && allowedCompanies.length && rowCompanyId && !allowedCompanies.includes(rowCompanyId)) return false;

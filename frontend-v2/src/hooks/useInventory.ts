@@ -122,15 +122,24 @@ export function useEditInventoryItemMutation() {
       patch: Partial<{
         item_number: string;
         description: string;
+        description_line_1: string;
         category: string;
+        class_name: string;
         unit: string;
         cost: number;
         base_cost: number;
+        cost_base: number;
         landed_cost: number;
         lot_cost: number;
         market_cost: number;
         real_cost: number;
+        cost_real: number;
+        allocated_quantity: number;
         on_hand_qty: number;
+        on_hand_quantity: number;
+        on_hand_weight: number;
+        value_at_cost: number;
+        value_at_level_1: number;
         reorder_point: number | null;
         barcode: string | null;
         notes: string | null;
@@ -148,10 +157,21 @@ export function useAddInventoryItemMutation() {
     mutationFn: (item: {
       item_number: string;
       description: string;
+      description_line_1?: string;
       category?: string;
+      class_name?: string;
       unit?: string;
       cost?: number;
+      base_cost?: number;
+      cost_base?: number;
+      real_cost?: number;
+      cost_real?: number;
+      allocated_quantity?: number;
       on_hand_qty: number;
+      on_hand_quantity?: number;
+      on_hand_weight?: number;
+      value_at_cost?: number;
+      value_at_level_1?: number;
       reorder_point?: number | null;
       barcode?: string | null;
     }) => sendWithAuth<InventoryItem>('/api/inventory', 'POST', item),
