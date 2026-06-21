@@ -698,17 +698,24 @@ router.post('/setup-password', setupPasswordLimiter, async (req, res) => {
   const parsed = parseSetupPasswordBody(req.body);
   if (!parsed.success) return res.status(400).json({ error: parsed.error });
   const { token, password } = parsed.data;
-  const users = await dbQuery(supabase.from('users').select('*').eq('invite_token', token).limit(1), res);
+  const users = await dbQuery(
+    supabase
+      .from('users')
+      .update({
+        password_hash: hashPassword(password),
+        status: 'active',
+        invite_token: null,
+        invite_expires: null,
+      })
+      .eq('invite_token', token)
+      .gt('invite_expires', new Date().toISOString())
+      .select('*')
+      .limit(1),
+    res
+  );
   if (!users) return;
-  const u = users && users[0];
-  if (!u) return res.status(400).json({ error: 'Invalid invite token' });
-  if (new Date() > new Date(u.invite_expires)) return res.status(400).json({ error: 'Invite link expired' });
-  await supabase.from('users').update({
-    password_hash: hashPassword(password),
-    status: 'active',
-    invite_token: null,
-    invite_expires: null
-  }).eq('id', u.id);
+  const u = users[0];
+  if (!u) return res.status(400).json({ error: 'Invite link is invalid or has expired.' });
   try {
     await setAuthCookies(res, u);
   } catch (error) {
