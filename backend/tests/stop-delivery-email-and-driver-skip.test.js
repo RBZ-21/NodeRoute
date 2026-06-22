@@ -37,11 +37,11 @@ test('stop routes sync driver notes onto the linked invoice and mark it delivere
 
 test('driver app exposes a dedicated skip to end action on the stop detail screen', () => {
   for (const marker of [
-    'export async function deferStop(stopId: string)',
+    'export async function deferStop(stopId: string',
     "return request(`/api/stops/${stopId}/defer`, {",
     'deferStopToEnd: (stop: DriverStop) => Promise<void>;',
     'async function deferStopToEnd(stop: DriverStop)',
-    "await deferStop(stop.id);",
+    "await deferStop(stop.id, clientActionId);",
     "onClick={() => void runAction('skipped')}",
     "Skip - move to end",
   ]) {
