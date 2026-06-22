@@ -206,7 +206,7 @@ async function loadChatContext(message, context = {}) {
     shouldLoadOrders
       ? runScopedQuery(
         supabase.from('orders')
-          .select('id,order_number,customer_name,status,date,created_at,total')
+          .select('id,order_number,customer_name,status,created_at')
           .gte('created_at', since)
           .order('created_at', { ascending: false })
           .limit(15),
@@ -586,7 +586,7 @@ router.post('/customer-risk', authenticateToken, requireRole('admin', 'manager')
     const since = new Date(Date.now() - 90 * 86400000).toISOString();
     const [{ data: invoices }, { data: orders }] = await Promise.all([
       scopeQueryByContext(supabase.from('invoices').select('total,status,due_date,created_at,company_id,location_id'), req.context).eq('customer_name', customer.company_name).gte('created_at', since),
-      scopeQueryByContext(supabase.from('orders').select('status,created_at,date,company_id,location_id'), req.context).eq('customer', customerId).gte('created_at', since).order('created_at', { ascending: false }),
+      scopeQueryByContext(supabase.from('orders').select('status,created_at,company_id,location_id'), req.context).eq('customer_name', customer.company_name).gte('created_at', since).order('created_at', { ascending: false }),
     ]);
 
     const result = await scoreCustomerRisk(customer, invoices || [], orders || []);

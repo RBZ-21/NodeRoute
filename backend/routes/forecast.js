@@ -14,7 +14,7 @@ router.get('/orders', authenticateToken, requireRole('admin', 'manager'), async 
 
   const { data: orders, error } = await supabase
     .from('orders')
-    .select('id,customer,customer_name,description,item_name,date,created_at')
+    .select('id,customer_name,created_at')
     .gte('created_at', since)
     .order('created_at', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });

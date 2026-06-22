@@ -216,7 +216,7 @@ async function calculateUpcomingDemand(productId, daysAhead = 14) {
   const endDate = addDaysIso(daysAhead);
   const { data, error } = await supabase
     .from('orders')
-    .select('id,order_number,status,date,created_at,items')
+    .select('id,order_number,status,created_at,items')
     .in('status', ['pending', 'confirmed', 'in_process', 'processed'])
     .limit(5000);
   if (error) throw new Error(error.message);
