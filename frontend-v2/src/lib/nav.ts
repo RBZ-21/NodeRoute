@@ -81,10 +81,18 @@ const PhoneOrdersPage  = lazyNamed(() => import('../pages/PhoneOrdersPage'), 'Ph
 
 export const navGroups: NavGroup[] = [
   {
+    // Standalone top-level entry. Empty label → rendered header-less (FlatItems),
+    // so Dashboard sits on its own just above the Dispatch group.
+    id: 'home',
+    label: '',
+    items: [
+      { id: 'dashboard',    label: 'Dashboard',    path: '/dashboard',    icon: LayoutDashboard, component: DashboardPage },
+    ],
+  },
+  {
     id: 'dispatch',
     label: 'Dispatch',
     items: [
-      { id: 'dashboard',    label: 'Dashboard',    path: '/dashboard',    icon: LayoutDashboard, component: DashboardPage },
       { id: 'orders',       label: 'Orders',       path: '/orders',       icon: Package,         component: OrdersPage },
       { id: 'routes',       label: 'Routes',       path: '/routes',       icon: Map,             component: RoutesPage },
       { id: 'map',          label: 'Map',          path: '/map',          icon: Globe2,          component: MapPage },
