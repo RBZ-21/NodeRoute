@@ -19,9 +19,14 @@ const CSRF_EXEMPT = new Set([
 ]);
 
 // Columns safe to attach to req.user — never load password_hash or token fields.
+// NOTE: only physical columns of the `users` table may be listed here — this is
+// selected directly with no fallback, so a non-existent column makes every
+// authenticated request fail with a 503. `company_name`/`location_name` are NOT
+// columns on `users`; operating-context derives them (with defaults) from the
+// company/location ids, so they must not be selected here.
 const USER_AUTH_FIELDS = [
   'id', 'name', 'email', 'role', 'status', 'company_id', 'location_id',
-  'company_name', 'location_name', 'platform_role', 'phone', 'vehicle_id',
+  'platform_role', 'phone', 'vehicle_id',
   'created_at',
 ].join(',');
 
