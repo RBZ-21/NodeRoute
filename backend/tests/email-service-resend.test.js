@@ -24,15 +24,22 @@ function loadEmailServiceWithResendMock(send) {
   };
 
   try {
-    return require(emailServicePath);
-  } finally {
+    return {
+      service: require(emailServicePath),
+      restore: () => {
+        Module._load = originalLoad;
+      },
+    };
+  } catch (error) {
     Module._load = originalLoad;
+    throw error;
   }
 }
 
 test('Resend mailer forwards idempotency keys to SDK send options', async () => {
   const originalEnv = { ...process.env };
   const calls = [];
+  let restoreResendMock = () => {};
 
   try {
     process.env.RESEND_API_KEY = 're_test';
@@ -44,10 +51,12 @@ test('Resend mailer forwards idempotency keys to SDK send options', async () => 
     delete process.env.SMTP_USER;
     delete process.env.SMTP_PASS;
 
-    const { createConfiguredMailers } = loadEmailServiceWithResendMock((payload, options) => {
+    const { service, restore } = loadEmailServiceWithResendMock((payload, options) => {
       calls.push({ payload, options });
       return Promise.resolve({ data: { id: 'email_123' }, error: null });
     });
+    restoreResendMock = restore;
+    const { createConfiguredMailers } = service;
 
     const [mailer] = createConfiguredMailers();
     await mailer.sendMail({
@@ -61,6 +70,7 @@ test('Resend mailer forwards idempotency keys to SDK send options', async () => 
     assert.deepEqual(calls[0].options, { idempotencyKey: 'user-invite/user-123' });
     assert.deepEqual(calls[0].payload.to, ['delivered@resend.dev']);
   } finally {
+    restoreResendMock();
     process.env = originalEnv;
     delete require.cache[emailServicePath];
   }

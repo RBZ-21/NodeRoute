@@ -61,10 +61,13 @@ describe('navGroups integrity', () => {
 
   it('matches the consolidated group structure', () => {
     expect(navGroups.map((g) => g.label)).toEqual([
-      'Dispatch', 'Inventory', 'Customers', 'Financials', 'Insights', 'Admin',
+      '', 'Dispatch', 'Inventory', 'Customers', 'Financials', 'Insights', 'Admin',
     ]);
+    // Dashboard is its own standalone (empty-label) group above Dispatch.
+    const home = navGroups.find((g) => g.id === 'home');
+    expect(home?.items.map((i) => i.id)).toEqual(['dashboard']);
     const dispatch = navGroups.find((g) => g.id === 'dispatch');
-    expect(dispatch?.items.map((i) => i.id)).toEqual(['dashboard', 'orders', 'routes', 'map']);
+    expect(dispatch?.items.map((i) => i.id)).toEqual(['orders', 'routes', 'map']);
   });
 
   it('preserves role guards after the nav consolidation', () => {

@@ -333,7 +333,7 @@ describe('InventoryPage', () => {
     const reportCard = screen.getByRole('heading', { name: 'Inventory Count Reports' }).closest('div.rounded-lg') as HTMLElement | null;
     if (!reportCard) throw new Error('Expected inventory count reports card');
 
-    fireEvent.change(within(reportCard).getByLabelText('Category Scope'), { target: { value: 'Packaging' } });
+    fireEvent.change(within(reportCard).getByLabelText('Class Name Scope'), { target: { value: 'Packaging' } });
     fireEvent.click(within(reportCard).getByLabelText('Include zero-stock items'));
     fireEvent.click(within(reportCard).getByRole('button', { name: 'Print Count Sheet' }));
 
@@ -399,7 +399,7 @@ describe('InventoryPage', () => {
     const reportCard = screen.getByRole('heading', { name: 'Inventory Count Reports' }).closest('div.rounded-lg') as HTMLElement | null;
     if (!reportCard) throw new Error('Expected inventory count reports card');
 
-    fireEvent.change(within(reportCard).getByLabelText('Category Scope'), { target: { value: 'Seafood' } });
+    fireEvent.change(within(reportCard).getByLabelText('Class Name Scope'), { target: { value: 'Seafood' } });
     fireEvent.change(within(reportCard).getByLabelText('Recent Sales Filter'), { target: { value: '30' } });
     fireEvent.click(within(reportCard).getByLabelText('Include zero-stock items'));
 
@@ -408,7 +408,7 @@ describe('InventoryPage', () => {
     });
 
     expect(await within(reportCard).findByText('No count-sheet rows match the current filters.')).toBeInTheDocument();
-    expect(within(reportCard).getByText(/category scope is limited to Seafood/i)).toBeInTheDocument();
+    expect(within(reportCard).getByText(/class name scope is limited to Seafood/i)).toBeInTheDocument();
     expect(within(reportCard).getByRole('button', { name: 'Print Count Sheet' })).toBeDisabled();
   });
 });

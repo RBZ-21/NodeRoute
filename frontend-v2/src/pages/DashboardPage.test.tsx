@@ -121,12 +121,12 @@ describe('DashboardPage', () => {
   it('renders admin dashboard data and navigates from command buttons', async () => {
     renderDashboardPage();
 
-    expect(await screen.findByText('Weight Entry Queue')).toBeInTheDocument();
+    expect(await screen.findByText('Operations Overview')).toBeInTheDocument();
     expect(screen.queryByText('Operational Snapshot')).not.toBeInTheDocument();
     expect(await screen.findByText('12')).toBeInTheDocument();
     expect(screen.getAllByText('92%').length).toBeGreaterThan(0);
     expect(screen.getByText('Alex Driver')).toBeInTheDocument();
-    expect(screen.getByText('Orders Needing Weights')).toBeInTheDocument();
+    expect(screen.getByText('Needs Weights')).toBeInTheDocument();
     expect(screen.getByText('Weights Entered')).toBeInTheDocument();
     expect(screen.getByText('North Route')).toBeInTheDocument();
     expect(screen.getAllByText('$2,000.00').length).toBeGreaterThan(0);
@@ -134,7 +134,7 @@ describe('DashboardPage', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Orders Queue' }));
     expect(navigateMock).toHaveBeenCalledWith('/orders');
 
-    fireEvent.click(screen.getByRole('button', { name: /Orders Needing Weights/i }));
+    fireEvent.click(screen.getByRole('button', { name: /Needs Weights/i }));
     expect(await screen.findByText('1 order with pending weights')).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole('button', { name: /Weights Entered/i }));
