@@ -7,7 +7,7 @@ const {
   insertRecordWithOptionalScope,
   scopeQueryByContext,
 } = require('../services/operating-context');
-const { recordDriverClientAction } = require('../lib/driver-client-action');
+const { findDriverClientAction, recordDriverClientAction } = require('../lib/driver-client-action');
 const { validateBody, validateQuery } = require('../lib/zod-validate');
 
 const router = express.Router();
@@ -127,7 +127,8 @@ router.get('/export.csv', authenticateToken, requireRole('admin', 'manager'), va
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager', 'driver'), validateBody(temperatureLogBodySchema), async (req, res) => {
-  const replay = await recordDriverClientAction(req, { actionType: 'temperature_log' });
+  const clientAction = { actionType: 'temperature_log' };
+  const replay = await findDriverClientAction(req, clientAction);
   if (replay.duplicate) {
     return res.json({ ok: true, replay: true });
   }
@@ -135,6 +136,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager', 'driver'), v
   const payload = normalizeTemperaturePayload(req.validated.body, req.user);
   const insertResult = await insertRecordWithOptionalScope(supabase, 'temperature_logs', payload, req.context);
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
+  await recordDriverClientAction(req, clientAction);
   res.json(insertResult.data);
 });
 

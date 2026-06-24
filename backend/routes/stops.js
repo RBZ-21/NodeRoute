@@ -19,7 +19,7 @@ const {
   statusAfterDeliveryCompletion,
 } = require('../services/invoice-delivery');
 const { syncRouteMutation } = require('../services/route-stop-sync');
-const { recordDriverClientAction } = require('../lib/driver-client-action');
+const { findDriverClientAction, recordDriverClientAction } = require('../lib/driver-client-action');
 
 const STOP_FIELDS = [
   'route_id', 'customer_id', 'address', 'status', 'name',
@@ -236,10 +236,11 @@ router.patch('/:id', authenticateToken, async (req, res) => {
       }
       if (!Object.keys(update).length) return res.status(400).json({ error: 'No valid fields provided' });
 
-      const replay = await recordDriverClientAction(req, {
+      const clientAction = {
         actionType: update.status ? `stop_status_${update.status}` : 'stop_patch',
         resourceId: req.params.id,
-      });
+      };
+      const replay = await findDriverClientAction(req, clientAction);
       if (replay.duplicate) {
         const { data: stop } = await scopeQueryByContext(supabase.from('stops').select('*'), req.context).eq('id', req.params.id).single();
         return res.json(stop || { ok: true, replay: true });
@@ -257,6 +258,7 @@ router.patch('/:id', authenticateToken, async (req, res) => {
           console.error('[stops] invoice driver-notes sync failed:', invoiceSyncError.message);
         }
       }
+      await recordDriverClientAction(req, clientAction);
       return res.json(data);
     }
 
@@ -318,7 +320,8 @@ router.post('/:id/arrive', authenticateToken, async (req, res) => {
     if (!auth.ok) return;
     const { route } = auth;
 
-    const replay = await recordDriverClientAction(req, { actionType: 'stop_arrive', resourceId: req.params.id });
+    const clientAction = { actionType: 'stop_arrive', resourceId: req.params.id };
+    const replay = await findDriverClientAction(req, clientAction);
     if (replay.duplicate) {
       const { data: stop } = await scopeQueryByContext(supabase.from('stops').select('*'), req.context).eq('id', req.params.id).single();
       return res.json({ ok: true, replay: true, stop: stop || null });
@@ -350,6 +353,7 @@ router.post('/:id/arrive', authenticateToken, async (req, res) => {
       .select()
       .single();
     if (insertErr) return res.status(500).json({ error: insertErr.message });
+    await recordDriverClientAction(req, clientAction);
     invalidateDashboardCache(req.context);
     deliveryNotifications.notifyDriverArriving(supabase, req.params.id, route.id).catch(() => {});
     res.json(record);
@@ -365,7 +369,8 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
     if (!auth.ok) return;
     const { route, stop } = auth;
 
-    const replay = await recordDriverClientAction(req, { actionType: 'stop_depart', resourceId: req.params.id });
+    const clientAction = { actionType: 'stop_depart', resourceId: req.params.id };
+    const replay = await findDriverClientAction(req, clientAction);
     if (replay.duplicate) {
       const { data: currentStop } = await scopeQueryByContext(supabase.from('stops').select('*'), req.context).eq('id', req.params.id).single();
       return res.json({ ok: true, replay: true, stop: currentStop || null });
@@ -429,6 +434,7 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
       console.error('[stops] delivery invoice email failed:', emailError?.message || emailError);
     }
 
+    await recordDriverClientAction(req, clientAction);
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -516,7 +522,8 @@ router.post('/:id/defer', authenticateToken, async (req, res) => {
       }
     }
 
-    const replay = await recordDriverClientAction(req, { actionType: 'stop_defer', resourceId: req.params.id });
+    const clientAction = { actionType: 'stop_defer', resourceId: req.params.id };
+    const replay = await findDriverClientAction(req, clientAction);
     if (replay.duplicate) {
       return res.json({ ok: true, replay: true, stop });
     }
@@ -560,6 +567,7 @@ router.post('/:id/defer', authenticateToken, async (req, res) => {
     });
     if (syncResult.error) return res.status(500).json({ error: syncResult.error.message });
 
+    await recordDriverClientAction(req, clientAction);
     res.json({
       route_id: route.id,
       active_stop_ids: activeIds,
