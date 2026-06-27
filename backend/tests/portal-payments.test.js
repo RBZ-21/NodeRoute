@@ -47,11 +47,9 @@ test('payment-method-routes imports scopeQueryByContext from operating-context',
     path.join(repoRoot, 'backend', 'routes', 'portal', 'payment-method-routes.js'),
     'utf8'
   );
-  assert.match(source, /require\('\.\.\/\.\.\/services\/operating-context'\)/);
-  assert.doesNotMatch(
-    source,
-    /scopeQueryByContext[\s\S]*require\('\.\/payments-shared'\)/
-  );
+  const importBlock = source.slice(0, source.indexOf('module.exports'));
+  assert.match(importBlock, /\{ scopeQueryByContext \} = require\('\.\.\/\.\.\/services\/operating-context'\)/);
+  assert.doesNotMatch(importBlock, /scopeQueryByContext,\s*\n\s*isMissingPortalPaymentTables/);
   const { scopeQueryByContext } = require('../services/operating-context');
   assert.equal(typeof scopeQueryByContext, 'function');
 });
