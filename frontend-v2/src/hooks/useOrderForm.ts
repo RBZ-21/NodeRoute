@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { InventoryProduct, LotCode, Order, OrderCharge, OrderLineDraft } from '../pages/orders.types';
 import { asNumber, draftSubtotal, emptyLine, normalizeText, orderItemQty, productSelectionKey } from '../pages/orders.types';
 
@@ -185,7 +185,7 @@ export function useOrderForm({
     setLines(draftLines.length ? draftLines : [emptyLine()]);
   }
 
-  function buildPayload() {
+  const buildPayload = useCallback(() => {
     const validLines = lines.filter((line) => {
       if (!line.name.trim()) return false;
       if (line.isCatchWeight) return asNumber(line.estimatedWeight) > 0;
@@ -236,23 +236,23 @@ export function useOrderForm({
       items,
       routeId: routeId || null,
     };
-  }
+  }, [
+    charges,
+    customerAddress,
+    customerEmail,
+    customerName,
+    customerPhone,
+    fulfillmentType,
+    lines,
+    notes,
+    routeId,
+    taxEnabled,
+    taxRate,
+  ]);
 
   const currentSnapshot = useMemo(
     () => JSON.stringify(buildPayload()),
-    [
-      customerName,
-      customerEmail,
-      customerPhone,
-      customerAddress,
-      fulfillmentType,
-      notes,
-      taxEnabled,
-      taxRate,
-      charges,
-      lines,
-      routeId,
-    ],
+    [buildPayload],
   );
 
   useEffect(() => {

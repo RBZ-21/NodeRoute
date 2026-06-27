@@ -19,14 +19,9 @@ import {
 import {
   clearAllStopDrafts,
   clearStopDraft,
-  clearOfflineRoutePackStatus,
   clearQueuedStopNoteUpdates,
   clearQueuedTemperatureLogs,
-  clearCache,
-  clearSelectedRouteId,
-  clearToken,
-  initializeTokenStorage,
-  clearUser,
+  clearSensitiveStorage,
   enqueueStopNoteUpdate,
   enqueueTemperatureLog,
   loadOfflineRoutePackStatus,
@@ -42,6 +37,7 @@ import {
   saveQueuedTemperatureLogs,
   saveSelectedRouteId,
   saveUser,
+  initializeTokenStorage,
 } from '@/lib/storage';
 import { extractStopItems, findLinkedDelivery, getCurrentRoute, getRouteInvoices, isArrivedStatus, isDeliveredStatus } from '@/lib/utils';
 import type {
@@ -58,7 +54,7 @@ import type {
   StopDraft,
 } from '@/types';
 import { useToast } from '@/hooks/useToast';
-import { clearOfflineStatusConflicts, clearOfflineStatusQueue, useOfflineQueue } from '@/hooks/useOfflineQueue';
+import { useOfflineQueue } from '@/hooks/useOfflineQueue';
 
 const defaultCompanySettings: CompanySettings = {
   forceDriverSignature: false,
@@ -390,16 +386,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     } catch {
       // Clear local state even if the network call fails.
     } finally {
-      await clearToken();
-      clearUser();
-      clearCache();
-      clearSelectedRouteId();
-      clearQueuedTemperatureLogs();
-      clearOfflineRoutePackStatus();
-      clearQueuedStopNoteUpdates();
-      clearOfflineStatusConflicts();
-      await clearOfflineStatusQueue();
-      clearAllStopDrafts();
+      await clearSensitiveStorage();
       setToken(null);
       setUser(null);
       setPayload(null);

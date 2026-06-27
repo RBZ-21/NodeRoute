@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -264,12 +264,23 @@ export function OrdersPage() {
     }
   }
 
+  const trackedLineItemNumbers = useMemo(
+    () => form.lines.map((line) => line.itemNumber.trim()).filter(Boolean).join(','),
+    [form.lines],
+  );
+
   useEffect(() => {
-    for (const line of form.lines) {
-      const num = line.itemNumber.trim();
-      if (num) void loadLotsForProduct(num);
+    for (const num of trackedLineItemNumbers.split(',').filter(Boolean)) {
+      void loadLotsForProduct(num);
     }
-  }, [form.lines.map((l) => l.itemNumber).join(',')]);
+  }, [loadLotsForProduct, trackedLineItemNumbers]);
+
+  const handleEditOrder = useCallback((order: Order) => {
+    form.populate(order);
+    setFormErrors({});
+    setFormOpen(true);
+    setNotice(`Editing ${order.order_number || order.id.slice(0, 8)}`);
+  }, [form]);
 
   useEffect(() => {
     if (!orderIdParam || !orders.length || openedOrderIdRef.current === orderIdParam) return;
@@ -289,7 +300,7 @@ export function OrdersPage() {
     nextParams.delete('orderId');
     nextParams.delete('action');
     setSearchParams(nextParams, { replace: true });
-  }, [orderIdParam, orders, searchParams, setSearchParams]);
+  }, [handleEditOrder, orderIdParam, orders, searchParams, setSearchParams]);
 
   const summary = useMemo(() => ({
     pending:    orders.filter((o) => normalizedStatus(o.status) === 'pending').length,
@@ -457,13 +468,6 @@ export function OrdersPage() {
     } finally {
       setSavingWeight((s) => { const next = { ...s }; delete next[key]; return next; });
     }
-  }
-
-  function handleEditOrder(order: Order) {
-    form.populate(order);
-    setFormErrors({});
-    setFormOpen(true);
-    setNotice(`Editing ${order.order_number || order.id.slice(0, 8)}`);
   }
 
   function handleToggleWeightCapture(order: Order) {

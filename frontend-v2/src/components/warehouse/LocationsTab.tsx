@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
@@ -17,7 +17,7 @@ export function LocationsTab({ onNotice, onError }: { onNotice: (m: string) => v
   const [editForm, setEditForm] = useState({ name: '', type: '', notes: '', status: 'active' });
   const [editSaving, setEditSaving] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const data = await fetchWithAuth<Location[]>('/api/warehouse/locations');
@@ -27,9 +27,9 @@ export function LocationsTab({ onNotice, onError }: { onNotice: (m: string) => v
     } finally {
       setLoading(false);
     }
-  }
+  }, [onError]);
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => { void load(); }, [load]);
 
   async function addLocation(e: React.FormEvent) {
     e.preventDefault();

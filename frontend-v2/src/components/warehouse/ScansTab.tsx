@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Badge, type BadgeVariant } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
@@ -16,7 +16,7 @@ export function ScansTab({ onNotice, onError }: { onNotice: (m: string) => void;
   const [form, setForm] = useState({ item_number: '', action: 'scan', quantity: '', unit: '', location_id: '', lot_number: '', notes: '' });
   const [submitting, setSubmitting] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -29,9 +29,9 @@ export function ScansTab({ onNotice, onError }: { onNotice: (m: string) => void;
     } finally {
       setLoading(false);
     }
-  }
+  }, [actionFilter, dateFilter, onError]);
 
-  useEffect(() => { load(); }, [actionFilter, dateFilter]);
+  useEffect(() => { void load(); }, [load]);
 
   async function submitScan(e: React.FormEvent) {
     e.preventDefault();

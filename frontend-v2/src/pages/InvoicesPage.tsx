@@ -197,7 +197,7 @@ export function InvoicesPage() {
         setFollowUpError(String((mutationError as Error)?.message || 'Could not build invoice follow-up'));
       },
     });
-  }, [followUpDraft, followUpInvoiceId, invoiceFollowUp.isPending, invoiceFollowUp.mutate, selected]);
+  }, [followUpDraft, followUpInvoiceId, invoiceFollowUp, selected]);
 
   function openInvoice(inv: Invoice) {
     setSelected(inv);
