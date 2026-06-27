@@ -2,6 +2,7 @@ const express = require('express');
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { forecastDemand } = require('../services/ai');
+const { filterRowsByContext, scopeQueryByContext } = require('../services/operating-context');
 
 const router = express.Router();
 
@@ -12,12 +13,16 @@ router.get('/orders', authenticateToken, requireRole('admin', 'manager'), async 
   const MONTHS = 12;
   const since  = new Date(Date.now() - MONTHS * 31 * 86400000).toISOString();
 
-  const { data: orders, error } = await supabase
-    .from('orders')
-    .select('id,customer_name,created_at')
+  const { data, error } = await scopeQueryByContext(
+    supabase
+      .from('orders')
+      .select('id,customer_name,created_at,company_id,location_id'),
+    req.context
+  )
     .gte('created_at', since)
     .order('created_at', { ascending: true });
   if (error) return res.status(500).json({ error: error.message });
+  const orders = filterRowsByContext(data || [], req.context);
 
   // Monthly buckets
   const now = new Date();
@@ -70,24 +75,31 @@ router.get('/inventory/:itemNumber', authenticateToken, requireRole('admin', 'ma
   const { itemNumber } = req.params;
   const days = Math.min(parseInt(req.query.days) || 14, 90);
 
-  const { data: product, error: pErr } = await supabase
-    .from('products')
-    .select('item_number,description,category,unit,cost,on_hand_qty')
+  const { data: product, error: pErr } = await scopeQueryByContext(
+    supabase
+      .from('products')
+      .select('item_number,description,category,unit,cost,on_hand_qty,company_id,location_id'),
+    req.context
+  )
     .eq('item_number', itemNumber)
     .single();
   if (pErr || !product) return res.status(404).json({ error: 'Product not found' });
 
   const since = new Date(Date.now() - 84 * 86400000).toISOString(); // 12 weeks
-  const { data: history, error: hErr } = await supabase
-    .from('inventory_stock_history')
-    .select('change_qty,change_type,created_at')
+  const { data: historyData, error: hErr } = await scopeQueryByContext(
+    supabase
+      .from('inventory_stock_history')
+      .select('item_number,change_qty,change_type,created_at,company_id,location_id'),
+    req.context
+  )
     .eq('item_number', itemNumber)
     .gte('created_at', since)
     .order('created_at', { ascending: false });
   if (hErr) return res.status(500).json({ error: hErr.message });
+  const history = filterRowsByContext(historyData || [], req.context);
 
   try {
-    const forecast = await forecastDemand(product, history || [], days);
+    const forecast = await forecastDemand(product, history, days);
     res.json(forecast);
   } catch (err) {
     if (err.message.includes('OPENAI_API_KEY')) return res.status(503).json({ error: err.message });
@@ -99,19 +111,27 @@ router.get('/inventory/:itemNumber', authenticateToken, requireRole('admin', 'ma
 router.get('/inventory', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const days = Math.min(parseInt(req.query.days) || 14, 90);
 
-  const { data: products, error: pErr } = await supabase
-    .from('products')
-    .select('item_number,description,category,unit,cost,on_hand_qty')
+  const { data: productData, error: pErr } = await scopeQueryByContext(
+    supabase
+      .from('products')
+      .select('item_number,description,category,unit,cost,on_hand_qty,company_id,location_id'),
+    req.context
+  )
     .order('category');
   if (pErr) return res.status(500).json({ error: pErr.message });
+  const products = filterRowsByContext(productData || [], req.context);
 
   const since = new Date(Date.now() - 84 * 86400000).toISOString();
-  const { data: allHistory, error: hErr } = await supabase
-    .from('inventory_stock_history')
-    .select('item_number,change_qty,change_type,created_at')
+  const { data: historyData, error: hErr } = await scopeQueryByContext(
+    supabase
+      .from('inventory_stock_history')
+      .select('item_number,change_qty,change_type,created_at,company_id,location_id'),
+    req.context
+  )
     .gte('created_at', since)
     .order('created_at', { ascending: false });
   if (hErr) return res.status(500).json({ error: hErr.message });
+  const allHistory = filterRowsByContext(historyData || [], req.context);
 
   const historyByItem = {};
   (allHistory || []).forEach(h => {
