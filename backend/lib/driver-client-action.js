@@ -35,10 +35,29 @@ async function recordDriverClientAction(req, { actionType, resourceId = null }) 
     err.cause = error;
     throw err;
   }
-  return { duplicate: false, clientActionId };
+  return { duplicate: false, clientActionId, userId: req.user.id };
+}
+
+async function forgetDriverClientAction(action) {
+  if (!action?.clientActionId || !action?.userId || action.duplicate) return;
+  const { error } = await supabase
+    .from('driver_client_actions')
+    .delete()
+    .eq('user_id', action.userId)
+    .eq('client_action_id', action.clientActionId);
+  if (error) {
+    console.error('[driver-client-action] failed to release action marker:', error.message || error);
+  }
+}
+
+async function respondWithClientActionFailure(res, action, status, body) {
+  await forgetDriverClientAction(action);
+  return res.status(status).json(body);
 }
 
 module.exports = {
+  forgetDriverClientAction,
   readClientActionId,
   recordDriverClientAction,
+  respondWithClientActionFailure,
 };

@@ -19,7 +19,11 @@ const {
   statusAfterDeliveryCompletion,
 } = require('../services/invoice-delivery');
 const { syncRouteMutation } = require('../services/route-stop-sync');
-const { recordDriverClientAction } = require('../lib/driver-client-action');
+const {
+  forgetDriverClientAction,
+  recordDriverClientAction,
+  respondWithClientActionFailure,
+} = require('../lib/driver-client-action');
 
 const STOP_FIELDS = [
   'route_id', 'customer_id', 'address', 'status', 'name',
@@ -223,6 +227,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
 
 // PATCH /api/stops/:id
 router.patch('/:id', authenticateToken, async (req, res) => {
+  let clientAction = null;
   try {
     if (req.user.role === 'driver') {
       const { data: existing, error: fetchErr } = await scopeQueryByContext(supabase.from('stops').select('driver_id, company_id, location_id'), req.context).eq('id', req.params.id).single();
@@ -236,18 +241,18 @@ router.patch('/:id', authenticateToken, async (req, res) => {
       }
       if (!Object.keys(update).length) return res.status(400).json({ error: 'No valid fields provided' });
 
-      const replay = await recordDriverClientAction(req, {
+      clientAction = await recordDriverClientAction(req, {
         actionType: update.status ? `stop_status_${update.status}` : 'stop_patch',
         resourceId: req.params.id,
       });
-      if (replay.duplicate) {
+      if (clientAction.duplicate) {
         const { data: stop } = await scopeQueryByContext(supabase.from('stops').select('*'), req.context).eq('id', req.params.id).single();
         return res.json(stop || { ok: true, replay: true });
       }
 
       const { data, error } = await supabase
         .from('stops').update(update).eq('id', req.params.id).select().single();
-      if (error) return res.status(500).json({ error: error.message });
+      if (error) return respondWithClientActionFailure(res, clientAction, 500, { error: error.message });
       invalidateDashboardCache(req.context);
       if (update.driver_notes !== undefined) {
         try {
@@ -307,19 +312,21 @@ router.patch('/:id', authenticateToken, async (req, res) => {
     }
     res.json(data);
   } catch (err) {
+    await forgetDriverClientAction(clientAction);
     res.status(500).json({ error: err.message });
   }
 });
 
 // POST /api/stops/:id/arrive — driver marks arrival, inserts a dwell_record
 router.post('/:id/arrive', authenticateToken, async (req, res) => {
+  let clientAction = null;
   try {
     const auth = await authorizeDwellEvent(req, res, req.params.id);
     if (!auth.ok) return;
     const { route } = auth;
 
-    const replay = await recordDriverClientAction(req, { actionType: 'stop_arrive', resourceId: req.params.id });
-    if (replay.duplicate) {
+    clientAction = await recordDriverClientAction(req, { actionType: 'stop_arrive', resourceId: req.params.id });
+    if (clientAction.duplicate) {
       const { data: stop } = await scopeQueryByContext(supabase.from('stops').select('*'), req.context).eq('id', req.params.id).single();
       return res.json({ ok: true, replay: true, stop: stop || null });
     }
@@ -333,7 +340,8 @@ router.post('/:id/arrive', authenticateToken, async (req, res) => {
       .limit(1);
     if (existing && existing[0]) return res.json(existing[0]);
 
-    await scopeQueryByContext(supabase.from('stops').update({ status: 'arrived', arrived_at: new Date().toISOString() }), req.context).eq('id', req.params.id);
+    const { error: stopUpdateErr } = await scopeQueryByContext(supabase.from('stops').update({ status: 'arrived', arrived_at: new Date().toISOString() }), req.context).eq('id', req.params.id);
+    if (stopUpdateErr) return respondWithClientActionFailure(res, clientAction, 500, { error: stopUpdateErr.message });
 
     const arrivedAt = new Date().toISOString();
     const { data: record, error: insertErr } = await supabase
@@ -349,24 +357,26 @@ router.post('/:id/arrive', authenticateToken, async (req, res) => {
       }])
       .select()
       .single();
-    if (insertErr) return res.status(500).json({ error: insertErr.message });
+    if (insertErr) return respondWithClientActionFailure(res, clientAction, 500, { error: insertErr.message });
     invalidateDashboardCache(req.context);
     deliveryNotifications.notifyDriverArriving(supabase, req.params.id, route.id).catch(() => {});
     res.json(record);
   } catch (err) {
+    await forgetDriverClientAction(clientAction);
     res.status(500).json({ error: err.message });
   }
 });
 
 // POST /api/stops/:id/depart — driver marks departure, updates the open dwell record
 router.post('/:id/depart', authenticateToken, async (req, res) => {
+  let clientAction = null;
   try {
     const auth = await authorizeDwellEvent(req, res, req.params.id);
     if (!auth.ok) return;
     const { route, stop } = auth;
 
-    const replay = await recordDriverClientAction(req, { actionType: 'stop_depart', resourceId: req.params.id });
-    if (replay.duplicate) {
+    clientAction = await recordDriverClientAction(req, { actionType: 'stop_depart', resourceId: req.params.id });
+    if (clientAction.duplicate) {
       const { data: currentStop } = await scopeQueryByContext(supabase.from('stops').select('*'), req.context).eq('id', req.params.id).single();
       return res.json({ ok: true, replay: true, stop: currentStop || null });
     }
@@ -390,9 +400,9 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
       .eq('route_id', route.id)
       .is('departed_at', null)
       .limit(1);
-    if (findErr) return res.status(500).json({ error: findErr.message });
+    if (findErr) return respondWithClientActionFailure(res, clientAction, 500, { error: findErr.message });
     if (!openRecords || !openRecords[0]) {
-      return res.status(404).json({ error: 'No open dwell record found — call /arrive first' });
+      return respondWithClientActionFailure(res, clientAction, 404, { error: 'No open dwell record found — call /arrive first' });
     }
 
     const openRecord = openRecords[0];
@@ -405,12 +415,13 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
       .eq('id', openRecord.id)
       .select()
       .single();
-    if (updateErr) return res.status(500).json({ error: updateErr.message });
+    if (updateErr) return respondWithClientActionFailure(res, clientAction, 500, { error: updateErr.message });
 
-    await scopeQueryByContext(supabase.from('stops').update({
+    const { error: stopUpdateErr } = await scopeQueryByContext(supabase.from('stops').update({
       status: 'completed',
       ...(driverNotes ? { driver_notes: driverNotes } : {}),
     }), req.context).eq('id', req.params.id);
+    if (stopUpdateErr) return respondWithClientActionFailure(res, clientAction, 500, { error: stopUpdateErr.message });
     invalidateDashboardCache(req.context);
     const notifyContext = { ...req.context, trackingBaseUrl: trackingBaseUrl(req) };
     deliveryNotifications.notifyDeliveryCompleted(supabase, req.params.id, requestInvoiceId || stop.invoice_id || null, notifyContext).catch(() => {});
@@ -431,6 +442,7 @@ router.post('/:id/depart', authenticateToken, async (req, res) => {
 
     res.json(updated);
   } catch (err) {
+    await forgetDriverClientAction(clientAction);
     res.status(500).json({ error: err.message });
   }
 });
@@ -499,6 +511,7 @@ router.post('/:id/move-to-end', authenticateToken, requireRole('admin', 'manager
 
 // POST /api/stops/:id/defer — move stop to end of active queue (with idempotency check)
 router.post('/:id/defer', authenticateToken, async (req, res) => {
+  let clientAction = null;
   try {
     const { data: stop, error: stopErr } = await scopeQueryByContext(supabase.from('stops').select('*'), req.context).eq('id', req.params.id).single();
     if (stopErr || !stop) return res.status(404).json({ error: 'Stop not found' });
@@ -516,8 +529,8 @@ router.post('/:id/defer', authenticateToken, async (req, res) => {
       }
     }
 
-    const replay = await recordDriverClientAction(req, { actionType: 'stop_defer', resourceId: req.params.id });
-    if (replay.duplicate) {
+    clientAction = await recordDriverClientAction(req, { actionType: 'stop_defer', resourceId: req.params.id });
+    if (clientAction.duplicate) {
       return res.json({ ok: true, replay: true, stop });
     }
 
@@ -529,7 +542,7 @@ router.post('/:id/defer', authenticateToken, async (req, res) => {
     const currentIndex = activeIds.indexOf(stopId);
 
     if (currentIndex === -1) {
-      return res.status(400).json({ error: 'Stop is not in the active queue for this route' });
+      return respondWithClientActionFailure(res, clientAction, 400, { error: 'Stop is not in the active queue for this route' });
     }
     if (currentIndex === activeIds.length - 1) {
       return res.json({
@@ -544,7 +557,7 @@ router.post('/:id/defer', authenticateToken, async (req, res) => {
     activeIds.push(stopId);
 
     const { error: updateErr } = await scopeQueryByContext(supabase.from('routes').update({ active_stop_ids: activeIds }), req.context).eq('id', route.id);
-    if (updateErr) return res.status(500).json({ error: updateErr.message });
+    if (updateErr) return respondWithClientActionFailure(res, clientAction, 500, { error: updateErr.message });
 
     const syncResult = await syncRouteMutation(supabase, {
       routeId: route.id,
@@ -558,7 +571,7 @@ router.post('/:id/defer', authenticateToken, async (req, res) => {
         requestedByRole: req.user.role,
       },
     });
-    if (syncResult.error) return res.status(500).json({ error: syncResult.error.message });
+    if (syncResult.error) return respondWithClientActionFailure(res, clientAction, 500, { error: syncResult.error.message });
 
     res.json({
       route_id: route.id,
@@ -567,6 +580,7 @@ router.post('/:id/defer', authenticateToken, async (req, res) => {
       deferred_stop_id: stopId,
     });
   } catch (err) {
+    await forgetDriverClientAction(clientAction);
     res.status(500).json({ error: err.message });
   }
 });
