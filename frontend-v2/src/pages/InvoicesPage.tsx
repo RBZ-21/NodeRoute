@@ -113,7 +113,7 @@ export function InvoicesPage() {
   const deleteInvoice = useDeleteInvoice();
   const resendInvoiceEmail = useResendInvoiceEmail();
   const latePaymentRisk = useLatePaymentRisk(true);
-  const invoiceFollowUp = useInvoiceFollowUp();
+  const { isPending: invoiceFollowUpPending, mutate: mutateInvoiceFollowUp } = useInvoiceFollowUp();
 
   const [actionError, setActionError] = useState('');
   const [notice, setNotice] = useState('');
@@ -182,11 +182,11 @@ export function InvoicesPage() {
     }
     const selectedId = String(selected.id || '');
     if (!selectedId || !shouldSuggestFollowUp(selected)) return;
-    if (invoiceFollowUp.isPending) return;
+    if (invoiceFollowUpPending) return;
     if (followUpInvoiceId === selectedId && followUpDraft) return;
 
     setFollowUpError('');
-    invoiceFollowUp.mutate(selectedId, {
+    mutateInvoiceFollowUp(selectedId, {
       onSuccess: (result) => {
         setFollowUpDraft(result);
         setFollowUpInvoiceId(selectedId);
@@ -197,7 +197,7 @@ export function InvoicesPage() {
         setFollowUpError(String((mutationError as Error)?.message || 'Could not build invoice follow-up'));
       },
     });
-  }, [followUpDraft, followUpInvoiceId, invoiceFollowUp, selected]);
+  }, [followUpDraft, followUpInvoiceId, invoiceFollowUpPending, mutateInvoiceFollowUp, selected]);
 
   function openInvoice(inv: Invoice) {
     setSelected(inv);
@@ -385,7 +385,7 @@ export function InvoicesPage() {
     setFollowUpDraft(null);
     setFollowUpInvoiceId(id);
     openInvoice(inv);
-    invoiceFollowUp.mutate(id, {
+    mutateInvoiceFollowUp(id, {
       onSuccess: (result) => {
         setFollowUpDraft(result);
         setFollowUpInvoiceId(id);
@@ -470,10 +470,10 @@ export function InvoicesPage() {
                   size="sm"
                   variant="outline"
                   className="whitespace-nowrap"
-                  disabled={invoiceFollowUp.isPending && followUpInvoiceId === String(inv.id || '')}
+                  disabled={invoiceFollowUpPending && followUpInvoiceId === String(inv.id || '')}
                   onClick={() => generateFollowUpForInvoice(inv)}
                 >
-                  {invoiceFollowUp.isPending && followUpInvoiceId === String(inv.id || '') ? 'Drafting...' : 'AI Follow-Up'}
+                  {invoiceFollowUpPending && followUpInvoiceId === String(inv.id || '') ? 'Drafting...' : 'AI Follow-Up'}
                 </Button>
               ) : null}
               <Button size="sm" className="whitespace-nowrap" onClick={() => openInvoice(inv)}>View / Edit</Button>
@@ -696,10 +696,10 @@ export function InvoicesPage() {
                     <Button
                       size="sm"
                       variant="outline"
-                      disabled={invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '')}
+                      disabled={invoiceFollowUpPending && followUpInvoiceId === String(selected.id || '')}
                       onClick={() => generateFollowUpForInvoice(selected)}
                     >
-                      {invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '') ? 'Drafting...' : 'Refresh AI Draft'}
+                      {invoiceFollowUpPending && followUpInvoiceId === String(selected.id || '') ? 'Drafting...' : 'Refresh AI Draft'}
                     </Button>
                   )}
                   {!editing && !confirmDelete && (
@@ -782,10 +782,10 @@ export function InvoicesPage() {
                         <Button
                           size="sm"
                           variant="outline"
-                          disabled={invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '')}
+                          disabled={invoiceFollowUpPending && followUpInvoiceId === String(selected.id || '')}
                           onClick={() => generateFollowUpForInvoice(selected)}
                         >
-                          {invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '') ? 'Drafting...' : 'Regenerate'}
+                          {invoiceFollowUpPending && followUpInvoiceId === String(selected.id || '') ? 'Drafting...' : 'Regenerate'}
                         </Button>
                         <Button size="sm" onClick={() => void copyFollowUp()} disabled={!followUpDraft}>
                           Copy Draft
@@ -817,7 +817,7 @@ export function InvoicesPage() {
                         </>
                       ) : (
                         <div className="rounded-lg border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
-                          {invoiceFollowUp.isPending && followUpInvoiceId === String(selected.id || '') ? 'Generating follow-up draft...' : 'Open an overdue invoice to generate a follow-up.'}
+                          {invoiceFollowUpPending && followUpInvoiceId === String(selected.id || '') ? 'Generating follow-up draft...' : 'Open an overdue invoice to generate a follow-up.'}
                         </div>
                       )}
                     </CardContent>
