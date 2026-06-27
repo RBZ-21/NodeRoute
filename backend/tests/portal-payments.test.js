@@ -42,6 +42,20 @@ test('portal backend exposes payment readiness endpoints', () => {
   }
 });
 
+test('payment-method-routes imports scopeQueryByContext from operating-context', () => {
+  const source = fs.readFileSync(
+    path.join(repoRoot, 'backend', 'routes', 'portal', 'payment-method-routes.js'),
+    'utf8'
+  );
+  assert.match(source, /require\('\.\.\/\.\.\/services\/operating-context'\)/);
+  assert.doesNotMatch(
+    source,
+    /scopeQueryByContext[\s\S]*require\('\.\/payments-shared'\)/
+  );
+  const { scopeQueryByContext } = require('../services/operating-context');
+  assert.equal(typeof scopeQueryByContext, 'function');
+});
+
 test('customer portal frontend includes payment bootstrap and checkout trigger', () => {
   for (const marker of [
     '/api/portal/payments/config',
