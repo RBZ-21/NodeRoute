@@ -353,6 +353,22 @@ test('portal autopay patch updates existing scoped settings row', async () => {
   assert.equal(updated.patch.method_id, 'method-1');
 });
 
+test('timestamped migration creates portal payment tables before enabling RLS', () => {
+  const migration = fs.readFileSync(
+    path.join(repoRoot, 'supabase', 'migrations', '20260627_portal_payments_rls.sql'),
+    'utf8'
+  );
+  const normalized = migration.toLowerCase();
+  for (const table of ['portal_payment_methods', 'portal_payment_settings', 'portal_payment_events']) {
+    const createMarker = `create table if not exists public.${table}`;
+    const rlsMarker = `alter table public.${table} enable row level security`;
+    const createPos = normalized.indexOf(createMarker);
+    const rlsPos = normalized.indexOf(rlsMarker);
+    assert.ok(createPos >= 0, `missing create table for ${table} in timestamped migration`);
+    assert.ok(rlsPos > createPos, `${table} RLS must run after table creation`);
+  }
+});
+
 test('customer portal frontend includes payment bootstrap and checkout trigger', () => {
   for (const marker of [
     '/api/portal/payments/config',

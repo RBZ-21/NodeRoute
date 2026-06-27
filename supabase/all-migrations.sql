@@ -629,3 +629,18 @@ create table if not exists public.portal_auth_attempts (
   attempted_at  timestamptz not null default now()
 );
 create index if not exists idx_portal_auth_attempts_email on public.portal_auth_attempts(email, attempted_at);
+
+-- ================================================================
+-- 20260627_portal_payments_rls.sql
+-- ================================================================
+alter table public.portal_payment_methods enable row level security;
+alter table public.portal_payment_settings enable row level security;
+alter table public.portal_payment_events enable row level security;
+
+revoke all on public.portal_payment_methods from anon, authenticated;
+revoke all on public.portal_payment_settings from anon, authenticated;
+revoke all on public.portal_payment_events from anon, authenticated;
+
+grant all on public.portal_payment_methods to service_role;
+grant all on public.portal_payment_settings to service_role;
+grant all on public.portal_payment_events to service_role;
