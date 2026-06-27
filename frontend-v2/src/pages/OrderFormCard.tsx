@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Combobox } from '../components/ui/combobox';
@@ -88,12 +88,6 @@ export function OrderFormCard({
     if (debounceRef.current) clearTimeout(debounceRef.current);
   }, []);
 
-  useEffect(() => {
-    if (!customerName.trim()) return;
-    if (customerEmail.trim() || customerAddress.trim() || customerPhone.trim()) return;
-    hydrateCustomerByName(customerName);
-  }, [customerName, customerEmail, customerAddress, customerPhone, customers]);
-
   function normalizedCustomerName(value: string) {
     return value.trim().toLowerCase();
   }
@@ -114,7 +108,7 @@ export function OrderFormCard({
     return String(customer.default_route_id || customer.route_id || customer.assigned_route_id || '').trim();
   }
 
-  async function maybeLookupAddress(name: string) {
+  const maybeLookupAddress = useCallback(async (name: string) => {
     const trimmed = name.trim();
     if (trimmed.length < 3 || lookupDisabledRef.current) return;
     const cacheKey = normalizedCustomerName(trimmed);
@@ -142,9 +136,9 @@ export function OrderFormCard({
       lookupInFlightRef.current = null;
       setAddressLookupLoading(false);
     }
-  }
+  }, [setCustomerAddress]);
 
-  function hydrateCustomerDetails(customer: Customer) {
+  const hydrateCustomerDetails = useCallback((customer: Customer) => {
     setCustomerName(customer.company_name || '');
     setCustomerEmail(customer.billing_email || '');
     setCustomerPhone(customer.phone_number || '');
@@ -156,16 +150,22 @@ export function OrderFormCard({
     if (!addr && customer.company_name) {
       void maybeLookupAddress(customer.company_name);
     }
-  }
+  }, [maybeLookupAddress, setCustomerAddress, setCustomerEmail, setCustomerName, setCustomerPhone, setFulfillmentType, setRouteId]);
 
-  function hydrateCustomerByName(nextName: string) {
+  const hydrateCustomerByName = useCallback((nextName: string) => {
     const normalized = normalizedCustomerName(nextName);
     if (!normalized) return false;
     const match = customers.find((customer) => normalizedCustomerName(customer.company_name || '') === normalized);
     if (!match) return false;
     hydrateCustomerDetails(match);
     return true;
-  }
+  }, [customers, hydrateCustomerDetails]);
+
+  useEffect(() => {
+    if (!customerName.trim()) return;
+    if (customerEmail.trim() || customerAddress.trim() || customerPhone.trim()) return;
+    hydrateCustomerByName(customerName);
+  }, [customerAddress, customerEmail, customerName, customerPhone, hydrateCustomerByName]);
 
   const customerOptions = useMemo(
     () => customers.map((c) => ({

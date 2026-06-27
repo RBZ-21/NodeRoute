@@ -12,7 +12,6 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '.
 import {
   type AssignmentsResult,
   type Customer,
-  type Driver,
   type OptimizeResult,
   type RouteRecord,
   type StopRecord,
@@ -31,7 +30,6 @@ import {
 import { AIDriverAssignmentsCard } from './AIDriverAssignmentsCard';
 import { RouteOptimizationResultCard } from './RouteOptimizationResultCard';
 import { AddStopsModal } from './AddStopsModal';
-import { RouteEditPanel } from './RouteEditPanel';
 import { driverDisplayName, normalizedLocationKey, normalizeDriverKey, resolveDriverSelection } from './routes.helpers';
 
 // Deliveries and Stops render as tabs inside this page (their old URLs

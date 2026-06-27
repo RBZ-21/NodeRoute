@@ -102,6 +102,27 @@ app.use((req, res, next) => {
 });
 
 // ── Security headers ─────────────────────────────────────────────────────────
+function buildContentSecurityPolicy(isDevelopment) {
+  const scriptSrc = [
+    "'self'",
+    ...(isDevelopment ? ["'unsafe-inline'", "'unsafe-eval'"] : []),
+    'https://js.stripe.com',
+    'https://maps.googleapis.com',
+  ];
+
+  return [
+    "default-src 'self'",
+    `script-src ${scriptSrc.join(' ')}`,
+    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "font-src 'self' https://fonts.gstatic.com",
+    "img-src 'self' data: blob: https:",
+    "connect-src 'self' https://*.supabase.co https://api.openai.com https://api.stripe.com https://api.resend.com https://maps.googleapis.com https://*.googleapis.com https://maps.gstatic.com https://*.gstatic.com wss://*.supabase.co",
+    'frame-src https://js.stripe.com',
+    "object-src 'none'",
+    "base-uri 'self'",
+  ].join('; ');
+}
+
 app.use((req, res, next) => {
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
@@ -113,17 +134,7 @@ app.use((req, res, next) => {
   );
   res.setHeader(
     'Content-Security-Policy',
-    [
-      "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://js.stripe.com https://maps.googleapis.com",
-      "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
-      "font-src 'self' https://fonts.gstatic.com",
-      "img-src 'self' data: blob: https:",
-      "connect-src 'self' https://*.supabase.co https://api.openai.com https://api.stripe.com https://api.resend.com https://maps.googleapis.com https://*.googleapis.com https://maps.gstatic.com https://*.gstatic.com wss://*.supabase.co",
-      "frame-src https://js.stripe.com",
-      "object-src 'none'",
-      "base-uri 'self'",
-    ].join('; ')
+    buildContentSecurityPolicy(config.NODE_ENV !== 'production')
   );
   if (config.NODE_ENV === 'production') {
     res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');

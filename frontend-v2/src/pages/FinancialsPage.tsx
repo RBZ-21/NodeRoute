@@ -105,11 +105,12 @@ export function FinancialsPage() {
   // Initialise date range once invoices first load.
   useEffect(() => {
     const today = localDateKey(new Date());
-    if (!endDate) setEndDate(today);
-    if (!startDate) {
+    setEndDate((current) => current || today);
+    setStartDate((current) => {
+      if (current) return current;
       const all = groupByDay(invoices);
-      setStartDate(all.length ? all[all.length - 1].date : today);
-    }
+      return all.length ? all[all.length - 1].date : today;
+    });
   }, [invoices]);
 
   const todayKey = localDateKey(new Date());

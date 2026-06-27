@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useCompanyConfig } from '../hooks/useCompanyConfig';
 import { useQueryClient } from '@tanstack/react-query';
@@ -107,9 +107,9 @@ export function InventoryPage() {
   // "Fix" requests jump into the Inventory Actions adjustment flow pre-filled
   // with the SKU. Also honoured via /inventory?fix=<item_number> deep links.
   const [fixRequest, setFixRequest] = useState<{ itemId: string; nonce: number } | null>(null);
-  function requestFix(itemId: string) {
+  const requestFix = useCallback((itemId: string) => {
     setFixRequest({ itemId, nonce: Date.now() });
-  }
+  }, []);
 
   // ── Queries ───────────────────────────────────────────────────────────────
   const inventoryQuery = useInventoryQuery();
@@ -144,7 +144,7 @@ export function InventoryPage() {
     const nextParams = new URLSearchParams(searchParams);
     nextParams.delete('fix');
     setSearchParams(nextParams, { replace: true });
-  }, [fixParam, items]);
+  }, [fixParam, items, requestFix, searchParams, setSearchParams]);
 
   // ── Mutations ─────────────────────────────────────────────────────────────
   const addItemMutation        = useAddInventoryItemMutation();

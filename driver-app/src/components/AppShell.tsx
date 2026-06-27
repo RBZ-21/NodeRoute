@@ -2,6 +2,7 @@ import { Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { BottomNav } from '@/components/BottomNav';
 import { InstallPrompt } from '@/components/InstallPrompt';
 import { useDriverApp } from '@/hooks/useDriverApp';
+import { DRIVER_LOCAL_DATA_RETENTION_NOTICE } from '@/lib/storage';
 
 export function AppShell() {
   const { currentRoute, isOnline, lastSyncedAt, logout, queuedStatusCount, queuedStopNoteCount, queuedTemperatureLogCount, user, usingCachedData } = useDriverApp();
@@ -69,6 +70,9 @@ export function AppShell() {
             </p>
           )}
           {!isDetail && <div className="mt-4"><InstallPrompt /></div>}
+          <p className="mt-4 rounded-2xl border border-slate-200/80 bg-white/70 px-3 py-2 text-xs leading-relaxed text-slate-600">
+            {DRIVER_LOCAL_DATA_RETENTION_NOTICE}
+          </p>
         </header>
         <main className="flex-1 pb-6 pt-4">
           <Outlet />

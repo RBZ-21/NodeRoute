@@ -448,18 +448,24 @@ router.post('/chat', authenticateToken, requireRole('admin', 'manager'), async (
 // ── INVENTORY HEALTH ANALYSIS ──────────────────────────────────────────────────
 router.post('/inventory-analysis', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('inventory-analysis'), async (req, res) => {
   try {
-    const { data: products, error: pErr } = await supabase
-      .from('products')
-      .select('item_number,description,category,unit,cost,on_hand_qty')
-      .order('category');
+    const { data: products, error: pErr } = await scopeQueryByContext(
+      supabase
+        .from('products')
+        .select('item_number,description,category,unit,cost,on_hand_qty,company_id,location_id')
+        .order('category'),
+      req.context
+    );
     if (pErr) return res.status(500).json({ error: pErr.message });
 
     const since = new Date(Date.now() - 28 * 86400000).toISOString();
-    const { data: allHistory, error: hErr } = await supabase
-      .from('inventory_stock_history')
-      .select('item_number,change_qty,change_type,created_at')
-      .gte('created_at', since)
-      .order('created_at', { ascending: false });
+    const { data: allHistory, error: hErr } = await scopeQueryByContext(
+      supabase
+        .from('inventory_stock_history')
+        .select('item_number,change_qty,change_type,created_at,company_id,location_id')
+        .gte('created_at', since)
+        .order('created_at', { ascending: false }),
+      req.context
+    );
     if (hErr) return res.status(500).json({ error: hErr.message });
 
     const historyByItem = {};
@@ -469,11 +475,14 @@ router.post('/inventory-analysis', authenticateToken, requireRole('admin', 'mana
     });
 
     const expiryWindow = new Date(Date.now() + 14 * 86400000).toISOString();
-    const { data: expiringLots } = await supabase
-      .from('lot_codes')
-      .select('item_number,lot_number,expiry_date')
-      .lte('expiry_date', expiryWindow)
-      .gte('expiry_date', new Date().toISOString().split('T')[0]);
+    const { data: expiringLots } = await scopeQueryByContext(
+      supabase
+        .from('lot_codes')
+        .select('item_number,lot_number,expiry_date,company_id,location_id')
+        .lte('expiry_date', expiryWindow)
+        .gte('expiry_date', new Date().toISOString().split('T')[0]),
+      req.context
+    );
 
     const analysis = await analyzeInventory(products || [], historyByItem, expiringLots || []);
     res.json(analysis);

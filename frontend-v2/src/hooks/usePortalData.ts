@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { clearPortalSession, fetchPortalBlob, fetchWithPortalAuth, sendWithPortalAuth } from '../lib/portalApi';
 import type {
   PortalContact,
@@ -28,7 +28,7 @@ export function usePortalData(token: string, setToken: (t: string) => void, setM
   const [markupPercent, setMarkupPercent] = useState('18');
   const [fishSearch, setFishSearch] = useState('');
 
-  async function loadPortalData(mode: 'initial' | 'refresh' = 'initial') {
+  const loadPortalData = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
     if (!token) return;
     if (mode === 'initial') setLoading(true);
     if (mode === 'refresh') setRefreshing(true);
@@ -64,12 +64,12 @@ export function usePortalData(token: string, setToken: (t: string) => void, setM
 
     setLoading(false);
     setRefreshing(false);
-  }
+  }, [setMe, setToken, token]);
 
   useEffect(() => {
     if (!token) return;
     void loadPortalData('initial');
-  }, [token]);
+  }, [loadPortalData, token]);
 
   function resetData() {
     setOrders([]);

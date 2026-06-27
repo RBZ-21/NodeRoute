@@ -22,8 +22,29 @@ import { asDriverNumber, formatDateTime, formatMoney, greeting, routeProgress, s
 import type { DriverRoute, DriverTab, DwellRecord } from './driver.types';
 
 export function DriverPage() {
-  const ws = useDriverWorkspace();
-  const loc = useLocationSharing();
+  const {
+    load,
+    routes,
+    selectedRouteId,
+    dwellRecords,
+    deliveries,
+    driverInvoices,
+    companySettings,
+    driverName,
+    loading,
+    error,
+    setError,
+    setSelectedRouteId,
+    applyDwell,
+    updateStopInvoice,
+  } = useDriverWorkspace();
+  const {
+    stopLocationSharing,
+    startLocationSharing,
+    locationBusy,
+    locationStatus,
+    watchIdRef,
+  } = useLocationSharing();
 
   const [activeTab, setActiveTab]             = useState<DriverTab>('route');
   const [busyStopId, setBusyStopId]           = useState('');
@@ -33,37 +54,37 @@ export function DriverPage() {
   const proofInputRef = useRef<HTMLInputElement | null>(null);
 
   useEffect(() => {
-    void ws.load();
-    return () => loc.stopLocationSharing();
-  }, []);
+    void load();
+    return () => stopLocationSharing();
+  }, [load, stopLocationSharing]);
 
   const activeRoute: DriverRoute | null = useMemo(
-    () => ws.routes.find((r) => r.id === ws.selectedRouteId) || ws.routes[0] || null,
-    [ws.routes, ws.selectedRouteId],
+    () => routes.find((r) => r.id === selectedRouteId) || routes[0] || null,
+    [routes, selectedRouteId],
   );
 
   const activeStops = activeRoute?.stops || [];
-  const progress = routeProgress(activeStops, ws.dwellRecords, activeRoute?.id || '');
-  const currentStop = activeStops.find((stop) => stopStatus(stop, activeRoute?.id || '', ws.dwellRecords) === 'arrived')
-    || activeStops.find((stop) => stopStatus(stop, activeRoute?.id || '', ws.dwellRecords) === 'pending')
+  const progress = routeProgress(activeStops, dwellRecords, activeRoute?.id || '');
+  const currentStop = activeStops.find((stop) => stopStatus(stop, activeRoute?.id || '', dwellRecords) === 'arrived')
+    || activeStops.find((stop) => stopStatus(stop, activeRoute?.id || '', dwellRecords) === 'pending')
     || null;
 
   const analytics = useMemo(() => {
-    const delivered = ws.deliveries.filter((item) => item.status === 'delivered');
+    const delivered = deliveries.filter((item) => item.status === 'delivered');
     return {
       completedStops: progress.completed,
       onTimeRate: delivered.length
         ? Math.round((delivered.filter((item) => item.onTime !== false).length / delivered.length) * 100)
         : 100,
-      milesToday: ws.deliveries.reduce((sum, item) => sum + asDriverNumber(item.distanceMiles, 0), 0),
+      milesToday: deliveries.reduce((sum, item) => sum + asDriverNumber(item.distanceMiles, 0), 0),
       avgStopMinutes: delivered.length
         ? Math.round(delivered.reduce((sum, item) => sum + asDriverNumber(item.stopDurationMinutes, 0), 0) / delivered.length)
         : 0,
     };
-  }, [ws.deliveries, progress.completed]);
+  }, [deliveries, progress.completed]);
 
   async function logout() {
-    loc.stopLocationSharing();
+    stopLocationSharing();
     await logoutSession();
     window.location.href = '/login?next=%2Fdriver';
   }
@@ -73,9 +94,9 @@ export function DriverPage() {
     setBusyStopId(stopId);
     try {
       const record = await sendWithAuth<DwellRecord>(`/api/stops/${stopId}/arrive`, 'POST', { routeId: activeRoute.id } as never);
-      ws.applyDwell(record);
+      applyDwell(record);
     } catch (err) {
-      ws.setError(String((err as Error).message || 'Could not mark arrival.'));
+      setError(String((err as Error).message || 'Could not mark arrival.'));
     } finally {
       setBusyStopId('');
     }
@@ -85,21 +106,21 @@ export function DriverPage() {
     if (!activeRoute) return;
     const stop = activeStops.find((s) => s.id === stopId) || null;
     const deliveryMode = options.deliveryMode === 'drop_off' ? 'drop_off' : 'standard';
-    if (deliveryMode !== 'drop_off' && ws.companySettings.forceDriverSignature && stop?.invoice_id && !stop.invoice_has_signature) {
+    if (deliveryMode !== 'drop_off' && companySettings.forceDriverSignature && stop?.invoice_id && !stop.invoice_has_signature) {
       setSignatureStopId(stopId);
       return;
     }
-    if (ws.companySettings.forceDriverProofOfDelivery && stop?.invoice_id && !stop.invoice_has_proof_of_delivery) {
+    if (companySettings.forceDriverProofOfDelivery && stop?.invoice_id && !stop.invoice_has_proof_of_delivery) {
       setProofUploadStopId(stopId);
       window.setTimeout(() => proofInputRef.current?.click(), 0);
       return;
     }
-    if (deliveryMode !== 'drop_off' && ws.companySettings.forceDriverSignature && !stop?.invoice_id) {
-      ws.setError('Signature is required, but this stop has no invoice attached yet.');
+    if (deliveryMode !== 'drop_off' && companySettings.forceDriverSignature && !stop?.invoice_id) {
+      setError('Signature is required, but this stop has no invoice attached yet.');
       return;
     }
-    if (ws.companySettings.forceDriverProofOfDelivery && !stop?.invoice_id) {
-      ws.setError('Proof of delivery is required, but this stop has no invoice attached yet.');
+    if (companySettings.forceDriverProofOfDelivery && !stop?.invoice_id) {
+      setError('Proof of delivery is required, but this stop has no invoice attached yet.');
       return;
     }
     setBusyStopId(stopId);
@@ -113,9 +134,9 @@ export function DriverPage() {
           ...(deliveryMode === 'drop_off' ? { completion_type: 'drop_off' } : {}),
         } as never
       );
-      ws.applyDwell(record);
+      applyDwell(record);
     } catch (err) {
-      ws.setError(String((err as Error).message || 'Could not complete this stop.'));
+      setError(String((err as Error).message || 'Could not complete this stop.'));
     } finally {
       setBusyStopId('');
     }
@@ -135,7 +156,7 @@ export function DriverPage() {
       window.open(url, '_blank', 'noopener,noreferrer');
       window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
     } catch (err) {
-      ws.setError(String((err as Error).message || 'Could not open invoice PDF.'));
+      setError(String((err as Error).message || 'Could not open invoice PDF.'));
     }
   }
 
@@ -150,11 +171,11 @@ export function DriverPage() {
     const stop = activeStops.find((s) => s.id === proofUploadStopId) || null;
     if (!file || !stop?.invoice_id) return;
     if (!/^image\/(png|jpeg|jpg)$/i.test(file.type)) {
-      ws.setError('Proof of delivery must be a PNG or JPG image.');
+      setError('Proof of delivery must be a PNG or JPG image.');
       return;
     }
     if (file.size > 3_000_000) {
-      ws.setError('Proof of delivery image must be under 3 MB.');
+      setError('Proof of delivery image must be under 3 MB.');
       return;
     }
 
@@ -173,20 +194,20 @@ export function DriverPage() {
         { proofImageData: dataUrl } as never,
       );
 
-      ws.updateStopInvoice(stop.id, {
+      updateStopInvoice(stop.id, {
         invoice_has_proof_of_delivery: true,
         invoice_proof_of_delivery_uploaded_at: payload.proof_of_delivery_uploaded_at || new Date().toISOString(),
       });
       setProofUploadStopId('');
-      ws.setError('');
+      setError('');
     } catch (err) {
-      ws.setError(String((err as Error).message || 'Could not upload proof of delivery.'));
+      setError(String((err as Error).message || 'Could not upload proof of delivery.'));
     } finally {
       setProofUploadSaving(false);
     }
   }
 
-  if (ws.loading) {
+  if (loading) {
     return (
       <div className="flex min-h-screen items-center justify-center bg-enterprise-gradient">
         <div className="flex items-center gap-3 text-sm text-muted-foreground">
@@ -208,21 +229,21 @@ export function DriverPage() {
                 Driver Workspace V2
               </div>
               <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                Good {greeting()}, {ws.driverName}
+                Good {greeting()}, {driverName}
               </h1>
               <p className="text-sm text-muted-foreground">
                 Route execution, notes, invoices, and location updates in one dedicated driver screen.
               </p>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <LocationBadge tone={loc.locationStatus.tone} text={loc.locationStatus.text} />
-              {loc.watchIdRef.current == null ? (
-                <Button variant="outline" onClick={loc.startLocationSharing} disabled={loc.locationBusy}>
+              <LocationBadge tone={locationStatus.tone} text={locationStatus.text} />
+              {watchIdRef.current == null ? (
+                <Button variant="outline" onClick={startLocationSharing} disabled={locationBusy}>
                   <Satellite className="mr-2 h-4 w-4" />
-                  {loc.locationBusy ? 'Starting...' : 'Start Location Sync'}
+                  {locationBusy ? 'Starting...' : 'Start Location Sync'}
                 </Button>
               ) : (
-                <Button variant="outline" onClick={loc.stopLocationSharing}>
+                <Button variant="outline" onClick={stopLocationSharing}>
                   <Satellite className="mr-2 h-4 w-4" />
                   Stop Sync
                 </Button>
@@ -240,13 +261,13 @@ export function DriverPage() {
                 {tab}
               </Button>
             ))}
-            {ws.routes.length > 1 ? (
+            {routes.length > 1 ? (
               <select
                 className="ml-auto h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
                 value={activeRoute?.id || ''}
-                onChange={(e) => ws.setSelectedRouteId(e.target.value)}
+                onChange={(e) => setSelectedRouteId(e.target.value)}
               >
-                {ws.routes.map((route) => (
+                {routes.map((route) => (
                   <option key={route.id} value={route.id}>
                     {route.name || `Route ${route.id.slice(0, 8)}`}
                   </option>
@@ -256,9 +277,9 @@ export function DriverPage() {
           </div>
         </header>
 
-        {ws.error ? (
+        {error ? (
           <div className="mt-4 rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">
-            {ws.error}
+            {error}
           </div>
         ) : null}
 
@@ -283,15 +304,15 @@ export function DriverPage() {
           {activeRoute && activeTab === 'route' ? (
             <DriverRouteTab
               activeRoute={activeRoute}
-              dwellRecords={ws.dwellRecords}
+              dwellRecords={dwellRecords}
               busyStopId={busyStopId}
-              companySettings={ws.companySettings}
+              companySettings={companySettings}
               onArrive={(id) => void markArrive(id)}
               onDepart={(id) => void markDepart(id)}
               onOpenSignature={setSignatureStopId}
               onUploadProofOfDelivery={promptForProofOfDelivery}
               onDownloadInvoice={(id) => void downloadInvoice(id)}
-              onRouteReordered={() => void ws.load()}
+              onRouteReordered={() => void load()}
             />
           ) : null}
 
@@ -317,7 +338,7 @@ export function DriverPage() {
                   <>
                     <div className="rounded-lg border border-border bg-muted/20 p-4">
                       <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                        {stopStatus(currentStop, activeRoute.id, ws.dwellRecords) === 'arrived' ? 'Current Stop' : 'Next Stop'}
+                        {stopStatus(currentStop, activeRoute.id, dwellRecords) === 'arrived' ? 'Current Stop' : 'Next Stop'}
                       </div>
                       <div className="mt-2 text-xl font-semibold text-foreground">{currentStop.name || 'Delivery Stop'}</div>
                       <div className="mt-1 text-sm text-muted-foreground">{currentStop.address || 'Address unavailable'}</div>
@@ -343,7 +364,7 @@ export function DriverPage() {
                       </Card>
                     </div>
                     <div className="flex flex-wrap gap-2">
-                      {stopStatus(currentStop, activeRoute.id, ws.dwellRecords) === 'pending' ? (
+                      {stopStatus(currentStop, activeRoute.id, dwellRecords) === 'pending' ? (
                         <Button onClick={() => void markArrive(currentStop.id)}>Mark Arrived</Button>
                       ) : (
                         <>
@@ -369,7 +390,7 @@ export function DriverPage() {
                         </Button>
                       ) : null}
                     </div>
-                    {ws.companySettings.forceDriverProofOfDelivery ? (
+                    {companySettings.forceDriverProofOfDelivery ? (
                       <div className={`rounded-md px-3 py-2 text-xs ${currentStop.invoice_has_proof_of_delivery ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
                         {currentStop.invoice_has_proof_of_delivery
                           ? 'Proof-of-delivery photo uploaded for this stop.'
@@ -393,8 +414,8 @@ export function DriverPage() {
                 <CardDescription>Invoice documents available to this driver based on assigned route scope.</CardDescription>
               </CardHeader>
               <CardContent className="space-y-3">
-                {ws.driverInvoices.length ? (
-                  ws.driverInvoices.map((invoice) => (
+                {driverInvoices.length ? (
+                  driverInvoices.map((invoice) => (
                     <div key={invoice.id} className="rounded-lg border border-border bg-muted/20 p-4">
                       <div className="flex flex-wrap items-start justify-between gap-3">
                         <div>
@@ -432,7 +453,7 @@ export function DriverPage() {
           onSaved={() => {
             const stop = activeStops.find((s) => s.id === signatureStopId);
             if (stop) {
-              ws.updateStopInvoice(stop.id, {
+              updateStopInvoice(stop.id, {
                 invoice_has_signature: true,
                 invoice_signed_at: new Date().toISOString(),
                 invoice_status: 'signed',

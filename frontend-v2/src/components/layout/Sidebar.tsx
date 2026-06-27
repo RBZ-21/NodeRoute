@@ -44,7 +44,7 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
     invoices: insightItemCount('collections'),
   };
 
-  useEffect(() => { onMobileClose(); }, [location.pathname]);
+  useEffect(() => { onMobileClose(); }, [location.pathname, onMobileClose]);
 
   useEffect(() => {
     if (mobileOpen) {
