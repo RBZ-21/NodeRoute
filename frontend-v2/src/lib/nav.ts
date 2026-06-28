@@ -50,6 +50,7 @@ function lazyNamed<TModule, TKey extends keyof TModule>(
 }
 
 const DashboardPage    = lazyNamed(() => import('../pages/DashboardPage'), 'DashboardPage');
+const DashboardBuilderPage = lazyNamed(() => import('../pages/DashboardBuilderPage'), 'DashboardBuilderPage');
 const OrdersPage       = lazyNamed(() => import('../pages/OrdersPage'), 'OrdersPage');
 const RoutesPage       = lazyNamed(() => import('../pages/RoutesPage'), 'RoutesPage');
 const MapPage          = lazyNamed(() => import('../pages/MapPage'), 'MapPage');
@@ -77,6 +78,37 @@ const PlanningPage     = lazyNamed(() => import('../pages/PlanningPage'), 'Plann
 const AuditLogPage     = lazyNamed(() => import('../pages/AuditLogPage'), 'AuditLogPage');
 const PhoneOrdersPage  = lazyNamed(() => import('../pages/PhoneOrdersPage'), 'PhoneOrdersPage');
 
+export const NAV_ITEM_IDS = {
+  dashboard: 'dashboard',
+  dashboardBuilder: 'dashboard-builder',
+  orders: 'orders',
+  routes: 'routes',
+  map: 'map',
+  inventory: 'inventory',
+  purchasing: 'purchasing',
+  warehouse: 'warehouse',
+  traceability: 'traceability',
+  customers: 'customers',
+  vendors: 'vendors',
+  salesRep: 'sales-rep',
+  phoneOrders: 'phone-orders',
+  financials: 'financials',
+  invoices: 'invoices',
+  creditHold: 'credit-hold',
+  analytics: 'analytics',
+  dsr: 'dsr',
+  forecasting: 'forecasting',
+  reports: 'reports',
+  aiHelp: 'ai-help',
+  users: 'users',
+  companies: 'companies',
+  settings: 'settings',
+  integrations: 'integrations',
+  compliance: 'compliance',
+  planning: 'planning',
+  auditLog: 'audit-log',
+} as const;
+
 // ── Nav groups ────────────────────────────────────────────────────────────────
 
 export const navGroups: NavGroup[] = [
@@ -86,69 +118,70 @@ export const navGroups: NavGroup[] = [
     id: 'home',
     label: '',
     items: [
-      { id: 'dashboard',    label: 'Dashboard',    path: '/dashboard',    icon: LayoutDashboard, component: DashboardPage },
+      { id: NAV_ITEM_IDS.dashboard, label: 'Dashboard', path: '/dashboard', icon: LayoutDashboard, component: DashboardPage },
     ],
   },
   {
     id: 'dispatch',
     label: 'Dispatch',
     items: [
-      { id: 'orders',       label: 'Orders',       path: '/orders',       icon: Package,         component: OrdersPage },
-      { id: 'routes',       label: 'Routes',       path: '/routes',       icon: Map,             component: RoutesPage },
-      { id: 'map',          label: 'Map',          path: '/map',          icon: Globe2,          component: MapPage },
+      { id: NAV_ITEM_IDS.orders, label: 'Orders', path: '/orders', icon: Package, component: OrdersPage },
+      { id: NAV_ITEM_IDS.routes, label: 'Routes', path: '/routes', icon: Map, component: RoutesPage },
+      { id: NAV_ITEM_IDS.map, label: 'Map', path: '/map', icon: Globe2, component: MapPage },
     ],
   },
   {
     id: 'inventory',
     label: 'Inventory',
     items: [
-      { id: 'inventory',    label: 'Inventory',    path: '/inventory',    icon: Factory,         component: InventoryPage },
-      { id: 'purchasing',   label: 'Purchasing',   path: '/purchasing',   icon: ShoppingCart,    component: PurchasingPage },
-      { id: 'warehouse',    label: 'Warehouse',    path: '/warehouse',    icon: Warehouse,       component: WarehousePage },
-      { id: 'traceability', label: 'Traceability', path: '/traceability', icon: Search,          component: TraceabilityPage },
+      { id: NAV_ITEM_IDS.inventory, label: 'Inventory', path: '/inventory', icon: Factory, component: InventoryPage },
+      { id: 'purchasing', label: 'Purchasing', path: '/purchasing', icon: ShoppingCart, component: PurchasingPage },
+      { id: 'warehouse', label: 'Warehouse', path: '/warehouse', icon: Warehouse, component: WarehousePage },
+      { id: NAV_ITEM_IDS.traceability, label: 'Traceability', path: '/traceability', icon: Search, component: TraceabilityPage },
     ],
   },
   {
     id: 'customers',
     label: 'Customers',
     items: [
-      { id: 'customers',    label: 'Customers',    path: '/customers',    icon: Users,           component: CustomersPage },
-      { id: 'vendors',      label: 'Vendors',      path: '/vendors',      icon: Handshake,       component: VendorsPage },
-      { id: 'sales-rep',    label: 'Sales Rep',    path: '/sales-rep',    icon: Briefcase,       component: SalesRepPage },
-      { id: 'phone-orders', label: 'Phone Orders', path: '/phone-orders', icon: Phone,           component: PhoneOrdersPage, roles: ['admin', 'manager'] },
+      { id: NAV_ITEM_IDS.customers, label: 'Customers', path: '/customers', icon: Users, component: CustomersPage },
+      { id: NAV_ITEM_IDS.vendors, label: 'Vendors', path: '/vendors', icon: Handshake, component: VendorsPage },
+      { id: NAV_ITEM_IDS.salesRep, label: 'Sales Rep', path: '/sales-rep', icon: Briefcase, component: SalesRepPage },
+      { id: NAV_ITEM_IDS.phoneOrders, label: 'Phone Orders', path: '/phone-orders', icon: Phone, component: PhoneOrdersPage, roles: ['admin', 'manager'] },
     ],
   },
   {
     id: 'financials',
     label: 'Financials',
     items: [
-      { id: 'financials',   label: 'Financials',   path: '/financials',   icon: DollarSign,      component: FinancialsPage },
-      { id: 'invoices',     label: 'Invoices',     path: '/invoices',     icon: Receipt,         component: InvoicesPage },
-      { id: 'credit-hold',  label: 'Credit Hold',  path: '/credit-hold',  icon: Lock,            component: CreditHoldPage,  roles: ['admin', 'manager'] },
+      { id: NAV_ITEM_IDS.financials, label: 'Financials', path: '/financials', icon: DollarSign, component: FinancialsPage },
+      { id: NAV_ITEM_IDS.invoices, label: 'Invoices', path: '/invoices', icon: Receipt, component: InvoicesPage },
+      { id: NAV_ITEM_IDS.creditHold, label: 'Credit Hold', path: '/credit-hold', icon: Lock, component: CreditHoldPage, roles: ['admin', 'manager'] },
     ],
   },
   {
     id: 'insights',
     label: 'Insights',
     items: [
-      { id: 'analytics',    label: 'Analytics',    path: '/analytics',    icon: BarChart2,       component: AnalyticsPage },
-      { id: 'dsr',          label: 'DSR',          path: '/dsr',          icon: ClipboardList,   component: DSRPage },
-      { id: 'forecasting',  label: 'Forecasting',  path: '/forecasting',  icon: Sparkles,        component: ForecastPage },
-      { id: 'reports',      label: 'Reports',      path: '/reports',      icon: FileText,        component: ReportsPage },
-      { id: 'ai-help',      label: 'AI Help',      path: '/ai-help',      icon: Bot,             component: AIHelpPage },
+      { id: NAV_ITEM_IDS.analytics, label: 'Analytics', path: '/analytics', icon: BarChart2, component: AnalyticsPage },
+      { id: NAV_ITEM_IDS.dashboardBuilder, label: 'Dashboard Builder', path: '/dashboard/builder', icon: LayoutDashboard, component: DashboardBuilderPage, roles: ['admin', 'manager'] },
+      { id: NAV_ITEM_IDS.dsr, label: 'DSR', path: '/dsr', icon: ClipboardList, component: DSRPage },
+      { id: NAV_ITEM_IDS.forecasting, label: 'Forecasting', path: '/forecasting', icon: Sparkles, component: ForecastPage },
+      { id: NAV_ITEM_IDS.reports, label: 'Reports', path: '/reports', icon: FileText, component: ReportsPage },
+      { id: NAV_ITEM_IDS.aiHelp, label: 'AI Help', path: '/ai-help', icon: Bot, component: AIHelpPage },
     ],
   },
   {
     id: 'admin',
     label: 'Admin',
     items: [
-      { id: 'users',        label: 'Users',        path: '/users',        icon: User,            component: UsersPage,        roles: ['admin', 'superadmin'] },
-      { id: 'companies',    label: 'Companies',    path: '/companies',    icon: Building2,       component: CompaniesPage,    roles: ['superadmin'] },
-      { id: 'settings',     label: 'Settings',     path: '/settings',     icon: Settings,        component: SettingsPage },
-      { id: 'integrations', label: 'Integrations', path: '/integrations', icon: Plug,            component: IntegrationsPage, roles: ['admin'] },
-      { id: 'compliance',   label: 'Compliance',   path: '/compliance',   icon: CheckSquare,     component: CompliancePage,   roles: ['admin', 'manager'] },
-      { id: 'planning',     label: 'Planning',     path: '/planning',     icon: Calendar,        component: PlanningPage },
-      { id: 'audit-log',    label: 'Audit Log',    path: '/audit-log',    icon: ScanSearch,      component: AuditLogPage,     roles: ['admin', 'superadmin'] },
+      { id: NAV_ITEM_IDS.users, label: 'Users', path: '/users', icon: User, component: UsersPage, roles: ['admin', 'superadmin'] },
+      { id: NAV_ITEM_IDS.companies, label: 'Companies', path: '/companies', icon: Building2, component: CompaniesPage, roles: ['superadmin'] },
+      { id: NAV_ITEM_IDS.settings, label: 'Settings', path: '/settings', icon: Settings, component: SettingsPage },
+      { id: 'integrations', label: 'Integrations', path: '/integrations', icon: Plug, component: IntegrationsPage, roles: ['admin'] },
+      { id: NAV_ITEM_IDS.compliance, label: 'Compliance', path: '/compliance', icon: CheckSquare, component: CompliancePage, roles: ['admin', 'manager'] },
+      { id: 'planning', label: 'Planning', path: '/planning', icon: Calendar, component: PlanningPage },
+      { id: NAV_ITEM_IDS.auditLog, label: 'Audit Log', path: '/audit-log', icon: ScanSearch, component: AuditLogPage, roles: ['admin', 'superadmin'] },
     ],
   },
 ];

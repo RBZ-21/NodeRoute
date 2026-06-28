@@ -116,7 +116,7 @@ export async function fetchWithAuth<T>(url: string): Promise<T> {
   return parseResponseWithRefresh<T>(await makeRequest(), url, makeRequest);
 }
 
-export async function sendWithAuth<T>(url: string, method: 'POST' | 'PATCH' | 'DELETE', body?: unknown): Promise<T> {
+export async function sendWithAuth<T>(url: string, method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', body?: unknown): Promise<T> {
   const makeRequest = () => fetch(url, {
     method,
     credentials: 'include',

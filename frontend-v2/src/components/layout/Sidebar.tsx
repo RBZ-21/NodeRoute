@@ -1,10 +1,11 @@
-import { ChevronDown, ChevronRight, X } from 'lucide-react';
-import { useEffect, useState } from 'react';
+import { ArrowDown, ArrowUp, Check, ChevronDown, ChevronRight, GripVertical, SlidersHorizontal, X } from 'lucide-react';
+import { useEffect, useMemo, useState } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { cn } from '../../lib/utils';
 import { fetchWithAuth } from '../../lib/api';
 import { useAiInsights } from '../../hooks/useAiInsights';
+import { useNavigationPreference, useSaveNavigationPreference } from '../../hooks/useUserPreferences';
 import {
   type NavGroup, type NavItem, type Role,
   defaultPath, findNavItem, navGroups,
@@ -32,6 +33,11 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
 
   // Proactive AI insight counts surface as badges on the pages they concern.
   const { data: aiInsights = [] } = useAiInsights();
+  const navigationPreference = useNavigationPreference();
+  const saveNavigationPreference = useSaveNavigationPreference();
+  const [customizing, setCustomizing] = useState(false);
+  const [draftOrder, setDraftOrder] = useState<string[]>([]);
+  const [draggingId, setDraggingId] = useState<string | null>(null);
   const insightItemCount = (type: string) =>
     aiInsights
       .filter((i) => i.type === type)
@@ -64,10 +70,63 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
     }))
     .filter((g) => g.items.length > 0);
 
-  const topGroups    = allVisible.filter((g) => g.id !== 'bottom');
-  const bottomGroups = allVisible.filter((g) => g.id === 'bottom');
+  const visibleItemIds = allVisible.flatMap((group) => group.items.map((item) => item.id));
+  const orderedIds = useMemo(
+    () => mergeNavOrder(visibleItemIds, navigationPreference.data?.nav_item_ids || []),
+    [visibleItemIds.join('|'), navigationPreference.data?.nav_item_ids?.join('|')],
+  );
+
+  useEffect(() => {
+    if (!customizing) setDraftOrder(orderedIds);
+  }, [customizing, orderedIds]);
+
+  const orderedVisible = applyNavOrder(allVisible, orderedIds);
+  const topGroups    = orderedVisible.filter((g) => g.id !== 'bottom');
+  const bottomGroups = orderedVisible.filter((g) => g.id === 'bottom');
+  const itemsById = new Map(allVisible.flatMap((group) => group.items.map((item) => [item.id, item])));
+  const draftItems = draftOrder.map((id) => itemsById.get(id)).filter(Boolean) as NavItem[];
 
   const activeId = currentItem?.id ?? 'dashboard';
+
+  function startCustomize() {
+    setDraftOrder(orderedIds);
+    setCustomizing(true);
+  }
+
+  function cancelCustomize() {
+    setDraftOrder(orderedIds);
+    setCustomizing(false);
+  }
+
+  async function saveCustomize() {
+    await saveNavigationPreference.mutateAsync(draftOrder);
+    setCustomizing(false);
+  }
+
+  function moveDraftItem(itemId: string, direction: -1 | 1) {
+    setDraftOrder((current) => {
+      const index = current.indexOf(itemId);
+      const nextIndex = index + direction;
+      if (index < 0 || nextIndex < 0 || nextIndex >= current.length) return current;
+      const next = [...current];
+      [next[index], next[nextIndex]] = [next[nextIndex], next[index]];
+      return next;
+    });
+  }
+
+  function dropDraftItem(targetId: string) {
+    if (!draggingId || draggingId === targetId) return;
+    setDraftOrder((current) => {
+      const sourceIndex = current.indexOf(draggingId);
+      const targetIndex = current.indexOf(targetId);
+      if (sourceIndex < 0 || targetIndex < 0) return current;
+      const next = [...current];
+      const [moved] = next.splice(sourceIndex, 1);
+      next.splice(targetIndex, 0, moved);
+      return next;
+    });
+    setDraggingId(null);
+  }
 
   const sidebarContent = (
     <aside className="flex h-full w-56 shrink-0 flex-col overflow-y-auto border-r border-border bg-card px-2 py-4">
@@ -84,8 +143,38 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
       </div>
 
       {/* Scrollable top section */}
+      <div className="mb-2 flex items-center justify-between gap-1 px-1">
+        <button
+          type="button"
+          onClick={customizing ? cancelCustomize : startCustomize}
+          className="inline-flex h-8 items-center gap-1.5 rounded-md px-2 text-xs font-semibold text-muted-foreground hover:bg-muted/60 hover:text-foreground"
+        >
+          {customizing ? <X className="h-3.5 w-3.5" /> : <SlidersHorizontal className="h-3.5 w-3.5" />}
+          {customizing ? 'Cancel' : 'Customize'}
+        </button>
+        {customizing ? (
+          <button
+            type="button"
+            onClick={() => void saveCustomize()}
+            disabled={saveNavigationPreference.isPending}
+            className="inline-flex h-8 items-center gap-1.5 rounded-md bg-primary px-2 text-xs font-semibold text-primary-foreground disabled:opacity-60"
+          >
+            <Check className="h-3.5 w-3.5" />
+            {saveNavigationPreference.isPending ? 'Saving' : 'Save'}
+          </button>
+        ) : null}
+      </div>
+
       <div className="flex-1 space-y-1 overflow-y-auto">
-        {topGroups.map((group) =>
+        {customizing ? (
+          <CustomizeNavList
+            items={draftItems}
+            draggingId={draggingId}
+            onDragStart={setDraggingId}
+            onDrop={dropDraftItem}
+            onMove={moveDraftItem}
+          />
+        ) : topGroups.map((group) =>
           group.label === '' ? (
             // Flat items — no collapsible header
             <FlatItems
@@ -105,6 +194,11 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
             />
           )
         )}
+        {saveNavigationPreference.error ? (
+          <div className="mx-2 rounded-md border border-destructive/30 bg-destructive/5 px-2 py-1.5 text-xs text-destructive">
+            {(saveNavigationPreference.error as Error).message || 'Could not save menu order.'}
+          </div>
+        ) : null}
       </div>
 
       {/* Settings pinned to bottom */}
@@ -141,6 +235,83 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
         </div>
       )}
     </>
+  );
+}
+
+function mergeNavOrder(visibleIds: string[], preferredIds: string[]) {
+  const visible = new Set(visibleIds);
+  const preferred = preferredIds.filter((id, index, all) => visible.has(id) && all.indexOf(id) === index);
+  const missing = visibleIds.filter((id) => !preferred.includes(id));
+  return [...preferred, ...missing];
+}
+
+function applyNavOrder(groups: NavGroup[], orderedIds: string[]) {
+  const order = new Map(orderedIds.map((id, index) => [id, index]));
+  return groups.map((group) => ({
+    ...group,
+    items: [...group.items].sort((left, right) => {
+      const leftOrder = order.get(left.id) ?? Number.MAX_SAFE_INTEGER;
+      const rightOrder = order.get(right.id) ?? Number.MAX_SAFE_INTEGER;
+      return leftOrder - rightOrder;
+    }),
+  }));
+}
+
+function CustomizeNavList({
+  items,
+  draggingId,
+  onDragStart,
+  onDrop,
+  onMove,
+}: {
+  items: NavItem[];
+  draggingId: string | null;
+  onDragStart: (id: string | null) => void;
+  onDrop: (targetId: string) => void;
+  onMove: (id: string, direction: -1 | 1) => void;
+}) {
+  return (
+    <ul className="space-y-1 px-1">
+      {items.map((item, index) => {
+        const Icon = item.icon;
+        return (
+          <li
+            key={item.id}
+            draggable
+            onDragStart={() => onDragStart(item.id)}
+            onDragEnd={() => onDragStart(null)}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={() => onDrop(item.id)}
+            className={cn(
+              'flex min-h-10 items-center gap-2 rounded-md border border-border bg-background px-2 py-1.5 text-sm shadow-sm',
+              draggingId === item.id && 'opacity-60',
+            )}
+          >
+            <GripVertical className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <Icon className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+            <span className="min-w-0 flex-1 truncate font-medium">{item.label}</span>
+            <button
+              type="button"
+              onClick={() => onMove(item.id, -1)}
+              disabled={index === 0}
+              className="rounded p-1 text-muted-foreground hover:bg-muted/60 disabled:opacity-30"
+              aria-label={`Move ${item.label} up`}
+            >
+              <ArrowUp className="h-3.5 w-3.5" />
+            </button>
+            <button
+              type="button"
+              onClick={() => onMove(item.id, 1)}
+              disabled={index === items.length - 1}
+              className="rounded p-1 text-muted-foreground hover:bg-muted/60 disabled:opacity-30"
+              aria-label={`Move ${item.label} down`}
+            >
+              <ArrowDown className="h-3.5 w-3.5" />
+            </button>
+          </li>
+        );
+      })}
+    </ul>
   );
 }
 

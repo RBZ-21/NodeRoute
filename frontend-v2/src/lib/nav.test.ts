@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canAccess, findNavItem, navGroups, navRedirects, allNavItems, defaultPath } from './nav';
+import { canAccess, findNavItem, navGroups, navRedirects, allNavItems, defaultPath, NAV_ITEM_IDS } from './nav';
 
 describe('findNavItem', () => {
   it('returns the correct item for a known path', () => {
@@ -45,6 +45,12 @@ describe('navGroups integrity', () => {
     const ids = allNavItems.map((i) => i.id);
     const unique = new Set(ids);
     expect(unique.size).toBe(ids.length);
+  });
+
+  it('NAV_ITEM_IDS keys match sidebar nav item ids', () => {
+    const navIds = allNavItems.map((i) => i.id).sort();
+    const stableIds = Object.values(NAV_ITEM_IDS).sort();
+    expect(stableIds).toEqual(navIds);
   });
 
   it('no duplicate paths across all nav items', () => {

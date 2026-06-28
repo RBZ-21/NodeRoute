@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { Search } from 'lucide-react';
 import { fetchWithAuth } from '../../lib/api';
 
-type SearchResult = { id: string; title: string; subtitle: string; path: string };
+type SearchResult = { id: string; title: string; subtitle: string; path: string; image_url?: string | null };
 type SearchGroup = { type: string; label: string; results: SearchResult[] };
 
 /**
@@ -117,7 +117,17 @@ export function CommandPalette() {
                       onClick={() => go(result)}
                       className={`flex w-full items-center justify-between gap-3 px-4 py-2 text-left text-sm ${idx === activeIndex ? 'bg-primary/10' : 'hover:bg-muted/60'}`}
                     >
-                      <span className="truncate font-medium">{result.title}</span>
+                      <span className="flex min-w-0 flex-1 items-center gap-2.5">
+                        {result.image_url ? (
+                          <img
+                            src={result.image_url}
+                            alt=""
+                            className="h-8 w-8 shrink-0 rounded-md border border-border object-cover"
+                            loading="lazy"
+                          />
+                        ) : null}
+                        <span className="truncate font-medium">{result.title}</span>
+                      </span>
                       {result.subtitle ? <span className="truncate text-xs text-muted-foreground">{result.subtitle}</span> : null}
                     </button>
                   );

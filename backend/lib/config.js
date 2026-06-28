@@ -41,6 +41,7 @@ const envSchema = z.object({
   SENTRY_DSN:                 z.string().optional().default(''),
   CORS_ORIGINS:               z.string().optional().default(''),
   CORS_ORIGIN:                z.string().optional().default(''),
+  ALLOWED_IMAGE_HOSTS:         z.string().optional().default(''),
   PORTAL_PAYMENT_ENABLED:     z.string().optional().default('false'),
   PORTAL_PAYMENT_PROVIDER:    z.string().optional().default('manual'),
   STRIPE_WEBHOOK_TOLERANCE_SECONDS: z.string().optional().default('300'),
@@ -86,6 +87,10 @@ const GOOGLE_MAPS_KEY = rawEnv.GOOGLE_MAPS_KEY;
 const SENTRY_DSN      = rawEnv.SENTRY_DSN;
 const _corsRaw        = rawEnv.CORS_ORIGINS || rawEnv.CORS_ORIGIN || '';
 const CORS_ORIGINS    = _corsRaw.split(',').map((s) => s.trim()).filter(Boolean);
+const ALLOWED_IMAGE_HOSTS = rawEnv.ALLOWED_IMAGE_HOSTS
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean);
 const _rawPaymentEnabled = String(rawEnv.PORTAL_PAYMENT_ENABLED || 'false');
 const PORTAL_PAYMENT_ENABLED = z.enum(['true','false']).catch('false').parse(_rawPaymentEnabled.toLowerCase()) === 'true';
 const PORTAL_PAYMENT_PROVIDER = z.enum(['manual','stripe','stub']).catch('manual').parse(
@@ -223,6 +228,7 @@ module.exports = {
   PORTAL_PAYMENT_ENABLED,
   PORTAL_PAYMENT_PROVIDER,
   CORS_ORIGINS,
+  ALLOWED_IMAGE_HOSTS,
   STRIPE_WEBHOOK_TOLERANCE_SECONDS,
   DEFAULT_COMPANY_ID,
   DEFAULT_COMPANY_NAME,

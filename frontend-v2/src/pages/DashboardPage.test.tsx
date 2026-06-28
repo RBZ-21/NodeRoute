@@ -1,17 +1,20 @@
-import { fireEvent, screen } from '@testing-library/react';
+import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DashboardPage } from './DashboardPage';
+import { DashboardBuilderPage } from './DashboardBuilderPage';
 import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
-const { fetchWithAuthMock, getUserRoleMock, navigateMock } = vi.hoisted(() => ({
+const { fetchWithAuthMock, getUserRoleMock, navigateMock, sendWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
   getUserRoleMock: vi.fn(),
   navigateMock: vi.fn(),
+  sendWithAuthMock: vi.fn(),
 }));
 
 vi.mock('../lib/api', () => ({
   fetchWithAuth: fetchWithAuthMock,
+  sendWithAuth: sendWithAuthMock,
   getUserRole: getUserRoleMock,
 }));
 
@@ -32,6 +35,7 @@ function renderDashboardPage() {
 describe('DashboardPage', () => {
   beforeEach(() => {
     fetchWithAuthMock.mockReset();
+    sendWithAuthMock.mockReset();
     getUserRoleMock.mockReset();
     navigateMock.mockReset();
     getUserRoleMock.mockReturnValue('admin');
@@ -242,5 +246,56 @@ describe('DashboardPage', () => {
     renderDashboardPage();
 
     expect(await screen.findByText('Stats service unavailable')).toBeInTheDocument();
+  });
+});
+
+describe('DashboardBuilderPage', () => {
+  beforeEach(() => {
+    fetchWithAuthMock.mockReset();
+    sendWithAuthMock.mockReset();
+    getUserRoleMock.mockReset();
+    navigateMock.mockReset();
+    getUserRoleMock.mockReturnValue('admin');
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url === '/api/dashboard-layouts?viewType=inventory') {
+        return {
+          layout: {
+            widgets: {
+              summary: true,
+              trend: false,
+              exceptions: true,
+            },
+          },
+        };
+      }
+      return { layout: { widgets: {} } };
+    });
+    sendWithAuthMock.mockResolvedValue({ ok: true });
+  });
+
+  it('loads and persists dashboard layout widget visibility', async () => {
+    renderWithQueryClient(<DashboardBuilderPage />, {
+      wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter>,
+    });
+
+    expect(await screen.findByText('Dashboard Builder')).toBeInTheDocument();
+    const trendToggle = await screen.findByRole('checkbox', { name: /Trend/i });
+    expect(trendToggle).not.toBeChecked();
+
+    fireEvent.click(trendToggle);
+    fireEvent.click(screen.getByRole('button', { name: /Save Layout/i }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/dashboard-layouts', 'PUT', {
+        view_type: 'inventory',
+        layout: {
+          widgets: expect.objectContaining({
+            summary: true,
+            trend: true,
+            exceptions: true,
+          }),
+        },
+      });
+    });
   });
 });
