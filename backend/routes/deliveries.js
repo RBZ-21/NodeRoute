@@ -114,9 +114,29 @@ function productForDeliveryItem(item, productMaps) {
   return productMaps.byId.get(productId) || productMaps.byItemNumber.get(itemNumber) || productMaps.byItemNumber.get(productId) || null;
 }
 
+function deliveryInventoryDeductionNote(order) {
+  return `Delivery ${order.order_number || order.id} completed`;
+}
+
+async function hasDeliveryInventoryLedgerEntry(itemNumber, note, context) {
+  const { data, error } = await scopeQueryByContext(
+    supabase
+      .from('inventory_stock_history')
+      .select('id')
+      .eq('item_number', itemNumber)
+      .eq('change_type', 'delivery_complete')
+      .eq('notes', note),
+    context
+  ).limit(1);
+  if (error) throw error;
+  return Array.isArray(data) && data.length > 0;
+}
+
 async function deductDeliveryInventoryAndRunReorder(order, req) {
   const items = Array.isArray(order.items) ? order.items : [];
   const productMaps = await loadProductsForDeliveryItems(items, req.context);
+  const deductionNote = deliveryInventoryDeductionNote(order);
+  const deductionsByItemNumber = new Map();
   const affectedProductIds = new Set();
 
   for (const item of items) {
@@ -124,11 +144,22 @@ async function deductDeliveryInventoryAndRunReorder(order, req) {
     if (!(qty > 0)) continue;
     const product = productForDeliveryItem(item, productMaps);
     if (!product?.item_number) continue;
+    const key = String(product.item_number);
+    const existing = deductionsByItemNumber.get(key) || { product, qty: 0 };
+    existing.qty += qty;
+    deductionsByItemNumber.set(key, existing);
+  }
+
+  for (const { product, qty } of deductionsByItemNumber.values()) {
+    if (await hasDeliveryInventoryLedgerEntry(product.item_number, deductionNote, req.context)) {
+      affectedProductIds.add(product.id);
+      continue;
+    }
     await applyInventoryLedgerEntry({
       itemNumber: product.item_number,
       deltaQty: -qty,
       changeType: 'delivery_complete',
-      notes: `Delivery ${order.order_number || order.id} completed`,
+      notes: deductionNote,
       createdBy: req.user?.name || req.user?.email || 'system',
       preventNegative: false,
       context: req.context,
@@ -632,4 +663,5 @@ module.exports.loadDashboardContext = loadDashboardContext;
 module.exports.invalidateDashboardCache = invalidateDashboardCache;
 module.exports.buildDeliveryWindow = buildDeliveryWindow;
 module.exports.deliveryInventoryLookupKeys = deliveryInventoryLookupKeys;
+module.exports.deliveryInventoryDeductionNote = deliveryInventoryDeductionNote;
 module.exports.dashboardCache = dashboardCache;
