@@ -9,6 +9,7 @@ const NAV_ITEM_IDS = Object.freeze({
   routes: 'routes',
   map: 'map',
   inventory: 'inventory',
+  kits: 'kits',
   purchasing: 'purchasing',
   warehouse: 'warehouse',
   traceability: 'traceability',

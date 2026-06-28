@@ -10,6 +10,7 @@ import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard, Package, Map, Globe2,
   Factory, ShoppingCart, Warehouse, Search,
+  PackageCheck,
   Users, Handshake, ClipboardList, Briefcase,
   DollarSign, Receipt, Lock,
   BarChart2, Sparkles, FileText, Bot,
@@ -55,6 +56,7 @@ const OrdersPage       = lazyNamed(() => import('../pages/OrdersPage'), 'OrdersP
 const RoutesPage       = lazyNamed(() => import('../pages/RoutesPage'), 'RoutesPage');
 const MapPage          = lazyNamed(() => import('../pages/MapPage'), 'MapPage');
 const InventoryPage    = lazyNamed(() => import('../pages/InventoryPage'), 'InventoryPage');
+const KitsPage         = lazyNamed(() => import('../pages/KitsPage'), 'KitsPage');
 const PurchasingPage   = lazyNamed(() => import('../pages/PurchasingPage'), 'PurchasingPage');
 const WarehousePage    = lazyNamed(() => import('../pages/WarehousePage'), 'WarehousePage');
 const TraceabilityPage = lazyNamed(() => import('../pages/TraceabilityPage'), 'TraceabilityPage');
@@ -85,6 +87,7 @@ export const NAV_ITEM_IDS = {
   routes: 'routes',
   map: 'map',
   inventory: 'inventory',
+  kits: 'kits',
   purchasing: 'purchasing',
   warehouse: 'warehouse',
   traceability: 'traceability',
@@ -135,6 +138,7 @@ export const navGroups: NavGroup[] = [
     label: 'Inventory',
     items: [
       { id: NAV_ITEM_IDS.inventory, label: 'Inventory', path: '/inventory', icon: Factory, component: InventoryPage },
+      { id: NAV_ITEM_IDS.kits, label: 'Kits', path: '/kits', icon: PackageCheck, component: KitsPage, roles: ['admin', 'manager'] },
       { id: 'purchasing', label: 'Purchasing', path: '/purchasing', icon: ShoppingCart, component: PurchasingPage },
       { id: 'warehouse', label: 'Warehouse', path: '/warehouse', icon: Warehouse, component: WarehousePage },
       { id: NAV_ITEM_IDS.traceability, label: 'Traceability', path: '/traceability', icon: Search, component: TraceabilityPage },

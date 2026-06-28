@@ -122,12 +122,14 @@ module.exports = function buildOpsPurchasingOrderRouter() {
 
     const vendor = String(req.body.vendor || draft.vendor || '').trim() || 'Unassigned Vendor';
     const receiptRules = normalizeReceiptRules(req.body.receiptRules || draft.source?.receipt_rules);
+    const scheduledReceiptDate = req.body.scheduledReceiptDate || req.body.expectedDate || null;
     const po = summarizeVendorPo({
       id: genId('po'),
       po_number: String(req.body.poNumber || '').trim() || genPoNumber(),
       vendor,
       status: 'open',
-      expected_date: req.body.expectedDate || null,
+      expected_date: scheduledReceiptDate,
+      scheduled_receipt_date: scheduledReceiptDate,
       notes: String(req.body.notes || draft.notes || '').trim() || null,
       source_draft_id: draft.id,
       receipt_rules: receiptRules,
@@ -171,12 +173,14 @@ module.exports = function buildOpsPurchasingOrderRouter() {
     const vendor = String(req.body.vendor || '').trim();
     if (!vendor) return res.status(400).json({ error: 'vendor is required' });
 
+    const scheduledReceiptDate = req.body.scheduledReceiptDate || req.body.expectedDate || null;
     const po = summarizeVendorPo({
       id: genId('po'),
       po_number: String(req.body.poNumber || '').trim() || genPoNumber(),
       vendor,
       status: 'open',
-      expected_date: req.body.expectedDate || null,
+      expected_date: scheduledReceiptDate,
+      scheduled_receipt_date: scheduledReceiptDate,
       notes: String(req.body.notes || '').trim() || null,
       source_draft_id: req.body.sourceDraftId || null,
       receipt_rules: normalizeReceiptRules(req.body.receiptRules),
