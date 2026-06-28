@@ -1,4 +1,5 @@
 const express = require('express');
+const { scopeQueryByContext } = require('../../services/operating-context');
 const {
   AUTOPAY_METHOD_TYPES,
   PORTAL_PAYMENT_PROVIDER,
@@ -9,7 +10,6 @@ const {
   executeWithOptionalScope,
   filterRowsByContext,
   insertRecordWithOptionalScope,
-  scopeQueryByContext,
   isMissingPortalPaymentTables,
   isStripeProviderEnabled,
   loadPortalPaymentState,

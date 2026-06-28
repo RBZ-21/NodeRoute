@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useState } from 'react';
 import { fetchWithAuth } from '../lib/api';
 import type { CompanySettings, DeliverySummary, DriverInvoice, DriverRoute, DriverStop, DwellRecord } from '../pages/driver.types';
 import { upsertDwell } from '../pages/driver.types';
@@ -14,7 +14,7 @@ export function useDriverWorkspace() {
   const [loading, setLoading]                 = useState(true);
   const [error, setError]                     = useState('');
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     setError('');
     const results = await Promise.allSettled([
@@ -40,7 +40,7 @@ export function useDriverWorkspace() {
     if (results[4].status === 'fulfilled') setCompanySettings(results[4].value || {});
 
     setLoading(false);
-  }
+  }, []);
 
   function applyDwell(record: DwellRecord) {
     setDwellRecords((current) => upsertDwell(current, record));

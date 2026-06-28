@@ -1,11 +1,10 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { OfflineStatusConflict, QueuedStatusAction, StatusAction } from '@/types';
 
-export const OFFLINE_STATUS_QUEUE_KEY = 'offlineStatusQueue';
-
 const OFFLINE_STATUS_DB_NAME = 'noderoute-driver-offline-status';
 const OFFLINE_STATUS_STORE_NAME = 'queues';
 const OFFLINE_STATUS_QUEUE_RECORD_KEY = 'offlineStatusQueue';
+export const OFFLINE_STATUS_QUEUE_KEY = 'offlineStatusQueue';
 const CONFLICT_STORAGE_KEY = 'offlineStatusConflicts';
 
 type UseOfflineQueueOptions = {
@@ -125,6 +124,18 @@ async function saveOfflineStatusQueue(entries: QueuedStatusAction[]) {
 
 export async function clearOfflineStatusQueue() {
   await saveOfflineStatusQueue([]);
+}
+
+export async function deleteOfflineStatusIndexedDb() {
+  dbPromise = null;
+  if (!('indexedDB' in window)) return;
+
+  await new Promise<void>((resolve) => {
+    const request = window.indexedDB.deleteDatabase(OFFLINE_STATUS_DB_NAME);
+    request.onsuccess = () => resolve();
+    request.onerror = () => resolve();
+    request.onblocked = () => resolve();
+  });
 }
 
 function loadConflicts() {

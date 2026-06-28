@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Badge, type BadgeVariant } from '../ui/badge';
 import { Button } from '../ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
@@ -26,7 +26,7 @@ export function ReturnsTab({
   const [resolveForm, setResolveForm] = useState({ status: 'resolved', resolution: '', restocked: false });
   const [resolveSaving, setResolveSaving] = useState(false);
 
-  async function load() {
+  const load = useCallback(async () => {
     setLoading(true);
     try {
       const params = new URLSearchParams();
@@ -38,9 +38,9 @@ export function ReturnsTab({
     } finally {
       setLoading(false);
     }
-  }
+  }, [onError, statusFilter]);
 
-  useEffect(() => { load(); }, [statusFilter]);
+  useEffect(() => { void load(); }, [load]);
 
   async function submitReturn(e: React.FormEvent) {
     e.preventDefault();

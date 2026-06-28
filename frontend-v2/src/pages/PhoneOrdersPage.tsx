@@ -5,6 +5,7 @@ import { ChevronDown, ChevronUp, Phone } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { phoneOrderKeys } from './phone-order-keys';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -28,13 +29,6 @@ interface PhoneOrder {
   notes: string | null;
   created_at: string;
 }
-
-// ── Query keys ────────────────────────────────────────────────────────────────
-
-export const phoneOrderKeys = {
-  all: ['phone-orders'] as const,
-  draftCount: ['phone-orders-draft-count'] as const,
-};
 
 // ── Page ──────────────────────────────────────────────────────────────────────
 

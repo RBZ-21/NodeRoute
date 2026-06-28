@@ -227,3 +227,24 @@ export function clearStopDraft(stopId: string) {
 export function clearAllStopDrafts() {
   window.localStorage.removeItem(STOP_DRAFTS_KEY);
 }
+
+/** Wipe route payloads, offline queues, POD drafts, and IndexedDB caches from this device. */
+export async function clearSensitiveStorage() {
+  const { clearOfflineStatusConflicts, clearOfflineStatusQueue, deleteOfflineStatusIndexedDb } = await import('@/hooks/useOfflineQueue');
+
+  await clearToken();
+  clearUser();
+  clearCache();
+  clearSelectedRouteId();
+  clearQueuedTemperatureLogs();
+  clearOfflineRoutePackStatus();
+  clearQueuedStopNoteUpdates();
+  clearAllStopDrafts();
+  clearOfflineStatusConflicts();
+  await clearOfflineStatusQueue();
+  await deleteOfflineStatusIndexedDb();
+  await deleteLegacyTokenDb();
+}
+
+export const DRIVER_LOCAL_DATA_RETENTION_NOTICE =
+  'Route details, stop notes, proof photos, and queued actions are stored on this device until they sync or you log out. Sign out to remove them from shared devices.';

@@ -1,4 +1,4 @@
-import { useRef, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { sendWithAuth } from '../lib/api';
 import type { LocationStatusTone } from '../pages/driver.types';
 
@@ -9,7 +9,7 @@ export function useLocationSharing() {
   const [locationBusy, setLocationBusy]     = useState(false);
   const [locationStatus, setLocationStatus] = useState<LocationStatus>({ text: 'Location sync idle', tone: 'neutral' });
 
-  function start() {
+  const start = useCallback(() => {
     if (!navigator.geolocation) {
       setLocationStatus({ text: 'Geolocation is not available on this device.', tone: 'error' });
       return;
@@ -44,16 +44,16 @@ export function useLocationSharing() {
     );
 
     watchIdRef.current = watchId;
-  }
+  }, []);
 
-  function stop() {
+  const stop = useCallback(() => {
     if (watchIdRef.current != null) {
       navigator.geolocation.clearWatch(watchIdRef.current);
       watchIdRef.current = null;
     }
     setLocationStatus({ text: 'Location sync idle', tone: 'neutral' });
     setLocationBusy(false);
-  }
+  }, []);
 
   return { watchIdRef, locationBusy, locationStatus, startLocationSharing: start, stopLocationSharing: stop };
 }

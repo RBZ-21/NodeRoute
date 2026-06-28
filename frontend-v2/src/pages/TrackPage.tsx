@@ -111,10 +111,11 @@ export function TrackPage() {
   // ETA countdown ticker
   useEffect(() => {
     if (!data?.eta?.etaTime) { setCountdown(''); return; }
-    setCountdown(etaCountdown(data.eta.etaTime));
-    const id = setInterval(() => setCountdown(etaCountdown(data!.eta!.etaTime)), 10000);
+    const etaTime = data.eta.etaTime;
+    setCountdown(etaCountdown(etaTime));
+    const id = setInterval(() => setCountdown(etaCountdown(etaTime)), 10000);
     return () => clearInterval(id);
-  }, [data?.eta?.etaTime]);
+  }, [data]);
 
   // Map setup / update
   const setupMap = useCallback(async () => {

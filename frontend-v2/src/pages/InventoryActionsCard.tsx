@@ -59,7 +59,7 @@ export function InventoryActionsCard({
     setActionError('');
     setActionNotice('');
     cardRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  }, [fixRequest?.nonce]);
+  }, [fixRequest, items]);
 
   function clearActionFeedback() { setActionError(''); setActionNotice(''); }
 
