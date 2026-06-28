@@ -11,6 +11,38 @@
  *  - server: security headers present in response
  */
 const assert = require('assert');
+const fs = require('node:fs');
+const path = require('node:path');
+
+const repoRoot = path.join(__dirname, '..', '..');
+const supabaseMigrationsDir = path.join(repoRoot, 'supabase', 'migrations');
+const policyHardeningBaseline = '20260625204708_harden_rls_rpc_portal_checkout.sql';
+const denyOnlyPolicyTables = new Set([
+  'auth_refresh_sessions',
+  'driver_client_actions',
+  'portal_payment_events',
+  'portal_payment_methods',
+  'portal_payment_settings',
+]);
+
+function normalizeTableName(rawName) {
+  return rawName.replace(/^public\./i, '').replace(/"/g, '').trim().toLowerCase();
+}
+
+function migrationFilesSincePolicyBaseline() {
+  return fs.readdirSync(supabaseMigrationsDir)
+    .filter((file) => file.endsWith('.sql') && file >= policyHardeningBaseline)
+    .sort()
+    .map((file) => path.join(supabaseMigrationsDir, file));
+}
+
+function policyStatements(sql) {
+  return [...sql.matchAll(/create\s+policy[\s\S]*?\s+on\s+((?:public\.)?(?:"[^"]+"|[a-zA-Z_][\w$]*))[\s\S]*?;/gi)]
+    .map((match) => ({
+      table: normalizeTableName(match[1]),
+      sql: match[0],
+    }));
+}
 
 // ── 1. config.validate — production ADMIN_PASSWORD ───────────────────────────
 {
@@ -128,6 +160,45 @@ const assert = require('assert');
   assert.ok(typeof config.STRIPE_WEBHOOK_TOLERANCE_SECONDS === 'number', 'test 5b: tolerance is a number');
   assert.ok(config.STRIPE_WEBHOOK_TOLERANCE_SECONDS >= 1, 'test 5c: tolerance is at least 1 second');
   console.log('✓ config STRIPE_WEBHOOK_TOLERANCE_SECONDS tests (5a–5c)');
+}
+
+// ── 6. Supabase RLS policies stay tenant-scoped, not metadata/role-only ─────
+{
+  const unsafeMetadataReferences = [];
+  const roleOnlyPolicies = [];
+  const unscopedPolicies = [];
+
+  for (const file of migrationFilesSincePolicyBaseline()) {
+    const source = fs.readFileSync(file, 'utf8');
+    const relative = path.relative(repoRoot, file);
+
+    if (/\b(user_metadata|raw_user_meta_data)\b/i.test(source)) {
+      unsafeMetadataReferences.push(relative);
+    }
+
+    for (const policy of policyStatements(source)) {
+      const policySql = policy.sql.toLowerCase();
+      const denyOnly = /\busing\s*\(\s*false\s*\)/i.test(policy.sql)
+        && /\bwith\s+check\s*\(\s*false\s*\)/i.test(policy.sql);
+      const tenantScoped = /\b(company_id|location_id)\b/i.test(policy.sql)
+        || /\b(auth_company_id|jwt_company_id|jwt_location_id|row_company_allowed|row_location_allowed)\b/i.test(policy.sql);
+      const roleCheck = /\b(auth_role_text|is_platform_admin|is_admin_or_manager|auth\.role\s*\()/i.test(policy.sql)
+        || /app_metadata'\s*->>\s*'role/i.test(policySql);
+
+      if (roleCheck && !tenantScoped && !denyOnly) {
+        roleOnlyPolicies.push(`${relative}: ${policy.table}`);
+      }
+
+      if (!tenantScoped && !denyOnly && !denyOnlyPolicyTables.has(policy.table)) {
+        unscopedPolicies.push(`${relative}: ${policy.table}`);
+      }
+    }
+  }
+
+  assert.deepStrictEqual(unsafeMetadataReferences, [], 'test 6a: RLS migrations must not use user_metadata/raw_user_meta_data');
+  assert.deepStrictEqual(roleOnlyPolicies, [], 'test 6b: RLS policies must not authorize by role alone');
+  assert.deepStrictEqual(unscopedPolicies, [], 'test 6c: RLS policies must reference company_id/location_id tenant scope or deny direct access');
+  console.log('✓ Supabase RLS tenant-scope policy tests (6a–6c)');
 }
 
 console.log('\n✅ All security-hardening tests passed.');
