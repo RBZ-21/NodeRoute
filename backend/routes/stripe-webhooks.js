@@ -311,6 +311,37 @@ async function handlePaymentIntentFailed(intent) {
   logger.warn({ invoice_id, payment_intent_id: intent.id, reason: paymentIntentFailureMessage(intent) }, 'payment_intent.payment_failed: invoice payment marked failed');
 }
 
+function billingInvoiceMetadata(invoice) {
+  return (
+    invoice.subscription_details?.metadata
+    || invoice.parent?.subscription_details?.metadata
+    || invoice.lines?.data?.find((line) => line.metadata?.company_id)?.metadata
+    || invoice.metadata
+    || {}
+  );
+}
+
+// FIX [M9]: explicitly handle Stripe subscription invoice payments from NodeRoute billing checkout.
+async function handleInvoicePaid(invoice) {
+  const metadata = billingInvoiceMetadata(invoice);
+  const source = String(metadata.source || '');
+  const checkoutType = String(metadata.checkout_type || '');
+  if (source !== 'noderoute_billing_checkout' && checkoutType !== 'noderoute_subscription') return;
+
+  const companyId = String(metadata.company_id || '').trim();
+  if (!companyId) {
+    logger.warn({ stripe_invoice_id: invoice.id }, 'invoice.paid: NodeRoute billing invoice missing company_id metadata');
+    return;
+  }
+
+  logger.info({
+    company_id: companyId,
+    stripe_invoice_id: invoice.id,
+    stripe_subscription_id: invoice.subscription || invoice.parent?.subscription_details?.subscription || null,
+    amount_paid: cents(invoice.amount_paid || 0),
+  }, 'invoice.paid: NodeRoute subscription invoice paid');
+}
+
 async function stripeWebhookHandler(req, res) {
   let event;
   try {
@@ -341,6 +372,8 @@ async function stripeWebhookHandler(req, res) {
       await handlePaymentIntentSucceeded(event.data.object);
     } else if (event.type === 'payment_intent.payment_failed') {
       await handlePaymentIntentFailed(event.data.object);
+    } else if (event.type === 'invoice.paid') {
+      await handleInvoicePaid(event.data.object);
     }
     res.json({ received: true });
   } catch (err) {

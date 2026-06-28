@@ -391,10 +391,8 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     } finally {
       // Single source of truth for clearing all device-persisted driver data
       // (tokens, cached routes/customers, offline queues, stop drafts, POD photos).
+      // FIX [C2]: clearSensitiveStorage owns offline status queue cleanup.
       await clearSensitiveStorage();
-      // Offline status queue lives in useOfflineQueue, so clear it alongside.
-      clearOfflineStatusConflicts();
-      await clearOfflineStatusQueue();
       setToken(null);
       setUser(null);
       setPayload(null);

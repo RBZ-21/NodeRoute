@@ -3,6 +3,7 @@ const express = require('express');
 const { z } = require('zod');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { emailLimiter } = require('../middleware/rateLimiter');
 const { createMailer } = require('../services/email');
 const { analyzeInventory, generateReorderAlert } = require('../services/ai');
 const { validateBody } = require('../lib/zod-validate');
@@ -140,9 +141,13 @@ router.get('/', authenticateToken, async (req, res) => {
   // newly inserted rows that land with a null value are never hidden.
   // Only explicit false = inactive (seasonal/off-season).
   const data = await dbQuery(
-    supabase
-      .from('products')
-      .select('*')
+    // FIX [H2]: scope inventory list reads before service-role query execution.
+    scopeQueryByContext(
+      supabase
+        .from('products')
+        .select('*'),
+      req.context
+    )
       .or('is_active.is.null,is_active.eq.true')
       .order('category', { ascending: true }),
     res,
@@ -214,9 +219,13 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
 // Returns every product whose on_hand_qty is at or below its reorder_point.
 // Products with no reorder_point set are excluded.
 router.get('/low-stock', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { data, error } = await supabase
-    .from('products')
-    .select('item_number, name, description_line_1, category, class_name, unit, on_hand_qty, on_hand_quantity, cost, cost_base, reorder_point, barcode, is_active, company_id, location_id')
+  // FIX [H3]: scope low-stock product reads before filtering.
+  const { data, error } = await scopeQueryByContext(
+    supabase
+      .from('products')
+      .select('item_number, name, description_line_1, category, class_name, unit, on_hand_qty, on_hand_quantity, cost, cost_base, reorder_point, barcode, is_active, company_id, location_id'),
+    req.context
+  )
     .not('reorder_point', 'is', null)
     .gt('reorder_point', 0);
   if (error) return res.status(500).json({ error: error.message });
@@ -325,7 +334,7 @@ function buildInventoryAlertEmail(outOfStock, lowStock, analytics) {
 </div>`;
 }
 
-router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), emailLimiter, async (req, res) => {
   const mailer = createMailer();
   if (!mailer) return res.status(503).json({ error: 'Email not configured (RESEND_API_KEY missing)' });
 
@@ -360,7 +369,12 @@ router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), 
   });
 
   const html = buildInventoryAlertEmail(outOfStock, lowStock, analytics);
-  const to   = req.body.email || process.env.EMAIL_FROM;
+  // FIX [M5]: validate optional alert recipient before handing it to the mailer.
+  const requestedEmail = String(req.body?.email || '').trim();
+  if (requestedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(requestedEmail)) {
+    return res.status(400).json({ error: 'Invalid alert recipient email' });
+  }
+  const to = requestedEmail || process.env.EMAIL_FROM;
   try {
     await mailer.sendMail({
       from: process.env.EMAIL_FROM,
@@ -594,9 +608,13 @@ router.post('/count', authenticateToken, requireRole('admin', 'manager'), valida
   const normalized = req.validated.body.items;
 
   const itemNumbers = normalized.map(entry => entry.item_number);
-  const { data: existing, error: fetchErr } = await supabase
-    .from('products')
-    .select('*')
+  // FIX [H4]: scope physical-count product reads before applying item-number filters.
+  const { data: existing, error: fetchErr } = await scopeQueryByContext(
+    supabase
+      .from('products')
+      .select('*'),
+    req.context
+  )
     .in('item_number', itemNumbers);
   if (fetchErr) return res.status(500).json({ error: fetchErr.message });
 

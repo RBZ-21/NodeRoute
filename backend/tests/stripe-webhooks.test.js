@@ -17,10 +17,18 @@ test('stripe webhook route validates signatures and handles payment events', () 
   for (const marker of [
     "verifyWebhookSignature(req.body, req.headers['stripe-signature']",
     "event.type === 'checkout.session.completed'",
+    "event.type === 'invoice.paid'",
     "status: 'paid'",
   ]) {
     assert.ok(webhookSource.includes(marker), `missing webhook marker ${marker}`);
   }
+});
+
+// FIX [M9]: invoice.paid must be an explicit handled webhook type.
+test('stripe webhook route records invoice.paid subscription billing events explicitly', () => {
+  assert.match(webhookSource, /async function handleInvoicePaid/);
+  assert.match(webhookSource, /subscription_details/);
+  assert.match(webhookSource, /noderoute_billing_checkout/);
 });
 
 test('stripe service exposes webhook verification helpers', () => {

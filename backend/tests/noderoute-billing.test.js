@@ -31,6 +31,12 @@ test('NodeRoute billing backend exposes test-only subscription checkout', () => 
   }
 });
 
+// FIX [M8]: subscription checkout should have a Stripe-specific rate limit.
+test('NodeRoute billing subscription checkout is Stripe-rate-limited', () => {
+  assert.ok(billingRouteSource.includes("const { stripeLimiter } = require('../middleware/rateLimiter');"));
+  assert.match(billingRouteSource, /router\.post\('\/create-checkout-session',\s*stripeLimiter,\s*requireRole\('admin'\)/);
+});
+
 test('NodeRoute billing frontend lives in authenticated Settings, not customer portal', () => {
   for (const marker of [
     'NodeRoute Billing',

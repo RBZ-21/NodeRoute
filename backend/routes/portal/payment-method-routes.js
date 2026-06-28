@@ -1,5 +1,6 @@
 const express = require('express');
 const { scopeQueryByContext } = require('../../services/operating-context');
+const { stripeLimiter } = require('../../middleware/rateLimiter');
 const {
   AUTOPAY_METHOD_TYPES,
   PORTAL_PAYMENT_PROVIDER,
@@ -21,12 +22,11 @@ const {
   stripePaymentMethodSummary,
   supabase,
 } = require('./payments-shared');
-const { scopeQueryByContext } = require('../../services/operating-context');
 
 module.exports = function buildPortalPaymentMethodRouter({ authenticatePortalToken }) {
   const router = express.Router();
 
-  router.post('/payments/methods', authenticatePortalToken, async (req, res) => {
+  router.post('/payments/methods', authenticatePortalToken, stripeLimiter, async (req, res) => {
     try {
       const requestedMethodType = normalizePaymentMethodType(req.body.method_type);
       let methodType = requestedMethodType;
@@ -100,9 +100,14 @@ module.exports = function buildPortalPaymentMethodRouter({ authenticatePortalTok
       if (isDefault) {
         for (const existingMethod of existingState.methods) {
           if (existingMethod.id === insertResult.data.id) continue;
-          await supabase
-            .from('portal_payment_methods')
-            .update({ is_default: false, updated_at: nowIso })
+          // FIX [M3]: scope default-clearing updates to the portal tenant.
+          await scopeQueryByContext(
+            supabase
+              .from('portal_payment_methods')
+              .update({ is_default: false, updated_at: nowIso }),
+            req.portalContext,
+            { includeLocation: true }
+          )
             .eq('id', existingMethod.id);
         }
       }
@@ -117,7 +122,7 @@ module.exports = function buildPortalPaymentMethodRouter({ authenticatePortalTok
     }
   });
 
-  router.delete('/payments/methods/:id', authenticatePortalToken, async (req, res) => {
+  router.delete('/payments/methods/:id', authenticatePortalToken, stripeLimiter, async (req, res) => {
     try {
       const methodId = String(req.params.id || '').trim();
       if (!methodId) return res.status(400).json({ error: 'Payment method id is required' });
@@ -141,9 +146,14 @@ module.exports = function buildPortalPaymentMethodRouter({ authenticatePortalTok
       if (target.is_default) {
         const remaining = paymentState.methods.filter((method) => method.id !== methodId);
         if (remaining[0]) {
-          await supabase
-            .from('portal_payment_methods')
-            .update({ is_default: true, updated_at: new Date().toISOString() })
+          // FIX [M3]: scope replacement default updates to the portal tenant.
+          await scopeQueryByContext(
+            supabase
+              .from('portal_payment_methods')
+              .update({ is_default: true, updated_at: new Date().toISOString() }),
+            req.portalContext,
+            { includeLocation: true }
+          )
             .eq('id', remaining[0].id);
         }
       }
@@ -195,9 +205,14 @@ module.exports = function buildPortalPaymentMethodRouter({ authenticatePortalTok
         updated_at: nowIso,
       };
 
-      const { data: existingRows, error: existingErr } = await supabase
-        .from('portal_payment_settings')
-        .select('*')
+      // FIX [M4]: scope existing autopay settings lookup before customer filtering.
+      const { data: existingRows, error: existingErr } = await scopeQueryByContext(
+        supabase
+          .from('portal_payment_settings')
+          .select('*'),
+        req.portalContext,
+        { includeLocation: true }
+      )
         .eq('customer_email', req.customerEmail)
         .order('updated_at', { ascending: false })
         .limit(10);

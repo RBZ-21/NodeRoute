@@ -57,6 +57,24 @@ function canUsePortalPreview(email) {
   return normalized === adminEmail || PORTAL_PREVIEW_EMAILS.includes(normalized);
 }
 
+function portalTenantCandidates(rows = []) {
+  return rows
+    .map((row) => ({
+      row,
+      key: `${row.company_id || ''}:${row.location_id || ''}`,
+    }))
+    .filter((candidate) => candidate.key !== ':');
+}
+
+// FIX [H5]: fail closed when one portal email maps to multiple tenant contexts.
+function uniquePortalTenantMatch(rows = []) {
+  const candidates = portalTenantCandidates(rows);
+  if (!candidates.length) return null;
+  const tenantKeys = new Set(candidates.map((candidate) => candidate.key));
+  if (tenantKeys.size !== 1) return null;
+  return candidates[0].row;
+}
+
 function generateVerificationCode() {
   return String(Math.floor(100000 + Math.random() * 900000));
 }
@@ -98,49 +116,55 @@ async function resolvePortalCustomer(email) {
   const normalized = normalizeEmail(email);
   const { data: invoices, error: invoiceError } = await supabase
     .from('invoices')
-    .select('*')
+    .select('customer_name,customer_email,company_id,location_id,created_at')
     .ilike('customer_email', normalized)
     .order('created_at', { ascending: false })
-    .limit(1);
+    .limit(10);
   if (invoiceError) throw invoiceError;
-  if (invoices && invoices.length > 0) {
+  const invoice = uniquePortalTenantMatch(invoices || []);
+  if (invoice) {
     return {
       email: normalized,
-      name: invoices[0].customer_name || normalized,
-      companyId: invoices[0].company_id || null,
-      locationId: invoices[0].location_id || null,
+      name: invoice.customer_name || normalized,
+      companyId: invoice.company_id || null,
+      locationId: invoice.location_id || null,
     };
   }
+  if (invoices && invoices.length > 0) return null;
 
   const { data: orders, error: orderError } = await supabase
     .from('orders')
-    .select('*')
+    .select('customer_name,customer_email,company_id,location_id,created_at')
     .ilike('customer_email', normalized)
     .order('created_at', { ascending: false })
-    .limit(1);
+    .limit(10);
   if (orderError) throw orderError;
-  if (orders && orders.length > 0) {
+  const order = uniquePortalTenantMatch(orders || []);
+  if (order) {
     return {
       email: normalized,
-      name: orders[0].customer_name || normalized,
-      companyId: orders[0].company_id || null,
-      locationId: orders[0].location_id || null,
+      name: order.customer_name || normalized,
+      companyId: order.company_id || null,
+      locationId: order.location_id || null,
     };
   }
+  if (orders && orders.length > 0) return null;
 
   const { data: customers } = await supabase
     .from('Customers')
     .select('company_name, billing_email, company_id, location_id')
     .ilike('billing_email', normalized)
-    .limit(1);
-  if (customers && customers.length > 0) {
+    .limit(10);
+  const customer = uniquePortalTenantMatch(customers || []);
+  if (customer) {
     return {
       email: normalized,
-      name: customers[0].company_name || normalized,
-      companyId: customers[0].company_id || null,
-      locationId: customers[0].location_id || null,
+      name: customer.company_name || normalized,
+      companyId: customer.company_id || null,
+      locationId: customer.location_id || null,
     };
   }
+  if (customers && customers.length > 0) return null;
 
   if (canUsePortalPreview(normalized)) {
     const { data: users, error: userError } = await supabase

@@ -145,6 +145,30 @@ test('invoice, inventory, and purchase-order routes enforce shared Zod validatio
   assert.ok(purchaseOrders.includes('quantity must be a positive number'), 'purchase orders should validate item quantity');
 });
 
+// FIX [H2]: protect inventory read endpoints from unscoped service-role reads.
+test('inventory read endpoints scope product queries before execution', () => {
+  const inventory = routeSource('inventory');
+  const listBlock = inventory.slice(inventory.indexOf("router.get('/'"), inventory.indexOf("router.post('/'"));
+  const lowStockBlock = inventory.slice(inventory.indexOf("router.get('/low-stock'"), inventory.indexOf('// ── ANALYTICS'));
+  const countBlock = inventory.slice(inventory.indexOf("router.post('/count'"), inventory.indexOf("router.post('/:id/restock'"));
+
+  assert.match(listBlock, /scopeQueryByContext\(\s*supabase\s*\.\s*from\('products'\)\s*\.select\('\*'\),\s*req\.context\s*\)/s);
+  assert.match(lowStockBlock, /scopeQueryByContext\(\s*supabase\s*\.\s*from\('products'\)\s*\.select\(/s);
+  assert.match(countBlock, /scopeQueryByContext\(\s*supabase\s*\.\s*from\('products'\)\s*\.select\('\*'\),\s*req\.context\s*\)/s);
+});
+
+// FIX [M5]: require endpoint-specific throttling and email allowlist validation for alert sends.
+test('inventory alert email endpoint has an email limiter and validates requested recipients', () => {
+  const inventory = routeSource('inventory');
+  const rateLimiter = fs.readFileSync(path.join(repoRoot, 'backend', 'middleware', 'rateLimiter.js'), 'utf8');
+  const alertBlock = inventory.slice(inventory.indexOf("router.post('/alerts/send'"), inventory.indexOf("router.get('/ai-analysis'"));
+
+  assert.ok(rateLimiter.includes('emailLimiter'), 'rateLimiter must export emailLimiter');
+  assert.match(alertBlock, /emailLimiter/);
+  assert.match(alertBlock, /requestedEmail/);
+  assert.match(alertBlock, /Invalid alert recipient email/);
+});
+
 test('ai routes protect order-intake automation behind auth and manager/admin checks', () => {
   const source = routeSource('ai');
   assert.ok(source.includes("router.post('/order-intake', authenticateToken, requireRole('admin', 'manager')"), 'order-intake route should require manager/admin auth');

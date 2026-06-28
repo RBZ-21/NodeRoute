@@ -19,12 +19,14 @@ const {
   paymentTablesUnavailableResponse,
   portalInvoiceBalanceSummary,
   recordPortalPaymentEvent,
+  scopeQueryByContext,
   stripeCheckoutReadiness,
   supabase,
   toMoney,
 } = require('./payments-shared');
 const creditEngine = require('../../services/creditEngine');
 const logger = require('../../services/logger');
+const { stripeLimiter } = require('../../middleware/rateLimiter');
 
 function portalCompanyId(context = {}) {
   return context.activeCompanyId || context.companyId || '';
@@ -64,7 +66,7 @@ function scopedInvoiceUpdate(invoiceId, portalContext, updates) {
 module.exports = function buildPortalPaymentCollectionRouter({ authenticatePortalToken }) {
   const router = express.Router();
 
-  router.post('/payments/autopay/charge-now', authenticatePortalToken, async (req, res) => {
+  router.post('/payments/autopay/charge-now', authenticatePortalToken, stripeLimiter, async (req, res) => {
     try {
       if (!isStripeProviderEnabled()) {
         return res.status(501).json({ error: 'Stripe autopay is not configured', code: 'STRIPE_NOT_CONFIGURED' });
@@ -171,9 +173,14 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
         }
       }
 
-      await supabase
-        .from('portal_payment_settings')
-        .update({ last_run_at: new Date().toISOString(), updated_at: new Date().toISOString() })
+      // FIX [H1]: scope autopay last-run writes to the active portal tenant.
+      await scopeQueryByContext(
+        supabase
+          .from('portal_payment_settings')
+          .update({ last_run_at: new Date().toISOString(), updated_at: new Date().toISOString() }),
+        req.portalContext,
+        { includeLocation: true }
+      )
         .eq('customer_email', req.customerEmail);
 
       return res.json({
@@ -191,7 +198,7 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
     }
   });
 
-  router.post('/payments/create-checkout-session', authenticatePortalToken, async (req, res) => {
+  router.post('/payments/create-checkout-session', authenticatePortalToken, stripeLimiter, async (req, res) => {
     try {
       const balance = await portalInvoiceBalanceSummary(req.customerEmail, req.portalContext);
       if (balance.openBalance <= 0) {
@@ -295,7 +302,7 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
     }
   });
 
-  router.post('/invoices/:id/pay', authenticatePortalToken, async (req, res) => {
+  router.post('/invoices/:id/pay', authenticatePortalToken, stripeLimiter, async (req, res) => {
     try {
       if (!isStripeProviderEnabled()) {
         return res.status(501).json({ error: 'Stripe payments are not configured', code: 'STRIPE_NOT_CONFIGURED' });

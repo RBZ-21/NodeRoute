@@ -53,16 +53,15 @@ export function DriverPage() {
   const [proofUploadSaving, setProofUploadSaving] = useState(false);
   const proofInputRef = useRef<HTMLInputElement | null>(null);
 
-  // ws/loc are recreated each render, so hold the latest in refs and run the
-  // load-once / stop-on-unmount effect exactly once (refs are not reactive deps).
-  const wsRef = useRef(ws);
-  wsRef.current = ws;
-  const locRef = useRef(loc);
-  locRef.current = loc;
+  // Keep the latest hook callbacks while running the load/unmount effect once.
+  const loadRef = useRef(load);
+  loadRef.current = load;
+  const stopLocationSharingRef = useRef(stopLocationSharing);
+  stopLocationSharingRef.current = stopLocationSharing;
 
   useEffect(() => {
-    void wsRef.current.load();
-    return () => locRef.current.stopLocationSharing();
+    void loadRef.current();
+    return () => stopLocationSharingRef.current();
   }, []);
 
   const activeRoute: DriverRoute | null = useMemo(

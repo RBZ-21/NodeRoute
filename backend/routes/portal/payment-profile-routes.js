@@ -1,4 +1,5 @@
 const express = require('express');
+const { stripeLimiter } = require('../../middleware/rateLimiter');
 const {
   AUTOPAY_METHOD_TYPES,
   PORTAL_PAYMENT_CURRENCY,
@@ -68,7 +69,7 @@ module.exports = function buildPortalPaymentProfileRouter({ authenticatePortalTo
     }
   });
 
-  router.post('/payments/setup-intent', authenticatePortalToken, async (req, res) => {
+  router.post('/payments/setup-intent', authenticatePortalToken, stripeLimiter, async (req, res) => {
     try {
       if (!isStripeProviderEnabled()) {
         return res.status(501).json({

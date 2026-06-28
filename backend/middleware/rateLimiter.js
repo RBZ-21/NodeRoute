@@ -106,6 +106,26 @@ const aiLimiter = rateLimit({
   handler: jsonMessage('AI request limit reached. Please wait a few minutes before trying again.'),
 });
 
+// FIX [M6]: add a narrow throttle for Stripe-triggering payment endpoints.
+const stripeLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: () => isTest,
+  handler: jsonMessage('Too many payment attempts. Please wait a few minutes before trying again.'),
+});
+
+// FIX [M5]: add a narrow throttle for email-triggering endpoints.
+const emailLimiter = rateLimit({
+  windowMs: 60 * 60 * 1000,
+  max: 20,
+  standardHeaders: 'draft-7',
+  legacyHeaders: false,
+  skip: () => isTest,
+  handler: jsonMessage('Too many email requests. Please wait an hour before trying again.'),
+});
+
 // 10 verify attempts per 15 minutes per IP — bounds portal code brute force.
 const portalVerifyLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
@@ -124,6 +144,8 @@ module.exports = {
   passwordResetLimiter,
   changePasswordLimiter,
   aiLimiter,
+  stripeLimiter,
+  emailLimiter,
   publicLimiter,
   waitlistLimiter,
   portalVerifyLimiter,

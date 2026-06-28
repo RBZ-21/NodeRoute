@@ -173,10 +173,6 @@ export function InvoicesPage() {
   const topRisks = useMemo(() => (latePaymentRisk.data?.risks || []).slice(0, 3), [latePaymentRisk.data]);
   const selectedRisk = selected ? riskByCustomer.get(customerName(selected).toLowerCase()) : undefined;
 
-  // Destructure the stable mutate fn + primitive isPending so the effect does
-  // not depend on the useMutation object's identity (which changes every render
-  // and would cause an infinite update loop).
-  const { isPending: followUpPending, mutate: followUpMutate } = invoiceFollowUp;
   useEffect(() => {
     if (!selected) {
       setFollowUpDraft(null);
@@ -186,11 +182,11 @@ export function InvoicesPage() {
     }
     const selectedId = String(selected.id || '');
     if (!selectedId || !shouldSuggestFollowUp(selected)) return;
-    if (followUpPending) return;
+    if (invoiceFollowUpPending) return;
     if (followUpInvoiceId === selectedId && followUpDraft) return;
 
     setFollowUpError('');
-    followUpMutate(selectedId, {
+    mutateInvoiceFollowUp(selectedId, {
       onSuccess: (result) => {
         setFollowUpDraft(result);
         setFollowUpInvoiceId(selectedId);
@@ -201,7 +197,7 @@ export function InvoicesPage() {
         setFollowUpError(String((mutationError as Error)?.message || 'Could not build invoice follow-up'));
       },
     });
-  }, [followUpDraft, followUpInvoiceId, followUpPending, followUpMutate, selected]);
+  }, [followUpDraft, followUpInvoiceId, invoiceFollowUpPending, mutateInvoiceFollowUp, selected]);
 
   function openInvoice(inv: Invoice) {
     setSelected(inv);

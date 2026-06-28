@@ -88,16 +88,6 @@ export function OrderFormCard({
     if (debounceRef.current) clearTimeout(debounceRef.current);
   }, []);
 
-  // Call the latest hydrate via a ref so the effect subscribes only to the
-  // customer fields/list, not to the function's identity each render.
-  const hydrateCustomerByNameRef = useRef(hydrateCustomerByName);
-  hydrateCustomerByNameRef.current = hydrateCustomerByName;
-  useEffect(() => {
-    if (!customerName.trim()) return;
-    if (customerEmail.trim() || customerAddress.trim() || customerPhone.trim()) return;
-    hydrateCustomerByNameRef.current(customerName);
-  }, [customerName, customerEmail, customerAddress, customerPhone, customers]);
-
   function normalizedCustomerName(value: string) {
     return value.trim().toLowerCase();
   }
@@ -171,11 +161,15 @@ export function OrderFormCard({
     return true;
   }, [customers, hydrateCustomerDetails]);
 
+  // Call the latest hydrate via a ref so the effect subscribes to customer
+  // data changes without depending on the callback identity each render.
+  const hydrateCustomerByNameRef = useRef(hydrateCustomerByName);
+  hydrateCustomerByNameRef.current = hydrateCustomerByName;
   useEffect(() => {
     if (!customerName.trim()) return;
     if (customerEmail.trim() || customerAddress.trim() || customerPhone.trim()) return;
-    hydrateCustomerByName(customerName);
-  }, [customerAddress, customerEmail, customerName, customerPhone, hydrateCustomerByName]);
+    hydrateCustomerByNameRef.current(customerName);
+  }, [customerAddress, customerEmail, customerName, customerPhone, customers]);
 
   const customerOptions = useMemo(
     () => customers.map((c) => ({

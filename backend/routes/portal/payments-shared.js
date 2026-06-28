@@ -89,14 +89,24 @@ function defaultAutopaySettings() {
 
 async function loadPortalPaymentState(req) {
   const [{ data: methodsRaw, error: methodsError }, { data: settingsRaw, error: settingsError }] = await Promise.all([
-    supabase
-      .from('portal_payment_methods')
-      .select('*')
+    // FIX [M1]: scope portal payment methods before filtering by customer email.
+    scopeQueryByContext(
+      supabase
+        .from('portal_payment_methods')
+        .select('*'),
+      req.portalContext,
+      { includeLocation: true }
+    )
       .eq('customer_email', req.customerEmail)
       .order('created_at', { ascending: false }),
-    supabase
-      .from('portal_payment_settings')
-      .select('*')
+    // FIX [M1]: scope portal payment settings before filtering by customer email.
+    scopeQueryByContext(
+      supabase
+        .from('portal_payment_settings')
+        .select('*'),
+      req.portalContext,
+      { includeLocation: true }
+    )
       .eq('customer_email', req.customerEmail)
       .order('updated_at', { ascending: false })
       .limit(1),
@@ -114,6 +124,7 @@ async function loadPortalPaymentState(req) {
     methods,
     settings: settingsRow
       ? {
+          id: settingsRow.id || null,
           enabled: !!settingsRow.autopay_enabled,
           autopay_day_of_month: settingsRow.autopay_day_of_month || 1,
           method_id: settingsRow.method_id || null,
@@ -214,9 +225,14 @@ function invoiceIsOpen(invoice) {
 }
 
 async function listScopedCustomerInvoices(email, portalContext) {
-  const { data, error } = await supabase
-    .from('invoices')
-    .select('*')
+  // FIX [M2]: scope portal invoice lists before filtering by customer email.
+  const { data, error } = await scopeQueryByContext(
+    supabase
+      .from('invoices')
+      .select('*'),
+    portalContext,
+    { includeLocation: true }
+  )
     .ilike('customer_email', email)
     .order('created_at', { ascending: true });
   if (error) throw error;
@@ -279,9 +295,14 @@ function stripePaymentMethodSummary(paymentMethod) {
 }
 
 async function portalInvoiceBalanceSummary(email, portalContext) {
-  const { data, error } = await supabase
-    .from('invoices')
-    .select('id,total,status,customer_email,company_id,location_id,created_at')
+  // FIX [M2]: scope portal invoice balance reads before filtering by customer email.
+  const { data, error } = await scopeQueryByContext(
+    supabase
+      .from('invoices')
+      .select('id,total,status,customer_email,company_id,location_id,created_at'),
+    portalContext,
+    { includeLocation: true }
+  )
     .ilike('customer_email', email)
     .order('created_at', { ascending: true });
   if (error) throw error;

@@ -398,11 +398,12 @@ export function clearAllStopDrafts() {
  *
  * This is the single source of truth for device cleanup on logout. Any new
  * persisted key MUST be cleared here so sensitive route/customer/POD data does
- * not linger on shared or compromised devices. Callers that own storage outside
- * this module (e.g. the offline status queue in useOfflineQueue) must clear it
- * alongside this call.
+ * not linger on shared or compromised devices.
  */
+// FIX [C1]: collapse duplicate sensitive storage cleanup into one exported function.
 export async function clearSensitiveStorage() {
+  const { clearOfflineStatusConflicts, clearOfflineStatusQueue, deleteOfflineStatusIndexedDb } = await import('@/hooks/useOfflineQueue');
+
   // Auth material first (also removes the legacy token IndexedDB).
   await clearToken();
   clearUser();
@@ -415,24 +416,10 @@ export async function clearSensitiveStorage() {
   clearQueuedStopNoteUpdates();
   // Stop drafts in localStorage + proof photos in IndexedDB.
   clearAllStopDrafts();
-  await clearPodDraftPhotos();
-}
-
-/** Wipe route payloads, offline queues, POD drafts, and IndexedDB caches from this device. */
-export async function clearSensitiveStorage() {
-  const { clearOfflineStatusConflicts, clearOfflineStatusQueue, deleteOfflineStatusIndexedDb } = await import('@/hooks/useOfflineQueue');
-
-  await clearToken();
-  clearUser();
-  clearCache();
-  clearSelectedRouteId();
-  clearQueuedTemperatureLogs();
-  clearOfflineRoutePackStatus();
-  clearQueuedStopNoteUpdates();
-  clearAllStopDrafts();
   clearOfflineStatusConflicts();
   await clearOfflineStatusQueue();
   await deleteOfflineStatusIndexedDb();
+  await clearPodDraftPhotos();
   await deleteLegacyTokenDb();
 }
 

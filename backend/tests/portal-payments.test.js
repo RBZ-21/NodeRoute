@@ -290,6 +290,52 @@ test('inventory-analysis scopes products, stock history, and lot queries by tena
   }
 });
 
+// FIX [M1]: load portal payment state with scoped payment method and settings reads.
+test('portal payment shared reads are scoped before customer filtering', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal', 'payments-shared.js'), 'utf8');
+  const stateBlock = source.slice(source.indexOf('async function loadPortalPaymentState'), source.indexOf('function stripePublishableKeyMode'));
+  const invoiceBlock = source.slice(source.indexOf('async function listScopedCustomerInvoices'), source.indexOf('function toMoney'));
+  const balanceBlock = source.slice(source.indexOf('async function portalInvoiceBalanceSummary'), source.indexOf('async function ensureStripePortalCustomer'));
+
+  assert.match(stateBlock, /scopeQueryByContext\(\s*supabase\s*\.\s*from\('portal_payment_methods'\)\s*\.select\('\*'\),\s*req\.portalContext,\s*\{\s*includeLocation:\s*true\s*\}/s);
+  assert.match(stateBlock, /scopeQueryByContext\(\s*supabase\s*\.\s*from\('portal_payment_settings'\)\s*\.select\('\*'\),\s*req\.portalContext,\s*\{\s*includeLocation:\s*true\s*\}/s);
+  assert.match(invoiceBlock, /scopeQueryByContext\(\s*supabase\s*\.\s*from\('invoices'\)\s*\.select\('\*'\),\s*portalContext,\s*\{\s*includeLocation:\s*true\s*\}/s);
+  assert.match(balanceBlock, /scopeQueryByContext\(\s*supabase\s*\.\s*from\('invoices'\)\s*\.select\(/s);
+});
+
+// FIX [H1]: charge-now must scope portal_payment_settings updates.
+test('portal payment collection writes and Stripe-triggering routes are scoped and throttled', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal', 'payment-collection-routes.js'), 'utf8');
+  const chargeNowBlock = source.slice(source.indexOf("router.post('/payments/autopay/charge-now'"), source.indexOf("router.post('/payments/create-checkout-session'"));
+
+  assert.match(chargeNowBlock, /stripeLimiter/);
+  assert.match(chargeNowBlock, /scopeQueryByContext\(\s*supabase\s*\.\s*from\('portal_payment_settings'\)\s*\.update\(/s);
+  assert.match(chargeNowBlock, /includeLocation:\s*true/);
+  assert.match(source, /router\.post\('\/payments\/create-checkout-session',\s*authenticatePortalToken,\s*stripeLimiter/s);
+  assert.match(source, /router\.post\('\/invoices\/:id\/pay',\s*authenticatePortalToken,\s*stripeLimiter/s);
+});
+
+// FIX [H5]: portal login must fail closed when an email maps to multiple tenant contexts.
+test('portal auth refuses ambiguous customer email tenant resolution', () => {
+  const source = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal', 'shared.js'), 'utf8');
+  const resolveBlock = source.slice(source.indexOf('async function resolvePortalCustomer'), source.indexOf('async function sendPortalCodeEmail'));
+
+  assert.match(source, /function portalTenantCandidates/);
+  assert.match(source, /function uniquePortalTenantMatch/);
+  assert.match(resolveBlock, /limit\(10\)/);
+  assert.match(resolveBlock, /return null/);
+});
+
+// FIX [M6]: portal Stripe method/profile routes need narrow payment throttles.
+test('portal Stripe setup and method mutation endpoints use stripeLimiter', () => {
+  const methodSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal', 'payment-method-routes.js'), 'utf8');
+  const profileSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'portal', 'payment-profile-routes.js'), 'utf8');
+
+  assert.match(methodSource, /router\.post\('\/payments\/methods',\s*authenticatePortalToken,\s*stripeLimiter/s);
+  assert.match(methodSource, /router\.delete\('\/payments\/methods\/:id',\s*authenticatePortalToken,\s*stripeLimiter/s);
+  assert.match(profileSource, /router\.post\('\/payments\/setup-intent',\s*authenticatePortalToken,\s*stripeLimiter/s);
+});
+
 test('portal payment methods save creates a scoped manual debit card method', async () => {
   const tables = basePaymentTables();
   const captures = { inserts: [], updates: [] };
@@ -399,10 +445,7 @@ test('customer portal frontend includes payment bootstrap and checkout trigger',
 // runtime `scopeQueryByContext is not a function` regression on DELETE/PATCH
 // passed CI. These tests exercise the real router against a fake Supabase and
 // a spy on scopeQueryByContext so behavioral regressions are caught.
-const http = require('node:http');
-const express = require('express');
-
-function makeSupabase(tables, captures) {
+function makeScopedSupabase(tables, captures) {
   class Query {
     constructor(table) {
       this.table = table;
@@ -463,7 +506,7 @@ function loadPaymentMethodRouter(tables, captures, scopeCalls) {
     id: supabasePath,
     filename: supabasePath,
     loaded: true,
-    exports: { supabase: makeSupabase(tables, captures), dbQuery: async () => null },
+    exports: { supabase: makeScopedSupabase(tables, captures), dbQuery: async () => null },
   };
 
   // Load operating-context fresh and wrap scopeQueryByContext with a spy that

@@ -13,6 +13,7 @@ const {
   stripeSecretKeyMode,
 } = require('../services/stripe');
 const { requireRole } = require('../middleware/auth');
+const { stripeLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
@@ -148,7 +149,8 @@ router.get('/config', async (req, res) => {
   }
 });
 
-router.post('/create-checkout-session', requireRole('admin'), async (req, res) => {
+// FIX [M8]: throttle subscription checkout session creation separately from general API traffic.
+router.post('/create-checkout-session', stripeLimiter, requireRole('admin'), async (req, res) => {
   try {
     const company = await loadBillingCompany(req);
     if (!company) return res.status(400).json({ error: 'No company context.', code: 'NO_COMPANY_CONTEXT' });
