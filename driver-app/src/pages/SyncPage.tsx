@@ -84,6 +84,14 @@ export function SyncPage() {
       </div>
 
       <div className="grid gap-4">
+        <div className="rounded-[2rem] bg-amber-50 p-5 ring-1 ring-amber-200">
+          <p className="text-sm font-semibold text-amber-900">Data stored on this device for offline use</p>
+          <p className="mt-2 text-sm text-amber-800">
+            Route details, customer addresses, queued updates, and proof-of-delivery photos are saved on this
+            device so the app keeps working without signal. This information is cleared automatically when you
+            sign out — always sign out on shared or borrowed devices.
+          </p>
+        </div>
         <div className="rounded-[2rem] bg-white p-5 shadow-card">
           <p className="text-sm font-semibold text-ink">Queued work</p>
           <div className="mt-4 grid gap-3 sm:grid-cols-3">
@@ -167,7 +175,7 @@ export function SyncPage() {
                   <p><strong>Stop ID:</strong> {draft.stopId}</p>
                   <p className="mt-2"><strong>Updated:</strong> {formatStamp(draft.updatedAt)}</p>
                   <p className="mt-2"><strong>Notes:</strong> {draft.notes.trim() ? 'Saved' : 'None'}</p>
-                  <p className="mt-2"><strong>Proof photo:</strong> {draft.proofImage ? 'Saved on device' : 'None'}</p>
+                  <p className="mt-2"><strong>Proof photo:</strong> {draft.proofImageDraftId ? 'Saved on device' : 'None'}</p>
                   {draft.notes.trim() ? (
                     <p className="mt-2 line-clamp-2 text-xs text-slate-500">
                       {draft.notes.trim()}

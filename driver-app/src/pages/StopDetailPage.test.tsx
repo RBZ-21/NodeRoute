@@ -89,7 +89,9 @@ vi.mock('@/hooks/useLocationUpdater', () => ({
 
 vi.mock('@/lib/storage', () => ({
   clearStopDraft: vi.fn(),
+  loadPodDraftPhoto: vi.fn(() => Promise.resolve(null)),
   loadStopDraft: vi.fn(() => null),
+  savePodDraftPhoto: vi.fn(() => Promise.resolve('pod-stop-1-test')),
   saveStopDraft: vi.fn(),
 }));
 

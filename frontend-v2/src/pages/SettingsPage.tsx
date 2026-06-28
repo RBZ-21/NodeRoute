@@ -1,5 +1,5 @@
 import { type ChangeEvent, useMemo, useState } from 'react';
-import { ShoppingCart } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CreditCard, ShoppingCart, XCircle } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -8,11 +8,14 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '.
 import { getUserRole, type Role } from '../lib/api';
 import {
   useChangePassword,
+  useBillingConfig,
   useCompanySettings,
   useCurrentUser,
   useSaveCompanySettings,
   useSaveProfile,
+  useStartBillingCheckout,
   type CutoffOption,
+  type BillingConfig,
 } from '../hooks/useSettings';
 
 const DEFAULT_HOUR_OPTIONS: CutoffOption[] = [
@@ -46,18 +49,37 @@ function updateLocalUserName(nextName: string) {
   } catch {}
 }
 
+function checkoutIdempotencyKey() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
+function readBillingReturn(): { status: 'success' | 'cancelled'; sessionId?: string } | null {
+  if (typeof window === 'undefined') return null;
+  const params = new URLSearchParams(window.location.search);
+  const billing = String(params.get('billing') || '').toLowerCase();
+  if (billing === 'success') return { status: 'success', sessionId: params.get('session_id') || undefined };
+  if (billing === 'cancelled' || billing === 'cancel') return { status: 'cancelled' };
+  return null;
+}
+
 export function SettingsPage() {
   const role = getUserRole() as Role;
   const canManageCompanySettings = role === 'admin' || role === 'manager' || role === 'superadmin';
 
   const { data: user = {}, isLoading: loadingUser } = useCurrentUser();
   const { data: company = {}, isLoading: loadingCompany } = useCompanySettings();
+  const { data: billing = {}, isLoading: loadingBilling } = useBillingConfig();
   const saveProfile = useSaveProfile();
   const changePassword = useChangePassword();
   const saveCompany = useSaveCompanySettings();
+  const startBillingCheckout = useStartBillingCheckout();
 
   const [notice, setNotice] = useState('');
   const [error, setError] = useState('');
+  const [billingReturn] = useState(readBillingReturn);
   const [displayName, setDisplayName] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -130,6 +152,18 @@ export function SettingsPage() {
     } catch (err) { setError(String((err as Error)?.message || 'Failed to save company settings')); }
   }
 
+  async function handleStartBillingCheckout() {
+    setError('');
+    setNotice('');
+    try {
+      const payload = await startBillingCheckout.mutateAsync({ idempotency_key: checkoutIdempotencyKey() });
+      if (!payload.checkout_url) throw new Error('No checkout link was returned.');
+      window.location.href = payload.checkout_url;
+    } catch (err) {
+      setError(String((err as Error)?.message || 'Could not start NodeRoute billing checkout.'));
+    }
+  }
+
   function handleLogoUpload(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
     event.target.value = '';
@@ -198,6 +232,14 @@ export function SettingsPage() {
           </CardContent>
         </Card>
       </div>
+
+      <NodeRouteBillingCard
+        billing={billing}
+        billingReturn={billingReturn}
+        loading={loadingBilling}
+        busy={startBillingCheckout.isPending}
+        onCheckout={() => void handleStartBillingCheckout()}
+      />
 
       <Card>
         <CardHeader className="space-y-1"><CardTitle>Company Controls</CardTitle><CardDescription>Operational policy controls aligned with dispatch and delivery compliance.</CardDescription></CardHeader>
@@ -304,6 +346,116 @@ export function SettingsPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+function NodeRouteBillingCard({
+  billing,
+  billingReturn,
+  loading,
+  busy,
+  onCheckout,
+}: {
+  billing: BillingConfig;
+  billingReturn: { status: 'success' | 'cancelled'; sessionId?: string } | null;
+  loading: boolean;
+  busy: boolean;
+  onCheckout: () => void;
+}) {
+  const company = billing.company || {};
+  const canManageBilling = billing.can_manage_billing !== false;
+  const showTestPreview = !!billing.test_mode || !!billingReturn;
+  const success = billingReturn?.status === 'success';
+  const ReturnIcon = success ? CheckCircle2 : XCircle;
+  const readinessMessage = billing.live_mode_blocked
+    ? 'Live Stripe keys are present but blocked for this preview. Switch to sk_test_ and pk_test_ keys to test subscription checkout safely.'
+    : billing.message || 'Stripe subscription checkout is not fully configured yet.';
+
+  return (
+    <Card className="border-sky-200 bg-sky-50/40">
+      <CardHeader className="space-y-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <CreditCard className="h-5 w-5 text-sky-700" />
+          <CardTitle>NodeRoute Billing</CardTitle>
+          {billing.test_mode ? <Badge variant="secondary">Test Preview</Badge> : null}
+        </div>
+        <CardDescription>Subscription checkout for distributors paying for NodeRoute access.</CardDescription>
+      </CardHeader>
+      <CardContent className="space-y-4">
+        {showTestPreview ? (
+          <div className="flex items-start gap-3 rounded-lg border border-sky-200 bg-white px-4 py-3 text-sm text-sky-900">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <div className="font-semibold">Stripe test mode preview — no live charges</div>
+              <div className="mt-1 text-sky-800">
+                This is for NodeRoute service billing, not restaurant invoice collection.
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {billingReturn ? (
+          <div
+            className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${
+              success
+                ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+                : 'border-amber-200 bg-amber-50 text-amber-900'
+            }`}
+          >
+            <ReturnIcon className="mt-0.5 h-4 w-4 shrink-0" />
+            <div>
+              <div className="font-semibold">{success ? 'Test subscription checkout returned' : 'Subscription checkout canceled'}</div>
+              <div className="mt-1">
+                {success
+                  ? 'Stripe redirected back after the hosted test checkout. Do not activate billing entitlements until verified subscription webhooks are enabled.'
+                  : 'No subscription change was made. The company plan remains unchanged.'}
+              </div>
+              {billingReturn.sessionId ? (
+                <div className="mt-2 rounded border border-current/20 bg-white/60 px-2 py-1 font-mono text-xs">
+                  Session {billingReturn.sessionId}
+                </div>
+              ) : null}
+            </div>
+          </div>
+        ) : null}
+
+        {!billing.enabled && !loading ? (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <div className="font-semibold">Subscription checkout not enabled</div>
+            <div className="mt-1">{readinessMessage}</div>
+            {billing.readiness_code ? <div className="mt-2 font-mono text-xs">{billing.readiness_code}</div> : null}
+          </div>
+        ) : null}
+
+        <div className="grid gap-3 sm:grid-cols-3">
+          <ReadonlyField label="Company" value={String(company.name || '—')} />
+          <ReadonlyField label="Plan" value={String(company.plan || 'starter')} />
+          <ReadonlyField label="Status" value={String(company.status || 'active')} />
+        </div>
+
+        <div className="rounded-lg border border-border bg-background px-4 py-3">
+          <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Subscription</div>
+          <div className="mt-1 text-lg font-semibold text-foreground">
+            {billing.product_name || 'NodeRoute Platform Subscription'}
+          </div>
+          <div className="mt-1 text-sm text-muted-foreground">{billing.price_label || 'Configured in Stripe'}</div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-2">
+          <Button onClick={onCheckout} disabled={loading || busy || !billing.enabled || !canManageBilling}>
+            <CreditCard className="mr-2 h-4 w-4" />
+            {busy ? 'Opening Checkout...' : 'Pay Now with Stripe'}
+          </Button>
+          {!canManageBilling ? (
+            <span className="text-xs text-muted-foreground">Only company admins can manage NodeRoute billing.</span>
+          ) : null}
+        </div>
+
+        <div className="rounded-md border border-border bg-background px-3 py-2 text-xs text-muted-foreground">
+          Billing support: {billing.support_email || 'support@noderoute.com'}
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 

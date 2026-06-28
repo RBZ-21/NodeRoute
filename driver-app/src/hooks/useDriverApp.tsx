@@ -22,16 +22,19 @@ import {
   clearQueuedStopNoteUpdates,
   clearQueuedTemperatureLogs,
   clearSensitiveStorage,
+  deletePodDraftPhoto,
   enqueueStopNoteUpdate,
   enqueueTemperatureLog,
   loadOfflineRoutePackStatus,
   loadCache,
+  loadPodDraftPhoto,
   loadQueuedStopNoteUpdates,
   loadQueuedTemperatureLogs,
   listStopDrafts,
   loadSelectedRouteId,
   loadUser,
   saveOfflineRoutePackStatus,
+  savePodDraftPhoto,
   saveQueuedStopNoteUpdates,
   saveCache,
   saveQueuedTemperatureLogs,
@@ -386,7 +389,12 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     } catch {
       // Clear local state even if the network call fails.
     } finally {
+      // Single source of truth for clearing all device-persisted driver data
+      // (tokens, cached routes/customers, offline queues, stop drafts, POD photos).
       await clearSensitiveStorage();
+      // Offline status queue lives in useOfflineQueue, so clear it alongside.
+      clearOfflineStatusConflicts();
+      await clearOfflineStatusQueue();
       setToken(null);
       setUser(null);
       setPayload(null);
@@ -427,6 +435,18 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     pushToast(`Offline: ${stop.name || 'stop'} status queued for sync.`, 'info');
   }
 
+  async function queuedDeliveryPayload(stop: DriverStop, proofImage: string | null, notes: string) {
+    const payload: Record<string, unknown> = { notes };
+    if (!proofImage) return payload;
+
+    const proofImageDraftId = await savePodDraftPhoto(stop.id, proofImage);
+    if (!proofImageDraftId) {
+      throw new Error('Unable to save this proof photo securely for offline sync.');
+    }
+    payload.proofImageDraftId = proofImageDraftId;
+    return payload;
+  }
+
   async function dispatchQueuedStatus(entry: QueuedStatusAction) {
     const stop = stopById(entry.stopId) || { id: entry.stopId };
 
@@ -441,12 +461,22 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     }
 
     if (entry.action === 'delivered' || entry.action === 'dropoff') {
+      const proofImageDraftId = typeof entry.payload.proofImageDraftId === 'string'
+        ? entry.payload.proofImageDraftId
+        : null;
+      const proofImage = proofImageDraftId
+        ? await loadPodDraftPhoto(proofImageDraftId)
+        : (typeof entry.payload.proofImage === 'string' ? entry.payload.proofImage : null);
+      if (proofImageDraftId && !proofImage) {
+        throw new Error('Saved proof photo is no longer available on this device.');
+      }
       await dispatchMarkDelivered(
         stop,
-        typeof entry.payload.proofImage === 'string' ? entry.payload.proofImage : null,
+        proofImage,
         typeof entry.payload.notes === 'string' ? entry.payload.notes : '',
         { deliveryMode: entry.action === 'dropoff' ? 'drop_off' : 'standard', clientActionId: entry.id },
       );
+      if (proofImageDraftId) await deletePodDraftPhoto(proofImageDraftId);
       return;
     }
 
@@ -623,10 +653,8 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     const activeStop = stopById(stop.id) || stop;
     const clientActionId = crypto.randomUUID();
     if (!navigator.onLine) {
-      await queueStatusAction(stop, options.deliveryMode === 'drop_off' ? 'dropoff' : 'delivered', {
-        proofImage,
-        notes,
-      }, clientActionId);
+      const payload = await queuedDeliveryPayload(activeStop, proofImage, notes);
+      await queueStatusAction(activeStop, options.deliveryMode === 'drop_off' ? 'dropoff' : 'delivered', payload, clientActionId);
       return;
     }
 
@@ -634,10 +662,8 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
       await dispatchMarkDelivered(stop, proofImage, notes, { ...options, clientActionId });
     } catch (error) {
       if (!(error instanceof ApiError)) {
-        await queueStatusAction(stop, options.deliveryMode === 'drop_off' ? 'dropoff' : 'delivered', {
-          proofImage,
-          notes,
-        }, clientActionId);
+        const payload = await queuedDeliveryPayload(activeStop, proofImage, notes);
+        await queueStatusAction(activeStop, options.deliveryMode === 'drop_off' ? 'dropoff' : 'delivered', payload, clientActionId);
         return;
       }
       throw error;

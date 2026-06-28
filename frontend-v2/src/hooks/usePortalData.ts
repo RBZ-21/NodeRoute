@@ -11,6 +11,13 @@ import type {
 } from '../pages/portal.types';
 import { asNumber } from '../pages/portal.types';
 
+function checkoutIdempotencyKey() {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 12)}`;
+}
+
 export function usePortalData(token: string, setToken: (t: string) => void, setMe: (me: PortalMe | null) => void) {
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -98,7 +105,7 @@ export function usePortalData(token: string, setToken: (t: string) => void, setM
       const payload = await sendWithPortalAuth<{ checkout_url?: string; error?: string }>(
         '/api/portal/payments/create-checkout-session',
         'POST',
-        {}
+        { idempotency_key: checkoutIdempotencyKey() }
       );
       if (!payload.checkout_url) throw new Error(payload.error || 'No checkout link was returned.');
       window.location.href = payload.checkout_url;

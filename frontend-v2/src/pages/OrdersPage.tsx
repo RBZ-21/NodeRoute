@@ -264,16 +264,17 @@ export function OrdersPage() {
     }
   }
 
-  const trackedLineItemNumbers = useMemo(
-    () => form.lines.map((line) => line.itemNumber.trim()).filter(Boolean).join(','),
-    [form.lines],
-  );
-
+  // Load lots whenever the set of line item numbers changes. Extract the key to
+  // a variable (statically checkable) and read the latest lines via a ref.
+  const lineItemNumbersKey = form.lines.map((l) => l.itemNumber).join(',');
+  const formLinesRef = useRef(form.lines);
+  formLinesRef.current = form.lines;
   useEffect(() => {
-    for (const num of trackedLineItemNumbers.split(',').filter(Boolean)) {
-      void loadLotsForProduct(num);
+    for (const line of formLinesRef.current) {
+      const num = line.itemNumber.trim();
+      if (num) void loadLotsForProduct(num);
     }
-  }, [loadLotsForProduct, trackedLineItemNumbers]);
+  }, [lineItemNumbersKey, loadLotsForProduct]);
 
   const handleEditOrder = useCallback((order: Order) => {
     form.populate(order);
@@ -282,6 +283,10 @@ export function OrdersPage() {
     setNotice(`Editing ${order.order_number || order.id.slice(0, 8)}`);
   }, [form]);
 
+  // One-shot deep link (?orderId=&action=). Call the latest handleEditOrder via
+  // a ref so the effect only fires on orderId/orders/searchParams changes.
+  const handleEditOrderRef = useRef(handleEditOrder);
+  handleEditOrderRef.current = handleEditOrder;
   useEffect(() => {
     if (!orderIdParam || !orders.length || openedOrderIdRef.current === orderIdParam) return;
     const order = orders.find((item) => item.id === orderIdParam);
@@ -292,7 +297,7 @@ export function OrdersPage() {
       setWeightCaptureOrder(order);
       setNotice(`Opened weights for ${order.order_number || order.id.slice(0, 8)}.`);
     } else {
-      handleEditOrder(order);
+      handleEditOrderRef.current(order);
     }
 
     openedOrderIdRef.current = orderIdParam;

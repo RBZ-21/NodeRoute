@@ -20,6 +20,7 @@ const {
 } = require('../services/invoice-delivery');
 const { syncRouteMutation } = require('../services/route-stop-sync');
 const { findDriverClientAction, recordDriverClientAction } = require('../lib/driver-client-action');
+const { sendSafeError } = require('../lib/safe-error');
 
 const STOP_FIELDS = [
   'route_id', 'customer_id', 'address', 'status', 'name',
@@ -659,11 +660,23 @@ router.post('/:id/notes', authenticateToken, requireRole('admin', 'manager', 'dr
     return res.status(400).json({ ok: false, error: 'notes must be a string' });
   }
   try {
+    const { data: existing, error: fetchErr } = await scopeQueryByContext(
+      supabase.from('stops').select('id,driver_id,company_id,location_id'),
+      req.context
+    ).eq('id', stopId).single();
+    if (fetchErr || !existing) return res.status(404).json({ ok: false, error: 'Stop not found' });
+    if (!rowMatchesContext(existing, req.context)) {
+      return res.status(403).json({ ok: false, error: 'Forbidden' });
+    }
+    if (req.user.role === 'driver' && String(existing.driver_id) !== String(req.user.id)) {
+      return res.status(403).json({ ok: false, error: 'Access denied' });
+    }
+
     const { data: updated, error } = await scopeQueryByContext(supabase.from('stops').update({ notes }), req.context).eq('id', stopId).select('*').single();
     if (error) return res.status(500).json({ ok: false, error: error.message });
     res.json({ ok: true, stop: updated });
   } catch (err) {
-    res.status(500).json({ ok: false, error: err?.message || 'Could not update notes' });
+    sendSafeError(req, res, err, 'Could not update notes');
   }
 });
 

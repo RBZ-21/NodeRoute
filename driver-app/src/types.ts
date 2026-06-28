@@ -129,6 +129,7 @@ export type StopDraft = {
   stopId: string;
   notes: string;
   proofImage: string | null;
+  proofImageDraftId?: string | null;
   updatedAt: string;
 };
 

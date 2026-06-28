@@ -53,10 +53,17 @@ export function DriverPage() {
   const [proofUploadSaving, setProofUploadSaving] = useState(false);
   const proofInputRef = useRef<HTMLInputElement | null>(null);
 
+  // ws/loc are recreated each render, so hold the latest in refs and run the
+  // load-once / stop-on-unmount effect exactly once (refs are not reactive deps).
+  const wsRef = useRef(ws);
+  wsRef.current = ws;
+  const locRef = useRef(loc);
+  locRef.current = loc;
+
   useEffect(() => {
-    void load();
-    return () => stopLocationSharing();
-  }, [load, stopLocationSharing]);
+    void wsRef.current.load();
+    return () => locRef.current.stopLocationSharing();
+  }, []);
 
   const activeRoute: DriverRoute | null = useMemo(
     () => routes.find((r) => r.id === selectedRouteId) || routes[0] || null,

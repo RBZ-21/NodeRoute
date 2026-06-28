@@ -5,7 +5,7 @@ import { StatusBadge } from '@/components/StatusBadge';
 import { useDriverApp } from '@/hooks/useDriverApp';
 import { useLocationUpdater } from '@/hooks/useLocationUpdater';
 import { useToast } from '@/hooks/useToast';
-import { clearStopDraft, loadStopDraft, saveStopDraft } from '@/lib/storage';
+import { clearStopDraft, loadPodDraftPhoto, loadStopDraft, savePodDraftPhoto, saveStopDraft } from '@/lib/storage';
 import { formatSchedule } from '@/lib/utils';
 import type { DriverStop } from '@/types';
 
@@ -52,6 +52,7 @@ export function StopDetailPage() {
   const initialDraft = stopId ? loadStopDraft(stopId) : null;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [proofImage, setProofImage] = useState<string | null>(initialDraft?.proofImage || null);
+  const [proofImageDraftId, setProofImageDraftId] = useState<string | null>(initialDraft?.proofImageDraftId || null);
   const [autoDeliverAfterPhoto, setAutoDeliverAfterPhoto] = useState(false);
   const [autoDropOffAfterPhoto, setAutoDropOffAfterPhoto] = useState(false);
   const [autoDeliverAfterSignature, setAutoDeliverAfterSignature] = useState(false);
@@ -79,14 +80,36 @@ export function StopDetailPage() {
 
   useEffect(() => {
     if (!stopId) return;
+    let cancelled = false;
     const draft = loadStopDraft(stopId);
-    setProofImage(draft?.proofImage || null);
+    setProofImage(null);
+    setProofImageDraftId(draft?.proofImageDraftId || null);
     setNotes(draft?.notes || activeStop.driver_notes || '');
+    if (draft?.proofImageDraftId) {
+      void loadPodDraftPhoto(draft.proofImageDraftId).then((image) => {
+        if (cancelled) return;
+        if (image) {
+          setProofImage(image);
+          return;
+        }
+        setProofImageDraftId(null);
+        saveStopDraft({
+          stopId,
+          notes: draft.notes || activeStop.driver_notes || '',
+          proofImage: null,
+          proofImageDraftId: null,
+          updatedAt: new Date().toISOString(),
+        });
+      });
+    }
+    return () => {
+      cancelled = true;
+    };
   }, [stopId, activeStop.id, activeStop.driver_notes]);
 
   useEffect(() => {
     if (!stopId) return;
-    if (!notes.trim() && !proofImage) {
+    if (!notes.trim() && !proofImage && !proofImageDraftId) {
       clearStopDraft(stopId);
       refreshOfflineDrafts();
       return;
@@ -94,10 +117,11 @@ export function StopDetailPage() {
     saveStopDraft({
       stopId,
       notes,
-      proofImage,
+      proofImage: null,
+      proofImageDraftId,
       updatedAt: new Date().toISOString(),
     });
-  }, [stopId, notes, proofImage, refreshOfflineDrafts]);
+  }, [stopId, notes, proofImage, proofImageDraftId, refreshOfflineDrafts]);
 
   async function onCapturePhoto(event: ChangeEvent<HTMLInputElement>) {
     const file = event.target.files?.[0];
@@ -108,6 +132,13 @@ export function StopDetailPage() {
 
     try {
       const image = await fileToBase64(file);
+      const nextDraftId = stopId
+        ? await savePodDraftPhoto(stopId, image, proofImageDraftId)
+        : null;
+      if (!nextDraftId && !isOnline) {
+        throw new Error('Unable to save this proof photo securely for offline sync.');
+      }
+      setProofImageDraftId(nextDraftId);
       setProofImage(image);
       pushToast('Proof-of-delivery photo captured.', 'success');
       event.target.value = '';
@@ -201,6 +232,7 @@ export function StopDetailPage() {
         clearStopDraft(stopOverride.id);
         refreshOfflineDrafts();
         setProofImage(null);
+        setProofImageDraftId(null);
       }
 
       if (action === 'dropoff') {
@@ -208,6 +240,7 @@ export function StopDetailPage() {
         clearStopDraft(stopOverride.id);
         refreshOfflineDrafts();
         setProofImage(null);
+        setProofImageDraftId(null);
       }
 
       if (action === 'failed') {
@@ -215,6 +248,7 @@ export function StopDetailPage() {
         clearStopDraft(stopOverride.id);
         refreshOfflineDrafts();
         setProofImage(null);
+        setProofImageDraftId(null);
       }
 
       await sendLocation();

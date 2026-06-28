@@ -117,10 +117,11 @@ async function triggerReorderForOrderItems(items, context) {
   }
   try {
     if (itemNumbers.size) {
-      const { data } = await supabase
-        .from('products')
-        .select('id')
-        .in('item_number', [...itemNumbers]);
+      // Tenant scope: only resolve products within the caller's company.
+      const { data } = await scopeQueryByContext(
+        supabase.from('products').select('id'),
+        context
+      ).in('item_number', [...itemNumbers]);
       (data || []).forEach((product) => productIds.add(product.id));
     }
     if (productIds.size) {

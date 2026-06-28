@@ -293,9 +293,11 @@ router.patch('/products/:itemNumber/ftl', authenticateToken, requireRole('admin'
   const { itemNumber } = req.params;
   const isFtl = req.validated.body.is_ftl_product;
 
-  const { data, error } = await supabase
-    .from('products')
-    .update({ is_ftl_regulated: isFtl })
+  // Tenant scope: only toggle the FTL flag on the caller's own product.
+  const { data, error } = await scopeQueryByContext(
+    supabase.from('products').update({ is_ftl_regulated: isFtl }),
+    req.context
+  )
     .eq('item_number', itemNumber)
     .select('item_number, description, is_ftl_regulated')
     .single();

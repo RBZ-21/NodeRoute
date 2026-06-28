@@ -1,6 +1,6 @@
 # NodeRoute Driver iOS
 
-Native SwiftUI starter for the NodeRoute driver experience. It mirrors the existing `driver-app` PWA flows: login, assigned route, stop details, proof-of-delivery, invoices, and temperature logs.
+Native SwiftUI starter for the NodeRoute driver experience. It mirrors the existing `driver-app` PWA flows: login, assigned route, stop details, camera-first proof-of-delivery, invoices, and temperature logs.
 
 ## Requirements
 
@@ -12,6 +12,7 @@ Native SwiftUI starter for the NodeRoute driver experience. It mirrors the exist
 
 ```sh
 cd ios-driver-app
+sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 xcodegen generate
 open NodeRouteDriver.xcodeproj
 ```
@@ -22,7 +23,7 @@ Set `API_BASE_URL` in `project.yml` before generating, or update the generated t
 
 - SwiftUI app shell with tabs for Route, Stops, Invoices, and Temps.
 - Async API client wired to the same endpoints used by the web driver app.
-- In-memory route/session state with token persistence in `UserDefaults`.
-- Starter proof-of-delivery photo picker that uploads base64 image data.
+- In-memory route/session state with token persistence in Keychain.
+- Camera-first proof-of-delivery capture with a photo-library fallback that uploads base64 image data.
 
-Next good steps are Keychain token storage, camera-first capture, offline cache persistence, and Xcode UI tests for the stop completion flow.
+Next good steps are offline cache persistence, push/route notifications, Apple Maps handoff for stop addresses, and Xcode UI tests for the stop completion flow.

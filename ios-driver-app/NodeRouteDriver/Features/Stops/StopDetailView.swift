@@ -1,5 +1,6 @@
 import PhotosUI
 import SwiftUI
+import UIKit
 
 struct StopDetailView: View {
     @Environment(SessionStore.self) private var session
@@ -8,6 +9,8 @@ struct StopDetailView: View {
     @State private var notes = ""
     @State private var selectedPhoto: PhotosPickerItem?
     @State private var proofImageDataURI: String?
+    @State private var proofImage: UIImage?
+    @State private var isCameraPresented = false
     @State private var isSubmitting = false
 
     var body: some View {
@@ -40,12 +43,49 @@ struct StopDetailView: View {
                     VStack(alignment: .leading, spacing: 12) {
                         Text("Proof of delivery")
                             .font(.headline)
-                        PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                            Label(proofImageDataURI == nil ? "Attach photo" : "Replace photo", systemImage: "camera")
+
+                        if let proofImage {
+                            Image(uiImage: proofImage)
+                                .resizable()
+                                .scaledToFill()
                                 .frame(maxWidth: .infinity)
+                                .frame(height: 220)
+                                .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                                .overlay(alignment: .topTrailing) {
+                                    Label("Attached", systemImage: "checkmark.circle.fill")
+                                        .font(.caption.weight(.bold))
+                                        .padding(.horizontal, 10)
+                                        .padding(.vertical, 7)
+                                        .background(.green, in: Capsule())
+                                        .foregroundStyle(.white)
+                                        .padding(10)
+                                }
+                                .accessibilityLabel("Attached proof of delivery photo")
                         }
-                        .buttonStyle(.bordered)
+
+                        HStack(spacing: 10) {
+                            Button {
+                                isCameraPresented = true
+                            } label: {
+                                Label(proofImageDataURI == nil ? "Take photo" : "Retake", systemImage: "camera")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.borderedProminent)
+                            .disabled(!UIImagePickerController.isSourceTypeAvailable(.camera))
+
+                            PhotosPicker(selection: $selectedPhoto, matching: .images) {
+                                Label(proofImageDataURI == nil ? "Library" : "Replace", systemImage: "photo")
+                                    .frame(maxWidth: .infinity)
+                            }
+                            .buttonStyle(.bordered)
+                        }
                         .controlSize(.large)
+
+                        if !UIImagePickerController.isSourceTypeAvailable(.camera) {
+                            Text("Camera is unavailable in this simulator. Choose from the photo library instead.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
 
@@ -90,6 +130,12 @@ struct StopDetailView: View {
         .task(id: selectedPhoto) {
             await loadSelectedPhoto()
         }
+        .sheet(isPresented: $isCameraPresented) {
+            CameraCaptureView { image in
+                setProofImage(image)
+            }
+            .ignoresSafeArea()
+        }
         .onAppear {
             notes = stop.driverNotes ?? ""
         }
@@ -109,7 +155,15 @@ struct StopDetailView: View {
             return
         }
 
+        proofImage = UIImage(data: data)
         proofImageDataURI = "data:image/jpeg;base64,\(data.base64EncodedString())"
+    }
+
+    private func setProofImage(_ image: UIImage) {
+        proofImage = image
+        proofImageDataURI = image.jpegData(compressionQuality: 0.75).map {
+            "data:image/jpeg;base64,\($0.base64EncodedString())"
+        }
     }
 }
 
@@ -128,6 +182,46 @@ private struct DetailLine: View {
         }
         .font(.subheadline)
         .padding(.top, 4)
+    }
+}
+
+private struct CameraCaptureView: UIViewControllerRepresentable {
+    var onCapture: (UIImage) -> Void
+    @Environment(\.dismiss) private var dismiss
+
+    func makeUIViewController(context: Context) -> UIImagePickerController {
+        let picker = UIImagePickerController()
+        picker.sourceType = .camera
+        picker.cameraCaptureMode = .photo
+        picker.delegate = context.coordinator
+        return picker
+    }
+
+    func updateUIViewController(_ uiViewController: UIImagePickerController, context: Context) {}
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onCapture: onCapture, dismiss: dismiss)
+    }
+
+    final class Coordinator: NSObject, UIImagePickerControllerDelegate, UINavigationControllerDelegate {
+        private let onCapture: (UIImage) -> Void
+        private let dismiss: DismissAction
+
+        init(onCapture: @escaping (UIImage) -> Void, dismiss: DismissAction) {
+            self.onCapture = onCapture
+            self.dismiss = dismiss
+        }
+
+        func imagePickerController(_ picker: UIImagePickerController, didFinishPickingMediaWithInfo info: [UIImagePickerController.InfoKey: Any]) {
+            if let image = info[.originalImage] as? UIImage {
+                onCapture(image)
+            }
+            dismiss()
+        }
+
+        func imagePickerControllerDidCancel(_ picker: UIImagePickerController) {
+            dismiss()
+        }
     }
 }
 

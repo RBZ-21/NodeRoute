@@ -108,14 +108,15 @@ export function TrackPage() {
   const routeLine = useRef<GooglePolyline | null>(null);
   const mapsApiKey = useRef<string | null>(null);
 
-  // ETA countdown ticker
+  // ETA countdown ticker. Capture etaTime so the effect only re-runs when it
+  // changes (not on every poll that mutates other parts of `data`).
   useEffect(() => {
-    if (!data?.eta?.etaTime) { setCountdown(''); return; }
-    const etaTime = data.eta.etaTime;
+    const etaTime = data?.eta?.etaTime;
+    if (!etaTime) { setCountdown(''); return; }
     setCountdown(etaCountdown(etaTime));
     const id = setInterval(() => setCountdown(etaCountdown(etaTime)), 10000);
     return () => clearInterval(id);
-  }, [data]);
+  }, [data?.eta?.etaTime]);
 
   // Map setup / update
   const setupMap = useCallback(async () => {

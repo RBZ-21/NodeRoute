@@ -4,10 +4,14 @@ const {
   executeWithOptionalScope,
   filterRowsByContext,
   insertRecordWithOptionalScope,
+  scopeQueryByContext,
 } = require('../../services/operating-context');
 const { isOpenUnpaidInvoiceStatus } = require('../../services/invoice-delivery');
 const {
   isStripeConfigured,
+  isStripeTestMode,
+  stripeKeyMode,
+  stripeSecretKeyMode,
   portalMethodTypeForStripeType,
   findOrCreateCustomer,
   createSetupIntent,
@@ -24,6 +28,7 @@ const PORTAL_PAYMENT_SUPPORT_EMAIL = process.env.PORTAL_PAYMENT_SUPPORT_EMAIL ||
 const STRIPE_PUBLISHABLE_KEY = process.env.STRIPE_PUBLISHABLE_KEY || '';
 const PORTAL_PAYMENT_CURRENCY = String(process.env.PORTAL_PAYMENT_CURRENCY || 'usd').toLowerCase();
 const PORTAL_PAYMENT_STUB_CHECKOUT_URL = process.env.PORTAL_PAYMENT_STUB_CHECKOUT_URL || '';
+const STRIPE_ALLOW_LIVE_MODE = String(process.env.STRIPE_ALLOW_LIVE_MODE || 'false').toLowerCase() === 'true';
 const AUTOPAY_METHOD_TYPES = ['debit_card', 'ach_bank'];
 
 function isMissingPortalPaymentTables(error) {
@@ -120,8 +125,84 @@ async function loadPortalPaymentState(req) {
   };
 }
 
+function stripePublishableKeyMode() {
+  return stripeKeyMode(STRIPE_PUBLISHABLE_KEY);
+}
+
+function stripePaymentMode() {
+  const secretMode = stripeSecretKeyMode();
+  const publishableMode = stripePublishableKeyMode();
+  if (secretMode === 'live' || publishableMode === 'live') return 'live';
+  if (secretMode === 'test' && publishableMode === 'test') return 'test';
+  if (secretMode === 'missing' && publishableMode === 'missing') return 'missing';
+  return 'unknown';
+}
+
+function isStripeLiveModeAllowed() {
+  return STRIPE_ALLOW_LIVE_MODE && stripeSecretKeyMode() === 'live' && stripePublishableKeyMode() === 'live';
+}
+
+function stripeCheckoutReadiness() {
+  if (!PORTAL_PAYMENT_ENABLED) {
+    return {
+      ready: false,
+      mode: stripePaymentMode(),
+      code: 'PAYMENT_NOT_CONFIGURED',
+      message: 'Online payments are not configured yet. Please use manual payment instructions.',
+    };
+  }
+
+  if (PORTAL_PAYMENT_PROVIDER !== 'stripe') {
+    return {
+      ready: false,
+      mode: stripePaymentMode(),
+      code: 'PAYMENT_PROVIDER_NOT_READY',
+      message: 'Checkout provider not wired yet. Configure your payment provider server-side.',
+    };
+  }
+
+  if (!isStripeConfigured() || !STRIPE_PUBLISHABLE_KEY) {
+    return {
+      ready: false,
+      mode: stripePaymentMode(),
+      code: 'STRIPE_TEST_KEYS_MISSING',
+      message: 'Stripe checkout preview requires test API keys. Set STRIPE_SECRET_KEY=sk_test_... and STRIPE_PUBLISHABLE_KEY=pk_test_...',
+    };
+  }
+
+  if (isStripeTestMode() && stripePublishableKeyMode() === 'test') {
+    return { ready: true, mode: 'test', code: 'STRIPE_TEST_MODE_READY', message: 'Stripe test mode preview is ready.' };
+  }
+
+  if (isStripeLiveModeAllowed()) {
+    return { ready: true, mode: 'live', code: 'STRIPE_LIVE_MODE_READY', message: 'Stripe live mode is explicitly enabled.' };
+  }
+
+  return {
+    ready: false,
+    mode: stripePaymentMode(),
+    code: 'STRIPE_TEST_MODE_REQUIRED',
+    message: 'Stripe checkout preview is test mode only. Use sk_test_ and pk_test_ keys; live keys are blocked.',
+  };
+}
+
+function stripePaymentConfigFlags() {
+  const readiness = stripeCheckoutReadiness();
+  return {
+    mode: readiness.mode,
+    test_mode: readiness.mode === 'test',
+    checkout_preview: PORTAL_PAYMENT_PROVIDER === 'stripe' && readiness.mode === 'test',
+    live_mode_blocked:
+      PORTAL_PAYMENT_PROVIDER === 'stripe' &&
+      readiness.mode === 'live' &&
+      !STRIPE_ALLOW_LIVE_MODE,
+    readiness_code: readiness.code,
+  };
+}
+
 function isStripeProviderEnabled() {
-  return PORTAL_PAYMENT_ENABLED && PORTAL_PAYMENT_PROVIDER === 'stripe' && !!STRIPE_PUBLISHABLE_KEY && isStripeConfigured();
+  const readiness = stripeCheckoutReadiness();
+  return PORTAL_PAYMENT_PROVIDER === 'stripe' && readiness.ready;
 }
 
 function openInvoiceStatuses() {
@@ -200,9 +281,9 @@ function stripePaymentMethodSummary(paymentMethod) {
 async function portalInvoiceBalanceSummary(email, portalContext) {
   const { data, error } = await supabase
     .from('invoices')
-    .select('id,total,status')
+    .select('id,total,status,customer_email,company_id,location_id,created_at')
     .ilike('customer_email', email)
-    .order('created_at', { ascending: false });
+    .order('created_at', { ascending: true });
   if (error) throw error;
 
   const scopedInvoices = filterRowsByContext(data || [], portalContext);
@@ -212,6 +293,7 @@ async function portalInvoiceBalanceSummary(email, portalContext) {
     invoiceCount: scopedInvoices.length,
     openInvoiceCount: openInvoices.length,
     openBalance: parseFloat(openBalance.toFixed(2)),
+    openInvoices,
   };
 }
 
@@ -235,6 +317,7 @@ module.exports = {
   PORTAL_PAYMENT_STUB_CHECKOUT_URL,
   PORTAL_PAYMENT_SUPPORT_EMAIL,
   STRIPE_PUBLISHABLE_KEY,
+  STRIPE_ALLOW_LIVE_MODE,
   attachPaymentMethod,
   buildScopeFields,
   createCheckoutSession,
@@ -249,6 +332,11 @@ module.exports = {
   invoiceIsOpen,
   isMissingPortalPaymentTables,
   isStripeProviderEnabled,
+  scopeQueryByContext,
+  stripeCheckoutReadiness,
+  stripePaymentConfigFlags,
+  stripePaymentMode,
+  stripePublishableKeyMode,
   listScopedCustomerInvoices,
   loadPortalPaymentState,
   normalizePaymentMethodType,

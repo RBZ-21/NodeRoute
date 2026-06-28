@@ -1,4 +1,4 @@
-import { Download } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, CreditCard, Download, XCircle } from 'lucide-react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -19,6 +19,7 @@ import type {
   PortalInvoice,
   PortalOrder,
   PortalPaymentConfig,
+  PortalPaymentReturn,
   SeafoodInventoryItem,
 } from './portal.types';
 
@@ -172,11 +173,71 @@ export function InvoicesTab({
   );
 }
 
+function StripeTestModeBanner() {
+  return (
+    <div className="flex items-start gap-3 rounded-lg border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-900">
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+      <div>
+        <div className="font-semibold">Stripe test mode preview — no live charges</div>
+        <div className="mt-1 text-sky-800">
+          Use Stripe test cards only. This preview does not mark invoices paid from the browser redirect.
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function PaymentReturnNotice({ paymentReturn }: { paymentReturn: PortalPaymentReturn }) {
+  const success = paymentReturn.status === 'success';
+  const Icon = success ? CheckCircle2 : XCircle;
+  return (
+    <div
+      className={`flex items-start gap-3 rounded-lg border px-4 py-3 text-sm ${
+        success
+          ? 'border-emerald-200 bg-emerald-50 text-emerald-900'
+          : 'border-amber-200 bg-amber-50 text-amber-900'
+      }`}
+    >
+      <Icon className="mt-0.5 h-4 w-4 shrink-0" />
+      <div>
+        <div className="font-semibold">{success ? 'Test checkout returned' : 'Checkout preview canceled'}</div>
+        <div className="mt-1">
+          {success
+            ? 'Stripe redirected back after the hosted test checkout. Payment fulfillment still requires verified test webhooks before launch.'
+            : 'No payment was submitted. The open balance is unchanged and checkout can be started again.'}
+        </div>
+        {paymentReturn.sessionId ? (
+          <div className="mt-2 rounded border border-current/20 bg-white/60 px-2 py-1 font-mono text-xs">
+            Session {paymentReturn.sessionId}
+          </div>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function PaymentReadinessNotice({ config }: { config: PortalPaymentConfig | null }) {
+  if (!config || config.enabled || config.provider !== 'stripe') return null;
+
+  const message = config.live_mode_blocked
+    ? 'Live Stripe keys are present but blocked for this preview. Switch to sk_test_ and pk_test_ keys to test checkout safely.'
+    : 'Stripe Checkout is waiting on test keys. Add sk_test_ and pk_test_ values on the server to enable the hosted checkout preview.';
+
+  return (
+    <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+      <div className="font-semibold">Checkout preview not enabled</div>
+      <div className="mt-1">{message}</div>
+      {config.readiness_code ? <div className="mt-2 font-mono text-xs">{config.readiness_code}</div> : null}
+    </div>
+  );
+}
+
 export function PaymentsTab({
   config,
   methods,
   autopay,
   busy,
+  paymentReturn,
   onCheckout,
   onRunAutopay,
 }: {
@@ -184,32 +245,41 @@ export function PaymentsTab({
   methods: PaymentMethod[];
   autopay: PortalAutopay;
   busy: boolean;
+  paymentReturn?: PortalPaymentReturn | null;
   onCheckout: () => void;
   onRunAutopay: () => void;
 }) {
   const providerName = String(config?.provider || 'manual').toUpperCase();
+  const openBalance = asNumber(config?.balance?.openBalance, 0);
+  const showTestPreview = !!config?.test_mode || !!paymentReturn;
   return (
     <div className="grid gap-4 xl:grid-cols-[1.15fr_0.85fr]">
       <Card>
         <CardHeader>
           <CardTitle>Payment Options</CardTitle>
           <CardDescription>
-            {config?.enabled
+            {config?.enabled && config?.test_mode
+              ? `Online checkout is enabled through ${providerName} in test mode.`
+              : config?.enabled
               ? `Online checkout is enabled through ${providerName}.`
               : 'Online checkout is not fully enabled yet. Use manual payment instructions if needed.'}
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {showTestPreview ? <StripeTestModeBanner /> : null}
+          {paymentReturn ? <PaymentReturnNotice paymentReturn={paymentReturn} /> : null}
+          <PaymentReadinessNotice config={config} />
           <div className="rounded-lg border border-border bg-muted/20 p-4">
             <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Current Balance</div>
-            <div className="mt-2 text-3xl font-semibold text-foreground">{formatMoney(config?.balance?.openBalance || 0)}</div>
+            <div className="mt-2 text-3xl font-semibold text-foreground">{formatMoney(openBalance)}</div>
             <div className="mt-2 text-sm text-muted-foreground">
               {config?.balance?.openInvoiceCount || 0} open invoice{config?.balance?.openInvoiceCount === 1 ? '' : 's'}
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Button onClick={onCheckout} disabled={busy || !config?.enabled}>
-              {busy ? 'Opening Checkout...' : 'Pay Open Balance'}
+            <Button onClick={onCheckout} disabled={busy || !config?.enabled || openBalance <= 0}>
+              <CreditCard className="mr-2 h-4 w-4" />
+              {busy ? 'Opening Checkout...' : 'Pay Now'}
             </Button>
             <Button variant="outline" disabled={busy || !autopay?.enabled} onClick={onRunAutopay}>
               Run Autopay Now

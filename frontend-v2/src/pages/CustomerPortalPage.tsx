@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input';
 import { usePortalAuth } from '../hooks/usePortalAuth';
 import { usePortalData } from '../hooks/usePortalData';
 import { formatMoney, portalTabs } from './portal.types';
-import type { PortalTab } from './portal.types';
+import type { PortalPaymentReturn, PortalTab } from './portal.types';
 import {
   ContactTab,
   FeatureCard,
@@ -20,10 +20,31 @@ import {
 } from './PortalTabViews';
 import { PortalOrderingTab } from './PortalOrderingTab';
 
+function readPortalUrlState(): { initialTab: PortalTab; paymentReturn: PortalPaymentReturn | null } {
+  if (typeof window === 'undefined') return { initialTab: 'orders', paymentReturn: null };
+
+  const params = new URLSearchParams(window.location.search);
+  const requestedTab = params.get('tab') as PortalTab | null;
+  const payment = String(params.get('payment') || '').toLowerCase();
+  const paymentReturn =
+    payment === 'success'
+      ? { status: 'success' as const, sessionId: params.get('session_id') || undefined }
+      : payment === 'cancelled' || payment === 'cancel'
+        ? { status: 'cancelled' as const }
+        : null;
+  const validTab = portalTabs.some((tab) => tab.id === requestedTab) ? requestedTab : null;
+
+  return {
+    initialTab: validTab || (paymentReturn ? 'payments' : 'orders'),
+    paymentReturn,
+  };
+}
+
 export function CustomerPortalPage() {
   const auth = usePortalAuth();
   const portal = usePortalData(auth.token, auth.setToken, auth.setMe);
-  const [activeTab, setActiveTab] = useState<PortalTab>('orders');
+  const [{ initialTab, paymentReturn }] = useState(readPortalUrlState);
+  const [activeTab, setActiveTab] = useState<PortalTab>(initialTab);
 
   function logout() {
     auth.logout();
@@ -176,7 +197,7 @@ export function CustomerPortalPage() {
                   disabled={portal.paymentBusy || !portal.paymentsConfig?.enabled || portal.paymentBalance <= 0}
                 >
                   <CreditCard className="mr-2 h-4 w-4" />
-                  {portal.paymentBusy ? 'Opening Checkout...' : 'Pay Online'}
+                  {portal.paymentBusy ? 'Opening Checkout...' : 'Pay Now'}
                 </Button>
                 <Button variant="outline" onClick={() => setActiveTab('payments')}>
                   Payment Options
@@ -194,6 +215,12 @@ export function CustomerPortalPage() {
         {portal.error ? (
           <div className="mt-4 rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">
             {portal.error}
+          </div>
+        ) : null}
+
+        {portal.paymentsConfig?.test_mode || paymentReturn ? (
+          <div className="mt-4 rounded-md border border-sky-200 bg-sky-50 px-4 py-2 text-sm font-semibold text-sky-900">
+            Stripe test mode preview — no live charges
           </div>
         ) : null}
 
@@ -230,6 +257,7 @@ export function CustomerPortalPage() {
               methods={portal.paymentMethods}
               autopay={portal.autopay}
               busy={portal.paymentBusy}
+              paymentReturn={paymentReturn}
               onCheckout={() => void portal.startCheckout()}
               onRunAutopay={() => void portal.runAutopayNow()}
             />

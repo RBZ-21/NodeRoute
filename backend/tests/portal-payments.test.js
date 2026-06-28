@@ -230,6 +230,7 @@ const portalRouteSource = readSources([
   path.join(repoRoot, 'backend', 'routes', 'portal.js'),
   path.join(repoRoot, 'backend', 'routes', 'portal-payments.js'),
   path.join(repoRoot, 'backend', 'routes', 'portal', 'shared.js'),
+  path.join(repoRoot, 'backend', 'routes', 'portal', 'payments-shared.js'),
   path.join(repoRoot, 'backend', 'routes', 'portal', 'payment-profile-routes.js'),
   path.join(repoRoot, 'backend', 'routes', 'portal', 'payment-method-routes.js'),
   path.join(repoRoot, 'backend', 'routes', 'portal', 'payment-collection-routes.js'),
@@ -237,6 +238,7 @@ const portalRouteSource = readSources([
 const reactSrcDir = path.join(repoRoot, 'frontend-v2', 'src');
 const portalFrontendSource = [
   path.join(reactSrcDir, 'hooks', 'usePortalData.ts'),
+  path.join(reactSrcDir, 'pages', 'CustomerPortalPage.tsx'),
   path.join(reactSrcDir, 'pages', 'PortalTabViews.tsx'),
   path.join(reactSrcDir, 'pages', 'portal.types.ts'),
 ].map((f) => fs.readFileSync(f, 'utf8')).join('\n');
@@ -253,6 +255,12 @@ test('portal backend exposes payment readiness endpoints', () => {
     "router.post('/invoices/:id/pay'",
     'PORTAL_PAYMENT_ENABLED',
     'isStripeProviderEnabled',
+    'stripeCheckoutReadiness',
+    'STRIPE_TEST_MODE_REQUIRED',
+    'STRIPE_TEST_KEYS_MISSING',
+    'portal-checkout-',
+    'idempotencyKey',
+    '{CHECKOUT_SESSION_ID}',
     'PAYMENT_NOT_CONFIGURED',
     'AUTOPAY_METHOD_TYPES',
   ]) {
@@ -375,9 +383,266 @@ test('customer portal frontend includes payment bootstrap and checkout trigger',
     '/api/portal/payments/profile',
     '/api/portal/payments/create-checkout-session',
     '/api/portal/payments/autopay/charge-now',
+    'idempotency_key',
+    'Stripe test mode preview — no live charges',
+    "payment === 'success'",
+    'Pay Now',
     'ach_bank',
     'autopay',
   ]) {
     assert.ok(portalFrontendSource.includes(marker), `missing customer portal payment marker ${marker}`);
   }
+});
+
+// ── Request-level integration tests ──────────────────────────────────────────
+// Previously this suite only asserted on source markers, which is why the
+// runtime `scopeQueryByContext is not a function` regression on DELETE/PATCH
+// passed CI. These tests exercise the real router against a fake Supabase and
+// a spy on scopeQueryByContext so behavioral regressions are caught.
+const http = require('node:http');
+const express = require('express');
+
+function makeSupabase(tables, captures) {
+  class Query {
+    constructor(table) {
+      this.table = table;
+      this.rows = [...(tables[table] || [])];
+      this.singleRow = false;
+      this.op = 'select';
+      this._update = null;
+    }
+    select() { return this; }
+    order() { return this; }
+    limit(n) { this.rows = this.rows.slice(0, n); return this; }
+    eq(field, value) {
+      this.rows = this.rows.filter((row) => String(row[field] ?? '') === String(value ?? ''));
+      return this;
+    }
+    insert(records) {
+      this.op = 'insert';
+      const arr = (Array.isArray(records) ? records : [records]).map((r, i) => ({ id: r.id || `${this.table}-new-${i + 1}`, ...r }));
+      (tables[this.table] = tables[this.table] || []).push(...arr);
+      if (captures) captures.inserts.push(...arr.map((row) => ({ table: this.table, row })));
+      this.rows = arr;
+      return this;
+    }
+    update(patch) {
+      this.op = 'update';
+      this._update = patch;
+      if (captures) captures.updates.push({ table: this.table, patch });
+      return this;
+    }
+    single() { this.singleRow = true; return this; }
+    then(resolve, reject) {
+      if (this.op === 'update' && this._update) {
+        const tableRows = tables[this.table] || [];
+        for (const row of this.rows) {
+          const target = tableRows.find((r) => r.id === row.id);
+          if (target) Object.assign(target, this._update);
+        }
+        this.rows = this.rows.map((r) => ({ ...r, ...this._update }));
+      }
+      const data = this.singleRow ? (this.rows[0] || null) : this.rows;
+      const error = this.singleRow && !this.rows.length ? { code: 'PGRST116', message: 'no rows' } : null;
+      return Promise.resolve({ data, error }).then(resolve, reject);
+    }
+  }
+  return { from: (table) => new Query(table) };
+}
+
+const COMPANY = 'company-a';
+const EMAIL = 'buyer@example.test';
+
+function loadPaymentMethodRouter(tables, captures, scopeCalls) {
+  const supabasePath = require.resolve('../services/supabase');
+  const ocPath = require.resolve('../services/operating-context');
+
+  // Override the supabase service so loadPortalPaymentState + helpers use the fake.
+  delete require.cache[supabasePath];
+  require.cache[supabasePath] = {
+    id: supabasePath,
+    filename: supabasePath,
+    loaded: true,
+    exports: { supabase: makeSupabase(tables, captures), dbQuery: async () => null },
+  };
+
+  // Load operating-context fresh and wrap scopeQueryByContext with a spy that
+  // records (context, options) while delegating to the real implementation.
+  delete require.cache[ocPath];
+  const realOc = require('../services/operating-context');
+  const spied = {
+    ...realOc,
+    scopeQueryByContext(query, context, options) {
+      scopeCalls.push({ context, options });
+      return realOc.scopeQueryByContext(query, context, options);
+    },
+  };
+  require.cache[ocPath].exports = spied;
+
+  delete require.cache[require.resolve('../routes/portal/payments-shared')];
+  delete require.cache[require.resolve('../routes/portal/payment-method-routes')];
+  return require('../routes/portal/payment-method-routes');
+}
+
+function buildApp(buildRouter) {
+  const app = express();
+  app.use(express.json());
+  const fakeAuth = (req, _res, next) => {
+    req.customerEmail = EMAIL;
+    req.customerName = 'Buyer';
+    req.portalContext = {
+      companyId: COMPANY,
+      activeCompanyId: COMPANY,
+      activeLocationId: null,
+      accessibleLocationIds: [],
+      accessibleCompanyIds: [COMPANY],
+      isGlobalOperator: false,
+    };
+    next();
+  };
+  app.use('/api/portal', buildRouter({ authenticatePortalToken: fakeAuth }));
+  return app;
+}
+
+function request(app, method, pathName, body) {
+  return new Promise((resolve, reject) => {
+    const server = app.listen(0, () => {
+      const { port } = server.address();
+      const payload = body ? JSON.stringify(body) : null;
+      const req = http.request({ port, method, path: pathName, headers: { 'Content-Type': 'application/json' } }, (res) => {
+        let data = '';
+        res.on('data', (chunk) => { data += chunk; });
+        res.on('end', () => {
+          server.close();
+          let json = null;
+          try { json = data ? JSON.parse(data) : null; } catch { /* non-json */ }
+          resolve({ status: res.statusCode, body: json });
+        });
+      });
+      req.on('error', (err) => { server.close(); reject(err); });
+      if (payload) req.write(payload);
+      req.end();
+    });
+  });
+}
+
+function methodRow(overrides = {}) {
+  return {
+    id: 'pm-1',
+    company_id: COMPANY,
+    customer_email: EMAIL,
+    method_type: 'ach_bank',
+    provider: 'manual',
+    payment_method_ref: 'ref-1',
+    is_default: true,
+    status: 'active',
+    account_last4: '4321',
+    created_at: '2026-01-01T00:00:00.000Z',
+    updated_at: '2026-01-01T00:00:00.000Z',
+    ...overrides,
+  };
+}
+
+test('POST /payments/methods saves a new ACH method and returns it', async () => {
+  const tables = { portal_payment_methods: [], portal_payment_settings: [] };
+  const captures = { inserts: [], updates: [] };
+  const scopeCalls = [];
+  const router = loadPaymentMethodRouter(tables, captures, scopeCalls);
+  const app = buildApp(router);
+
+  const res = await request(app, 'POST', '/api/portal/payments/methods', {
+    method_type: 'ach_bank',
+    provider: 'manual',
+    payment_method_ref: 'ref-new',
+    account_last4: '9999',
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.message, 'Payment method saved');
+  assert.equal(res.body.method.method_type, 'ach_bank');
+  assert.equal(res.body.method.account_last4, '9999');
+  // First method is forced default and persisted with the tenant company_id.
+  assert.equal(captures.inserts.length, 1);
+  assert.equal(captures.inserts[0].row.company_id, COMPANY);
+});
+
+test('DELETE /payments/methods/:id archives the method via scoped query', async () => {
+  const tables = {
+    portal_payment_methods: [methodRow(), methodRow({ id: 'pm-2', is_default: false, payment_method_ref: 'ref-2' })],
+    portal_payment_settings: [],
+  };
+  const captures = { inserts: [], updates: [] };
+  const scopeCalls = [];
+  const router = loadPaymentMethodRouter(tables, captures, scopeCalls);
+  const app = buildApp(router);
+
+  const res = await request(app, 'DELETE', '/api/portal/payments/methods/pm-1');
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.message, 'Payment method removed');
+  // scopeQueryByContext must have been called (regression guard) with the tenant context.
+  assert.ok(scopeCalls.length >= 1, 'scopeQueryByContext was not called on the delete path');
+  assert.equal(scopeCalls[0].context.activeCompanyId, COMPANY);
+  // The targeted row is archived in the underlying table.
+  const archived = tables.portal_payment_methods.find((m) => m.id === 'pm-1');
+  assert.equal(archived.status, 'archived');
+});
+
+test('PATCH /payments/autopay inserts a new settings row (new-row path)', async () => {
+  const tables = {
+    portal_payment_methods: [methodRow()],
+    portal_payment_settings: [],
+  };
+  const captures = { inserts: [], updates: [] };
+  const scopeCalls = [];
+  const router = loadPaymentMethodRouter(tables, captures, scopeCalls);
+  const app = buildApp(router);
+
+  const res = await request(app, 'PATCH', '/api/portal/payments/autopay', {
+    enabled: true,
+    method_id: 'pm-1',
+    autopay_day_of_month: 5,
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.autopay.enabled, true);
+  assert.equal(res.body.autopay.method_id, 'pm-1');
+  // No existing row → insert path.
+  assert.equal(captures.inserts.filter((i) => i.table === 'portal_payment_settings').length, 1);
+});
+
+test('PATCH /payments/autopay updates an existing settings row via scoped query (existing-row path)', async () => {
+  const tables = {
+    portal_payment_methods: [methodRow()],
+    portal_payment_settings: [{
+      id: 'set-1',
+      company_id: COMPANY,
+      customer_email: EMAIL,
+      autopay_enabled: false,
+      autopay_day_of_month: 1,
+      method_id: null,
+      updated_at: '2026-01-01T00:00:00.000Z',
+    }],
+  };
+  const captures = { inserts: [], updates: [] };
+  const scopeCalls = [];
+  const router = loadPaymentMethodRouter(tables, captures, scopeCalls);
+  const app = buildApp(router);
+
+  const res = await request(app, 'PATCH', '/api/portal/payments/autopay', {
+    enabled: true,
+    method_id: 'pm-1',
+    autopay_day_of_month: 10,
+  });
+
+  assert.equal(res.status, 200);
+  assert.equal(res.body.autopay.enabled, true);
+  assert.equal(res.body.autopay.autopay_day_of_month, 10);
+  // Existing-row path must go through scopeQueryByContext (the regression site).
+  assert.ok(scopeCalls.length >= 1, 'scopeQueryByContext was not called on the existing-row autopay path');
+  assert.equal(scopeCalls[0].context.activeCompanyId, COMPANY);
+  // No insert happened; the existing row was updated in place.
+  assert.equal(captures.inserts.filter((i) => i.table === 'portal_payment_settings').length, 0);
+  const updated = tables.portal_payment_settings.find((s) => s.id === 'set-1');
+  assert.equal(updated.autopay_enabled, true);
 });

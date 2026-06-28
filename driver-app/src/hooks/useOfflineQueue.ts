@@ -41,6 +41,19 @@ function localStorageAvailable() {
   }
 }
 
+function sanitizePayloadForLocalStorage(payload: Record<string, unknown> = {}) {
+  const { proofImage, ...safePayload } = payload;
+  void proofImage;
+  return safePayload;
+}
+
+function sanitizeQueueForLocalStorage(entries: QueuedStatusAction[]) {
+  return entries.map((entry) => ({
+    ...entry,
+    payload: sanitizePayloadForLocalStorage(entry.payload),
+  }));
+}
+
 let dbPromise: Promise<IDBDatabase | null> | null = null;
 
 function openOfflineStatusDb() {
@@ -101,7 +114,7 @@ async function readQueueFromLocalStorage() {
 
 async function writeQueueToLocalStorage(entries: QueuedStatusAction[]) {
   if (!localStorageAvailable()) return;
-  window.localStorage.setItem(OFFLINE_STATUS_QUEUE_KEY, JSON.stringify(entries));
+  window.localStorage.setItem(OFFLINE_STATUS_QUEUE_KEY, JSON.stringify(sanitizeQueueForLocalStorage(entries)));
 }
 
 export async function loadOfflineStatusQueue() {
@@ -118,7 +131,7 @@ async function saveOfflineStatusQueue(entries: QueuedStatusAction[]) {
   }
 
   if (localStorageAvailable()) {
-    window.localStorage.setItem(OFFLINE_STATUS_QUEUE_KEY, JSON.stringify(entries));
+    window.localStorage.setItem(OFFLINE_STATUS_QUEUE_KEY, JSON.stringify(sanitizeQueueForLocalStorage(entries)));
   }
 }
 
@@ -219,7 +232,7 @@ export function useOfflineQueue({
       serverStatus: getConflictServerStatus(error, getServerStatus(entry.stopId)),
       timestamp: Date.now(),
       action: entry.action,
-      payload: entry.payload,
+      payload: sanitizePayloadForLocalStorage(entry.payload),
     } satisfies OfflineStatusConflict;
 
     console.warn('[offline-status-conflict]', {

@@ -86,3 +86,39 @@ REVOKE ALL ON public.portal_payment_events FROM anon, authenticated;
 GRANT ALL ON public.portal_payment_methods TO service_role;
 GRANT ALL ON public.portal_payment_settings TO service_role;
 GRANT ALL ON public.portal_payment_events TO service_role;
+
+-- ── portal_payment_methods ───────────────────────────────────────────────────
+alter table if exists public.portal_payment_methods enable row level security;
+revoke all on public.portal_payment_methods from anon, authenticated;
+grant all on public.portal_payment_methods to service_role;
+drop policy if exists "portal_payment_methods: deny direct client access" on public.portal_payment_methods;
+create policy "portal_payment_methods: deny direct client access"
+  on public.portal_payment_methods
+  for all
+  to anon, authenticated
+  using (false)
+  with check (false);
+
+-- ── portal_payment_settings ──────────────────────────────────────────────────
+alter table if exists public.portal_payment_settings enable row level security;
+revoke all on public.portal_payment_settings from anon, authenticated;
+grant all on public.portal_payment_settings to service_role;
+drop policy if exists "portal_payment_settings: deny direct client access" on public.portal_payment_settings;
+create policy "portal_payment_settings: deny direct client access"
+  on public.portal_payment_settings
+  for all
+  to anon, authenticated
+  using (false)
+  with check (false);
+
+-- ── portal_payment_events ────────────────────────────────────────────────────
+alter table if exists public.portal_payment_events enable row level security;
+revoke all on public.portal_payment_events from anon, authenticated;
+grant all on public.portal_payment_events to service_role;
+drop policy if exists "portal_payment_events: deny direct client access" on public.portal_payment_events;
+create policy "portal_payment_events: deny direct client access"
+  on public.portal_payment_events
+  for all
+  to anon, authenticated
+  using (false)
+  with check (false);

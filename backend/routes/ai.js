@@ -448,6 +448,7 @@ router.post('/chat', authenticateToken, requireRole('admin', 'manager'), async (
 // ── INVENTORY HEALTH ANALYSIS ──────────────────────────────────────────────────
 router.post('/inventory-analysis', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('inventory-analysis'), async (req, res) => {
   try {
+    // Tenant scope: AI inventory analysis must only see the caller's company/location data.
     const { data: products, error: pErr } = await scopeQueryByContext(
       supabase
         .from('products')
@@ -458,6 +459,7 @@ router.post('/inventory-analysis', authenticateToken, requireRole('admin', 'mana
     if (pErr) return res.status(500).json({ error: pErr.message });
 
     const since = new Date(Date.now() - 28 * 86400000).toISOString();
+    // Tenant scope: stock history is tenant-sensitive; never aggregate across companies.
     const { data: allHistory, error: hErr } = await scopeQueryByContext(
       supabase
         .from('inventory_stock_history')
@@ -475,6 +477,7 @@ router.post('/inventory-analysis', authenticateToken, requireRole('admin', 'mana
     });
 
     const expiryWindow = new Date(Date.now() + 14 * 86400000).toISOString();
+    // Tenant scope: lot codes belong to a specific company/location.
     const { data: expiringLots } = await scopeQueryByContext(
       supabase
         .from('lot_codes')

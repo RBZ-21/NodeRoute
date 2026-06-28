@@ -96,11 +96,25 @@ export type PortalAutopay = {
 export type PortalPaymentConfig = {
   enabled?: boolean;
   provider?: string;
+  publishable_key?: string | null;
+  mode?: 'test' | 'live' | 'missing' | 'unknown' | string;
+  test_mode?: boolean;
+  checkout_preview?: boolean;
+  live_mode_blocked?: boolean;
+  readiness_code?: string;
   support_email?: string;
   currency?: string;
+  manual_payment_available?: boolean;
+  supported_method_types?: string[];
+  supports_autopay?: boolean;
   balance?: PortalBalance;
   payment_methods?: PaymentMethod[];
   autopay?: PortalAutopay;
+};
+
+export type PortalPaymentReturn = {
+  status: 'success' | 'cancelled';
+  sessionId?: string;
 };
 
 export type PortalPaymentProfile = {

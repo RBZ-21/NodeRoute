@@ -21,6 +21,7 @@ const {
   stripePaymentMethodSummary,
   supabase,
 } = require('./payments-shared');
+const { scopeQueryByContext } = require('../../services/operating-context');
 
 module.exports = function buildPortalPaymentMethodRouter({ authenticatePortalToken }) {
   const router = express.Router();

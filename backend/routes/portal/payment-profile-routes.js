@@ -15,6 +15,7 @@ const {
   normalizePaymentMethodType,
   paymentTablesUnavailableResponse,
   portalInvoiceBalanceSummary,
+  stripePaymentConfigFlags,
 } = require('./payments-shared');
 
 module.exports = function buildPortalPaymentProfileRouter({ authenticatePortalToken }) {
@@ -32,6 +33,7 @@ module.exports = function buildPortalPaymentProfileRouter({ authenticatePortalTo
         enabled: providerEnabled,
         provider: PORTAL_PAYMENT_PROVIDER,
         publishable_key: PORTAL_PAYMENT_PROVIDER === 'stripe' ? STRIPE_PUBLISHABLE_KEY : null,
+        ...stripePaymentConfigFlags(),
         currency: PORTAL_PAYMENT_CURRENCY,
         support_email: PORTAL_PAYMENT_SUPPORT_EMAIL,
         manual_payment_available: true,

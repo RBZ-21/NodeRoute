@@ -18,6 +18,9 @@ const REQUIRED_EXPORTS = [
   'getClient',
   'verifyWebhookSignature',
   'isStripeConfigured',
+  'isStripeTestMode',
+  'stripeKeyMode',
+  'stripeSecretKeyMode',
   'normalizeAmountToCents',
   'paymentMethodTypeForPortalType',
   'portalMethodTypeForStripeType',
@@ -28,6 +31,7 @@ const REQUIRED_EXPORTS = [
   'detachPaymentMethod',
   'createPaymentIntent',
   'createCheckoutSession',
+  'createSubscriptionCheckoutSession',
 ];
 
 for (const name of REQUIRED_EXPORTS) {
@@ -48,6 +52,7 @@ test('portal payments-shared resolves every stripe import to a function', () => 
     'detachPaymentMethod',
     'portalMethodTypeForStripeType',
     'retrievePaymentMethod',
+    'scopeQueryByContext',
   ]) {
     assert.equal(typeof shared[name], 'function', `payments-shared re-export ${name}`);
   }
@@ -62,4 +67,13 @@ test('normalizeAmountToCents converts dollars and clamps at zero', () => {
   assert.equal(stripeService.normalizeAmountToCents(12.34), 1234);
   assert.equal(stripeService.normalizeAmountToCents(-5), 0);
   assert.equal(stripeService.normalizeAmountToCents(null), 0);
+});
+
+test('stripeKeyMode classifies test and live keys without exposing key material', () => {
+  assert.equal(stripeService.stripeKeyMode('sk_test_123'), 'test');
+  assert.equal(stripeService.stripeKeyMode('pk_test_123'), 'test');
+  assert.equal(stripeService.stripeKeyMode('sk_live_123'), 'live');
+  assert.equal(stripeService.stripeKeyMode('pk_live_123'), 'live');
+  assert.equal(stripeService.stripeKeyMode(''), 'missing');
+  assert.equal(stripeService.stripeKeyMode('not-a-stripe-key'), 'unknown');
 });

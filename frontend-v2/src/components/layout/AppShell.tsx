@@ -1,5 +1,5 @@
 import { LogOut, Menu, Moon, Sun } from 'lucide-react';
-import { useEffect, useState, Suspense } from 'react';
+import { useCallback, useEffect, useState, Suspense } from 'react';
 import { Navigate, Route, Routes, useLocation } from 'react-router-dom';
 import { Button } from '../ui/button';
 import { Sidebar } from './Sidebar';
@@ -47,6 +47,8 @@ export function AppShell() {
   });
 
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
+  // Stable identity so Sidebar's route-change effect can depend on it without re-firing every render.
+  const closeMobileNav = useCallback(() => setMobileNavOpen(false), []);
 
   useEffect(() => {
     document.documentElement.classList.toggle('dark', dark);
@@ -115,7 +117,7 @@ export function AppShell() {
           <Sidebar
             role={role}
             mobileOpen={mobileNavOpen}
-            onMobileClose={() => setMobileNavOpen(false)}
+            onMobileClose={closeMobileNav}
           />
 
           <main className="flex-1 overflow-y-auto p-4 md:p-6">

@@ -57,6 +57,7 @@ const creditHoldRouter    = require('./routes/credit-hold');
 const vendorBillsRouter   = require('./routes/vendor-bills');
 const complianceRouter    = require('./routes/compliance');
 const auditLogRouter      = require('./routes/audit-log');
+const billingRouter       = require('./routes/billing');
 const { stripeWebhookHandler } = require('./routes/stripe-webhooks');
 const blandWebhookRouter      = require('./routes/webhooks/bland');
 const phoneOrdersRouter       = require('./routes/phone-orders');
@@ -247,6 +248,7 @@ app.use('/api/credit', requireApiAuth, creditHoldRouter);
 app.use('/api/vendor-bills', requireApiAuth, vendorBillsRouter);
 app.use('/api/compliance', requireApiAuth, complianceRouter);
 app.use('/api/audit-log', requireApiAuth, auditLogRouter);
+app.use('/api/billing', requireApiAuth, billingRouter);
 // Bland.ai phone-order integration — authenticated via own webhook secret / API key, not requireApiAuth
 app.use('/api/phone-orders', phoneOrdersRouter);
 app.use('/api/public/inventory', publicLimiter, publicInventoryRouter);

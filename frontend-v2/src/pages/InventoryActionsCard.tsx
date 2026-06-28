@@ -45,10 +45,17 @@ export function InventoryActionsCard({
     setSelectedItemId(items[0]?.id || '');
   }, [items]);
 
-  // Honour incoming "Fix" requests from negative-stock indicators.
+  // Honour incoming "Fix" requests from negative-stock indicators. This must
+  // fire only when a new request arrives (keyed by nonce), reading the latest
+  // items/fixRequest via refs so an inventory refetch does not re-scroll.
+  const itemsRef = useRef(items);
+  itemsRef.current = items;
+  const fixRequestRef = useRef(fixRequest);
+  fixRequestRef.current = fixRequest;
   useEffect(() => {
-    if (!fixRequest) return;
-    const item = items.find((i) => i.id === fixRequest.itemId);
+    const request = fixRequestRef.current;
+    if (!request) return;
+    const item = itemsRef.current.find((i) => i.id === request.itemId);
     if (!item) return;
     setSelectedItemId(item.id);
     const qty = asNumber(item.on_hand_qty);

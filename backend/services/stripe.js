@@ -15,6 +15,7 @@
 const config = require('../lib/config');
 
 const STRIPE_API_BASE = 'https://api.stripe.com/v1';
+const STRIPE_API_VERSION = '2026-02-25.clover';
 
 function stripeSecretKey() {
   return process.env.STRIPE_SECRET_KEY || '';
@@ -24,10 +25,26 @@ function isStripeConfigured() {
   return !!stripeSecretKey();
 }
 
+function stripeKeyMode(key) {
+  const normalized = String(key || '').trim();
+  if (!normalized) return 'missing';
+  if (normalized.startsWith('sk_test_') || normalized.startsWith('pk_test_')) return 'test';
+  if (normalized.startsWith('sk_live_') || normalized.startsWith('pk_live_')) return 'live';
+  return 'unknown';
+}
+
+function stripeSecretKeyMode() {
+  return stripeKeyMode(stripeSecretKey());
+}
+
+function isStripeTestMode() {
+  return stripeSecretKeyMode() === 'test';
+}
+
 let _client = null;
 function getClient() {
   const Stripe = require('stripe');
-  if (!_client) _client = new Stripe(stripeSecretKey(), { apiVersion: '2023-10-16' });
+  if (!_client) _client = new Stripe(stripeSecretKey(), { apiVersion: STRIPE_API_VERSION });
   return _client;
 }
 
@@ -53,6 +70,7 @@ async function stripeRequest(path, { method = 'GET', fields = null, idempotencyK
 
   const headers = {
     Authorization: `Bearer ${secretKey}`,
+    'Stripe-Version': STRIPE_API_VERSION,
   };
 
   const init = { method, headers };
@@ -166,7 +184,16 @@ async function createPaymentIntent({ amount, currency = 'usd', customerId, payme
   });
 }
 
-async function createCheckoutSession({ customerId, amount, currency = 'usd', successUrl, cancelUrl, metadata = {} }) {
+async function createCheckoutSession({
+  customerId,
+  amount,
+  currency = 'usd',
+  successUrl,
+  cancelUrl,
+  metadata = {},
+  clientReferenceId = null,
+  idempotencyKey = null,
+}) {
   const amountCents = normalizeAmountToCents(amount);
   if (!amountCents) throw new Error('Checkout amount must be greater than zero');
   if (!successUrl || !cancelUrl) throw new Error('successUrl and cancelUrl are required for checkout');
@@ -180,16 +207,52 @@ async function createCheckoutSession({ customerId, amount, currency = 'usd', suc
     'line_items[0][price_data][unit_amount]': amountCents,
     'line_items[0][price_data][product_data][name]': 'NodeRoute Portal Balance Payment',
     'line_items[0][quantity]': 1,
-    'payment_method_types[0]': 'card',
-    'payment_method_types[1]': 'us_bank_account',
   };
+  if (clientReferenceId) fields.client_reference_id = clientReferenceId;
 
   for (const [key, value] of Object.entries(metadata || {})) {
     if (value == null || value === '') continue;
     fields[`metadata[${key}]`] = value;
   }
 
-  return stripeRequest('/checkout/sessions', { method: 'POST', fields });
+  return stripeRequest('/checkout/sessions', { method: 'POST', fields, idempotencyKey });
+}
+
+async function createSubscriptionCheckoutSession({
+  customerId,
+  priceId,
+  successUrl,
+  cancelUrl,
+  metadata = {},
+  subscriptionMetadata = {},
+  clientReferenceId = null,
+  idempotencyKey = null,
+}) {
+  const normalizedPriceId = String(priceId || '').trim();
+  if (!normalizedPriceId) throw new Error('Stripe recurring price id is required');
+  if (!successUrl || !cancelUrl) throw new Error('successUrl and cancelUrl are required for checkout');
+
+  const fields = {
+    mode: 'subscription',
+    customer: customerId,
+    success_url: successUrl,
+    cancel_url: cancelUrl,
+    'line_items[0][price]': normalizedPriceId,
+    'line_items[0][quantity]': 1,
+  };
+  if (clientReferenceId) fields.client_reference_id = clientReferenceId;
+
+  for (const [key, value] of Object.entries(metadata || {})) {
+    if (value == null || value === '') continue;
+    fields[`metadata[${key}]`] = value;
+  }
+
+  for (const [key, value] of Object.entries(subscriptionMetadata || {})) {
+    if (value == null || value === '') continue;
+    fields[`subscription_data[metadata][${key}]`] = value;
+  }
+
+  return stripeRequest('/checkout/sessions', { method: 'POST', fields, idempotencyKey });
 }
 
 /**
@@ -236,8 +299,12 @@ function verifyWebhookSignature(rawBody, sigHeader, secret) {
 
 module.exports = {
   getClient,
+  STRIPE_API_VERSION,
   verifyWebhookSignature,
   isStripeConfigured,
+  isStripeTestMode,
+  stripeKeyMode,
+  stripeSecretKeyMode,
   normalizeAmountToCents,
   paymentMethodTypeForPortalType,
   portalMethodTypeForStripeType,
@@ -248,4 +315,5 @@ module.exports = {
   detachPaymentMethod,
   createPaymentIntent,
   createCheckoutSession,
+  createSubscriptionCheckoutSession,
 };

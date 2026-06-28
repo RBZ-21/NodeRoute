@@ -1,5 +1,6 @@
 const express = require('express');
 const { randomUUID } = require('crypto');
+const { hashInvoiceSet } = require('../../lib/invoice-set-hash');
 const {
   PORTAL_PAYMENT_CURRENCY,
   PORTAL_PAYMENT_ENABLED,
@@ -18,10 +19,12 @@ const {
   paymentTablesUnavailableResponse,
   portalInvoiceBalanceSummary,
   recordPortalPaymentEvent,
+  stripeCheckoutReadiness,
   supabase,
   toMoney,
 } = require('./payments-shared');
 const creditEngine = require('../../services/creditEngine');
+const logger = require('../../services/logger');
 
 function portalCompanyId(context = {}) {
   return context.activeCompanyId || context.companyId || '';
@@ -206,20 +209,34 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
       if (isStripeProviderEnabled()) {
         const customer = await ensureStripePortalCustomer(req);
         const baseUrl = process.env.BASE_URL || 'http://localhost:3001';
+        const invoiceIds = balance.openInvoices.map((invoice) => invoice.id).join(',');
+        const invoiceHash = hashInvoiceSet(balance.openInvoices);
+        if (invoiceIds.length > 500) {
+          return res.status(400).json({
+            error: 'Too many open invoices for one checkout session. Please pay individual invoices or contact support.',
+            code: 'PORTAL_CHECKOUT_INVOICE_SET_TOO_LARGE',
+          });
+        }
         const session = await createCheckoutSession({
           customerId: customer.id,
           amount: balance.openBalance,
           currency: PORTAL_PAYMENT_CURRENCY,
-          successUrl: `${baseUrl}/portal?payment=success`,
-          cancelUrl: `${baseUrl}/portal?payment=cancelled`,
+          successUrl: `${baseUrl}/portal?tab=payments&payment=success&session_id={CHECKOUT_SESSION_ID}`,
+          cancelUrl: `${baseUrl}/portal?tab=payments&payment=cancelled`,
+          clientReferenceId: `portal:${portalCompanyId(req.portalContext) || 'global'}:${invoiceHash.slice(0, 24)}`,
+          idempotencyKey: `portal-checkout-${portalCompanyId(req.portalContext) || 'global'}-${invoiceHash}-${actionIdempotencySuffix(req)}`,
           metadata: {
             source: 'portal_checkout',
+            checkout_type: 'portal_checkout',
             customer_email: req.customerEmail,
+            invoice_ids: invoiceIds,
+            invoice_hash: invoiceHash,
             company_id: portalCompanyId(req.portalContext),
             location_id: portalLocationId(req.portalContext),
           },
         });
 
+        const sessionMode = session.livemode === true ? 'live' : 'test';
         await recordPortalPaymentEvent(req, {
           event_type: 'checkout_session_created',
           amount: balance.openBalance,
@@ -233,6 +250,18 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
           provider: 'stripe',
           amount_due: balance.openBalance,
           session_id: session.id,
+          mode: sessionMode,
+          test_mode: sessionMode === 'test',
+        });
+      }
+
+      if (PORTAL_PAYMENT_PROVIDER === 'stripe') {
+        const readiness = stripeCheckoutReadiness();
+        return res.status(501).json({
+          error: readiness.message,
+          code: readiness.code,
+          support_email: PORTAL_PAYMENT_SUPPORT_EMAIL,
+          test_mode_only: true,
         });
       }
 
@@ -251,7 +280,18 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
         support_email: PORTAL_PAYMENT_SUPPORT_EMAIL,
       });
     } catch (error) {
-      return res.status(500).json({ error: error.message || 'Could not start checkout session' });
+      if (isMissingPortalPaymentTables(error)) return paymentTablesUnavailableResponse(res);
+      const log = req.log || logger;
+      log.error({
+        err: error,
+        customer_email: req.customerEmail,
+        company_id: portalCompanyId(req.portalContext),
+      }, 'portal checkout session creation failed');
+      return res.status(500).json({
+        error: 'Could not start checkout session. Please try again or contact support.',
+        code: 'CHECKOUT_SESSION_FAILED',
+        support_email: PORTAL_PAYMENT_SUPPORT_EMAIL,
+      });
     }
   });
 

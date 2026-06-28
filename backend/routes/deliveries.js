@@ -579,7 +579,7 @@ router.get('/analytics', authenticateToken, requireRole('admin', 'manager'), asy
   }
 });
 
-router.patch('/deliveries/:id/status', authenticateToken, async (req, res) => {
+router.patch('/deliveries/:id/status', authenticateToken, requireRole('admin', 'manager', 'driver'), async (req, res) => {
   const requestedStatus = String(req.body?.status || '').trim();
   const allowed = {
     pending: 'pending',
@@ -636,10 +636,13 @@ router.patch('/deliveries/:id/status', authenticateToken, async (req, res) => {
     }
   }
 
-  const { error: updateError } = await supabase
+  let updateQuery = supabase
     .from('orders')
     .update({ status: nextDbStatus })
-    .eq('id', req.params.id);
+    .eq('id', req.params.id)
+    .eq('company_id', order.company_id);
+  if (order.location_id) updateQuery = updateQuery.eq('location_id', order.location_id);
+  const { error: updateError } = await updateQuery;
 
   if (updateError) return res.status(500).json({ error: updateError.message });
   invalidateDashboardCache(req.context);

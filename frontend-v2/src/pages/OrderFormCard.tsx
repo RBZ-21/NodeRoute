@@ -88,6 +88,16 @@ export function OrderFormCard({
     if (debounceRef.current) clearTimeout(debounceRef.current);
   }, []);
 
+  // Call the latest hydrate via a ref so the effect subscribes only to the
+  // customer fields/list, not to the function's identity each render.
+  const hydrateCustomerByNameRef = useRef(hydrateCustomerByName);
+  hydrateCustomerByNameRef.current = hydrateCustomerByName;
+  useEffect(() => {
+    if (!customerName.trim()) return;
+    if (customerEmail.trim() || customerAddress.trim() || customerPhone.trim()) return;
+    hydrateCustomerByNameRef.current(customerName);
+  }, [customerName, customerEmail, customerAddress, customerPhone, customers]);
+
   function normalizedCustomerName(value: string) {
     return value.trim().toLowerCase();
   }

@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { CustomerPortalPage } from './CustomerPortalPage';
 
@@ -39,6 +39,7 @@ function mockJsonResponse(body: unknown, ok = true, status = 200) {
 describe('CustomerPortalPage', () => {
   beforeEach(() => {
     vi.stubGlobal('fetch', vi.fn());
+    window.history.replaceState(null, '', '/portal');
     getPortalTokenMock.mockReturnValue('');
     fetchWithPortalAuthMock.mockReset();
     sendWithPortalAuthMock.mockReset();
@@ -115,6 +116,97 @@ describe('CustomerPortalPage', () => {
     expect(await screen.findByText('INV-101')).toBeInTheDocument();
     expect(screen.getAllByText('$250.00').length).toBeGreaterThan(0);
     expect(screen.getByRole('button', { name: /pdf/i })).toBeInTheDocument();
+  });
+
+  it('renders Stripe test preview payment controls and sends checkout idempotency only', async () => {
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/portal/me') {
+        return mockJsonResponse({ email: 'buyer@example.com', name: 'Harbor Cafe' });
+      }
+      return mockJsonResponse({}, false, 404);
+    });
+    fetchWithPortalAuthMock.mockImplementation(async (url: string) => {
+      if (url === '/api/portal/me') return { email: 'buyer@example.com', name: 'Harbor Cafe' };
+      if (url === '/api/portal/orders') return [];
+      if (url === '/api/portal/invoices') return [{ id: 'i1', invoice_number: 'INV-101', total: 250, status: 'sent', created_at: '2026-04-02T00:00:00Z' }];
+      if (url === '/api/portal/contact') return { email: 'buyer@example.com', name: 'Harbor Cafe' };
+      if (url === '/api/portal/inventory') return [];
+      if (url === '/api/portal/payments/config') {
+        return {
+          enabled: true,
+          provider: 'stripe',
+          mode: 'test',
+          test_mode: true,
+          checkout_preview: true,
+          balance: { openBalance: 250, openInvoiceCount: 1, invoiceCount: 1 },
+          payment_methods: [],
+        };
+      }
+      if (url === '/api/portal/payments/profile') return { payment_methods: [], autopay: { enabled: false }, balance: { openBalance: 250, openInvoiceCount: 1, invoiceCount: 1 } };
+      return null;
+    });
+    sendWithPortalAuthMock.mockResolvedValueOnce({ error: 'No checkout link was returned.' });
+
+    render(<CustomerPortalPage />);
+
+    expect(await screen.findByText('NodeRoute Customer Portal')).toBeInTheDocument();
+    expect(await screen.findByText('Stripe test mode preview — no live charges')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Payments' }));
+    expect(await screen.findByRole('heading', { name: 'Payment Options' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /Pay Now/i }).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getAllByRole('button', { name: /Pay Now/i })[0]);
+    await waitFor(() =>
+      expect(sendWithPortalAuthMock).toHaveBeenCalledWith(
+        '/api/portal/payments/create-checkout-session',
+        'POST',
+        expect.objectContaining({ idempotency_key: expect.any(String) })
+      )
+    );
+    const body = sendWithPortalAuthMock.mock.calls[0]?.[2] as { idempotency_key?: string; amount?: number };
+    expect(body.idempotency_key?.length).toBeGreaterThan(8);
+    expect(body.amount).toBeUndefined();
+  });
+
+  it('opens the payments tab with a success preview from Stripe return parameters', async () => {
+    window.history.replaceState(null, '', '/portal?tab=payments&payment=success&session_id=cs_test_preview');
+    const fetchMock = vi.mocked(fetch);
+    fetchMock.mockImplementation((input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url === '/api/portal/me') {
+        return mockJsonResponse({ email: 'buyer@example.com', name: 'Harbor Cafe' });
+      }
+      return mockJsonResponse({}, false, 404);
+    });
+    fetchWithPortalAuthMock.mockImplementation(async (url: string) => {
+      if (url === '/api/portal/me') return { email: 'buyer@example.com', name: 'Harbor Cafe' };
+      if (url === '/api/portal/orders') return [];
+      if (url === '/api/portal/invoices') return [{ id: 'i1', invoice_number: 'INV-101', total: 250, status: 'sent', created_at: '2026-04-02T00:00:00Z' }];
+      if (url === '/api/portal/contact') return { email: 'buyer@example.com', name: 'Harbor Cafe' };
+      if (url === '/api/portal/inventory') return [];
+      if (url === '/api/portal/payments/config') {
+        return {
+          enabled: true,
+          provider: 'stripe',
+          mode: 'test',
+          test_mode: true,
+          checkout_preview: true,
+          balance: { openBalance: 250, openInvoiceCount: 1, invoiceCount: 1 },
+          payment_methods: [],
+        };
+      }
+      if (url === '/api/portal/payments/profile') return { payment_methods: [], autopay: { enabled: false }, balance: { openBalance: 250, openInvoiceCount: 1, invoiceCount: 1 } };
+      return null;
+    });
+
+    render(<CustomerPortalPage />);
+
+    expect(await screen.findByRole('heading', { name: 'Payment Options' })).toBeInTheDocument();
+    expect(screen.getByText('Test checkout returned')).toBeInTheDocument();
+    expect(screen.getByText('Session cs_test_preview')).toBeInTheDocument();
   });
 
   it('shows empty states when the customer has no order or invoice history', async () => {

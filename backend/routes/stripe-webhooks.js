@@ -7,15 +7,16 @@
  *     duplicate deliveries return {received:true,replay:true} without re-processing.
  *  2. Tenant scope — invoice metadata.company_id must match the invoice row's
  *     company_id before we mark anything paid.
- *  3. Amount match — paid amount must equal the invoice total (or the sum of
- *     all open invoices for portal_checkout sessions).
- *  4. Status guard — only 'open' or 'pending' invoices are eligible.
+ *  3. Amount match — paid amount must equal the invoice total or the signed
+ *     portal checkout invoice set.
+ *  4. Status guard — only payable unpaid invoice statuses are eligible.
  *  5. Timestamp    — stale / missing / non-numeric t= values are rejected
  *     before constructEvent (handled in services/stripe.js).
  *  6. Async intents — payment_intent.succeeded and payment_intent.payment_failed
  *     reconcile invoice state from PaymentIntent metadata.
  */
 const { supabase } = require('../services/supabase');
+const { hashInvoiceSet, parseInvoiceIds } = require('../lib/invoice-set-hash');
 const { verifyWebhookSignature } = require('../services/stripe');
 const logger = require('../services/logger');
 
@@ -111,39 +112,98 @@ function scopedInvoiceUpdate(invoiceId, companyId, locationId, updates) {
 }
 
 async function handleCheckoutSessionCompleted(session) {
-  const { company_id, invoice_id, checkout_type } = session.metadata || {};
+  const {
+    company_id,
+    customer_email,
+    invoice_hash,
+    invoice_id,
+    invoice_ids,
+    checkout_type,
+    location_id,
+  } = session.metadata || {};
   const amountPaid = cents(session.amount_total || 0);
 
   if (checkout_type === 'portal_checkout') {
-    // Portal checkout: pay the oldest open invoices up to the amount paid
-    const { data: invoices, error } = await supabase
+    const ids = parseInvoiceIds(invoice_ids);
+    const uniqueIds = new Set(ids);
+    if (!company_id || !customer_email || !invoice_hash || !ids.length || uniqueIds.size !== ids.length) {
+      logger.warn({ session_id: session.id }, 'portal_checkout: missing or invalid signed invoice set metadata');
+      return;
+    }
+
+    let query = supabase
       .from('invoices')
-      .select('id, total, company_id, status')
+      .select('id,total,company_id,location_id,customer_email,status')
       .eq('company_id', company_id)
-      .in('status', ['open', 'pending'])
-      .order('created_at', { ascending: true });
+      .ilike('customer_email', customer_email)
+      .in('id', ids);
+    if (location_id) query = query.eq('location_id', location_id);
+    const { data: invoices, error } = await query;
 
     if (error) throw error;
 
-    // Tenant scope check
-    if (invoices.some(inv => inv.company_id !== company_id)) {
-      logger.error({ company_id }, 'Tenant scope violation in portal_checkout');
+    if (!Array.isArray(invoices) || invoices.length !== ids.length) {
+      logger.warn({
+        session_id: session.id,
+        company_id,
+        location_id,
+        expected_count: ids.length,
+        found_count: Array.isArray(invoices) ? invoices.length : 0,
+      }, 'portal_checkout: invoice set no longer matches metadata — skipping');
       return;
     }
 
-    // Aggregate balance check
+    if (invoices.some((invoice) => String(invoice.company_id || '') !== String(company_id || ''))) {
+      logger.error({ company_id, session_id: session.id }, 'Tenant scope violation in portal_checkout');
+      return;
+    }
+
+    if (location_id && invoices.some((invoice) => String(invoice.location_id || '') !== String(location_id || ''))) {
+      logger.error({ company_id, location_id, session_id: session.id }, 'Location scope violation in portal_checkout');
+      return;
+    }
+
+    if (invoices.some((invoice) => !PAYABLE_INVOICE_STATUSES.has(String(invoice.status || '').toLowerCase()))) {
+      logger.info({ session_id: session.id, company_id }, 'portal_checkout: invoice set contains non-payable status — skipping');
+      return;
+    }
+
+    const recomputedHash = hashInvoiceSet(invoices);
+    if (recomputedHash !== invoice_hash) {
+      logger.warn({ session_id: session.id, company_id }, 'portal_checkout: invoice hash mismatch — skipping');
+      return;
+    }
+
     const balance = invoices.reduce((s, inv) => s + Number(inv.total || 0), 0);
     if (Math.abs(amountPaid - balance) > 0.01) {
-      logger.warn({ amountPaid, balance, company_id }, 'portal_checkout: paid amount does not match open balance — skipping');
+      logger.warn({ amountPaid, balance, company_id, session_id: session.id }, 'portal_checkout: paid amount does not match signed invoice set — skipping');
       return;
     }
 
-    const ids = invoices.map(i => i.id);
-    const { error: upErr } = await supabase
+    let updateQuery = supabase
       .from('invoices')
-      .update({ status: 'paid', paid_at: new Date().toISOString(), stripe_session_id: session.id })
-      .in('id', ids);
+      .update({
+        status: 'paid',
+        paid_at: new Date().toISOString(),
+        payment_status: 'paid',
+        stripe_session_id: session.id,
+      })
+      .eq('company_id', company_id)
+      .ilike('customer_email', customer_email)
+      .in('id', ids)
+      .in('status', Array.from(PAYABLE_INVOICE_STATUSES));
+    if (location_id) updateQuery = updateQuery.eq('location_id', location_id);
+    const { data: updatedInvoices, error: upErr } = await updateQuery.select('id');
     if (upErr) throw upErr;
+    if (!Array.isArray(updatedInvoices) || updatedInvoices.length !== ids.length) {
+      logger.warn({
+        session_id: session.id,
+        company_id,
+        expected_count: ids.length,
+        updated_count: Array.isArray(updatedInvoices) ? updatedInvoices.length : 0,
+      }, 'portal_checkout: not all invoices were updated after final status guard');
+      return;
+    }
     logger.info({ count: ids.length, company_id }, 'portal_checkout: invoices marked paid');
     return;
   }
@@ -156,7 +216,7 @@ async function handleCheckoutSessionCompleted(session) {
 
   const { data: inv, error: invErr } = await supabase
     .from('invoices')
-    .select('id, total, company_id, status')
+    .select('id, total, company_id, location_id, status')
     .eq('id', invoice_id)
     .single();
 
@@ -170,6 +230,10 @@ async function handleCheckoutSessionCompleted(session) {
     logger.error({ invoice_id, company_id, inv_company: inv.company_id }, 'Tenant scope violation on invoice payment');
     return;
   }
+  if (location_id && inv.location_id && String(inv.location_id) !== String(location_id)) {
+    logger.error({ invoice_id, location_id, inv_location: inv.location_id }, 'Location scope violation on invoice payment');
+    return;
+  }
 
   // Amount check
   const expected = Number(inv.total || 0);
@@ -179,15 +243,17 @@ async function handleCheckoutSessionCompleted(session) {
   }
 
   // Status check
-  if (!['open', 'pending'].includes(inv.status)) {
+  if (!PAYABLE_INVOICE_STATUSES.has(String(inv.status || '').toLowerCase())) {
     logger.info({ invoice_id, status: inv.status }, 'checkout.session.completed: invoice not in payable status — skipping');
     return;
   }
 
-  const { error: upErr } = await supabase
-    .from('invoices')
-    .update({ status: 'paid', paid_at: new Date().toISOString(), stripe_session_id: session.id })
-    .eq('id', invoice_id);
+  const { error: upErr } = await scopedInvoiceUpdate(invoice_id, company_id, location_id, {
+    status: 'paid',
+    paid_at: new Date().toISOString(),
+    payment_status: 'paid',
+    stripe_session_id: session.id,
+  });
   if (upErr) throw upErr;
   logger.info({ invoice_id }, 'checkout.session.completed: invoice marked paid');
 }

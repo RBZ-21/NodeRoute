@@ -23,6 +23,37 @@ export type CompanySettings = {
   cutoffDayOptions?: CutoffOption[];
 };
 
+export type BillingCompany = {
+  id?: string;
+  name?: string;
+  plan?: string | null;
+  status?: string | null;
+};
+
+export type BillingConfig = {
+  enabled?: boolean;
+  provider?: string;
+  mode?: 'test' | 'live' | 'missing' | 'unknown' | string;
+  test_mode?: boolean;
+  checkout_preview?: boolean;
+  live_mode_blocked?: boolean;
+  readiness_code?: string;
+  message?: string;
+  can_manage_billing?: boolean;
+  product_name?: string;
+  price_label?: string;
+  support_email?: string;
+  company?: BillingCompany | null;
+};
+
+export type BillingCheckoutResponse = {
+  checkout_url?: string;
+  provider?: string;
+  session_id?: string;
+  mode?: string;
+  test_mode?: boolean;
+};
+
 export function useCurrentUser() {
   return useQuery({
     queryKey: ['current-user'],
@@ -35,6 +66,14 @@ export function useCompanySettings() {
   return useQuery({
     queryKey: ['company-settings'],
     queryFn: () => fetchWithAuth<CompanySettings>('/api/settings/company'),
+    staleTime: 30_000,
+  });
+}
+
+export function useBillingConfig() {
+  return useQuery({
+    queryKey: ['billing-config'],
+    queryFn: () => fetchWithAuth<BillingConfig>('/api/billing/config'),
     staleTime: 30_000,
   });
 }
@@ -61,5 +100,12 @@ export function useSaveCompanySettings() {
     mutationFn: (payload: CompanySettings) =>
       sendWithAuth<CompanySettings>('/api/settings/company', 'PATCH', payload),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['company-settings'] }),
+  });
+}
+
+export function useStartBillingCheckout() {
+  return useMutation({
+    mutationFn: (payload: { idempotency_key: string }) =>
+      sendWithAuth<BillingCheckoutResponse>('/api/billing/create-checkout-session', 'POST', payload),
   });
 }

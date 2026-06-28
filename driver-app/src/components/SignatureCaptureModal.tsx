@@ -26,15 +26,15 @@ export function SignatureCaptureModal({ stopName, onClose, onSave }: SignatureCa
     const canvas = canvasRef.current;
     if (!canvas) return { x: 0, y: 0 };
     const rect = canvas.getBoundingClientRect();
-    if ('touches' in event) {
-      return {
-        x: event.touches[0].clientX - rect.left,
-        y: event.touches[0].clientY - rect.top,
-      };
-    }
+    // The canvas is displayed at CSS size (w-full) but draws into a fixed
+    // 360x180 buffer. Scale pointer coordinates from displayed space into
+    // buffer space so strokes are not offset or distorted on any screen width.
+    const scaleX = rect.width ? canvas.width / rect.width : 1;
+    const scaleY = rect.height ? canvas.height / rect.height : 1;
+    const source = 'touches' in event ? event.touches[0] : event;
     return {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
+      x: (source.clientX - rect.left) * scaleX,
+      y: (source.clientY - rect.top) * scaleY,
     };
   }
 

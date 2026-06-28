@@ -108,9 +108,11 @@ async function triggerReorderForItemNumber(itemNumber, context) {
   const normalized = String(itemNumber || '').trim();
   if (!normalized) return;
   try {
-    const { data } = await supabase
-      .from('products')
-      .select('id')
+    // Tenant scope: resolve the product within the caller's company only.
+    const { data } = await scopeQueryByContext(
+      supabase.from('products').select('id'),
+      context
+    )
       .eq('item_number', normalized)
       .limit(1);
     const productId = data?.[0]?.id;
@@ -240,15 +242,21 @@ router.get('/analytics', authenticateToken, async (req, res) => {
   const WINDOW_DAYS = 30;
   const since = new Date(Date.now() - WINDOW_DAYS * 86400000).toISOString();
 
-  const { data: products, error: pErr } = await supabase
-    .from('products')
-    .select('item_number,description,category,unit,on_hand_qty,avg_yield,yield_count')
-    .order('category');
+  // Tenant scope: analytics must not aggregate other companies' products/usage.
+  const { data: products, error: pErr } = await scopeQueryByContext(
+    supabase
+      .from('products')
+      .select('item_number,description,category,unit,on_hand_qty,avg_yield,yield_count'),
+    req.context
+  ).order('category');
   if (pErr) return res.status(500).json({ error: pErr.message });
 
-  const { data: history, error: hErr } = await supabase
-    .from('inventory_stock_history')
-    .select('item_number,change_qty,created_at')
+  const { data: history, error: hErr } = await scopeQueryByContext(
+    supabase
+      .from('inventory_stock_history')
+      .select('item_number,change_qty,created_at'),
+    req.context
+  )
     .lt('change_qty', 0)
     .gte('created_at', since);
   if (hErr) return res.status(500).json({ error: hErr.message });
@@ -333,9 +341,13 @@ router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), 
 
   const WINDOW = 30;
   const since  = new Date(Date.now() - WINDOW * 86400000).toISOString();
-  const { data: history } = await supabase
-    .from('inventory_stock_history')
-    .select('item_number,change_qty')
+  // Tenant scope: usage stats join scoped products; keep history scoped too.
+  const { data: history } = await scopeQueryByContext(
+    supabase
+      .from('inventory_stock_history')
+      .select('item_number,change_qty'),
+    req.context
+  )
     .lt('change_qty', 0)
     .gte('created_at', since);
   const usageMap = {};
@@ -368,16 +380,22 @@ router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), 
 
 // GET /api/inventory/ai-analysis — full warehouse AI inventory health check
 router.get('/ai-analysis', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
-  const { data: products, error: pErr } = await supabase
-    .from('products')
-    .select('item_number,description,category,unit,cost,on_hand_qty')
-    .order('category');
+  // Tenant scope: warehouse AI analysis must stay within the caller's company.
+  const { data: products, error: pErr } = await scopeQueryByContext(
+    supabase
+      .from('products')
+      .select('item_number,description,category,unit,cost,on_hand_qty'),
+    req.context
+  ).order('category');
   if (pErr) return res.status(500).json({ error: pErr.message });
 
   const since = new Date(Date.now() - 28 * 86400000).toISOString(); // 4 weeks
-  const { data: history, error: hErr } = await supabase
-    .from('inventory_stock_history')
-    .select('item_number,change_qty,created_at')
+  const { data: history, error: hErr } = await scopeQueryByContext(
+    supabase
+      .from('inventory_stock_history')
+      .select('item_number,change_qty,created_at'),
+    req.context
+  )
     .gte('created_at', since)
     .order('created_at', { ascending: false });
   if (hErr) return res.status(500).json({ error: hErr.message });
@@ -391,9 +409,12 @@ router.get('/ai-analysis', authenticateToken, requireRole('admin', 'manager'), a
   // Fetch active lots with expiry dates within 30 days
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate() + 30);
-  const { data: expiringLots } = await supabase
-    .from('inventory_lots')
-    .select('item_number,lot_number,expiry_date,qty_on_hand')
+  const { data: expiringLots } = await scopeQueryByContext(
+    supabase
+      .from('inventory_lots')
+      .select('item_number,lot_number,expiry_date,qty_on_hand'),
+    req.context
+  )
     .eq('status', 'active')
     .not('expiry_date', 'is', null)
     .lte('expiry_date', cutoff.toISOString().split('T')[0])
@@ -490,9 +511,13 @@ router.get('/lots/expiring', authenticateToken, async (req, res) => {
   const days = Math.min(parseInt(req.query.days) || 30, 365);
   const future = new Date();
   future.setDate(future.getDate() + days);
-  const { data, error } = await supabase
-    .from('inventory_lots')
-    .select('*')
+  // Tenant scope: only surface lots belonging to the caller's company/location.
+  const { data, error } = await scopeQueryByContext(
+    supabase
+      .from('inventory_lots')
+      .select('*'),
+    req.context
+  )
     .eq('status', 'active')
     .not('expiry_date', 'is', null)
     .lte('expiry_date', future.toISOString().split('T')[0])
@@ -606,8 +631,11 @@ router.post('/count', authenticateToken, requireRole('admin', 'manager'), valida
 router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryRestockBodySchema), async (req, res) => {
   const { qty: addQty, notes } = req.validated.body;
 
-  const { data: item, error: fetchErr } = await supabase
-    .from('products').select('*').eq('item_number', req.params.id).single();
+  // Tenant scope: never resolve another company's product by shared item_number.
+  const { data: item, error: fetchErr } = await scopeQueryByContext(
+    supabase.from('products').select('*'),
+    req.context
+  ).eq('item_number', req.params.id).single();
   if (fetchErr) return res.status(404).json({ error: 'Product not found' });
 
   if (item.lot_item === 'Y') {
@@ -663,10 +691,13 @@ router.post('/:id/pick', authenticateToken, requireRole('admin', 'manager'), val
   const trimmedNotes = String(notes || '').trim();
 
   try {
-    // Fetch item to check lot_item flag
-    const { data: item, error: itemErr } = await supabase
-      .from('products')
-      .select('item_number, lot_item, description')
+    // Fetch item to check lot_item flag (tenant-scoped: shared item_numbers must not cross companies)
+    const { data: item, error: itemErr } = await scopeQueryByContext(
+      supabase
+        .from('products')
+        .select('item_number, lot_item, description'),
+      req.context
+    )
       .eq('item_number', req.params.id)
       .single();
     if (itemErr || !item) return res.status(404).json({ error: 'Product not found' });
@@ -849,9 +880,13 @@ router.post('/:id/yield', authenticateToken, validateBody(inventoryYieldBodySche
 // GET /api/inventory/:id/yield — yield history for a product
 router.get('/:id/yield', authenticateToken, async (req, res) => {
   const limit = Math.min(parseInt(req.query.limit) || 50, 200);
-  const { data, error } = await supabase
-    .from('inventory_yield_log')
-    .select('*')
+  // Tenant scope: yield history is per-company.
+  const { data, error } = await scopeQueryByContext(
+    supabase
+      .from('inventory_yield_log')
+      .select('*'),
+    req.context
+  )
     .eq('item_number', req.params.id)
     .order('logged_at', { ascending: false })
     .limit(limit);
@@ -863,18 +898,25 @@ router.get('/:id/yield', authenticateToken, async (req, res) => {
 router.post('/:id/reorder-alert', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const { email } = req.body;
 
-  const { data: product, error: pErr } = await supabase
-    .from('products')
-    .select('item_number,description,unit,on_hand_qty,cost')
+  // Tenant scope: reorder alert is per-company product + usage.
+  const { data: product, error: pErr } = await scopeQueryByContext(
+    supabase
+      .from('products')
+      .select('item_number,description,unit,on_hand_qty,cost'),
+    req.context
+  )
     .eq('item_number', req.params.id)
     .single();
   if (pErr || !product) return res.status(404).json({ error: 'Product not found' });
 
   // Compute daily usage from last 30 days
   const since = new Date(Date.now() - 30 * 86400000).toISOString();
-  const { data: history } = await supabase
-    .from('inventory_stock_history')
-    .select('change_qty,created_at')
+  const { data: history } = await scopeQueryByContext(
+    supabase
+      .from('inventory_stock_history')
+      .select('change_qty,created_at'),
+    req.context
+  )
     .eq('item_number', req.params.id)
     .lt('change_qty', 0)
     .gte('created_at', since);
@@ -884,9 +926,12 @@ router.post('/:id/reorder-alert', authenticateToken, requireRole('admin', 'manag
   const reorderQty = req.body.reorder_qty || Math.round(dailyUsage * 14); // 2-week supply default
 
   // Find soonest active expiry
-  const { data: lots } = await supabase
-    .from('inventory_lots')
-    .select('expiry_date')
+  const { data: lots } = await scopeQueryByContext(
+    supabase
+      .from('inventory_lots')
+      .select('expiry_date'),
+    req.context
+  )
     .eq('item_number', req.params.id)
     .eq('status', 'active')
     .not('expiry_date', 'is', null)

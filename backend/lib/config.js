@@ -192,7 +192,8 @@ function validate(logger) {
   for (const msg of errors) logger.error(msg);
   for (const msg of fatal)  logger.fatal(msg);
 
-  if (fatal.length) {
+  const fatalMessages = isProduction ? fatal.concat(errors) : fatal;
+  if (fatalMessages.length) {
     logger.fatal('Fatal configuration errors — exiting.');
     process.exit(1);
   }
