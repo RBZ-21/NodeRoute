@@ -21,6 +21,7 @@ const {
 const { syncRouteMutation } = require('../services/route-stop-sync');
 const { findDriverClientAction, recordDriverClientAction } = require('../lib/driver-client-action');
 const { sendSafeError } = require('../lib/safe-error');
+const { invalidateRouteDriveTimeCache } = require('../services/google-maps');
 
 const STOP_FIELDS = [
   'route_id', 'customer_id', 'address', 'status', 'name',
@@ -483,6 +484,7 @@ router.post('/:id/move-to-end', authenticateToken, requireRole('admin', 'manager
 
     const { error: updateErr } = await scopeQueryByContext(supabase.from('routes').update({ active_stop_ids: reordered }), req.context).eq('id', stop.route_id);
     if (updateErr) return res.status(500).json({ error: updateErr.message });
+    await invalidateRouteDriveTimeCache(stop.route_id, req.context);
 
     const syncResult = await syncRouteMutation(supabase, {
       routeId: stop.route_id,
@@ -553,6 +555,7 @@ router.post('/:id/defer', authenticateToken, async (req, res) => {
 
     const { error: updateErr } = await scopeQueryByContext(supabase.from('routes').update({ active_stop_ids: activeIds }), req.context).eq('id', route.id);
     if (updateErr) return res.status(500).json({ error: updateErr.message });
+    await invalidateRouteDriveTimeCache(route.id, req.context);
 
     const syncResult = await syncRouteMutation(supabase, {
       routeId: route.id,

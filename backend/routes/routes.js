@@ -14,6 +14,7 @@ const {
 } = require('../services/route-stop-sync');
 const deliveryNotifications = require('../services/delivery-notifications');
 const { buildTrackingUrl } = require('../lib/tracking-url');
+const { invalidateRouteDriveTimeCache } = require('../services/google-maps');
 
 const router = express.Router();
 
@@ -241,6 +242,7 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
 
   const changedRouteLists = payload.stop_ids !== undefined || payload.active_stop_ids !== undefined;
   if (changedRouteLists) {
+    await invalidateRouteDriveTimeCache(req.params.id, req.context);
     const syncResult = await syncRouteMutation(supabase, {
       routeId: req.params.id,
       stopIds: payload.stop_ids !== undefined ? payload.stop_ids : updatedRoute.stop_ids,

@@ -3,16 +3,20 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { StatusBadge } from '../components/ui/status-badge';
 import { LiveIndicator } from '../components/ui/live-indicator';
-import { type DriverLocation, type StopMarker, useMapDrivers, useMapStops } from '../hooks/useMap';
+import { type DriverLocation, type RoutePolyline, type StopMarker, useMapDrivers, useMapStops, useRoutePolyline } from '../hooks/useMap';
 import { DriverLeaderboard } from '../components/map/DriverLeaderboard';
 import { OperationalSnapshot } from '../components/map/OperationalSnapshot';
 
-const ENV_MAP_KEY = (import.meta.env.VITE_GOOGLE_MAPS_KEY || import.meta.env.VITE_MAP_API_KEY) as string | undefined;
+function envMapKey() {
+  return (import.meta.env.VITE_GOOGLE_MAPS_PUBLIC_KEY || import.meta.env.VITE_GOOGLE_MAPS_KEY || import.meta.env.VITE_MAP_API_KEY) as string | undefined;
+}
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type GMaps = any;
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 type GMarker = any;
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+type GPolyline = any;
 
 const stopStatusColors: Record<string, 'yellow' | 'blue' | 'green' | 'red'> = {
   pending: 'yellow',
@@ -54,7 +58,7 @@ function hasCoordinates(lat: number | string | null | undefined, lng: number | s
 }
 
 async function resolveMapKey(): Promise<string> {
-  return ENV_MAP_KEY || '';
+  return envMapKey() || '';
 }
 
 async function loadGoogleMapsScript(apiKey: string): Promise<void> {
@@ -65,7 +69,7 @@ async function loadGoogleMapsScript(apiKey: string): Promise<void> {
     if (existing) { existing.addEventListener('load', () => resolve()); existing.addEventListener('error', reject); return; }
     const script = document.createElement('script');
     script.id = 'gmaps-script';
-    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&loading=async`;
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${apiKey}&libraries=geometry&loading=async`;
     script.async = true; script.defer = true;
     script.onload = () => resolve(); script.onerror = reject;
     document.head.appendChild(script);
@@ -84,6 +88,8 @@ export function MapPage() {
   const mapRef = useRef<HTMLDivElement>(null);
   const googleMapRef = useRef<GMaps>(null);
   const markersRef = useRef<GMarker[]>([]);
+  const routeMarkersRef = useRef<GMarker[]>([]);
+  const routePolylineRef = useRef<GPolyline | null>(null);
   // Fit the viewport to the live delivery area once, the first time we have points.
   const didFitRef = useRef(false);
 
@@ -93,10 +99,27 @@ export function MapPage() {
 
   const { data: drivers = [], dataUpdatedAt, refetch: refetchDrivers, isFetching: driversFetching } = useMapDrivers();
   const { data: stops = [], refetch: refetchMapStops } = useMapStops();
+  const routeIdForPolyline = (
+    selectedDriver?.route_id ||
+    selectedDriver?.routeId ||
+    drivers.find((driver) => driver.route_id || driver.routeId)?.route_id ||
+    drivers.find((driver) => driver.route_id || driver.routeId)?.routeId ||
+    stops.find((stop) => stop.route_id || stop.routeId)?.route_id ||
+    stops.find((stop) => stop.route_id || stop.routeId)?.routeId ||
+    null
+  );
+  const routePolyline = useRoutePolyline(routeIdForPolyline || null);
 
   const clearMarkers = useCallback(() => {
     markersRef.current.forEach((m: GMarker) => m.setMap(null));
     markersRef.current = [];
+  }, []);
+
+  const clearRouteOverlay = useCallback(() => {
+    routeMarkersRef.current.forEach((m: GMarker) => m.setMap(null));
+    routeMarkersRef.current = [];
+    if (routePolylineRef.current) routePolylineRef.current.setMap(null);
+    routePolylineRef.current = null;
   }, []);
 
   const plotMarkers = useCallback(
@@ -138,6 +161,33 @@ export function MapPage() {
     [clearMarkers]
   );
 
+  const plotRouteOverlay = useCallback((route: RoutePolyline | null | undefined) => {
+    if (!googleMapRef.current) return;
+    clearRouteOverlay();
+    if (!route?.stops?.length) return;
+    const gm = (window as GMaps).google.maps;
+    if (route.encoded_polyline && gm.geometry?.encoding?.decodePath && typeof gm.Polyline === 'function') {
+      routePolylineRef.current = new gm.Polyline({
+        path: gm.geometry.encoding.decodePath(route.encoded_polyline),
+        geodesic: true,
+        strokeColor: '#2563eb',
+        strokeOpacity: 0.88,
+        strokeWeight: 5,
+        map: googleMapRef.current,
+      });
+    }
+    route.stops.forEach((stop) => {
+      const marker = new gm.Marker({
+        position: { lat: Number(stop.lat), lng: Number(stop.lng) },
+        map: googleMapRef.current,
+        label: String(stop.sequence),
+        title: `${stop.sequence}. ${stop.name || stop.address || 'Stop'}`,
+        zIndex: 20 + stop.sequence,
+      });
+      routeMarkersRef.current.push(marker);
+    });
+  }, [clearRouteOverlay]);
+
   // Re-plot whenever React Query refreshes data
   useEffect(() => {
     if (!mapReady) return;
@@ -167,13 +217,18 @@ export function MapPage() {
     }
   }, [drivers, stops, mapReady, plotMarkers]);
 
+  useEffect(() => {
+    if (!mapReady) return;
+    plotRouteOverlay(routePolyline.data || null);
+  }, [mapReady, plotRouteOverlay, routePolyline.data]);
+
   // Init map once
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
         const apiKey = await resolveMapKey();
-        if (!apiKey) { setMapError('Map API key is not configured. Set VITE_GOOGLE_MAPS_KEY in .env.'); return; }
+        if (!apiKey) { setMapError('Map API key is not configured. Set VITE_GOOGLE_MAPS_PUBLIC_KEY in .env.'); return; }
         await loadGoogleMapsScript(apiKey);
         if (cancelled || !mapRef.current) return;
         const gm = (window as GMaps).google.maps;
@@ -195,12 +250,15 @@ export function MapPage() {
   });
   const mappableActiveDrivers = activeDrivers.filter((d) => hasCoordinates(d.lat, d.lng));
   const mappedStops = stops.filter((s) => hasCoordinates(s.lat, s.lng));
+  const routeMapError = routePolyline.isError
+    ? String((routePolyline.error as Error)?.message || 'Could not load route map.')
+    : null;
   const operationalGuidance = !activeDrivers.length
     ? 'No dispatched drivers are live right now. Dispatch a route once the truck leaves the shop to start live tracking.'
     : !mappableActiveDrivers.length
       ? 'Drivers are marked on duty, but no GPS coordinates are flowing yet. Confirm the driver app is open and location sharing is enabled.'
       : null;
-  const mapGuidance = operationalGuidance || mapError;
+  const mapGuidance = routeMapError || operationalGuidance || mapError;
 
   return (
     <div className="flex flex-col gap-4 lg:flex-row">
@@ -284,6 +342,29 @@ export function MapPage() {
         </Card>
         <OperationalSnapshot />
         <DriverLeaderboard />
+        {routePolyline.data?.stops?.length ? (
+          <Card>
+            <CardHeader className="py-3 px-4"><CardTitle className="text-sm">Route Sequence</CardTitle></CardHeader>
+            <CardContent className="pt-0 px-2 pb-2">
+              <ol className="divide-y divide-border">
+                {routePolyline.data.stops.map((stop) => (
+                  <li key={stop.stop_id} className="flex items-start gap-3 px-2 py-2">
+                    <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-primary text-xs font-semibold text-primary-foreground">
+                      {stop.sequence}
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium">{stop.name || stop.address || `Stop ${stop.sequence}`}</p>
+                      <p className="truncate text-xs text-muted-foreground">{stop.address || 'No address'}</p>
+                    </div>
+                    {stop.duration_seconds != null ? (
+                      <span className="shrink-0 text-xs font-medium text-muted-foreground">{Math.round(Number(stop.duration_seconds) / 60)} min</span>
+                    ) : null}
+                  </li>
+                ))}
+              </ol>
+            </CardContent>
+          </Card>
+        ) : null}
         <Card>
           <CardHeader className="py-3 px-4"><CardTitle className="text-sm">Stop Summary</CardTitle></CardHeader>
           <CardContent className="pt-0 px-4 pb-4">

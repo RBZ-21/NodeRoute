@@ -27,6 +27,7 @@ import {
   useRoutes,
   useUpdateRoute,
 } from '../hooks/useRoutes';
+import { useDriveTime } from '../hooks/useMap';
 import { AIDriverAssignmentsCard } from './AIDriverAssignmentsCard';
 import { RouteOptimizationResultCard } from './RouteOptimizationResultCard';
 import { AddStopsModal } from './AddStopsModal';
@@ -850,6 +851,7 @@ export function RoutesPage() {
                 <TableHead>Driver</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Stops</TableHead>
+                <TableHead>Drive Times</TableHead>
                 <TableHead>Created</TableHead>
                 <TableHead>Actions</TableHead>
               </TableRow>
@@ -863,6 +865,9 @@ export function RoutesPage() {
                 const isEditing = editRoute?.id === route.id;
                 const assignedDriver = route.driver || driverDisplayName(driverById.get(String(route.driver_id || '')));
                 const hasAssignedDriverId = String(route.driver_id || '').trim().length > 0;
+                const firstStop = resolvedStopIds(route, allStops)
+                  .map((id) => allStops.find((stop) => String(stop.id) === String(id)))
+                  .find(Boolean) as StopRecord | undefined;
                 return (
                   <TableRow key={route.id} className={isEditing ? 'bg-primary/5' : ''}>
                     <TableCell className="font-medium">{route.name || route.id.slice(0, 8)}</TableCell>
@@ -871,6 +876,9 @@ export function RoutesPage() {
                       <StatusBadge status={status === 'other' ? 'unknown' : status} colorMap={statusColors} fallbackLabel="Unknown" />
                     </TableCell>
                     <TableCell>{stopCount}</TableCell>
+                    <TableCell>
+                      <RouteDriveTimeCell route={route} firstStop={firstStop} />
+                    </TableCell>
                     <TableCell>{route.created_at ? new Date(route.created_at).toLocaleDateString() : '-'}</TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
@@ -917,7 +925,7 @@ export function RoutesPage() {
                   </TableRow>
                 );
               }) : (
-                <TableRow><TableCell colSpan={6} className="text-muted-foreground">No routes found.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={7} className="text-muted-foreground">No routes found.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -945,5 +953,24 @@ export function RoutesPage() {
 function SummaryCard({ label, value }: { label: string; value: string }) {
   return (
     <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className="text-2xl">{value}</CardTitle></CardHeader></Card>
+  );
+}
+
+function RouteDriveTimeCell({ route, firstStop }: { route: RouteRecord; firstStop?: StopRecord }) {
+  const from = route.location_id || firstStop?.location_id || null;
+  const to = firstStop?.customer_id || null;
+  const driveTime = useDriveTime(from, to, 'driving');
+
+  if (!from || !to) return <span className="text-muted-foreground">No customer</span>;
+  if (driveTime.isLoading) return <span className="text-muted-foreground">Loading...</span>;
+  if (driveTime.isError) return <span className="text-destructive">Unavailable</span>;
+  if (!driveTime.data) return <span className="text-muted-foreground">Not cached</span>;
+
+  const minutes = Math.round(Number(driveTime.data.duration_seconds || 0) / 60);
+  const miles = Number(driveTime.data.distance_meters || 0) / 1609.344;
+  return (
+    <span className="text-sm">
+      {minutes} min <span className="text-muted-foreground">({miles.toFixed(1)} mi)</span>
+    </span>
   );
 }

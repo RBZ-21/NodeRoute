@@ -37,6 +37,7 @@ const envSchema = z.object({
   OPENAI_API_KEY:             z.string().optional().default(''),
   ADMIN_EMAIL:                z.string().optional().default('admin@example.com'),
   ADMIN_PASSWORD:             z.string().optional().default(DEFAULT_ADMIN_PW),
+  GOOGLE_MAPS_API_KEY:        z.string().optional().default(''),
   GOOGLE_MAPS_KEY:            z.string().optional().default(''),
   SENTRY_DSN:                 z.string().optional().default(''),
   CORS_ORIGINS:               z.string().optional().default(''),
@@ -83,7 +84,8 @@ const EMAIL_PROVIDER  = z.enum(['auto', 'resend', 'smtp']).catch('auto').parse(S
 const OPENAI_API_KEY  = rawEnv.OPENAI_API_KEY;
 const ADMIN_EMAIL     = rawEnv.ADMIN_EMAIL;
 const ADMIN_PASSWORD  = rawEnv.ADMIN_PASSWORD;
-const GOOGLE_MAPS_KEY = rawEnv.GOOGLE_MAPS_KEY;
+const GOOGLE_MAPS_API_KEY = rawEnv.GOOGLE_MAPS_API_KEY || rawEnv.GOOGLE_MAPS_KEY;
+const GOOGLE_MAPS_KEY = GOOGLE_MAPS_API_KEY;
 const SENTRY_DSN      = rawEnv.SENTRY_DSN;
 const _corsRaw        = rawEnv.CORS_ORIGINS || rawEnv.CORS_ORIGIN || '';
 const CORS_ORIGINS    = _corsRaw.split(',').map((s) => s.trim()).filter(Boolean);
@@ -223,6 +225,7 @@ module.exports = {
   OPENAI_API_KEY,
   ADMIN_EMAIL,
   ADMIN_PASSWORD,
+  GOOGLE_MAPS_API_KEY,
   GOOGLE_MAPS_KEY,
   SENTRY_DSN,
   PORTAL_PAYMENT_ENABLED,
