@@ -1,12 +1,14 @@
-import { screen } from '@testing-library/react';
+import { screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { MapPage } from './MapPage';
 import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
-const { fetchWithAuthMock, useMapDriversMock, useMapStopsMock } = vi.hoisted(() => ({
+const { fetchWithAuthMock, useMapDriversMock, useMapStopsMock, useRoutePolylineMock, polylineMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
   useMapDriversMock: vi.fn(),
   useMapStopsMock: vi.fn(),
+  useRoutePolylineMock: vi.fn(),
+  polylineMock: vi.fn(function MockPolyline() { return { setMap: vi.fn() }; }),
 }));
 
 vi.mock('../lib/api', () => ({
@@ -16,6 +18,7 @@ vi.mock('../lib/api', () => ({
 vi.mock('../hooks/useMap', () => ({
   useMapDrivers: useMapDriversMock,
   useMapStops: useMapStopsMock,
+  useRoutePolyline: useRoutePolylineMock,
 }));
 
 function hasExactTextContent(text: string) {
@@ -27,6 +30,8 @@ function stubGoogleMaps() {
     maps: {
       Map: function MockMap() { return { setCenter: vi.fn(), setZoom: vi.fn(), fitBounds: vi.fn() }; },
       Marker: function MockMarker() { return { addListener: vi.fn(), setMap: vi.fn() }; },
+      Polyline: polylineMock,
+      geometry: { encoding: { decodePath: vi.fn(() => [{ lat: 32.781, lng: -79.931 }, { lat: 32.785, lng: -79.928 }]) } },
       InfoWindow: function MockInfoWindow() { return { open: vi.fn() }; },
       LatLngBounds: function MockLatLngBounds() { return { extend: vi.fn(), getCenter: vi.fn(() => ({ lat: 0, lng: 0 })) }; },
       SymbolPath: { CIRCLE: 0 },
@@ -40,9 +45,13 @@ function stubGoogleMaps() {
 
 describe('MapPage', () => {
   beforeEach(() => {
+    vi.stubEnv('VITE_GOOGLE_MAPS_PUBLIC_KEY', 'test-browser-key');
     fetchWithAuthMock.mockReset();
     useMapDriversMock.mockReset();
     useMapStopsMock.mockReset();
+    useRoutePolylineMock.mockReset();
+    polylineMock.mockClear();
+    useRoutePolylineMock.mockReturnValue({ data: null, isError: false, error: null, isLoading: false });
     fetchWithAuthMock.mockImplementation(async (url: string) => {
       if (url === '/api/stats') {
         return {
@@ -126,5 +135,56 @@ describe('MapPage', () => {
     expect(screen.getByText(/no GPS coordinates are flowing yet/i)).toBeInTheDocument();
     expect(screen.getByText('Waiting on GPS from driver app')).toBeInTheDocument();
     expect(screen.getByText(hasExactTextContent('Drivers sending GPS: 0'))).toBeInTheDocument();
+  });
+
+  it('renders route sequence labels and a Google polyline overlay from route map data', async () => {
+    useMapDriversMock.mockReturnValue({
+      data: [{ id: 'driver-1', name: 'Ryan', status: 'on-duty', current_stop: 'Blue Fin', lat: 32.78, lng: -79.93 }],
+      dataUpdatedAt: Date.now(),
+      refetch: vi.fn(),
+      isFetching: false,
+    });
+    useMapStopsMock.mockReturnValue({
+      data: [{ id: 'stop-1', address: '1 Dock St', status: 'pending', lat: 32.781, lng: -79.931 }],
+      refetch: vi.fn(),
+    });
+    useRoutePolylineMock.mockReturnValue({
+      data: {
+        route_id: 'route-1',
+        encoded_polyline: 'encoded-route',
+        stops: [
+          { stop_id: 'stop-1', sequence: 1, name: 'Blue Fin', address: '1 Dock St', lat: 32.781, lng: -79.931, duration_seconds: 720 },
+          { stop_id: 'stop-2', sequence: 2, name: 'Red Crab', address: '2 Pier Ave', lat: 32.785, lng: -79.928, duration_seconds: 540 },
+        ],
+      },
+      isError: false,
+      error: null,
+      isLoading: false,
+    });
+
+    renderWithQueryClient(<MapPage />);
+
+    expect(await screen.findByText('Route Sequence')).toBeInTheDocument();
+    expect(screen.getAllByText('1').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Blue Fin').length).toBeGreaterThan(0);
+    expect(screen.getByText('12 min')).toBeInTheDocument();
+    expect(screen.getByText('Red Crab')).toBeInTheDocument();
+    expect(screen.getByText('9 min')).toBeInTheDocument();
+    await waitFor(() => expect(polylineMock).toHaveBeenCalled());
+  });
+
+  it('shows a map workflow error when route polyline loading hits quota', async () => {
+    useMapDriversMock.mockReturnValue({ data: [], dataUpdatedAt: 0 });
+    useMapStopsMock.mockReturnValue({ data: [] });
+    useRoutePolylineMock.mockReturnValue({
+      data: null,
+      isError: true,
+      error: new Error('Google Maps quota exceeded'),
+      isLoading: false,
+    });
+
+    renderWithQueryClient(<MapPage />);
+
+    expect(await screen.findByText(/Google Maps quota exceeded/i)).toBeInTheDocument();
   });
 });

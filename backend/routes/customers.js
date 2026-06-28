@@ -10,6 +10,7 @@ const {
   scopeQueryByContext,
 } = require('../services/operating-context');
 const creditEngine = require('../services/creditEngine');
+const mapsRouter = require('./maps');
 
 const router = express.Router();
 const CUSTOMER_FIELDS = [
@@ -199,6 +200,16 @@ router.get('/', authenticateToken, requireRole('admin', 'manager'), async (req, 
   const stopsResult = await scopeQueryByContext(supabase.from('stops').select('name,address,company_id,location_id'), req.context);
   const scopedStops = stopsResult.error ? [] : filterRowsByContext(stopsResult.data || [], req.context);
   res.json(enrichCustomersWithStopAddresses(scopedCustomers, scopedStops));
+});
+
+router.get('/:id/location', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const location = await mapsRouter.resolveCustomerLocation(req.params.id, req.context);
+    res.json(location);
+  } catch (err) {
+    const status = Number(err?.status) || 500;
+    res.status(status).json({ error: err.message || 'Failed to load customer location', code: err.code });
+  }
 });
 
 router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {

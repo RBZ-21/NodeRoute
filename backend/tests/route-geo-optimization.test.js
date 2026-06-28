@@ -54,3 +54,22 @@ test('routes driver migration links driver_id to users.id with null-safe cleanup
   assert.match(source, /references public\.users\(id\)/i);
   assert.match(source, /on delete set null/i);
 });
+
+test('route map waypoint builder preserves active stop order and skips ungeocoded stops', () => {
+  const { buildRouteWaypointLatLngs } = require('../services/google-maps');
+  const route = {
+    id: 'route-sequence',
+    stop_ids: ['stop-a', 'stop-b', 'stop-c'],
+    active_stop_ids: ['stop-b', 'stop-a', 'stop-c'],
+  };
+  const stops = [
+    { id: 'stop-a', name: 'First in original', address: '1 Dock St', lat: 32.781, lng: -79.931 },
+    { id: 'stop-b', name: 'First active', address: '2 Pier Ave', lat: '32.785', lng: '-79.928' },
+    { id: 'stop-c', name: 'Missing GPS', address: '3 Harbor Rd', lat: null, lng: null },
+  ];
+
+  assert.deepEqual(buildRouteWaypointLatLngs(route, stops), [
+    { stop_id: 'stop-b', sequence: 1, lat: 32.785, lng: -79.928, name: 'First active', address: '2 Pier Ave' },
+    { stop_id: 'stop-a', sequence: 2, lat: 32.781, lng: -79.931, name: 'First in original', address: '1 Dock St' },
+  ]);
+});

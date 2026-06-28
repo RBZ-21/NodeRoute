@@ -7,6 +7,7 @@ export type RouteRecord = {
   status?: string;
   driver?: string;
   driver_id?: string | null;
+  location_id?: string | null;
   stop_ids?: string[];
   active_stop_ids?: string[];
   notes?: string;
@@ -19,6 +20,8 @@ export type StopRecord = {
   name?: string;
   address?: string;
   notes?: string;
+  customer_id?: string | number | null;
+  location_id?: string | null;
   lat?: number;
   lng?: number;
 };
