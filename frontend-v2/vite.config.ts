@@ -24,6 +24,9 @@ export default defineConfig(({ mode }) => {
               authToken: env.SENTRY_AUTH_TOKEN,
               org: env.SENTRY_ORG,
               project: env.SENTRY_PROJECT,
+              errorHandler: (err) => {
+                console.warn('[sentry-vite-plugin] Source map upload skipped:', err.message);
+              },
             }),
           ]
         : []),

@@ -12,5 +12,6 @@ test('frontend Sentry source-map upload requires CI and explicit upload flag', (
   assert.ok(viteConfig.includes("env.SENTRY_UPLOAD_SOURCEMAPS === 'true'"), 'Sentry upload must require SENTRY_UPLOAD_SOURCEMAPS=true');
   assert.ok(viteConfig.includes('...(shouldUploadSentrySourcemaps'), 'Sentry Vite plugin must be gated by shouldUploadSentrySourcemaps');
   assert.ok(!viteConfig.includes('...(hasSentryReleaseConfig'), 'Sentry Vite plugin must not run from credentials alone');
+  assert.ok(viteConfig.includes('errorHandler'), 'Sentry sourcemap upload failures must not block Railway builds');
   assert.ok(envExample.includes('SENTRY_UPLOAD_SOURCEMAPS=false'), 'frontend env example should document the upload flag');
 });
