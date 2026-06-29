@@ -488,51 +488,110 @@ async function weeklyProjectionsReport(companyId, params = {}, options = {}) {
   }).sort((a, b) => a.projected_ending_stock - b.projected_ending_stock || a.description.localeCompare(b.description));
 }
 
-const QUERY_HANDLERS = {
-  chain_store: chainStoreReport,
-  chainStoreReport,
-  commodity: commodityReport,
-  commodity_report: commodityReport,
-  commodityReport,
-  gross_profit: grossProfitReport,
-  grossProfitReport,
-  invoice_register: invoiceRegisterReport,
-  invoiceRegisterReport,
-  tonnage: tonnageReport,
-  tonnage_report: tonnageReport,
-  tonnageReport,
-  comparative_sales: comparativeSalesReport,
-  comparativeSalesReport,
-  price_exceptions: priceExceptionsReport,
-  priceExceptionsReport,
-  weekly_projections: weeklyProjectionsReport,
-  weeklyProjectionsReport,
-};
-
 function getReportDefinitionCatalog() {
   return REPORT_CATALOG.map((definition) => ({ ...definition, columns: [...definition.columns] }));
 }
 
-function resolveReport(queryKey) {
+function canonicalReportKey(queryKey) {
+  const raw = String(queryKey || '').trim();
   const normalized = normalizeQueryKey(queryKey);
-  const handler = QUERY_HANDLERS[normalized] || QUERY_HANDLERS[queryKey];
-  if (!handler) {
-    const error = new Error(`Unknown report query key: ${queryKey}`);
-    error.status = 400;
-    throw error;
+
+  switch (normalized) {
+    case 'chain_store':
+      return 'chain_store';
+    case 'commodity':
+    case 'commodity_report':
+      return 'commodity';
+    case 'gross_profit':
+      return 'gross_profit';
+    case 'invoice_register':
+      return 'invoice_register';
+    case 'tonnage':
+    case 'tonnage_report':
+      return 'tonnage';
+    case 'comparative_sales':
+      return 'comparative_sales';
+    case 'price_exceptions':
+      return 'price_exceptions';
+    case 'weekly_projections':
+      return 'weekly_projections';
+    default:
+      break;
   }
-  const metadata = REPORTS_BY_KEY.get(normalized) || REPORT_CATALOG.find((definition) => definition.query_key === normalized) || {
-    query_key: normalized,
-    name: normalized,
-    title: normalized,
+
+  switch (raw) {
+    case 'chainStoreReport':
+      return 'chain_store';
+    case 'commodityReport':
+      return 'commodity';
+    case 'grossProfitReport':
+      return 'gross_profit';
+    case 'invoiceRegisterReport':
+      return 'invoice_register';
+    case 'tonnageReport':
+      return 'tonnage';
+    case 'comparativeSalesReport':
+      return 'comparative_sales';
+    case 'priceExceptionsReport':
+      return 'price_exceptions';
+    case 'weeklyProjectionsReport':
+      return 'weekly_projections';
+    default:
+      break;
+  }
+
+  const error = new Error(`Unknown report query key: ${queryKey}`);
+  error.status = 400;
+  throw error;
+}
+
+function resolveReport(queryKey) {
+  const canonicalKey = canonicalReportKey(queryKey);
+  const metadata = REPORTS_BY_KEY.get(canonicalKey) || {
+    query_key: canonicalKey,
+    name: canonicalKey,
+    title: canonicalKey,
     columns: [],
   };
-  return { handler, metadata };
+  return { query_key: canonicalKey, metadata };
 }
 
 async function runNamedReport(queryKey, companyId, params = {}, options = {}) {
-  const { handler, metadata } = resolveReport(queryKey);
-  const rows = await handler(companyId, params, options);
+  const { query_key: canonicalKey, metadata } = resolveReport(queryKey);
+  let rows;
+
+  switch (canonicalKey) {
+    case 'chain_store':
+      rows = await chainStoreReport(companyId, params, options);
+      break;
+    case 'commodity':
+      rows = await commodityReport(companyId, params, options);
+      break;
+    case 'gross_profit':
+      rows = await grossProfitReport(companyId, params, options);
+      break;
+    case 'invoice_register':
+      rows = await invoiceRegisterReport(companyId, params, options);
+      break;
+    case 'tonnage':
+      rows = await tonnageReport(companyId, params, options);
+      break;
+    case 'comparative_sales':
+      rows = await comparativeSalesReport(companyId, params, options);
+      break;
+    case 'price_exceptions':
+      rows = await priceExceptionsReport(companyId, params, options);
+      break;
+    case 'weekly_projections':
+      rows = await weeklyProjectionsReport(companyId, params, options);
+      break;
+    default: {
+      const error = new Error(`Unknown report query key: ${queryKey}`);
+      error.status = 400;
+      throw error;
+    }
+  }
+
   return {
     query_key: metadata.query_key,
     title: metadata.title || metadata.name,

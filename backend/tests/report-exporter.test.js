@@ -3,6 +3,65 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
+function makeDb(tables) {
+  return {
+    from(tableName) {
+      let rows = [...(tables[tableName] || [])];
+      const query = {
+        select() {
+          return query;
+        },
+        limit() {
+          return query;
+        },
+        eq(field, value) {
+          rows = rows.filter((row) => String(row[field]) === String(value));
+          return query;
+        },
+        then(resolve, reject) {
+          return Promise.resolve({ data: rows, error: null }).then(resolve, reject);
+        },
+      };
+      return query;
+    },
+  };
+}
+
+test('report exporter dispatches only canonical known report keys', async () => {
+  const exporter = require('../services/report-exporter');
+  const db = makeDb({
+    invoices: [{
+      id: 'invoice-report-1',
+      company_id: 'company-report-a',
+      invoice_number: 'INV-100',
+      customer_name: 'Blue Fin Market',
+      total: 125,
+      open_balance: 25,
+      status: 'sent',
+      created_at: '2026-06-29T00:00:00.000Z',
+    }],
+  });
+
+  const report = await exporter.runNamedReport('invoiceRegisterReport', 'company-report-a', {}, { db });
+
+  assert.equal(report.query_key, 'invoice_register');
+  assert.equal(report.rows.length, 1);
+  assert.equal(report.rows[0].invoice_number, 'INV-100');
+});
+
+test('report exporter rejects prototype and arbitrary query keys before dispatch', async () => {
+  const exporter = require('../services/report-exporter');
+
+  await assert.rejects(
+    () => exporter.runNamedReport('__proto__', 'company-report-a'),
+    (error) => error.status === 400 && /unknown report query key/i.test(error.message),
+  );
+  await assert.rejects(
+    () => exporter.runNamedReport('toString', 'company-report-a'),
+    (error) => error.status === 400 && /unknown report query key/i.test(error.message),
+  );
+});
+
 test('report exporter CSV output includes headers and data rows', async () => {
   const exporter = require('../services/report-exporter');
   const rows = [
