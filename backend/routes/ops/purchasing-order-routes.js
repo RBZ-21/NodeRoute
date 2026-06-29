@@ -373,6 +373,9 @@ module.exports = function buildOpsPurchasingOrderRouter() {
           on_hand_weight: 0,
           lot_item: poLineRequiresLot(poLine) ? 'Y' : 'N',
           updated_at: new Date().toISOString(),
+          // products.company_id is NOT NULL; scope the auto-created product to the
+          // receiving tenant instead of relying on a (non-existent) column default.
+          ...buildScopeFields(req.context),
         };
         const { data: inserted, error: insertError } = await supabase
           .from('products')

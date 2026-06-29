@@ -51,6 +51,36 @@ docs/             Internal documentation and changelogs
 
 ---
 
+## Enterprise ERP
+
+The Enterprise ERP feature set (Phases 1–8: customizable shell, maps, advanced
+inventory, pricing engine, order-entry workflows, accounts receivable,
+purchasing/AP, and the report scheduler) is documented here:
+
+- **[Release notes & rollout checklist](docs/release-notes/enterprise-erp-features.md)** —
+  required env vars (`GOOGLE_MAPS_API_KEY`, `VITE_GOOGLE_MAPS_PUBLIC_KEY`,
+  `ALLOWED_IMAGE_HOSTS`, `EMAIL_FROM`), Google Maps & report-scheduler setup,
+  breaking changes, and rollback notes.
+- **[Feature matrix](docs/erp-feature-matrix.md)** — per-feature implementation
+  status, RLS/service-role verification, DB-health findings, and deferred items.
+
+### Applying migrations
+
+Database migrations live in `supabase/migrations/` and apply in version order.
+With the [Supabase CLI](https://supabase.com/docs/guides/local-development):
+
+```bash
+supabase link --project-ref <your-project-ref>
+supabase migration list      # confirm local vs remote are in sync
+supabase db push             # apply pending migrations to the linked project
+```
+
+Every new ERP table ships with row-level security enabled and a tenant policy in
+the same migration. See the release notes for the ordered list of ERP migrations
+and what each one adds.
+
+---
+
 ## Getting Started
 
 ### 1. Install dependencies
