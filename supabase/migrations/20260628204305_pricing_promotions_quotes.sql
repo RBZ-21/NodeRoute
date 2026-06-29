@@ -61,7 +61,7 @@ create table if not exists public.quotes (
   valid_from date not null default current_date,
   valid_until date,
   notes text,
-  created_by uuid references public.users(id) on delete set null,
+  created_by text references public.users(id) on delete set null,
   created_at timestamptz not null default now(),
   constraint quotes_status_chk check (status in ('draft', 'active', 'expired', 'cancelled')),
   constraint quotes_dates_chk check (valid_until is null or valid_until >= valid_from)
@@ -92,7 +92,7 @@ create table if not exists public.pricing_update_batches (
   applied_at timestamptz,
   status text not null default 'pending',
   triggered_by text not null,
-  created_by uuid references public.users(id) on delete set null,
+  created_by text references public.users(id) on delete set null,
   constraint pricing_update_batches_status_chk check (status in ('pending', 'applied', 'failed', 'cancelled'))
 );
 

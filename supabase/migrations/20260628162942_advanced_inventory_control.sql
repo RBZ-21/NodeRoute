@@ -42,7 +42,7 @@ create table if not exists public.cycle_counts (
   company_id uuid not null references public.companies(id) on delete cascade,
   location_id uuid references public.locations(id) on delete set null,
   status text not null default 'open',
-  started_by uuid references public.users(id) on delete set null,
+  started_by text references public.users(id) on delete set null,
   started_at timestamptz not null default now(),
   completed_at timestamptz,
   constraint cycle_counts_status_chk check (status in ('open', 'submitted', 'completed', 'cancelled'))
@@ -98,7 +98,7 @@ create table if not exists public.kit_processing_runs (
   quantity_produced numeric(12,4) not null,
   status text not null default 'completed',
   ledger_group_id uuid not null default gen_random_uuid(),
-  created_by uuid references public.users(id) on delete set null,
+  created_by text references public.users(id) on delete set null,
   created_at timestamptz not null default now(),
   constraint kit_processing_runs_qty_chk check (quantity_produced > 0),
   constraint kit_processing_runs_status_chk check (status in ('completed', 'failed'))
@@ -112,7 +112,7 @@ create table if not exists public.inventory_shortages (
   lot_id uuid references public.inventory_lots(id) on delete set null,
   shortage_qty numeric(12,4) not null,
   reason text,
-  adjusted_by uuid references public.users(id) on delete set null,
+  adjusted_by text references public.users(id) on delete set null,
   adjusted_at timestamptz not null default now(),
   constraint inventory_shortages_qty_chk check (shortage_qty > 0)
 );
@@ -129,7 +129,7 @@ create table if not exists public.inventory_returns (
   condition text,
   restocked boolean not null default false,
   restocked_at timestamptz,
-  created_by uuid references public.users(id) on delete set null,
+  created_by text references public.users(id) on delete set null,
   created_at timestamptz not null default now(),
   constraint inventory_returns_qty_chk check (return_qty > 0)
 );

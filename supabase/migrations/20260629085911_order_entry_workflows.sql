@@ -81,7 +81,7 @@ create table if not exists public.invoice_addons (
   qty numeric not null,
   uom text,
   price numeric(12,4) not null,
-  added_by uuid references public.users(id) on delete set null,
+  added_by text references public.users(id) on delete set null,
   added_at timestamptz not null default now(),
   reason text,
   constraint invoice_addons_qty_chk check (qty > 0),
@@ -100,7 +100,7 @@ create table if not exists public.customer_returns (
   customer_id text not null,
   return_date date not null default current_date,
   status text not null default 'draft',
-  created_by uuid references public.users(id) on delete set null,
+  created_by text references public.users(id) on delete set null,
   constraint customer_returns_status_chk check (status in ('draft', 'approved', 'received', 'credited', 'void'))
 );
 
@@ -164,7 +164,7 @@ create table if not exists public.barcode_scan_events (
   order_id uuid not null references public.orders(id) on delete cascade,
   barcode text not null,
   resolved_product_id uuid references public.products(id) on delete set null,
-  scanned_by uuid references public.users(id) on delete set null,
+  scanned_by text references public.users(id) on delete set null,
   scanned_at timestamptz not null default now(),
   constraint barcode_scan_events_order_barcode_key unique (company_id, order_id, barcode)
 );
