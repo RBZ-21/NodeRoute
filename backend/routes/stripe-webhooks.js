@@ -18,6 +18,7 @@
 const { supabase } = require('../services/supabase');
 const { hashInvoiceSet, parseInvoiceIds } = require('../lib/invoice-set-hash');
 const { verifyWebhookSignature } = require('../services/stripe');
+const arLedger = require('../services/ar-ledger');
 const logger = require('../services/logger');
 
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || '';
@@ -59,6 +60,104 @@ function paymentIntentFailureMessage(intent) {
   );
 }
 
+function explicitBooleanEnv(...keys) {
+  for (const key of keys) {
+    if (process.env[key] === undefined) continue;
+    const normalized = String(process.env[key] || '').trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+  }
+  return null;
+}
+
+function arStripeCardProcessingEnabled() {
+  const explicit = explicitBooleanEnv(
+    'NODEROUTE_AR_CARD_PAYMENTS_ENABLED',
+    'AR_STRIPE_CARD_PAYMENTS_ENABLED',
+    'CUSTOMER_AR_CARD_PAYMENTS_ENABLED'
+  );
+  if (explicit !== null) return explicit;
+  return String(process.env.PORTAL_PAYMENT_ENABLED || '').toLowerCase() === 'true'
+    && String(process.env.PORTAL_PAYMENT_PROVIDER || '').toLowerCase() === 'stripe';
+}
+
+function isCustomerArStripePayment(metadata = {}) {
+  return String(metadata.noderoute_payment_scope || metadata.payment_scope || '').toLowerCase() === 'customer_ar';
+}
+
+function webhookContext(companyId, locationId) {
+  return {
+    companyId,
+    activeCompanyId: companyId,
+    locationId: locationId || null,
+    activeLocationId: locationId || null,
+  };
+}
+
+async function findStripeReceipt(companyId, stripePaymentRef) {
+  const { data, error } = await supabase
+    .from('cash_receipts')
+    .select('*')
+    .eq('company_id', companyId)
+    .eq('stripe_payment_intent_id', stripePaymentRef)
+    .limit(1);
+  if (error) throw error;
+  return Array.isArray(data) && data.length ? data[0] : null;
+}
+
+async function createStripeReceipt({ companyId, locationId, customerId, amount, stripePaymentRef }) {
+  const existing = await findStripeReceipt(companyId, stripePaymentRef);
+  if (existing) return existing;
+  const { data, error } = await supabase
+    .from('cash_receipts')
+    .insert([{
+      company_id: companyId,
+      location_id: locationId || null,
+      customer_id: String(customerId),
+      receipt_date: new Date().toISOString().slice(0, 10),
+      total_amount: amount,
+      unapplied_amount: amount,
+      payment_method: 'card',
+      stripe_payment_intent_id: stripePaymentRef,
+      idempotency_key: `stripe:${stripePaymentRef}`,
+      status: 'new',
+      created_at: new Date().toISOString(),
+    }])
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
+}
+
+async function applyStripeReceiptToInvoices({ companyId, locationId, stripePaymentRef, invoices, amount }) {
+  if (!arStripeCardProcessingEnabled()) {
+    logger.info({ stripePaymentRef, company_id: companyId }, 'Customer AR Stripe card processing disabled — skipping AR receipt application');
+    return null;
+  }
+  const invoiceRows = (invoices || []).filter((invoice) => invoice?.customer_id);
+  if (!invoiceRows.length) {
+    logger.info({ stripePaymentRef, company_id: companyId }, 'Stripe payment has no invoice customer_id — skipping AR receipt application');
+    return null;
+  }
+  const customerId = invoiceRows[0].customer_id;
+  if (invoiceRows.some((invoice) => String(invoice.customer_id) !== String(customerId))) {
+    logger.warn({ stripePaymentRef, company_id: companyId }, 'Stripe payment spans multiple customer IDs — skipping AR receipt application');
+    return null;
+  }
+
+  const receipt = await createStripeReceipt({
+    companyId,
+    locationId,
+    customerId,
+    amount,
+    stripePaymentRef,
+  });
+  return arLedger.applyReceipt(receipt.id, invoiceRows.map((invoice) => ({
+    invoice_id: invoice.id,
+    applied_amount: Number(invoice.total || amount),
+  })), { db: supabase, context: webhookContext(companyId, locationId) });
+}
+
 async function loadInvoiceForPaymentIntent(intent, eventType) {
   const { company_id, invoice_id, location_id } = intent.metadata || {};
   if (!invoice_id || !company_id) {
@@ -68,7 +167,7 @@ async function loadInvoiceForPaymentIntent(intent, eventType) {
 
   const { data: invoice, error } = await supabase
     .from('invoices')
-    .select('id, total, company_id, location_id, status, stripe_payment_intent_id')
+    .select('id, total, company_id, location_id, customer_id, status, stripe_payment_intent_id')
     .eq('id', invoice_id)
     .single();
   if (error || !invoice) {
@@ -133,7 +232,7 @@ async function handleCheckoutSessionCompleted(session) {
 
     let query = supabase
       .from('invoices')
-      .select('id,total,company_id,location_id,customer_email,status')
+      .select('id,total,company_id,location_id,customer_id,customer_email,status')
       .eq('company_id', company_id)
       .ilike('customer_email', customer_email)
       .in('id', ids);
@@ -204,6 +303,15 @@ async function handleCheckoutSessionCompleted(session) {
       }, 'portal_checkout: not all invoices were updated after final status guard');
       return;
     }
+    if (isCustomerArStripePayment(session.metadata || {})) {
+      await applyStripeReceiptToInvoices({
+        companyId: company_id,
+        locationId: location_id,
+        stripePaymentRef: session.payment_intent || `checkout:${session.id}`,
+        invoices,
+        amount: amountPaid,
+      });
+    }
     logger.info({ count: ids.length, company_id }, 'portal_checkout: invoices marked paid');
     return;
   }
@@ -216,7 +324,7 @@ async function handleCheckoutSessionCompleted(session) {
 
   const { data: inv, error: invErr } = await supabase
     .from('invoices')
-    .select('id, total, company_id, location_id, status')
+    .select('id, total, company_id, location_id, customer_id, status')
     .eq('id', invoice_id)
     .single();
 
@@ -255,6 +363,15 @@ async function handleCheckoutSessionCompleted(session) {
     stripe_session_id: session.id,
   });
   if (upErr) throw upErr;
+  if (isCustomerArStripePayment(session.metadata || {})) {
+    await applyStripeReceiptToInvoices({
+      companyId: company_id,
+      locationId: location_id,
+      stripePaymentRef: session.payment_intent || `checkout:${session.id}`,
+      invoices: [inv],
+      amount: amountPaid,
+    });
+  }
   logger.info({ invoice_id }, 'checkout.session.completed: invoice marked paid');
 }
 
@@ -263,12 +380,8 @@ async function handlePaymentIntentSucceeded(intent) {
   if (!resolved) return;
   const { invoice, company_id, invoice_id, location_id } = resolved;
 
-  if (invoice.status === 'paid') {
-    logger.info({ invoice_id, payment_intent_id: intent.id }, 'payment_intent.succeeded: invoice already paid — skipping');
-    return;
-  }
-
-  if (!PAYABLE_INVOICE_STATUSES.has(String(invoice.status || '').toLowerCase())) {
+  const invoiceStatus = String(invoice.status || '').toLowerCase();
+  if (invoiceStatus !== 'paid' && !PAYABLE_INVOICE_STATUSES.has(invoiceStatus)) {
     logger.info({ invoice_id, status: invoice.status }, 'payment_intent.succeeded: invoice not in payable status — skipping');
     return;
   }
@@ -277,6 +390,21 @@ async function handlePaymentIntentSucceeded(intent) {
   const expected = Number(invoice.total || 0);
   if (Math.abs(amountPaid - expected) > 0.01) {
     logger.warn({ amountPaid, expected, invoice_id, payment_intent_id: intent.id }, 'payment_intent.succeeded: paid amount mismatch — skipping');
+    return;
+  }
+
+  if (isCustomerArStripePayment(intent.metadata || {})) {
+    await applyStripeReceiptToInvoices({
+      companyId: company_id,
+      locationId: location_id,
+      stripePaymentRef: intent.id,
+      invoices: [invoice],
+      amount: amountPaid,
+    });
+  }
+
+  if (invoiceStatus === 'paid') {
+    logger.info({ invoice_id, payment_intent_id: intent.id }, 'payment_intent.succeeded: invoice already paid — AR receipt reconciled if applicable');
     return;
   }
 

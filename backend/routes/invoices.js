@@ -17,6 +17,7 @@ const {
   scopeQueryByContext,
 } = require('../services/operating-context');
 const creditEngine = require('../services/creditEngine');
+const arLedger = require('../services/ar-ledger');
 
 const router = express.Router();
 
@@ -328,6 +329,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
 
   // Credit reactor: balance changed; may need to place a hold or warning.
   // Fire-and-forget — never block the invoice response on a credit decision.
+  arLedger.postInvoice(data.id, { context: req.context }).catch(() => {});
   creditEngine.reactToInvoiceCreated(data.customer_id, data.id, req.context).catch(() => {});
 
   res.json(enrichInvoiceResponse(data));

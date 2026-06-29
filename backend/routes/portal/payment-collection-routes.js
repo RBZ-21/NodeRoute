@@ -13,6 +13,7 @@ const {
   filterRowsByContext,
   invoiceIsOpen,
   isMissingPortalPaymentTables,
+  isArStripeCardProcessingEnabled,
   isStripeProviderEnabled,
   listScopedCustomerInvoices,
   loadPortalPaymentState,
@@ -91,6 +92,9 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
       if (String(method.provider || '').toLowerCase() !== 'stripe') {
         return res.status(400).json({ error: 'Autopay method must be a Stripe payment method', code: 'AUTOPAY_METHOD_INVALID' });
       }
+      if (!isArStripeCardProcessingEnabled()) {
+        return res.status(400).json({ error: 'Customer AR card processing is disabled', code: 'AR_CARD_PROCESSING_DISABLED' });
+      }
 
       const customer = await ensureStripePortalCustomer(req);
       // One suffix per autopay run; combined with the invoice id below this
@@ -116,6 +120,7 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
             description: `NodeRoute invoice ${invoice.invoice_number || invoice.id}`,
             metadata: {
               source: 'autopay_charge_now',
+              noderoute_payment_scope: 'customer_ar',
               customer_email: req.customerEmail,
               invoice_id: invoice.id,
               company_id: portalCompanyId(req.portalContext),
@@ -214,6 +219,9 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
       }
 
       if (isStripeProviderEnabled()) {
+        if (!isArStripeCardProcessingEnabled()) {
+          return res.status(400).json({ error: 'Customer AR card processing is disabled', code: 'AR_CARD_PROCESSING_DISABLED' });
+        }
         const customer = await ensureStripePortalCustomer(req);
         const baseUrl = process.env.BASE_URL || 'http://localhost:3001';
         const invoiceIds = balance.openInvoices.map((invoice) => invoice.id).join(',');
@@ -235,6 +243,7 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
           metadata: {
             source: 'portal_checkout',
             checkout_type: 'portal_checkout',
+            noderoute_payment_scope: 'customer_ar',
             customer_email: req.customerEmail,
             invoice_ids: invoiceIds,
             invoice_hash: invoiceHash,
@@ -336,6 +345,9 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
       if (String(method.provider || '').toLowerCase() !== 'stripe') {
         return res.status(400).json({ error: 'Only Stripe payment methods are supported for this action.' });
       }
+      if (!isArStripeCardProcessingEnabled()) {
+        return res.status(400).json({ error: 'Customer AR card processing is disabled', code: 'AR_CARD_PROCESSING_DISABLED' });
+      }
 
       const customer = await ensureStripePortalCustomer(req);
       const intent = await createPaymentIntent({
@@ -346,6 +358,7 @@ module.exports = function buildPortalPaymentCollectionRouter({ authenticatePorta
         description: `NodeRoute invoice ${invoiceRow.invoice_number || invoiceRow.id}`,
         metadata: {
           source: 'portal_invoice_pay',
+          noderoute_payment_scope: 'customer_ar',
           customer_email: req.customerEmail,
           invoice_id: invoiceRow.id,
           company_id: portalCompanyId(req.portalContext),

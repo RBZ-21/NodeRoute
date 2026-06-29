@@ -9,6 +9,7 @@ const {
   scopeQueryByContext,
 } = require('../services/operating-context');
 const creditEngine = require('../services/creditEngine');
+const arLedger = require('../services/ar-ledger');
 const logger = require('../services/logger');
 
 const router = express.Router();
@@ -30,7 +31,8 @@ function parseDecimal(value) {
 }
 
 async function loadCustomerOr403(req, res) {
-  const id = parseInt(req.params.id, 10);
+  const rawId = req.params.id || req.params.customerId;
+  const id = parseInt(rawId, 10);
   if (!Number.isFinite(id)) {
     res.status(400).json({ error: 'Invalid customer id' });
     return null;
@@ -74,6 +76,7 @@ router.get('/customer/:id/status', authenticateToken, creditReaders, async (req,
       hold_notes: refreshed.hold_notes || null,
       auto_hold_enabled: refreshed.auto_hold_enabled !== false,
       warning_threshold_pct: refreshed.warning_threshold_pct == null ? 80 : Number(refreshed.warning_threshold_pct),
+      credit_hold_threshold: refreshed.credit_hold_threshold == null ? null : creditEngine.toMoney(refreshed.credit_hold_threshold),
       credit_terms: refreshed.credit_terms || refreshed.payment_terms || 'NET30',
       avg_days_to_pay: refreshed.avg_days_to_pay || 0,
       last_payment_date: refreshed.last_payment_date || null,
@@ -102,6 +105,14 @@ router.post('/customer/:id/hold', authenticateToken, requireRole('admin', 'manag
 
   try {
     const updated = await creditEngine.applyHold(customer.id, reason, req.user.id, notes, 'manager_manual', req.context);
+    await arLedger.recordCustomerCreditEvent(supabase, req.context, {
+      customer_id: customer.id,
+      event_type: 'manual_hold',
+      old_status: customer.credit_status || 'good',
+      new_status: 'hold',
+      triggered_by: req.user.id || 'manager_manual',
+      note: notes || `Manual hold: ${reason}`,
+    }).catch(() => {});
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -120,6 +131,14 @@ router.post('/customer/:id/release', authenticateToken, requireRole('admin', 'ma
 
   try {
     const updated = await creditEngine.releaseHold(customer.id, req.user.id, notes, 'manager_manual', req.context);
+    await arLedger.recordCustomerCreditEvent(supabase, req.context, {
+      customer_id: customer.id,
+      event_type: 'manual_release',
+      old_status: customer.credit_status || 'hold',
+      new_status: 'good',
+      triggered_by: req.user.id || 'manager_manual',
+      note: notes,
+    }).catch(() => {});
     res.json(updated);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -227,6 +246,21 @@ router.patch('/customer/:id/settings', authenticateToken, requireRole('admin', '
     updates.warning_threshold_pct = pct;
   }
 
+  if (req.body?.credit_hold_threshold !== undefined) {
+    const threshold = parseDecimal(req.body.credit_hold_threshold);
+    if (threshold !== null && (Number.isNaN(threshold) || threshold < 0)) {
+      return res.status(400).json({ error: 'credit_hold_threshold must be null or a non-negative number' });
+    }
+    if (creditEngine.toCents(threshold || 0) !== creditEngine.toCents(customer.credit_hold_threshold || 0)) {
+      updates.credit_hold_threshold = threshold;
+      events.push({
+        event_type: 'threshold_change',
+        previous_credit_limit: customer.credit_hold_threshold == null ? null : creditEngine.toMoney(customer.credit_hold_threshold),
+        new_credit_limit: threshold == null ? null : creditEngine.toMoney(threshold),
+      });
+    }
+  }
+
   if (req.body?.auto_hold_enabled !== undefined) {
     updates.auto_hold_enabled = !!req.body.auto_hold_enabled;
   }
@@ -258,6 +292,16 @@ router.patch('/customer/:id/settings', authenticateToken, requireRole('admin', '
         location_id: req.context?.activeLocationId || req.context?.locationId,
         ...ev,
       });
+      if (ev.event_type === 'threshold_change') {
+        await arLedger.recordCustomerCreditEvent(supabase, req.context, {
+          customer_id: customer.id,
+          event_type: 'threshold_change',
+          old_status: customer.credit_status || null,
+          new_status: data.credit_status || customer.credit_status || null,
+          triggered_by: req.user.id || 'manager_manual',
+          note: `Credit hold threshold changed to ${updates.credit_hold_threshold == null ? 'unlimited' : `$${creditEngine.toMoney(updates.credit_hold_threshold).toFixed(2)}`}`,
+        }).catch(() => {});
+      }
     }
 
     res.json(data);
@@ -292,6 +336,13 @@ router.get('/customer/:id/history', authenticateToken, creditReaders, async (req
     (users || []).forEach((u) => { usersById[u.id] = u; });
   }
 
+  const { data: arEvents } = await scopeQueryByContext(supabase
+    .from('customer_credit_events')
+    .select('*'), req.context)
+    .eq('customer_id', String(customer.id))
+    .order('created_at', { ascending: false })
+    .limit(limit);
+
   res.json({
     customer_id: customer.id,
     company_name: customer.company_name,
@@ -300,8 +351,36 @@ router.get('/customer/:id/history', authenticateToken, creditReaders, async (req
       performed_by_email: usersById[r.performed_by]?.email || null,
       performed_by_name: usersById[r.performed_by]?.name || null,
     })),
+    ar_events: filterRowsByContext(arEvents || [], req.context),
     paging: { limit, offset, next_offset: rows.length === limit ? offset + limit : null },
   });
+});
+
+// Alias required by the enterprise AR plan.
+router.post('/:customerId/release', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  req.params.id = req.params.customerId;
+  const customer = await loadCustomerOr403(req, res);
+  if (!customer) return;
+
+  const notes = nonEmptyString(req.body?.note) ? req.body.note.trim() : (nonEmptyString(req.body?.notes) ? req.body.notes.trim() : null);
+  if (!notes) {
+    return res.status(400).json({ error: 'note is required when releasing a hold' });
+  }
+
+  try {
+    const updated = await creditEngine.releaseHold(customer.id, req.user.id, notes, 'manager_manual', req.context);
+    await arLedger.recordCustomerCreditEvent(supabase, req.context, {
+      customer_id: customer.id,
+      event_type: 'manual_release',
+      old_status: customer.credit_status || 'hold',
+      new_status: 'good',
+      triggered_by: req.user.id || 'manager_manual',
+      note: notes,
+    }).catch(() => {});
+    res.json(updated);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ── 3G. GET /api/credit/holds/active ───────────────────────────────────────

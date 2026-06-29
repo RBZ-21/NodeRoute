@@ -14,7 +14,7 @@
  *      └─ History drawer          GET .../history
  */
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useMemo } from 'react';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -71,6 +71,7 @@ interface CustomerStatus {
   hold_notes: string | null;
   auto_hold_enabled: boolean;
   warning_threshold_pct: number;
+  credit_hold_threshold: number | null;
   credit_terms: string;
   avg_days_to_pay: number;
   last_payment_date: string | null;
@@ -90,6 +91,25 @@ interface HistoryEvent {
   balance: number | null;
   previous_credit_limit: number | null;
   new_credit_limit: number | null;
+}
+
+interface CreditEvent {
+  id: string;
+  event_type: string;
+  old_status: string | null;
+  new_status: string | null;
+  triggered_by: string | null;
+  note: string | null;
+  created_at: string;
+}
+
+interface TimelineEvent {
+  id: string;
+  label: string;
+  created_at: string;
+  note: string | null;
+  by: string;
+  source: 'credit' | 'legacy';
 }
 
 const HOLD_REASONS = ['over_limit','past_due','manual','new_account','bounced_check','disputed_invoice'];
@@ -134,6 +154,7 @@ export function CreditHoldPage() {
   // history drawer
   const [historyOpen, setHistoryOpen] = useState(false);
   const [history, setHistory] = useState<HistoryEvent[]>([]);
+  const [creditEvents, setCreditEvents] = useState<CreditEvent[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
 
   // modals
@@ -152,6 +173,7 @@ export function CreditHoldPage() {
   const [settingsCreditLimit, setSettingsCreditLimit] = useState('');
   const [settingsTerms, setSettingsTerms] = useState('NET30');
   const [settingsThreshold, setSettingsThreshold] = useState('80');
+  const [settingsHoldThreshold, setSettingsHoldThreshold] = useState('');
   const [settingsAutoHold, setSettingsAutoHold] = useState(true);
   const [actionLoading, setActionLoading] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -187,12 +209,14 @@ export function CreditHoldPage() {
     setLookupError(null);
     setCustomer(null);
     setHistory([]);
+    setCreditEvents([]);
     try {
       const c = await fetchWithAuth<CustomerStatus>(`/api/credit/customer/${id}/status`);
       setCustomer(c);
       setSettingsCreditLimit(c.credit_limit != null ? String(c.credit_limit) : '');
       setSettingsTerms(c.credit_terms ?? 'NET30');
       setSettingsThreshold(String(c.warning_threshold_pct ?? 80));
+      setSettingsHoldThreshold(c.credit_hold_threshold != null ? String(c.credit_hold_threshold) : '');
       setSettingsAutoHold(c.auto_hold_enabled !== false);
     } catch (e) {
       setLookupError((e as Error).message ?? 'Customer not found');
@@ -205,8 +229,9 @@ export function CreditHoldPage() {
     if (!customer) return;
     setHistoryLoading(true);
     try {
-      const res = await fetchWithAuth<{ events: HistoryEvent[] }>(`/api/credit/customer/${customer.customer_id}/history?limit=50`);
+      const res = await fetchWithAuth<{ events: HistoryEvent[]; ar_events?: CreditEvent[] }>(`/api/credit/customer/${customer.customer_id}/history?limit=50`);
       setHistory(res.events ?? []);
+      setCreditEvents(res.ar_events ?? []);
     } catch {}
     finally { setHistoryLoading(false); }
     setHistoryOpen(true);
@@ -239,6 +264,7 @@ export function CreditHoldPage() {
         credit_limit: settingsCreditLimit === '' ? null : parseFloat(settingsCreditLimit),
         credit_terms: settingsTerms,
         warning_threshold_pct: parseFloat(settingsThreshold),
+        credit_hold_threshold: settingsHoldThreshold === '' ? null : parseFloat(settingsHoldThreshold),
         auto_hold_enabled: settingsAutoHold,
       });
       const c = await fetchWithAuth<CustomerStatus>(`/api/credit/customer/${customer.customer_id}/status`);
@@ -250,6 +276,26 @@ export function CreditHoldPage() {
       setActionLoading(false);
     }
   }
+
+  const timeline = useMemo<TimelineEvent[]>(() => {
+    const legacy = history.map((ev) => ({
+      id: `legacy-${ev.id}`,
+      label: ev.event_type.replace(/_/g, ' '),
+      created_at: ev.created_at,
+      note: ev.notes,
+      by: ev.performed_by_name ?? ev.performed_by_email ?? 'system',
+      source: 'legacy' as const,
+    }));
+    const ar = creditEvents.map((ev) => ({
+      id: `credit-${ev.id}`,
+      label: ev.event_type.replace(/_/g, ' '),
+      created_at: ev.created_at,
+      note: ev.note || [ev.old_status, ev.new_status].filter(Boolean).join(' to ') || null,
+      by: ev.triggered_by || 'system',
+      source: 'credit' as const,
+    }));
+    return [...ar, ...legacy].sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime());
+  }, [creditEvents, history]);
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -427,6 +473,7 @@ export function CreditHoldPage() {
               <div><p className="text-gray-500 text-xs">Current Balance</p><p className="font-semibold">{fmt(customer.current_balance)}</p></div>
               <div><p className="text-gray-500 text-xs">Available Credit</p><p className="font-semibold">{fmt(customer.available_credit)}</p></div>
               <div><p className="text-gray-500 text-xs">Terms</p><p className="font-semibold">{customer.credit_terms}</p></div>
+              <div><p className="text-gray-500 text-xs">Hold Threshold</p><p className="font-semibold">{fmt(customer.credit_hold_threshold)}</p></div>
               <div><p className="text-gray-500 text-xs">Avg Days to Pay</p><p className="font-semibold">{customer.avg_days_to_pay}d</p></div>
               <div><p className="text-gray-500 text-xs">Days Past Due</p><p className="font-semibold text-red-600">{customer.days_past_due}d</p></div>
               <div><p className="text-gray-500 text-xs">Last Payment</p><p className="font-semibold">{fmtDate(customer.last_payment_date)}</p></div>
@@ -537,6 +584,8 @@ export function CreditHoldPage() {
           </select>
           <label className="block text-sm font-medium text-gray-700 mb-1">Warning Threshold %</label>
           <input type="number" min={0} max={100} value={settingsThreshold} onChange={e => setSettingsThreshold(e.target.value)} className="w-full border rounded px-3 py-2 text-sm mb-3" />
+          <label className="block text-sm font-medium text-gray-700 mb-1">Auto-Hold Threshold (blank = credit limit)</label>
+          <input type="number" min={0} value={settingsHoldThreshold} onChange={e => setSettingsHoldThreshold(e.target.value)} className="w-full border rounded px-3 py-2 text-sm mb-3" />
           <label className="flex items-center gap-2 text-sm mb-4">
             <input type="checkbox" checked={settingsAutoHold} onChange={e => setSettingsAutoHold(e.target.checked)} />
             Auto-hold enabled
@@ -566,15 +615,15 @@ export function CreditHoldPage() {
             </div>
             <div className="overflow-y-auto flex-1 p-5 space-y-3">
               {historyLoading && <p className="text-sm text-gray-400">Loading…</p>}
-              {!historyLoading && history.length === 0 && <p className="text-sm text-gray-400">No history found.</p>}
-              {history.map((ev) => (
+              {!historyLoading && timeline.length === 0 && <p className="text-sm text-gray-400">No history found.</p>}
+              {timeline.map((ev) => (
                 <div key={ev.id} className="border rounded p-3 text-sm">
                   <div className="flex justify-between">
-                    <span className="font-medium capitalize">{ev.event_type.replace(/_/g,' ')}</span>
+                    <span className="font-medium capitalize">{ev.label}</span>
                     <span className="text-gray-400 text-xs">{fmtDate(ev.created_at)}</span>
                   </div>
-                  {ev.notes && <p className="text-gray-600 mt-1">{ev.notes}</p>}
-                  <p className="text-gray-400 text-xs mt-1">By: {ev.performed_by_name ?? ev.performed_by_email ?? 'system'}</p>
+                  {ev.note && <p className="text-gray-600 mt-1">{ev.note}</p>}
+                  <p className="text-gray-400 text-xs mt-1">By: {ev.by} - {ev.source === 'credit' ? 'AR event' : 'hold log'}</p>
                 </div>
               ))}
             </div>

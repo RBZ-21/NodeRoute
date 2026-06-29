@@ -31,6 +31,26 @@ const PORTAL_PAYMENT_STUB_CHECKOUT_URL = process.env.PORTAL_PAYMENT_STUB_CHECKOU
 const STRIPE_ALLOW_LIVE_MODE = String(process.env.STRIPE_ALLOW_LIVE_MODE || 'false').toLowerCase() === 'true';
 const AUTOPAY_METHOD_TYPES = ['debit_card', 'ach_bank'];
 
+function explicitBooleanEnv(...keys) {
+  for (const key of keys) {
+    if (process.env[key] === undefined) continue;
+    const normalized = String(process.env[key] || '').trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'off'].includes(normalized)) return false;
+  }
+  return null;
+}
+
+function isArStripeCardProcessingEnabled() {
+  const explicit = explicitBooleanEnv(
+    'NODEROUTE_AR_CARD_PAYMENTS_ENABLED',
+    'AR_STRIPE_CARD_PAYMENTS_ENABLED',
+    'CUSTOMER_AR_CARD_PAYMENTS_ENABLED'
+  );
+  if (explicit !== null) return explicit;
+  return PORTAL_PAYMENT_ENABLED && PORTAL_PAYMENT_PROVIDER === 'stripe';
+}
+
 function isMissingPortalPaymentTables(error) {
   const message = String(error?.message || '').toLowerCase();
   return message.includes('relation') && (
@@ -352,6 +372,7 @@ module.exports = {
   insertRecordWithOptionalScope,
   invoiceIsOpen,
   isMissingPortalPaymentTables,
+  isArStripeCardProcessingEnabled,
   isStripeProviderEnabled,
   scopeQueryByContext,
   stripeCheckoutReadiness,
