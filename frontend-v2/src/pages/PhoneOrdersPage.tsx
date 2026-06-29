@@ -19,10 +19,13 @@ interface LineItem {
 
 interface PhoneOrder {
   id: string;
+  customer_id?: string | null;
   business_name: string | null;
   customer_name: string | null;
   caller_phone: string | null;
   line_items: LineItem[] | null;
+  order_guides?: Array<{ id: string; name: string; items?: Array<{ product_id: string; default_qty?: number | string | null; default_uom?: string | null }> }>;
+  hot_messages?: Array<{ id?: string; message: string }>;
   needs_callback: boolean;
   status: string;
   transcript: string | null;
@@ -103,6 +106,8 @@ function PhoneOrderCard({ order }: { order: PhoneOrder }) {
 
   const header = order.business_name || order.customer_name || order.caller_phone || 'Unknown Caller';
   const items: LineItem[] = Array.isArray(order.line_items) ? order.line_items : [];
+  const guides = Array.isArray(order.order_guides) ? order.order_guides : [];
+  const hotMessages = Array.isArray(order.hot_messages) ? order.hot_messages : [];
   const isDraft = order.status === 'draft';
 
   return (
@@ -151,6 +156,24 @@ function PhoneOrderCard({ order }: { order: PhoneOrder }) {
           </ul>
         ) : (
           <p className="text-xs text-muted-foreground italic">No line items parsed.</p>
+        )}
+
+        {hotMessages.length > 0 && (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-900/40 dark:bg-amber-950/30 dark:text-amber-200">
+            {hotMessages.map((message) => (
+              <div key={message.id || message.message}>{message.message}</div>
+            ))}
+          </div>
+        )}
+
+        {guides.length > 0 && (
+          <div className="flex flex-wrap gap-1.5">
+            {guides.map((guide) => (
+              <span key={guide.id} className="rounded border border-border bg-muted/40 px-2 py-1 text-xs text-muted-foreground">
+                {guide.name} · {(guide.items || []).length} items
+              </span>
+            ))}
+          </div>
         )}
 
         {/* Notes */}

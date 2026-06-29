@@ -9,6 +9,17 @@ export type InvoiceLotEntry = {
   weight?: number | string;
 };
 
+export type InvoiceItem = {
+  description?: string;
+  product_id?: string;
+  item_number?: string;
+  quantity?: number | string;
+  unit?: string | null;
+  unit_price?: number | string;
+  total?: number | string;
+  notes?: string | null;
+};
+
 export type Invoice = {
   id?: string | number;
   invoiceNumber?: string;
@@ -35,6 +46,7 @@ export type Invoice = {
   created_at?: string;
   estimated_weight_pending?: boolean;
   lot_numbers?: InvoiceLotEntry[];
+  items?: InvoiceItem[];
 };
 
 export function useInvoices() {
@@ -77,6 +89,24 @@ export function useResendInvoiceEmail() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (id: string | number) => sendWithAuth(`/api/invoices/${id}/resend`, 'POST'),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['invoices'] }),
+  });
+}
+
+export function useAddInvoiceAddon() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string | number; payload: Record<string, unknown> }) =>
+      sendWithAuth<{ invoice?: Invoice; addon?: unknown }>(`/api/invoices/${id}/addons`, 'POST', payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['invoices'] }),
+  });
+}
+
+export function useCreateInvoiceReturn() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string | number; payload: Record<string, unknown> }) =>
+      sendWithAuth<{ return?: unknown; credit_memo?: unknown }>(`/api/invoices/${id}/returns`, 'POST', payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['invoices'] }),
   });
 }

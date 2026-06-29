@@ -634,6 +634,7 @@ export function OrdersPage() {
         updateLine={form.updateLine}
         toggleLineCatchWeight={form.toggleLineCatchWeight}
         addLine={form.addLine}
+        applyLines={form.applyLines}
         removeLine={form.removeLine}
         onSubmit={submitOrder}
         onCancel={() => closeOrderForm()}
