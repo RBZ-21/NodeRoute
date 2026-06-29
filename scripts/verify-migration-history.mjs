@@ -11,8 +11,38 @@ import { spawnSync } from 'node:child_process';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const migrationsDir = path.resolve(__dirname, '..', 'supabase', 'migrations');
 
+function localFiles() {
+  return fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql'));
+}
+
 function localVersions() {
-  return [...new Set(fs.readdirSync(migrationsDir).map((f) => f.split('_')[0]))].sort();
+  return [...new Set(localFiles().map((f) => f.split('_')[0]))].sort();
+}
+
+/** Versions that more than one local migration file maps to (CLI-ambiguous). */
+function duplicateLocalPrefixes() {
+  const counts = new Map();
+  for (const f of localFiles()) {
+    const v = f.split('_')[0];
+    counts.set(v, (counts.get(v) || 0) + 1);
+  }
+  return [...counts.entries()].filter(([, c]) => c > 1).map(([v, c]) => `${v} (x${c})`);
+}
+
+/**
+ * A bare 8-digit date-only version is ambiguous to the Supabase CLI whenever a
+ * 14-digit timestamp version shares that date — the CLI then refuses to pair
+ * the date-only version with its remote row. Flag those collisions.
+ */
+function dateOnlyTimestampCollisions() {
+  const eight = new Set();
+  const dates14 = new Set();
+  for (const f of localFiles()) {
+    const v = f.split('_')[0];
+    if (/^\d{8}$/.test(v)) eight.add(v);
+    else if (/^\d{14}$/.test(v)) dates14.add(v.slice(0, 8));
+  }
+  return [...eight].filter((d) => dates14.has(d)).sort();
 }
 
 function remoteVersions() {
@@ -40,6 +70,27 @@ function remoteVersions() {
     if (match) versions.add(match[1]);
   }
   return [...versions].sort();
+}
+
+const fileCount = localFiles().length;
+const duplicates = duplicateLocalPrefixes();
+const collisions = dateOnlyTimestampCollisions();
+
+// Local-structure checks run before touching the network so duplicate prefixes
+// are caught even if the remote is unreachable.
+let localStructureFailed = false;
+console.log(`local_files=${fileCount} local_versions=${localVersions().length}`);
+if (duplicates.length) {
+  console.error('Duplicate local migration prefixes:', duplicates.join(', '));
+  localStructureFailed = true;
+}
+if (collisions.length) {
+  console.error('Date-only versions colliding with a same-date timestamp:', collisions.join(', '));
+  localStructureFailed = true;
+}
+if (localStructureFailed) {
+  console.error('Every local migration file must have a unique, CLI-unambiguous version prefix.');
+  process.exit(1);
 }
 
 const local = localVersions();

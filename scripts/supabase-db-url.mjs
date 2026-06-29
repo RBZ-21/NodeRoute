@@ -25,13 +25,27 @@ if (!projectRef || !password) {
   process.exit(1);
 }
 
-// Transaction pooler (IPv4) — direct db.* host requires IPv6 in this environment.
-const poolerHost = parsed.SUPABASE_POOLER_HOST || `aws-0-us-west-2.pooler.supabase.com`;
-const dbUrl = `postgresql://postgres.${projectRef}:${encodeURIComponent(password)}@${poolerHost}:6543/postgres?sslmode=require`;
+// Default to the direct DB host (user `postgres`). The transaction pooler
+// (user `postgres.<ref>`) is an explicit opt-in via SUPABASE_POOLER_HOST,
+// because it failed here with "tenant/user postgres.<ref> not found".
+const poolerHost = parsed.SUPABASE_POOLER_HOST;
+const directHost = `db.${projectRef}.supabase.co`;
+
+let dbUrl;
+let hostStrategy;
+if (poolerHost) {
+  hostStrategy = `pooler:postgres.${projectRef}@${poolerHost}:6543`;
+  dbUrl = `postgresql://postgres.${projectRef}:${encodeURIComponent(password)}@${poolerHost}:6543/postgres?sslmode=require`;
+} else {
+  hostStrategy = `direct:postgres@${directHost}:5432`;
+  dbUrl = `postgresql://postgres:${encodeURIComponent(password)}@${directHost}:5432/postgres?sslmode=require`;
+}
 
 if (process.argv.includes('--check')) {
   console.log(`project_ref=${projectRef}`);
-  console.log('db_url=postgresql://postgres:***@db.' + projectRef + '.supabase.co:5432/postgres?sslmode=require');
+  console.log(`host_strategy=${hostStrategy}`);
+  // Mirror the exact URL shape that is exported, with the password masked.
+  console.log('db_url=' + dbUrl.replace(encodeURIComponent(password), '***'));
   process.exit(0);
 }
 
