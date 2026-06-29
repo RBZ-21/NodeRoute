@@ -48,7 +48,7 @@ test('AI route optimization endpoint requests stop coordinates and customer deli
 });
 
 test('routes driver migration links driver_id to users.id with null-safe cleanup', () => {
-  const source = fs.readFileSync(path.join(repoRoot, 'supabase', 'migrations', '20260510_routes_driver_user_fk.sql'), 'utf8');
+  const source = fs.readFileSync(path.join(repoRoot, 'supabase', 'migrations', '20260510000200_routes_driver_user_fk.sql'), 'utf8');
 
   assert.match(source, /update public\.routes as route/i);
   assert.match(source, /references public\.users\(id\)/i);

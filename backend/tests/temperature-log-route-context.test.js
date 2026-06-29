@@ -7,7 +7,7 @@ if (!process.env.JWT_SECRET) process.env.JWT_SECRET = 'test-dev-secret';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const routeSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'temperature-logs.js'), 'utf8');
-const migrationSource = fs.readFileSync(path.join(repoRoot, 'supabase', 'migrations', '20260508_temperature_log_route_stop_context.sql'), 'utf8');
+const migrationSource = fs.readFileSync(path.join(repoRoot, 'supabase', 'migrations', '20260508000200_temperature_log_route_stop_context.sql'), 'utf8');
 const driverPageSource = fs.readFileSync(path.join(repoRoot, 'driver-app', 'src', 'pages', 'TemperatureLogPage.tsx'), 'utf8');
 
 const {

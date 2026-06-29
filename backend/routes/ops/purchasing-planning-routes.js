@@ -8,6 +8,7 @@ const {
   scopeQueryByContext,
 } = require('../../services/operating-context');
 const {
+  buildVendorPlanningSummary,
   buildProjectionRows,
   buildPurchasingSuggestions,
   loadInventoryAndUsage,
@@ -55,6 +56,36 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
     });
   }
 
+  async function loadVendorPlanningConfig(vendor, context) {
+    const value = String(vendor || '').trim();
+    if (!value) return null;
+
+    try {
+      const uuidLike = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+      if (uuidLike) {
+        const { data, error } = await scopeQueryByContext(
+          supabase.from('vendors').select('*'),
+          context
+        ).eq('id', value).limit(1);
+        if (error) throw error;
+        const match = Array.isArray(data) ? data[0] : null;
+        if (match && rowMatchesContext(match, context)) return match;
+      }
+
+      const { data, error } = await scopeQueryByContext(
+        supabase.from('vendors').select('*'),
+        context
+      ).ilike('name', value).limit(10);
+      if (error) throw error;
+      return (data || []).find((row) =>
+        rowMatchesContext(row, context)
+        && String(row.name || '').trim().toLowerCase() === value.toLowerCase()
+      ) || null;
+    } catch {
+      return null;
+    }
+  }
+
   router.get('/projections', authenticateToken, async (req, res) => {
     const days = Math.max(1, Math.min(90, parseInt(req.query.days || '30', 10)));
     const lookbackDays = Math.max(7, Math.min(90, parseInt(req.query.lookbackDays || '30', 10)));
@@ -82,18 +113,23 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
           }
         : resolveHistoricalLeadTimeDays(summarizedOrders, vendor);
       const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays, req.context);
+      const vendorConfig = await loadVendorPlanningConfig(vendor, req.context);
       const suggestions = buildPurchasingSuggestions(inventory, usageByName, {
         coverageDays,
         leadTimeDays: resolvedLead.leadTimeDays,
         lookbackDays,
+        vendorConfig,
+        asOfDate: new Date(),
         leadTimeResolver: manualLeadTimeRaw !== undefined && String(manualLeadTimeRaw).trim() !== ''
           ? null
           : (item) => resolveLeadTimeForInventoryItem(summarizedOrders, vendor, item),
       });
+      const vendorPlanning = buildVendorPlanningSummary(suggestions, vendorConfig || {});
       res.json({
         leadTimeDays: resolvedLead.leadTimeDays,
         leadTimeSource: resolvedLead.source,
         historicalLeadTime: resolvedLead.history,
+        vendorPlanning,
         coverageDays,
         lookbackDays,
         generated_at: new Date().toISOString(),
@@ -136,14 +172,18 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
           }
         : resolveHistoricalLeadTimeDays(summarizedOrders, vendor);
       const { inventory, usageByName } = await loadInventoryAndUsage(lookbackDays, req.context);
+      const vendorConfig = await loadVendorPlanningConfig(vendor, req.context);
       const suggestions = buildPurchasingSuggestions(inventory, usageByName, {
         coverageDays,
         leadTimeDays: resolvedLead.leadTimeDays,
         lookbackDays,
+        vendorConfig,
+        asOfDate: new Date(),
         leadTimeResolver: manualLeadTimeRaw !== undefined && String(manualLeadTimeRaw).trim() !== ''
           ? null
           : (item) => resolveLeadTimeForInventoryItem(summarizedOrders, vendor, item),
       });
+      const vendorPlanning = buildVendorPlanningSummary(suggestions, vendorConfig || {});
       const urgencyRank = { high: 0, normal: 1, none: 2 };
       const selected = suggestions
         .filter((suggestion) => includedUrgencies.has(String(suggestion.urgency || '').toLowerCase()) && suggestion.suggested_order_qty > minOrderQty)
@@ -169,6 +209,12 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
           lead_time_days: suggestion.lead_time_days,
           lead_time_source: suggestion.lead_time_source,
           historical_lead_time: suggestion.historical_lead_time || null,
+          seasonal_coefficient: suggestion.seasonal_coefficient,
+          pre_round_suggested_order_qty: suggestion.pre_round_suggested_order_qty,
+          vendor_rounding_source: suggestion.vendor_rounding_source,
+          vendor_rounding_multiple: suggestion.vendor_rounding_multiple,
+          vendor_minimum_warning: suggestion.vendor_minimum_warning || null,
+          suggested_order_date: suggestion.suggested_order_date || null,
           urgency: suggestion.urgency,
           stock_qty: suggestion.stock_qty,
           avg_daily_usage: suggestion.avg_daily_usage,
@@ -188,6 +234,7 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
           leadTimeDays: resolvedLead.leadTimeDays,
           leadTimeSource: resolvedLead.source,
           historicalLeadTime: resolvedLead.history,
+          vendorPlanning,
           lookbackDays,
           minOrderQty,
           maxLines,

@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const migrationSource = fs.readFileSync(
-  path.join(repoRoot, 'supabase', 'migrations', '20260510_purchasing_receiving_schema.sql'),
+  path.join(repoRoot, 'supabase', 'migrations', '20260510000100_purchasing_receiving_schema.sql'),
   'utf8'
 );
 const workflowServiceSource = fs.readFileSync(

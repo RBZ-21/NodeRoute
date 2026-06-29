@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const repoRoot = path.resolve(__dirname, '..', '..');
 const read = (...parts) => fs.readFileSync(path.join(repoRoot, ...parts), 'utf8');
 
-const migration = read('supabase', 'migrations', '20260517_sprint2_warehouse_security.sql');
+const migration = read('supabase', 'migrations', '20260517000300_sprint2_warehouse_security.sql');
 const warehouseRoute = read('backend', 'routes', 'warehouse.js');
 const vendorRoute = read('backend', 'routes', 'vendors.js');
 const ledgerService = read('backend', 'services', 'inventory-ledger.js');

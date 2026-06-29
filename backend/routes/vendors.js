@@ -5,6 +5,7 @@ const { z } = require('zod');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
 const { validateBody } = require('../lib/zod-validate');
+const apLedger = require('../services/ap-ledger');
 const {
   buildScopeFields,
   filterRowsByContext,
@@ -26,6 +27,11 @@ const VENDOR_FIELDS = [
   'address',
   'notes',
   'payment_terms',
+  'min_order_value',
+  'pallet_qty',
+  'layer_qty',
+  'lead_time_days',
+  'seasonal_usage_windows',
 ];
 
 function normalizeCatalogItemNumbers(value) {
@@ -66,6 +72,33 @@ function vendorPayload(source) {
     if (source[field] === undefined) return;
     if (field === 'catalog_item_numbers') {
       payload[field] = normalizeCatalogItemNumbers(source[field]);
+      return;
+    }
+    if (['min_order_value', 'pallet_qty', 'layer_qty'].includes(field)) {
+      const parsed = Number(source[field]);
+      payload[field] = Number.isFinite(parsed) && parsed >= 0 ? parsed : null;
+      return;
+    }
+    if (field === 'lead_time_days') {
+      const parsed = Number(source[field]);
+      payload[field] = Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
+      return;
+    }
+    if (field === 'seasonal_usage_windows') {
+      if (Array.isArray(source[field])) {
+        payload[field] = source[field];
+        return;
+      }
+      if (typeof source[field] === 'string' && source[field].trim()) {
+        try {
+          const parsed = JSON.parse(source[field]);
+          payload[field] = Array.isArray(parsed) ? parsed : [];
+        } catch {
+          payload[field] = [];
+        }
+        return;
+      }
+      payload[field] = [];
       return;
     }
     payload[field] = source[field] ?? null;
@@ -137,6 +170,27 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), async (req,
   res.json(insertResult.data);
 });
 
+// GET /api/vendors/:id/ap-status — open AP aging for a vendor.
+router.get('/:id/ap-status', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const vendor = await dbQuery(
+    scopeQueryByContext(supabase.from('vendors').select('*'), req.context).eq('id', req.params.id).single(),
+    res
+  );
+  if (!vendor) return res.status(404).json({ error: 'Vendor not found' });
+  if (!rowMatchesContext(vendor, req.context)) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    const status = await apLedger.getVendorAPStatus(req.params.id, {
+      db: supabase,
+      context: req.context,
+      companyId: req.context.activeCompanyId || req.context.companyId,
+    });
+    res.json({ ...status, vendor_name: status.vendor_name || vendor.name });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to load vendor AP status' });
+  }
+});
+
 // POST /api/vendors/:id/bills — record a vendor bill against a vendor/optional PO.
 router.post('/:id/bills', authenticateToken, requireRole('admin', 'manager'), validateBody(vendorBillBodySchema), async (req, res) => {
   const vendor = await dbQuery(
@@ -182,6 +236,9 @@ router.post('/:id/bills', authenticateToken, requireRole('admin', 'manager'), va
   }, req.context);
 
   if (insertResult.error) return res.status(500).json({ error: insertResult.error.message });
+  if (insertResult.data && insertResult.data.status === 'approved') {
+    insertResult.data.ap_ledger_entry = await apLedger.postBill(insertResult.data.id, { db: supabase, context: req.context });
+  }
   res.status(201).json(insertResult.data);
 });
 

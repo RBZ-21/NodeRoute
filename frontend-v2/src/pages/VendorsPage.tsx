@@ -6,7 +6,7 @@ import { Input } from '../components/ui/input';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { useInventoryProducts } from '../hooks/usePurchasing';
-import { sendWithAuth } from '../lib/api';
+import { fetchWithAuth, sendWithAuth } from '../lib/api';
 import { type Vendor, useSaveVendorMutation, useVendorsQuery } from '../hooks/useVendors';
 
 type VendorStatus = 'active' | 'inactive' | 'on-hold' | 'other';
@@ -16,6 +16,13 @@ const statusColors = {
   inactive: 'gray',
   'on-hold': 'yellow',
 } as const;
+
+type VendorApStatus = {
+  vendor_id?: string | null;
+  vendor_name?: string | null;
+  total_open?: number | string;
+  buckets?: Record<string, number>;
+};
 
 function toNumber(value: unknown): number {
   const parsed = Number(value);
@@ -44,6 +51,30 @@ function vendorContact(vendor: Vendor): string {
 
 function activePOs(vendor: Vendor): number {
   return toNumber(vendor.activePOs ?? vendor.active_pos);
+}
+
+function money(value: number): string {
+  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(value);
+}
+
+function formatMoneyOrDash(value: unknown): string {
+  if (value === undefined || value === null || value === '') return '-';
+  return money(toNumber(value));
+}
+
+function asDaysLabel(value: unknown): string {
+  const days = toNumber(value);
+  return days > 0 ? `${days}d` : '-';
+}
+
+function formatNumberInput(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  return String(value);
+}
+
+function formatSeasonalWindows(value: Vendor['seasonal_usage_windows']): string {
+  if (Array.isArray(value)) return value.length ? JSON.stringify(value, null, 2) : '';
+  return typeof value === 'string' ? value : '';
 }
 
 function normalizeCatalogItemNumber(value: unknown): string {
@@ -95,6 +126,8 @@ export function VendorsPage() {
   type VendorScore = { overall_grade: string; on_time_score: number; quality_score: number; price_consistency_score: number; summary: string; strengths: string[]; concerns: string[] };
   const [vendorScores, setVendorScores] = useState<Record<string, VendorScore>>({});
   const [scoreLoading, setScoreLoading] = useState<Record<string, boolean>>({});
+  const [vendorApStatus, setVendorApStatus] = useState<Record<string, VendorApStatus>>({});
+  const [apStatusLoading, setApStatusLoading] = useState<Record<string, boolean>>({});
 
   async function scoreVendor(id: string) {
     setScoreLoading((prev) => ({ ...prev, [id]: true }));
@@ -105,6 +138,20 @@ export function VendorsPage() {
       setError(String((err as Error).message || 'Vendor scoring failed'));
     } finally {
       setScoreLoading((prev) => ({ ...prev, [id]: false }));
+    }
+  }
+
+  async function loadVendorApStatus(vendor: Vendor) {
+    const id = String(vendor.id || vendor.vendor_id || vendor.vendorId || '');
+    if (!id) return;
+    setApStatusLoading((prev) => ({ ...prev, [id]: true }));
+    try {
+      const result = await fetchWithAuth<VendorApStatus>(`/api/vendors/${encodeURIComponent(id)}/ap-status`);
+      setVendorApStatus((prev) => ({ ...prev, [id]: result }));
+    } catch (err) {
+      setError(String((err as Error).message || 'Vendor AP status failed'));
+    } finally {
+      setApStatusLoading((prev) => ({ ...prev, [id]: false }));
     }
   }
 
@@ -155,7 +202,7 @@ export function VendorsPage() {
     try {
       await saveVendorMutation.mutateAsync({ id: undefined, draft: newDraft });
       setAddingNew(false);
-      setNewDraft({ status: 'active', catalog_item_numbers: [] });
+      setNewDraft({ status: 'active', catalog_item_numbers: [], seasonal_usage_windows: [] });
       setNotice(`Vendor "${newDraft.name || 'New Vendor'}" created.`);
       await vendorsQuery.refetch();
     } catch (err) {
@@ -209,7 +256,7 @@ export function VendorsPage() {
               </select>
             </label>
             <Button variant="outline" onClick={() => void vendorsQuery.refetch()}>Refresh</Button>
-            <Button onClick={() => { setNewDraft({ status: 'active', catalog_item_numbers: [] }); setAddingNew(true); }}>+ Add Vendor</Button>
+            <Button onClick={() => { setNewDraft({ status: 'active', catalog_item_numbers: [], seasonal_usage_windows: [] }); setAddingNew(true); }}>+ Add Vendor</Button>
           </div>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
@@ -224,6 +271,9 @@ export function VendorsPage() {
                   <TableHead>Category</TableHead>
                   <TableHead>Catalog</TableHead>
                   <TableHead>Active POs</TableHead>
+                  <TableHead>Min Order</TableHead>
+                  <TableHead>Lead Time</TableHead>
+                  <TableHead>AP Open</TableHead>
                   <TableHead>Status</TableHead>
                   <TableHead>Actions</TableHead>
                 </TableRow>
@@ -231,6 +281,7 @@ export function VendorsPage() {
             <TableBody>
               {filtered.length ? filtered.map((vendor, index) => {
                 const status = normalizeStatus(vendor.status);
+                const apKey = String(vendor.id || vendor.vendor_id || vendor.vendorId || '');
                 return (
                   <TableRow key={vendorId(vendor, index)}>
                     <TableCell className="font-medium">{vendorId(vendor, index)}</TableCell>
@@ -245,12 +296,20 @@ export function VendorsPage() {
                         : 'All inventory'}
                     </TableCell>
                     <TableCell>{activePOs(vendor).toLocaleString()}</TableCell>
+                    <TableCell>{formatMoneyOrDash(vendor.min_order_value)}</TableCell>
+                    <TableCell>{asDaysLabel(vendor.lead_time_days)}</TableCell>
+                    <TableCell>{formatMoneyOrDash(vendorApStatus[apKey]?.total_open)}</TableCell>
                     <TableCell><StatusBadge status={status} colorMap={statusColors} fallbackLabel="Unknown" /></TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
                         <Button variant="ghost" size="sm" onClick={() => viewPOs(vendor)}>View POs</Button>
                         <Button variant="secondary" size="sm" onClick={() => newPO(vendor)}>New PO</Button>
                         <Button size="sm" onClick={() => openVendor(vendor)}>Edit</Button>
+                        {apKey ? (
+                          <Button variant="ghost" size="sm" onClick={() => void loadVendorApStatus(vendor)} disabled={apStatusLoading[apKey]}>
+                            {apStatusLoading[apKey] ? 'Loading' : 'AP'}
+                          </Button>
+                        ) : null}
                         {vendor.id && (
                           <Button variant="ghost" size="sm" onClick={() => void scoreVendor(String(vendor.id))} disabled={scoreLoading[String(vendor.id)]} title="AI performance score">
                             {scoreLoading[String(vendor.id)] ? '…' : '✦ Score'}
@@ -266,7 +325,7 @@ export function VendorsPage() {
                   </TableRow>
                 );
               }) : (
-                <TableRow><TableCell colSpan={10} className="text-muted-foreground">No vendors found for the selected filters.</TableCell></TableRow>
+                <TableRow><TableCell colSpan={13} className="text-muted-foreground">No vendors found for the selected filters.</TableCell></TableRow>
               )}
             </TableBody>
           </Table>
@@ -303,6 +362,11 @@ export function VendorsPage() {
               />
               <VendorField label="Address" value={newDraft.address} editing onChange={(v) => setNewDraft((d) => ({ ...d, address: v }))} />
               <VendorField label="Payment Terms" value={newDraft.payment_terms} editing onChange={(v) => setNewDraft((d) => ({ ...d, payment_terms: v }))} />
+              <VendorPlanningFields
+                draft={newDraft}
+                editing
+                onChange={(patch) => setNewDraft((d) => ({ ...d, ...patch }))}
+              />
               <div className="flex items-start gap-3">
                 <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Status</span>
                 <select value={newDraft.status || 'active'} onChange={(e) => setNewDraft((d) => ({ ...d, status: e.target.value }))} className="flex-1 h-10 rounded-md border border-input bg-background px-3 text-sm">
@@ -353,6 +417,19 @@ export function VendorsPage() {
               />
               <VendorField label="Address" value={draft.address} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, address: v }))} />
               <VendorField label="Payment Terms" value={draft.payment_terms} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, payment_terms: v }))} />
+              <VendorPlanningFields
+                draft={draft}
+                editing={editing}
+                onChange={(patch) => setDraft((d) => ({ ...d, ...patch }))}
+              />
+              {vendorApStatus[String(selected.id || selected.vendor_id || selected.vendorId || '')] ? (
+                <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm">
+                  <div className="font-medium text-foreground">AP Open {formatMoneyOrDash(vendorApStatus[String(selected.id || selected.vendor_id || selected.vendorId || '')]?.total_open)}</div>
+                  <div className="mt-1 text-xs text-muted-foreground">
+                    Current {formatMoneyOrDash(vendorApStatus[String(selected.id || selected.vendor_id || selected.vendorId || '')]?.buckets?.current)} · 30 {formatMoneyOrDash(vendorApStatus[String(selected.id || selected.vendor_id || selected.vendorId || '')]?.buckets?.['30'])} · 60 {formatMoneyOrDash(vendorApStatus[String(selected.id || selected.vendor_id || selected.vendorId || '')]?.buckets?.['60'])} · 90+ {formatMoneyOrDash((vendorApStatus[String(selected.id || selected.vendor_id || selected.vendorId || '')]?.buckets?.['90'] || 0) + (vendorApStatus[String(selected.id || selected.vendor_id || selected.vendorId || '')]?.buckets?.['120_plus'] || 0))}
+                  </div>
+                </div>
+              ) : null}
               <div className="flex items-start gap-3">
                 <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Status</span>
                 {editing ? (
@@ -388,6 +465,26 @@ function VendorField({ label, value, editing, onChange, multiline }: { label: st
         <span className="text-sm">{value || '-'}</span>
       )}
     </div>
+  );
+}
+
+function VendorPlanningFields({
+  draft,
+  editing,
+  onChange,
+}: {
+  draft: Vendor;
+  editing: boolean;
+  onChange: (patch: Partial<Vendor>) => void;
+}) {
+  return (
+    <>
+      <VendorField label="Min Order" value={formatNumberInput(draft.min_order_value)} editing={editing} onChange={(v) => onChange({ min_order_value: v })} />
+      <VendorField label="Pallet Qty" value={formatNumberInput(draft.pallet_qty)} editing={editing} onChange={(v) => onChange({ pallet_qty: v })} />
+      <VendorField label="Layer Qty" value={formatNumberInput(draft.layer_qty)} editing={editing} onChange={(v) => onChange({ layer_qty: v })} />
+      <VendorField label="Lead Days" value={formatNumberInput(draft.lead_time_days)} editing={editing} onChange={(v) => onChange({ lead_time_days: v })} />
+      <VendorField label="Seasonal Windows" value={formatSeasonalWindows(draft.seasonal_usage_windows)} editing={editing} onChange={(v) => onChange({ seasonal_usage_windows: v })} multiline />
+    </>
   );
 }
 

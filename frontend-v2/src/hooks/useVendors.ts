@@ -19,6 +19,11 @@ export type Vendor = {
   address?: string;
   notes?: string;
   payment_terms?: string;
+  min_order_value?: number | string | null;
+  pallet_qty?: number | string | null;
+  layer_qty?: number | string | null;
+  lead_time_days?: number | string | null;
+  seasonal_usage_windows?: unknown[] | string | null;
 };
 
 export function useVendorsQuery() {

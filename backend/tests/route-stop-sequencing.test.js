@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 if (!process.env.JWT_SECRET) process.env.JWT_SECRET = 'test-dev-secret';
 
 const repoRoot = path.resolve(__dirname, '..', '..');
-const migrationSource = fs.readFileSync(path.join(repoRoot, 'supabase', 'migrations', '20260508_route_safety_and_audit.sql'), 'utf8');
+const migrationSource = fs.readFileSync(path.join(repoRoot, 'supabase', 'migrations', '20260508000100_route_safety_and_audit.sql'), 'utf8');
 const routesSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'routes.js'), 'utf8');
 const stopsSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'stops.js'), 'utf8');
 

@@ -19,7 +19,7 @@ const serverSource = fs.readFileSync(
   path.join(repoRoot, 'backend', 'server.js'), 'utf8'
 );
 const migrationSource = fs.readFileSync(
-  path.join(repoRoot, 'supabase', 'migrations', '20260511_reorder_barcode_vendor_bills.sql'), 'utf8'
+  path.join(repoRoot, 'supabase', 'migrations', '20260511000000_reorder_barcode_vendor_bills.sql'), 'utf8'
 );
 const writeSchemaSource = fs.readFileSync(
   path.join(repoRoot, 'backend', 'lib', 'inventory-write-schemas.js'), 'utf8'
