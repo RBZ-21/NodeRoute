@@ -3,12 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { ReportsPage } from './ReportsPage';
 import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
-const { fetchWithAuthMock } = vi.hoisted(() => ({
+const { fetchWithAuthMock, sendWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
+  sendWithAuthMock: vi.fn(),
 }));
 
 vi.mock('../lib/api', () => ({
   fetchWithAuth: fetchWithAuthMock,
+  sendWithAuth: sendWithAuthMock,
 }));
 
 function renderReportsPage() {
@@ -18,7 +20,21 @@ function renderReportsPage() {
 describe('ReportsPage', () => {
   beforeEach(() => {
     fetchWithAuthMock.mockReset();
+    sendWithAuthMock.mockReset();
     fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url === '/api/reports/definitions') {
+        return {
+          definitions: [
+            {
+              id: 'definition-gross-profit',
+              name: 'Gross Profit Report',
+              query_key: 'gross_profit',
+              category: 'Analytics',
+              description: 'Margin by item and customer.',
+            },
+          ],
+        };
+      }
       if (url === '/api/reporting/sales-summary?preset=daily') {
         return {
           generated_at: '2026-05-01T12:00:00.000Z',
@@ -78,6 +94,7 @@ describe('ReportsPage', () => {
         available_items: [],
       };
     });
+    sendWithAuthMock.mockResolvedValue({ id: 'schedule-1' });
   });
 
   it('renders the sales summary and item rows', async () => {
@@ -127,5 +144,29 @@ describe('ReportsPage', () => {
     expect(csv).toContain('"Lobster","LOB-001","14","700","520","180","3"');
     expect(click).toHaveBeenCalledTimes(1);
     expect(revokeObjectURL).toHaveBeenCalledWith('blob:reports-item-sales');
+  });
+
+  it('renders named report definitions', async () => {
+    renderReportsPage();
+
+    expect(await screen.findByText('Gross Profit Report')).toBeTruthy();
+    expect(screen.getByText('Analytics')).toBeTruthy();
+  });
+
+  it('submits a report schedule from the schedule form', async () => {
+    renderReportsPage();
+
+    expect(await screen.findByText('Gross Profit Report')).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: /schedule gross profit report/i }));
+    fireEvent.change(screen.getByLabelText('Delivery email'), { target: { value: 'ops@noderoute.test' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Save Schedule' }));
+
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/report-schedules', 'POST', expect.objectContaining({
+        report_definition_id: 'definition-gross-profit',
+        cadence: 'daily',
+        delivery_targets: [{ target_type: 'email', address: 'ops@noderoute.test' }],
+      }));
+    });
   });
 });

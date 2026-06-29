@@ -4,6 +4,7 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const { filterRowsByContext, scopeQueryByContext } = require('../services/operating-context');
 const { summarizeVendorPo } = require('./ops-utils');
 const { loadVendorPurchaseOrdersFromDb } = require('../services/purchase-order-workflows');
+const { exportReport, getReportDefinitionCatalog } = require('../services/report-exporter');
 
 const router = express.Router();
 
@@ -567,6 +568,67 @@ function computeDailyOps({ date, inventory, vendorPurchaseOrders, rollups, lowSt
       .slice(0, 20),
   };
 }
+
+router.get('/definitions', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const catalog = getReportDefinitionCatalog();
+    let tenantDefinitions = [];
+    const { data, error } = await scopeQueryByContext(
+      supabase.from('report_definitions').select('*').order('category', { ascending: true }),
+      req.context,
+      { companyField: 'company_id', includeLocation: true },
+    ).limit(500);
+
+    if (!error) {
+      tenantDefinitions = filterRowsByContext(data || [], req.context);
+    }
+
+    const seenKeys = new Set(tenantDefinitions.map((definition) => definition.query_key));
+    const builtIns = catalog
+      .filter((definition) => !seenKeys.has(definition.query_key))
+      .map((definition) => ({
+        id: definition.query_key,
+        company_id: req.context.activeCompanyId || req.context.companyId || null,
+        location_id: req.context.activeLocationId || req.context.locationId || null,
+        name: definition.name,
+        category: definition.category,
+        description: definition.description,
+        query_key: definition.query_key,
+        parameters: {},
+        is_system: true,
+      }));
+
+    res.json({ definitions: [...tenantDefinitions, ...builtIns] });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to load report definitions' });
+  }
+});
+
+router.get('/run', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const queryKey = String(req.query.queryKey || req.query.query_key || '').trim();
+    if (!queryKey) return res.status(400).json({ error: 'queryKey is required' });
+    const format = String(req.query.format || 'csv').trim().toLowerCase();
+    const params = { ...req.query };
+    delete params.queryKey;
+    delete params.query_key;
+    delete params.format;
+
+    const exported = await exportReport(
+      queryKey,
+      req.context.activeCompanyId || req.context.companyId,
+      params,
+      format,
+      { db: supabase },
+    );
+    const safeName = String(exported.title || queryKey).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'report';
+    res.setHeader('Content-Type', exported.contentType);
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}.${exported.extension}"`);
+    res.send(exported.buffer);
+  } catch (error) {
+    res.status(error.status || 500).json({ error: error.message || 'Failed to run report' });
+  }
+});
 
 router.get('/rollups', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
   const range = resolveReportingDateRange(req.query.start, req.query.end);

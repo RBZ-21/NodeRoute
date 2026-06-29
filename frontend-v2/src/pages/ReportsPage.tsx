@@ -1,9 +1,21 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { type ReportPreset, useSalesReport } from '../hooks/useReports';
+import { fetchWithAuth, sendWithAuth } from '../lib/api';
+
+type NamedReportDefinition = {
+  id: string;
+  name: string;
+  query_key: string;
+  category?: string;
+  description?: string;
+};
+
+type ReportFormat = 'csv' | 'text' | 'pdf' | 'xlsx';
+type ScheduleCadence = 'daily' | 'weekly' | 'monthly';
 
 function money(value: number): string {
   return value.toLocaleString('en-US', { style: 'currency', currency: 'USD' });
@@ -60,6 +72,16 @@ function syncRangeDefaults(preset: ReportPreset): { start: string; end: string }
 const todayKey = localDateKey(new Date());
 
 export function ReportsPage() {
+  const [definitions, setDefinitions] = useState<NamedReportDefinition[]>([]);
+  const [definitionsLoading, setDefinitionsLoading] = useState(true);
+  const [definitionsError, setDefinitionsError] = useState('');
+  const [selectedFormat, setSelectedFormat] = useState<ReportFormat>('csv');
+  const [scheduleDefinition, setScheduleDefinition] = useState<NamedReportDefinition | null>(null);
+  const [scheduleCadence, setScheduleCadence] = useState<ScheduleCadence>('daily');
+  const [scheduleTime, setScheduleTime] = useState('08:00');
+  const [scheduleEmail, setScheduleEmail] = useState('');
+  const [scheduleStatus, setScheduleStatus] = useState('');
+  const [scheduleError, setScheduleError] = useState('');
   const [reportPreset, setReportPreset] = useState<ReportPreset>('daily');
   const [reportStartDate, setReportStartDate] = useState(todayKey);
   const [reportEndDate, setReportEndDate] = useState(todayKey);
@@ -77,6 +99,34 @@ export function ReportsPage() {
     invoice_count: 0, order_count: 0, average_invoice: 0, item_count: 0,
   };
 
+  useEffect(() => {
+    let cancelled = false;
+    setDefinitionsLoading(true);
+    fetchWithAuth<{ definitions: NamedReportDefinition[] }>('/api/reports/definitions')
+      .then((payload) => {
+        if (cancelled) return;
+        setDefinitions(payload.definitions || []);
+        setDefinitionsError('');
+      })
+      .catch((err: Error) => {
+        if (cancelled) return;
+        setDefinitionsError(err.message || 'Could not load report definitions');
+      })
+      .finally(() => {
+        if (!cancelled) setDefinitionsLoading(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  const definitionsByCategory = useMemo(() => {
+    return definitions.reduce<Record<string, NamedReportDefinition[]>>((acc, definition) => {
+      const category = definition.category || 'General';
+      acc[category] = acc[category] || [];
+      acc[category].push(definition);
+      return acc;
+    }, {});
+  }, [definitions]);
+
   function exportItemSalesCsv() {
     if (!salesReport?.items?.length) return;
     downloadCsv(`reports-item-sales-${reportPreset}-${reportStartDate || 'start'}-${reportEndDate || 'end'}.csv`, [
@@ -93,8 +143,147 @@ export function ReportsPage() {
     ]);
   }
 
+  function runNamedReport(definition: NamedReportDefinition) {
+    const params = new URLSearchParams({
+      queryKey: definition.query_key,
+      format: selectedFormat,
+    });
+    window.location.href = `/api/reports/run?${params.toString()}`;
+  }
+
+  async function saveSchedule() {
+    if (!scheduleDefinition) return;
+    setScheduleError('');
+    setScheduleStatus('');
+    try {
+      await sendWithAuth('/api/report-schedules', 'POST', {
+        report_definition_id: scheduleDefinition.id || scheduleDefinition.query_key,
+        cadence: scheduleCadence,
+        cadence_config: {
+          time: scheduleTime,
+          format: selectedFormat,
+        },
+        delivery_targets: [{ target_type: 'email', address: scheduleEmail.trim() }],
+      });
+      setScheduleStatus(`${scheduleDefinition.name} schedule saved.`);
+      setScheduleDefinition(null);
+      setScheduleEmail('');
+    } catch (err) {
+      setScheduleError((err as Error).message || 'Could not save report schedule');
+    }
+  }
+
   return (
     <div className="space-y-5">
+      {definitionsLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading report library...</div> : null}
+      {definitionsError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{definitionsError}</div> : null}
+      {scheduleStatus ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{scheduleStatus}</div> : null}
+      {scheduleError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{scheduleError}</div> : null}
+
+      <Card>
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-end md:justify-between">
+          <div className="space-y-1">
+            <CardTitle>Report Library</CardTitle>
+            <CardDescription>Run named report packs or schedule recurring delivery.</CardDescription>
+          </div>
+          <label className="space-y-1 text-sm">
+            <span className="font-semibold text-muted-foreground">Export Format</span>
+            <select
+              value={selectedFormat}
+              onChange={(e) => setSelectedFormat(e.target.value as ReportFormat)}
+              className="flex h-10 min-w-32 rounded-md border border-input bg-background px-3 text-sm"
+            >
+              <option value="csv">CSV</option>
+              <option value="text">Text</option>
+              <option value="pdf">PDF</option>
+              <option value="xlsx">Excel</option>
+            </select>
+          </label>
+        </CardHeader>
+        <CardContent className="space-y-5">
+          {Object.entries(definitionsByCategory).length ? Object.entries(definitionsByCategory).map(([category, items]) => (
+            <section key={category} className="space-y-2">
+              <h3 className="text-sm font-semibold uppercase tracking-wide text-muted-foreground">{category}</h3>
+              <div className="divide-y divide-border rounded-md border border-border">
+                {items.map((definition) => (
+                  <div key={definition.id || definition.query_key} className="flex flex-col gap-3 p-3 md:flex-row md:items-center md:justify-between">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-foreground">{definition.name}</div>
+                      {definition.description ? <div className="mt-1 text-sm text-muted-foreground">{definition.description}</div> : null}
+                    </div>
+                    <div className="flex shrink-0 flex-wrap gap-2">
+                      <Button variant="outline" onClick={() => runNamedReport(definition)}>
+                        Run Now
+                      </Button>
+                      <Button
+                        variant="outline"
+                        aria-label={`Schedule ${definition.name}`}
+                        onClick={() => {
+                          setScheduleDefinition(definition);
+                          setScheduleStatus('');
+                          setScheduleError('');
+                        }}
+                      >
+                        Schedule
+                      </Button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </section>
+          )) : (
+            <div className="rounded-md border border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
+              No named reports are available.
+            </div>
+          )}
+
+          {scheduleDefinition ? (
+            <div className="rounded-md border border-border bg-muted/20 p-4">
+              <div className="mb-3 flex flex-col gap-1 md:flex-row md:items-center md:justify-between">
+                <div>
+                  <div className="font-semibold">Schedule {scheduleDefinition.name}</div>
+                  <div className="text-sm text-muted-foreground">Delivery uses the selected export format above.</div>
+                </div>
+                <Button variant="ghost" onClick={() => setScheduleDefinition(null)}>Cancel</Button>
+              </div>
+              <div className="grid gap-3 md:grid-cols-4">
+                <label className="space-y-1 text-sm">
+                  <span className="font-semibold text-muted-foreground">Cadence</span>
+                  <select
+                    value={scheduleCadence}
+                    onChange={(e) => setScheduleCadence(e.target.value as ScheduleCadence)}
+                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  >
+                    <option value="daily">Daily</option>
+                    <option value="weekly">Weekly</option>
+                    <option value="monthly">Monthly</option>
+                  </select>
+                </label>
+                <label className="space-y-1 text-sm">
+                  <span className="font-semibold text-muted-foreground">Time</span>
+                  <Input type="time" value={scheduleTime} onChange={(e) => setScheduleTime(e.target.value)} />
+                </label>
+                <label htmlFor="report-delivery-email" className="space-y-1 text-sm md:col-span-2">
+                  <span className="font-semibold text-muted-foreground">Delivery email</span>
+                  <Input
+                    id="report-delivery-email"
+                    type="email"
+                    value={scheduleEmail}
+                    onChange={(e) => setScheduleEmail(e.target.value)}
+                    placeholder="ops@example.com"
+                  />
+                </label>
+              </div>
+              <div className="mt-3 flex justify-end">
+                <Button onClick={saveSchedule} disabled={!scheduleEmail.trim()}>
+                  Save Schedule
+                </Button>
+              </div>
+            </div>
+          ) : null}
+        </CardContent>
+      </Card>
+
       {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading sales report...</div> : null}
       {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load sales report')}</div> : null}
 

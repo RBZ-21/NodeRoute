@@ -24,6 +24,8 @@ const { runRecurringOrderGeneration } = require('../services/recurring-orders');
 const { DEFAULT_CRON: COST_PRICE_UPDATE_CRON, registerCostPriceScheduler } = require('../services/cost-price-scheduler');
 const creditEngine = require('../services/creditEngine');
 const reorderEngine = require('../services/reorderEngine');
+const { runDueReportSchedulesForAllCompanies } = require('../services/report-scheduler');
+const { runAlertChecksForAllCompanies } = require('../services/report-alerts');
 const { supabase } = require('../services/supabase');
 const { createMailer } = require('../services/email');
 const config = require('./config');
@@ -39,6 +41,8 @@ const REORDER_DIGEST_CRON = process.env.REORDER_DIGEST_CRON || '0 6 * * *';
 const AI_INSIGHTS_CRON = process.env.AI_INSIGHTS_CRON || '0 */6 * * *';
 // Recurring (standing) order generation — 8:00 PM Eastern, the evening before.
 const RECURRING_ORDERS_CRON = process.env.RECURRING_ORDERS_CRON || '0 20 * * *';
+const REPORT_SCHEDULER_CRON = process.env.REPORT_SCHEDULER_CRON || '*/5 * * * *';
+const ALERT_CHECKER_CRON = process.env.ALERT_CHECKER_CRON || '*/15 * * * *';
 
 async function sendReorderDigest() {
   const mailer = createMailer();
@@ -141,12 +145,34 @@ function startScheduler() {
     REORDER_CHECK_CRON,
     REORDER_USAGE_CRON,
     REORDER_DIGEST_CRON,
+    REPORT_SCHEDULER_CRON,
+    ALERT_CHECKER_CRON,
   })) {
     if (!cron.validate(expression)) {
       logger.error({ name, cron: expression }, 'Reorder cron expression is invalid — scheduler not started');
       return;
     }
   }
+
+  cron.schedule(REPORT_SCHEDULER_CRON, async () => {
+    logger.info({ cron: REPORT_SCHEDULER_CRON }, 'Report scheduler job started');
+    try {
+      const result = await runDueReportSchedulesForAllCompanies();
+      logger.info({ companies: result.length }, 'Report scheduler job completed');
+    } catch (err) {
+      logger.error({ err }, 'Report scheduler job failed');
+    }
+  }, { timezone: BLAST_TZ });
+
+  cron.schedule(ALERT_CHECKER_CRON, async () => {
+    logger.info({ cron: ALERT_CHECKER_CRON }, 'Report alert checker job started');
+    try {
+      const result = await runAlertChecksForAllCompanies();
+      logger.info({ companies: result.length }, 'Report alert checker job completed');
+    } catch (err) {
+      logger.error({ err }, 'Report alert checker job failed');
+    }
+  }, { timezone: BLAST_TZ });
 
   cron.schedule(BLAST_CRON, async () => {
     try {
@@ -259,6 +285,8 @@ function startScheduler() {
     reorderDigest: REORDER_DIGEST_CRON,
     aiInsights: AI_INSIGHTS_CRON,
     recurringOrders: RECURRING_ORDERS_CRON,
+    reportScheduler: REPORT_SCHEDULER_CRON,
+    alertChecker: ALERT_CHECKER_CRON,
     costPriceUpdates: COST_PRICE_UPDATE_CRON,
     tz: BLAST_TZ,
   }, 'Scheduler started');
@@ -315,4 +343,4 @@ async function sendWeeklyArAgingDigest() {
   }
 }
 
-module.exports = { startScheduler, sendReorderDigest };
+module.exports = { startScheduler, sendReorderDigest, sendWeeklyArAgingDigest };
