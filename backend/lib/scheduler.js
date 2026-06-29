@@ -21,6 +21,7 @@ const logger = require('../services/logger');
 const { runDailyFishBlastForAllCompanies } = require('../services/daily-fish-blast');
 const { runAiInsightsForAllCompanies } = require('../services/ai-insights');
 const { runRecurringOrderGeneration } = require('../services/recurring-orders');
+const { DEFAULT_CRON: COST_PRICE_UPDATE_CRON, registerCostPriceScheduler } = require('../services/cost-price-scheduler');
 const creditEngine = require('../services/creditEngine');
 const reorderEngine = require('../services/reorderEngine');
 const { supabase } = require('../services/supabase');
@@ -243,6 +244,12 @@ function startScheduler() {
     logger.error({ cron: RECURRING_ORDERS_CRON }, 'RECURRING_ORDERS_CRON invalid — recurring order job not scheduled');
   }
 
+  registerCostPriceScheduler(cron, {
+    log: logger,
+    expression: COST_PRICE_UPDATE_CRON,
+    timezone: BLAST_TZ,
+  });
+
   logger.info({
     dailyFishBlast: BLAST_CRON,
     creditCheck: CREDIT_CHECK_CRON,
@@ -252,6 +259,7 @@ function startScheduler() {
     reorderDigest: REORDER_DIGEST_CRON,
     aiInsights: AI_INSIGHTS_CRON,
     recurringOrders: RECURRING_ORDERS_CRON,
+    costPriceUpdates: COST_PRICE_UPDATE_CRON,
     tz: BLAST_TZ,
   }, 'Scheduler started');
 }

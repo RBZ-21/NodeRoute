@@ -65,6 +65,7 @@ const VendorsPage      = lazyNamed(() => import('../pages/VendorsPage'), 'Vendor
 const DSRPage          = lazyNamed(() => import('../pages/DSRPage'), 'DSRPage');
 const SalesRepPage     = lazyNamed(() => import('../pages/SalesRepPage'), 'SalesRepPage');
 const FinancialsPage   = lazyNamed(() => import('../pages/FinancialsPage'), 'FinancialsPage');
+const PricingPage      = lazyNamed(() => import('../pages/PricingPage'), 'PricingPage');
 const InvoicesPage     = lazyNamed(() => import('../pages/InvoicesPage'), 'InvoicesPage');
 const CreditHoldPage   = lazyNamed(() => import('../pages/CreditHoldPage'), 'CreditHoldPage');
 const AnalyticsPage    = lazyNamed(() => import('../pages/AnalyticsPage'), 'AnalyticsPage');
@@ -96,6 +97,7 @@ export const NAV_ITEM_IDS = {
   salesRep: 'sales-rep',
   phoneOrders: 'phone-orders',
   financials: 'financials',
+  pricing: 'pricing',
   invoices: 'invoices',
   creditHold: 'credit-hold',
   analytics: 'analytics',
@@ -159,6 +161,7 @@ export const navGroups: NavGroup[] = [
     label: 'Financials',
     items: [
       { id: NAV_ITEM_IDS.financials, label: 'Financials', path: '/financials', icon: DollarSign, component: FinancialsPage },
+      { id: NAV_ITEM_IDS.pricing, label: 'Pricing', path: '/pricing', icon: DollarSign, component: PricingPage, roles: ['admin', 'manager'] },
       { id: NAV_ITEM_IDS.invoices, label: 'Invoices', path: '/invoices', icon: Receipt, component: InvoicesPage },
       { id: NAV_ITEM_IDS.creditHold, label: 'Credit Hold', path: '/credit-hold', icon: Lock, component: CreditHoldPage, roles: ['admin', 'manager'] },
     ],

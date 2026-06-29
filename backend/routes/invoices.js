@@ -6,6 +6,7 @@ const { buildInvoicePDF } = require('../services/pdf');
 const { loadDriverInvoiceScope } = require('../services/driver-invoice-access');
 const { sendInvoiceEmail } = require('../services/invoice-email');
 const { normalizeInvoiceLots } = require('../services/invoice-lots');
+const pricingEngine = require('../services/pricing-engine');
 const { invoiceImportSchema, invoiceSignSchema } = require('../lib/schemas');
 const { validateBody } = require('../lib/zod-validate');
 const {
@@ -56,6 +57,59 @@ function asMoney(value) {
   return parseFloat((parseFloat(value || 0) || 0).toFixed(2));
 }
 
+function normalizeText(value) {
+  return String(value ?? '').trim();
+}
+
+function hasMinimumSellOverride(user) {
+  const role = String(user?.role || '').toLowerCase();
+  return role === 'admin' || role === 'superadmin';
+}
+
+function lineProductRef(item) {
+  return {
+    productId: normalizeText(item?.product_id || item?.productId),
+    itemNumber: normalizeText(item?.item_number || item?.itemNumber),
+  };
+}
+
+function lineUnitPrice(item) {
+  if (item?.is_catch_weight) return parseFloat(item.price_per_lb ?? item.unit_price ?? item.price ?? 0) || 0;
+  return parseFloat(item?.unit_price ?? item?.unitPrice ?? item?.price ?? item?.price_per_lb ?? 0) || 0;
+}
+
+async function findMinimumSellViolation(items, context) {
+  for (const item of Array.isArray(items) ? items : []) {
+    const { productId, itemNumber } = lineProductRef(item);
+    if (!productId && !itemNumber) continue;
+    const result = await pricingEngine.enforceMinimumSell({
+      db: supabase,
+      price: lineUnitPrice(item),
+      productId,
+      itemNumber,
+      context,
+    });
+    if (!result.allowed) {
+      return {
+        item,
+        min_price: result.min_price,
+        source_id: result.source_id,
+      };
+    }
+  }
+  return null;
+}
+
+function sendMinimumSellViolation(res, violation) {
+  return res.status(422).json({
+    error: 'minimum_sell_violation',
+    min_price: violation.min_price,
+    source_id: violation.source_id || null,
+    item_number: violation.item?.item_number || violation.item?.itemNumber || null,
+    product_id: violation.item?.product_id || violation.item?.productId || null,
+  });
+}
+
 function invoiceBodyValue(body, ...keys) {
   for (const key of keys) {
     if (body[key] !== undefined && body[key] !== null && body[key] !== '') return body[key];
@@ -74,6 +128,8 @@ function normalizeInvoiceItems(items = []) {
       unit: item.unit || null,
       unit_price: unitPrice,
       total: asMoney(item.total || quantity * unitPrice),
+      product_id: item.product_id || item.productId || null,
+      item_number: item.item_number || item.itemNumber || null,
     };
   });
 }
@@ -170,6 +226,10 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
     if (catchWeightBlock) return res.status(409).json({ error: catchWeightBlock, code: 'CATCH_WEIGHT_REQUIRED' });
   }
   const items = normalizeInvoiceItems(body.items);
+  const minimumSellViolation = await findMinimumSellViolation(items, req.context);
+  if (minimumSellViolation && !hasMinimumSellOverride(req.user)) {
+    return sendMinimumSellViolation(res, minimumSellViolation);
+  }
   const catchWeightItems = linkedOrder?.items || body.items;
   const subtotal = body.subtotal !== undefined
     ? asMoney(body.subtotal)

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Combobox } from '../components/ui/combobox';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth } from '../lib/api';
+import { fetchWithAuth, getUserRole } from '../lib/api';
 import { useRoutes } from '../hooks/useRoutes';
 import { asMoney, asNumber, fmtDate, normalizeText, productSelectionKey } from './orders.types';
 import type { Customer, InventoryProduct, LotCode, OrderCharge, OrderLineDraft } from './orders.types';
@@ -43,6 +44,30 @@ type Props = {
   validationErrors?: OrderFormValidationErrors;
 };
 
+type ResolvedLinePrice = {
+  price: number;
+  method: string;
+  source_id?: string | null;
+  minimum_sell?: {
+    allowed: boolean;
+    min_price: number | null;
+    source_id?: string | null;
+  };
+};
+
+function normalizeResolvedLinePrice(value: unknown): ResolvedLinePrice | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const candidate = value as Partial<ResolvedLinePrice>;
+  if (candidate.price == null) return null;
+  const price = asNumber(candidate.price);
+  if (!Number.isFinite(price)) return null;
+  return {
+    ...candidate,
+    price,
+    method: String(candidate.method || 'resolved'),
+  };
+}
+
 export type OrderFormValidationErrors = Partial<Record<
   'customerName' | 'customerEmail' | 'customerAddress' | 'items',
   string
@@ -75,6 +100,7 @@ export function OrderFormCard({
   validationErrors = {},
 }: Props) {
   const { data: routes = [] } = useRoutes();
+  const userRole = getUserRole();
 
   const lookupInFlightRef = useRef<string | null>(null);
   const lookupDisabledRef = useRef(false);
@@ -83,6 +109,8 @@ export function OrderFormCard({
   const [addressLookupLoading, setAddressLookupLoading] = useState(false);
   const [browseLineIndex, setBrowseLineIndex] = useState<number | null>(null);
   const [browseSearch, setBrowseSearch] = useState('');
+  const [resolvedLinePrices, setResolvedLinePrices] = useState<Record<number, ResolvedLinePrice>>({});
+  const [pricingError, setPricingError] = useState('');
 
   useEffect(() => () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -188,6 +216,74 @@ export function OrderFormCard({
     })),
     [products],
   );
+
+  const selectedCustomerId = useMemo(() => {
+    const normalized = normalizedCustomerName(customerName);
+    if (!normalized) return '';
+    return customers.find((customer) => normalizedCustomerName(customer.company_name || '') === normalized)?.id || '';
+  }, [customerName, customers]);
+
+  const pricingLookupKey = useMemo(
+    () => lines.map((line) => [
+      normalizeText(line.productId),
+      normalizeText(line.itemNumber),
+      line.quantity,
+      line.requestedWeight,
+      line.estimatedWeight,
+      line.unit,
+      line.isCatchWeight ? 'cw' : 'std',
+    ].join(':')).join('|'),
+    [lines],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadResolvedPrices() {
+      if (!selectedCustomerId) {
+        setResolvedLinePrices({});
+        setPricingError('');
+        return;
+      }
+
+      const lookups = lines
+        .map((line, index) => ({ line, index }))
+        .filter(({ line }) => normalizeText(line.productId) || normalizeText(line.itemNumber));
+
+      if (!lookups.length) {
+        setResolvedLinePrices({});
+        setPricingError('');
+        return;
+      }
+
+      try {
+        const entries = await Promise.all(lookups.map(async ({ line, index }) => {
+          const productId = normalizeText(line.productId) || `item:${normalizeText(line.itemNumber)}`;
+          const qty = line.isCatchWeight
+            ? asNumber(line.estimatedWeight)
+            : line.unit === 'lb'
+              ? asNumber(line.requestedWeight || line.quantity)
+              : asNumber(line.quantity);
+          const result = await fetchWithAuth<unknown>(
+            `/api/pricing/resolve?customerId=${encodeURIComponent(selectedCustomerId)}&productId=${encodeURIComponent(productId)}&qty=${encodeURIComponent(String(qty || 1))}&uom=${encodeURIComponent(line.unit || '')}`,
+          );
+          const normalized = normalizeResolvedLinePrice(result);
+          return normalized ? ([index, normalized] as const) : null;
+        }));
+        if (!cancelled) {
+          setResolvedLinePrices(Object.fromEntries(entries.filter((entry): entry is readonly [number, ResolvedLinePrice] => Boolean(entry))));
+          setPricingError('');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setPricingError(String((error as Error)?.message || 'Could not resolve line pricing'));
+          setResolvedLinePrices({});
+        }
+      }
+    }
+
+    void loadResolvedPrices();
+    return () => { cancelled = true; };
+  }, [lines, pricingLookupKey, selectedCustomerId]);
 
   const browsableProducts = useMemo(() => {
     const needle = normalizeText(browseSearch).toLowerCase();
@@ -349,6 +445,9 @@ export function OrderFormCard({
         {validationErrors.items && (
           <p className="text-sm text-destructive">{validationErrors.items}</p>
         )}
+        {pricingError && (
+          <p className="text-sm text-destructive">{pricingError}</p>
+        )}
 
         <div className="table-scroll-container overflow-x-auto rounded-lg border border-border">
           <Table>
@@ -383,6 +482,10 @@ export function OrderFormCard({
                 const lineTotal = isCw
                   ? asMoney(asNumber(line.estimatedWeight) * asNumber(line.pricePerLb))
                   : asMoney((line.unit === 'lb' ? asNumber(line.requestedWeight) : asNumber(line.quantity)) * asNumber(line.unitPrice));
+                const resolvedPrice = resolvedLinePrices[index];
+                const minSell = resolvedPrice?.minimum_sell;
+                const belowMinimum = minSell && minSell.allowed === false && minSell.min_price != null;
+                const canOverrideMinimum = userRole === 'admin' || userRole === 'superadmin';
                 return (
                   <TableRow key={index} className={needsLot ? 'bg-amber-50/50' : ''}>
                     <TableCell>
@@ -461,6 +564,16 @@ export function OrderFormCard({
                         </div>
                       ) : (
                         <Input type="number" min="0" step="0.01" value={line.unitPrice} onChange={(e) => updateLine(index, 'unitPrice', e.target.value)} />
+                      )}
+                      {resolvedPrice && (
+                        <div className="mt-1 space-y-1 text-[11px] leading-tight text-muted-foreground">
+                          <div>Resolved {asMoney(asNumber(resolvedPrice.price))} · {resolvedPrice.method.replace(/_/g, ' ')}</div>
+                          {belowMinimum && (
+                            <Badge variant={canOverrideMinimum ? 'warning' : 'destructive'} className="whitespace-nowrap">
+                              Min {asMoney(asNumber(minSell.min_price))}{canOverrideMinimum ? ' override' : ''}
+                            </Badge>
+                          )}
+                        </div>
                       )}
                     </TableCell>
                     <TableCell>

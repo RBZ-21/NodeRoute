@@ -71,9 +71,17 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
     .filter((g) => g.items.length > 0);
 
   const visibleItemIds = allVisible.flatMap((group) => group.items.map((item) => item.id));
+  // Both inputs are arrays recreated each render; key the memo on their stable
+  // string signatures and reconstruct the id lists from those keys so the memo
+  // recomputes only when the actual contents change.
+  const visibleItemIdsKey = visibleItemIds.join('|');
+  const savedNavIdsKey = (navigationPreference.data?.nav_item_ids || []).join('|');
   const orderedIds = useMemo(
-    () => mergeNavOrder(visibleItemIds, navigationPreference.data?.nav_item_ids || []),
-    [visibleItemIds.join('|'), navigationPreference.data?.nav_item_ids?.join('|')],
+    () => mergeNavOrder(
+      visibleItemIdsKey.split('|').filter(Boolean),
+      savedNavIdsKey.split('|').filter(Boolean),
+    ),
+    [visibleItemIdsKey, savedNavIdsKey],
   );
 
   useEffect(() => {

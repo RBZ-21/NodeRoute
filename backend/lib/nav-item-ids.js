@@ -18,6 +18,7 @@ const NAV_ITEM_IDS = Object.freeze({
   salesRep: 'sales-rep',
   phoneOrders: 'phone-orders',
   financials: 'financials',
+  pricing: 'pricing',
   invoices: 'invoices',
   creditHold: 'credit-hold',
   analytics: 'analytics',

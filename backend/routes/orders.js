@@ -44,6 +44,7 @@ const reorderEngine = require('../services/reorderEngine');
 const { sendInvoiceEmail } = require('../services/invoice-email');
 const deliveryNotifications = require('../services/delivery-notifications');
 const { invoiceLotEntriesFromItems } = require('../services/invoice-lots');
+const pricingEngine = require('../services/pricing-engine');
 const {
   buildScopeFields,
   executeWithOptionalScope,
@@ -71,6 +72,56 @@ function estimateOrderTotal({ items, charges, taxEnabled, taxRate }) {
   const subtotal = itemsSum + chargesSum;
   const tax = taxEnabled ? subtotal * (parseFloat(taxRate) || 0) : 0;
   return parseFloat((subtotal + tax).toFixed(2));
+}
+
+function hasMinimumSellOverride(user) {
+  const role = String(user?.role || '').toLowerCase();
+  return role === 'admin' || role === 'superadmin';
+}
+
+function lineProductRef(item) {
+  return {
+    productId: normalizeText(item?.product_id || item?.productId),
+    itemNumber: normalizeText(item?.item_number || item?.itemNumber),
+  };
+}
+
+function lineUnitPrice(item) {
+  if (item?.is_catch_weight) return parseFloat(item.price_per_lb ?? item.unit_price ?? item.price ?? 0) || 0;
+  return parseFloat(item?.unit_price ?? item?.unitPrice ?? item?.price ?? item?.price_per_lb ?? 0) || 0;
+}
+
+async function findMinimumSellViolation(items, context) {
+  for (const item of Array.isArray(items) ? items : []) {
+    const { productId, itemNumber } = lineProductRef(item);
+    if (!productId && !itemNumber) continue;
+    const price = lineUnitPrice(item);
+    const result = await pricingEngine.enforceMinimumSell({
+      db: supabase,
+      price,
+      productId,
+      itemNumber,
+      context,
+    });
+    if (!result.allowed) {
+      return {
+        item,
+        min_price: result.min_price,
+        source_id: result.source_id,
+      };
+    }
+  }
+  return null;
+}
+
+function sendMinimumSellViolation(res, violation) {
+  return res.status(422).json({
+    error: 'minimum_sell_violation',
+    min_price: violation.min_price,
+    source_id: violation.source_id || null,
+    item_number: violation.item?.item_number || violation.item?.itemNumber || null,
+    product_id: violation.item?.product_id || violation.item?.productId || null,
+  });
 }
 
 function normalizeText(value) {
@@ -137,7 +188,7 @@ async function triggerReorderForOrderItems(items, context) {
 // Returns null on success, or an error string on validation failure.
 const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
 
-async function validateFtlLots(items) {
+async function validateFtlLots(items, context) {
   if (!Array.isArray(items) || !items.length) return null;
 
   // Collect item_numbers that appear in this order
@@ -147,11 +198,13 @@ async function validateFtlLots(items) {
 
   if (!itemNumbers.length) return null;
 
-  // Fetch product descriptions to determine which items require lot tracing
-  const { data: products, error: prodErr } = await supabase
-    .from('products')
-    .select('item_number, description')
-    .in('item_number', itemNumbers);
+  // Fetch product descriptions to determine which items require lot tracing.
+  // Tenant-scoped so another company's product (shared item_number) cannot
+  // alter this order's FTL determination.
+  const { data: products, error: prodErr } = await scopeQueryByContext(
+    supabase.from('products').select('item_number, description'),
+    context
+  ).in('item_number', itemNumbers);
 
   if (prodErr) return `Could not verify product lot requirements: ${prodErr.message}`;
 
@@ -179,11 +232,12 @@ async function validateFtlLots(items) {
 
   if (!lotIds.length) return null;
 
-  // Validate each lot_id belongs to the correct product
-  const { data: lots, error: lotErr } = await supabase
-    .from('lot_codes')
-    .select('id, lot_number, product_id')
-    .in('id', lotIds);
+  // Validate each lot_id belongs to the correct product. Tenant-scoped so a
+  // caller cannot assign another company's lot to their order.
+  const { data: lots, error: lotErr } = await scopeQueryByContext(
+    supabase.from('lot_codes').select('id, lot_number, product_id'),
+    context
+  ).in('id', lotIds);
 
   if (lotErr) return `Could not verify lot assignments: ${lotErr.message}`;
 
@@ -208,7 +262,7 @@ async function validateFtlLots(items) {
 }
 
 // Fetch lot metadata and embed lot_number + quantity_from_lot into each item that has a lot_id.
-async function enrichItemsWithLotData(items) {
+async function enrichItemsWithLotData(items, context) {
   if (!Array.isArray(items) || !items.length) return items || [];
 
   const lotIds = [...new Set(
@@ -216,10 +270,11 @@ async function enrichItemsWithLotData(items) {
   )];
   if (!lotIds.length) return items;
 
-  const { data: lots } = await supabase
-    .from('lot_codes')
-    .select('id, lot_number, expiration_date')
-    .in('id', lotIds);
+  // Tenant-scoped: only embed lot metadata for the caller's own lots.
+  const { data: lots } = await scopeQueryByContext(
+    supabase.from('lot_codes').select('id, lot_number, expiration_date'),
+    context
+  ).in('id', lotIds);
 
   const lotMap = Object.create(null);
   (lots || []).forEach((l) => {
@@ -242,26 +297,31 @@ async function enrichItemsWithLotData(items) {
   });
 }
 
-async function enrichItemsWithCatchWeightData(items) {
+async function enrichItemsWithCatchWeightData(items, context) {
   if (!Array.isArray(items) || !items.length) return items || [];
 
   const productIds = [...new Set(items.map((item) => normalizeText(item.product_id)).filter(Boolean))];
   const itemNumbers = [...new Set(items.map((item) => normalizeText(item.item_number)).filter(Boolean))];
   const products = [];
 
+  // Tenant-scoped: catch-weight pricing must come from the caller's own products.
   if (productIds.length) {
-    const { data, error } = await supabase
-      .from('products')
-      .select('id,item_number,name,description,is_catch_weight,catch_weight_unit,estimated_unit_weight,weight_tolerance_pct,pricing_method,price_per_unit')
-      .in('id', productIds);
+    const { data, error } = await scopeQueryByContext(
+      supabase
+        .from('products')
+        .select('id,item_number,name,description,is_catch_weight,catch_weight_unit,estimated_unit_weight,weight_tolerance_pct,pricing_method,price_per_unit'),
+      context
+    ).in('id', productIds);
     if (!error && Array.isArray(data)) products.push(...data);
   }
 
   if (itemNumbers.length) {
-    const { data, error } = await supabase
-      .from('products')
-      .select('id,item_number,name,description,is_catch_weight,catch_weight_unit,estimated_unit_weight,weight_tolerance_pct,pricing_method,price_per_unit')
-      .in('item_number', itemNumbers);
+    const { data, error } = await scopeQueryByContext(
+      supabase
+        .from('products')
+        .select('id,item_number,name,description,is_catch_weight,catch_weight_unit,estimated_unit_weight,weight_tolerance_pct,pricing_method,price_per_unit'),
+      context
+    ).in('item_number', itemNumbers);
     if (!error && Array.isArray(data)) products.push(...data);
   }
 
@@ -475,6 +535,7 @@ function invoiceItemsFromOrder(order, fulfilledItems) {
         is_catch_weight: true,
         weight_confirmed: hasActual,
         item_number: it.item_number || null,
+        product_id: it.product_id || null,
         lot_id: it.lot_id || null,
         lot_number: it.lot_number || null,
         quantity_from_lot: it.quantity_from_lot || null,
@@ -496,6 +557,7 @@ function invoiceItemsFromOrder(order, fulfilledItems) {
       unit_price: unitPrice,
       total: asMoney(qty * unitPrice),
       item_number: it.item_number || null,
+      product_id: it.product_id || null,
       lot_id: it.lot_id || null,
       lot_number: it.lot_number || null,
       quantity_from_lot: it.quantity_from_lot || null,
@@ -779,6 +841,11 @@ async function createOrUpdateProcessingInvoice(order, fulfilledItems, overrides,
     fulfilledItems,
     existingInvoice ? { ...overrides, invoice_number: existingInvoice.invoice_number } : overrides
   );
+  const minimumSellViolation = await findMinimumSellViolation(payload.items, req.context);
+  if (minimumSellViolation && !hasMinimumSellOverride(req.user)) {
+    if (res) sendMinimumSellViolation(res, minimumSellViolation);
+    return null;
+  }
 
   if (existingInvoice?.id) {
     let updateResult = await executeWithOptionalScope(
@@ -932,12 +999,16 @@ router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole
   }
 
   // FSMA 204: validate FTL product lot assignments before creating the order
-  const ftlError = await validateFtlLots(items);
+  const ftlError = await validateFtlLots(items, req.context);
   if (ftlError) return res.status(422).json({ error: ftlError, code: 'FTL_LOT_REQUIRED' });
 
   // Enrich items with lot metadata (lot_number, quantity_from_lot) from lot_codes
-  const lotEnrichedItems = await enrichItemsWithLotData(items);
-  const enrichedItems = await enrichItemsWithCatchWeightData(lotEnrichedItems);
+  const lotEnrichedItems = await enrichItemsWithLotData(items, req.context);
+  const enrichedItems = await enrichItemsWithCatchWeightData(lotEnrichedItems, req.context);
+  const minimumSellViolation = await findMinimumSellViolation(enrichedItems, req.context);
+  if (minimumSellViolation && !hasMinimumSellOverride(req.user)) {
+    return sendMinimumSellViolation(res, minimumSellViolation);
+  }
 
   const orderNumber = 'ORD-' + Date.now().toString().slice(-6);
   const trackingToken = generateTrackingToken();
@@ -1077,10 +1148,14 @@ router.patch('/:id', validateBody(orderUpdateSchema), authenticateToken, require
   }
   if (req.body.customerAddress !== undefined) updates.customer_address = fulfillmentType === 'delivery' ? (req.body.customerAddress || null) : null;
   if (req.body.items !== undefined) {
-    const ftlError = await validateFtlLots(req.body.items);
+    const ftlError = await validateFtlLots(req.body.items, req.context);
     if (ftlError) return res.status(422).json({ error: ftlError, code: 'FTL_LOT_REQUIRED' });
-    const lotEnrichedItems = await enrichItemsWithLotData(req.body.items);
-    updates.items = await enrichItemsWithCatchWeightData(lotEnrichedItems);
+    const lotEnrichedItems = await enrichItemsWithLotData(req.body.items, req.context);
+    updates.items = await enrichItemsWithCatchWeightData(lotEnrichedItems, req.context);
+    const minimumSellViolation = await findMinimumSellViolation(updates.items, req.context);
+    if (minimumSellViolation && !hasMinimumSellOverride(req.user)) {
+      return sendMinimumSellViolation(res, minimumSellViolation);
+    }
 
     // Credit recheck on order edits — only blocks when the new estimate is
     // higher than the previous one. A reduction in scope should never be
@@ -1407,4 +1482,3 @@ module.exports.validateFtlLots = validateFtlLots;
 module.exports.enrichItemsWithLotData = enrichItemsWithLotData;
 module.exports.enrichItemsWithCatchWeightData = enrichItemsWithCatchWeightData;
 module.exports.findInventoryMatchForFulfillment = findInventoryMatchForFulfillment;
-

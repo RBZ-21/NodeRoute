@@ -36,6 +36,8 @@ const searchRouter        = require('./routes/search');
 const userPreferencesRouter = require('./routes/user-preferences');
 const productMediaRouter  = require('./routes/product-media');
 const mapsRouter          = require('./routes/maps');
+const pricingRouter       = require('./routes/pricing');
+const promotionsRouter    = require('./routes/promotions');
 const portalRouter        = require('./routes/portal');
 const driverRouter        = require('./routes/driver');
 const driversRouter       = require('./routes/drivers');
@@ -234,6 +236,8 @@ app.use('/api/user-preferences', requireApiAuth, userPreferencesRouter);
 app.use('/api/dashboard-layouts', requireApiAuth, userPreferencesRouter.dashboardLayoutsRouter);
 app.use('/api/product-media', requireApiAuth, productMediaRouter);
 app.use('/api/maps', requireApiAuth, mapsRouter);
+app.use('/api/pricing', requireApiAuth, pricingRouter);
+app.use('/api/promotions', requireApiAuth, promotionsRouter);
 app.use('/api/driver', requireApiAuth, driverRouter);
 app.use('/api/drivers', requireApiAuth, driversRouter);
 app.use('/api/vendors', requireApiAuth, vendorsRouter);
@@ -291,7 +295,7 @@ app.get(/^\/driver-app\/.*/, (req, res) => res.sendFile(driverAppEntry));
 const frontendV2Routes = [
   '/orders', '/deliveries', '/map', '/drivers', '/routes', '/stops',
   '/customers', '/users', '/invoices', '/analytics', '/inventory',
-  '/forecast', '/financials', '/purchasing', '/reorder', '/vendors', '/warehouse',
+  '/forecast', '/financials', '/pricing', '/purchasing', '/reorder', '/vendors', '/warehouse',
   '/planning', '/integrations', '/aihelp', '/settings', '/reports',
   '/admin/traceability',
   '/superadmin/companies',
