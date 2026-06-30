@@ -15,7 +15,7 @@ import {
   DollarSign, Receipt, Lock,
   BarChart2, Sparkles, FileText, Bot,
   User, Building2, Settings, Plug, CheckSquare, Calendar, ScanSearch,
-  Phone,
+  Phone, ShieldCheck,
 } from 'lucide-react';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -80,6 +80,7 @@ const CompliancePage   = lazyNamed(() => import('../pages/ComplianceDashboardPag
 const PlanningPage     = lazyNamed(() => import('../pages/PlanningPage'), 'PlanningPage');
 const AuditLogPage     = lazyNamed(() => import('../pages/AuditLogPage'), 'AuditLogPage');
 const PhoneOrdersPage  = lazyNamed(() => import('../pages/PhoneOrdersPage'), 'PhoneOrdersPage');
+const SuperadminPage   = lazyNamed(() => import('../pages/SuperadminPage'), 'SuperadminPage');
 
 export const NAV_ITEM_IDS = {
   dashboard: 'dashboard',
@@ -112,6 +113,7 @@ export const NAV_ITEM_IDS = {
   compliance: 'compliance',
   planning: 'planning',
   auditLog: 'audit-log',
+  superadmin: 'superadmin',
 } as const;
 
 // ── Nav groups ────────────────────────────────────────────────────────────────
@@ -182,6 +184,7 @@ export const navGroups: NavGroup[] = [
     id: 'admin',
     label: 'Admin',
     items: [
+      { id: NAV_ITEM_IDS.superadmin, label: 'Superadmin', path: '/superadmin', icon: ShieldCheck, component: SuperadminPage, roles: ['superadmin'] },
       { id: NAV_ITEM_IDS.users, label: 'Users', path: '/users', icon: User, component: UsersPage, roles: ['admin', 'superadmin'] },
       { id: NAV_ITEM_IDS.companies, label: 'Companies', path: '/companies', icon: Building2, component: CompaniesPage, roles: ['superadmin'] },
       { id: NAV_ITEM_IDS.settings, label: 'Settings', path: '/settings', icon: Settings, component: SettingsPage },
