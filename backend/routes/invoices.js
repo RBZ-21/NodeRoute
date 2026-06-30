@@ -6,8 +6,9 @@ const { buildInvoicePDF } = require('../services/pdf');
 const { loadDriverInvoiceScope } = require('../services/driver-invoice-access');
 const { sendInvoiceEmail } = require('../services/invoice-email');
 const { normalizeInvoiceLots } = require('../services/invoice-lots');
+const pricingEngine = require('../services/pricing-engine');
 const { invoiceImportSchema, invoiceSignSchema } = require('../lib/schemas');
-const { validateBody } = require('../lib/zod-validate');
+const { validateBody, validateParams } = require('../lib/zod-validate');
 const {
   buildScopeFields,
   filterRowsByContext,
@@ -16,12 +17,33 @@ const {
   scopeQueryByContext,
 } = require('../services/operating-context');
 const creditEngine = require('../services/creditEngine');
+const arLedger = require('../services/ar-ledger');
 
 const router = express.Router();
 
 const DEFAULT_TAX_RATE = 0.09;
 const MAX_INVOICE_ITEMS = 200;
 const MAX_PROOF_OF_DELIVERY_DATA_URL_LENGTH = 4_000_000;
+
+const idParamsSchema = z.object({
+  id: z.string().trim().min(1, 'id is required').max(120),
+});
+
+const invoiceAddonSchema = z.object({
+  product_id: z.string().trim().min(1, 'product_id is required').max(120),
+  qty: z.coerce.number().positive('qty must be positive'),
+  uom: z.string().trim().max(50).optional().nullable(),
+  price: z.coerce.number().min(0, 'price must be >= 0').optional(),
+  reason: z.string().trim().max(500).optional().nullable(),
+  description: z.string().trim().max(300).optional().nullable(),
+}).passthrough();
+
+const invoiceReturnSchema = z.object({
+  amount: z.coerce.number().min(0, 'amount must be >= 0'),
+  reason: z.string().trim().min(1, 'reason is required').max(500),
+  order_id: z.string().trim().max(120).optional().nullable(),
+  customer_id: z.string().trim().max(120).optional().nullable(),
+}).passthrough();
 
 const invoiceBodySchema = z.object({
   customer_name: z.string().trim().min(1, 'customer_name is required').max(200).optional(),
@@ -56,6 +78,59 @@ function asMoney(value) {
   return parseFloat((parseFloat(value || 0) || 0).toFixed(2));
 }
 
+function normalizeText(value) {
+  return String(value ?? '').trim();
+}
+
+function hasMinimumSellOverride(user) {
+  const role = String(user?.role || '').toLowerCase();
+  return role === 'admin' || role === 'superadmin';
+}
+
+function lineProductRef(item) {
+  return {
+    productId: normalizeText(item?.product_id || item?.productId),
+    itemNumber: normalizeText(item?.item_number || item?.itemNumber),
+  };
+}
+
+function lineUnitPrice(item) {
+  if (item?.is_catch_weight) return parseFloat(item.price_per_lb ?? item.unit_price ?? item.price ?? 0) || 0;
+  return parseFloat(item?.unit_price ?? item?.unitPrice ?? item?.price ?? item?.price_per_lb ?? 0) || 0;
+}
+
+async function findMinimumSellViolation(items, context) {
+  for (const item of Array.isArray(items) ? items : []) {
+    const { productId, itemNumber } = lineProductRef(item);
+    if (!productId && !itemNumber) continue;
+    const result = await pricingEngine.enforceMinimumSell({
+      db: supabase,
+      price: lineUnitPrice(item),
+      productId,
+      itemNumber,
+      context,
+    });
+    if (!result.allowed) {
+      return {
+        item,
+        min_price: result.min_price,
+        source_id: result.source_id,
+      };
+    }
+  }
+  return null;
+}
+
+function sendMinimumSellViolation(res, violation) {
+  return res.status(422).json({
+    error: 'minimum_sell_violation',
+    min_price: violation.min_price,
+    source_id: violation.source_id || null,
+    item_number: violation.item?.item_number || violation.item?.itemNumber || null,
+    product_id: violation.item?.product_id || violation.item?.productId || null,
+  });
+}
+
 function invoiceBodyValue(body, ...keys) {
   for (const key of keys) {
     if (body[key] !== undefined && body[key] !== null && body[key] !== '') return body[key];
@@ -74,8 +149,49 @@ function normalizeInvoiceItems(items = []) {
       unit: item.unit || null,
       unit_price: unitPrice,
       total: asMoney(item.total || quantity * unitPrice),
+      product_id: item.product_id || item.productId || null,
+      item_number: item.item_number || item.itemNumber || null,
     };
   });
+}
+
+function invoiceItemsSubtotal(items = []) {
+  return (Array.isArray(items) ? items : []).reduce((sum, item) => {
+    const quantity = parseFloat(item.quantity ?? item.qty ?? 0) || 0;
+    const unitPrice = parseFloat(item.unit_price ?? item.unitPrice ?? item.price ?? 0) || 0;
+    const total = parseFloat(item.total ?? NaN);
+    return sum + (Number.isFinite(total) ? total : quantity * unitPrice);
+  }, 0);
+}
+
+async function findCustomerIdByName(customerName, context) {
+  const normalized = normalizeText(customerName);
+  if (!normalized) return '';
+  const { data, error } = await scopeQueryByContext(
+    supabase.from('Customers').select('id, company_name'),
+    context,
+  )
+    .eq('company_name', normalized)
+    .limit(1);
+  if (error) return '';
+  return normalizeText(filterRowsByContext(data || [], context)[0]?.id);
+}
+
+async function invoiceCustomerId(invoice, context) {
+  const existing = normalizeText(invoice?.customer_id || invoice?.customerId);
+  if (existing) return existing;
+  return findCustomerIdByName(invoice?.customer_name, context);
+}
+
+async function loadInvoiceProduct(productId, context) {
+  const { data, error } = await scopeQueryByContext(
+    supabase.from('products').select('*'),
+    context,
+  )
+    .eq('id', productId)
+    .limit(1);
+  if (error) throw error;
+  return filterRowsByContext(data || [], context)[0] || null;
 }
 
 function catchWeightInvoiceBlock(items = []) {
@@ -170,6 +286,10 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
     if (catchWeightBlock) return res.status(409).json({ error: catchWeightBlock, code: 'CATCH_WEIGHT_REQUIRED' });
   }
   const items = normalizeInvoiceItems(body.items);
+  const minimumSellViolation = await findMinimumSellViolation(items, req.context);
+  if (minimumSellViolation && !hasMinimumSellOverride(req.user)) {
+    return sendMinimumSellViolation(res, minimumSellViolation);
+  }
   const catchWeightItems = linkedOrder?.items || body.items;
   const subtotal = body.subtotal !== undefined
     ? asMoney(body.subtotal)
@@ -209,6 +329,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
 
   // Credit reactor: balance changed; may need to place a hold or warning.
   // Fire-and-forget — never block the invoice response on a credit decision.
+  arLedger.postInvoice(data.id, { context: req.context }).catch(() => {});
   creditEngine.reactToInvoiceCreated(data.customer_id, data.id, req.context).catch(() => {});
 
   res.json(enrichInvoiceResponse(data));
@@ -305,6 +426,132 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
   }
 
   res.json(enrichInvoiceResponse(data));
+});
+
+router.post('/:id/addons', authenticateToken, requireRole('admin', 'manager'), validateParams(idParamsSchema), validateBody(invoiceAddonSchema), async (req, res) => {
+  const inv = await dbQuery(scopeQueryByContext(supabase.from('invoices').select('*'), req.context).eq('id', req.validated.params.id).single(), res);
+  if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!rowMatchesContext(inv, req.context)) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    const body = req.validated.body;
+    const product = await loadInvoiceProduct(body.product_id, req.context);
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+
+    const customerId = await invoiceCustomerId(inv, req.context);
+    const priceResult = await pricingEngine.resolvePrice({
+      db: supabase,
+      customerId,
+      productId: body.product_id,
+      qty: body.qty,
+      uom: body.uom || product.unit || 'each',
+      context: req.context,
+    });
+    const unitPrice = body.price != null ? asMoney(body.price) : asMoney(priceResult.price);
+    const minimumSell = await pricingEngine.enforceMinimumSell({
+      db: supabase,
+      price: unitPrice,
+      productId: body.product_id,
+      context: req.context,
+    });
+    if (!minimumSell.allowed && !hasMinimumSellOverride(req.user)) {
+      return sendMinimumSellViolation(res, {
+        item: { product_id: body.product_id, item_number: product.item_number },
+        min_price: minimumSell.min_price,
+        source_id: minimumSell.source_id,
+      });
+    }
+
+    const addonInsert = await insertRecordWithOptionalScope(supabase, 'invoice_addons', {
+      invoice_id: inv.id,
+      product_id: body.product_id,
+      qty: body.qty,
+      uom: body.uom || product.unit || null,
+      price: unitPrice,
+      added_by: req.user?.id || null,
+      added_at: new Date().toISOString(),
+      reason: body.reason || null,
+    }, req.context);
+    if (addonInsert.error) throw addonInsert.error;
+
+    const addonLine = {
+      description: body.description || product.description || product.name || product.item_number || body.product_id,
+      notes: body.reason || null,
+      quantity: body.qty,
+      unit: body.uom || product.unit || null,
+      unit_price: unitPrice,
+      total: asMoney(body.qty * unitPrice),
+      product_id: body.product_id,
+      item_number: product.item_number || null,
+      invoice_addon_id: addonInsert.data?.id || null,
+      resolved_price: priceResult,
+      added_by: req.user?.id || null,
+      added_at: addonInsert.data?.added_at || new Date().toISOString(),
+    };
+    const items = [...normalizeInvoiceItems(inv.items || []), addonLine];
+    const previousSubtotal = inv.subtotal != null ? asMoney(inv.subtotal) : asMoney(invoiceItemsSubtotal(inv.items || []));
+    const subtotal = asMoney(previousSubtotal + addonLine.total);
+    const tax = asMoney(inv.tax || 0);
+    const total = asMoney(subtotal + tax);
+
+    const updated = await dbQuery(
+      scopeQueryByContext(supabase.from('invoices').update({
+        items,
+        subtotal,
+        total,
+        amount: total,
+      }), req.context)
+        .eq('id', inv.id)
+        .select()
+        .single(),
+      res,
+    );
+    if (!updated) return;
+    res.status(201).json({
+      invoice: enrichInvoiceResponse(updated),
+      addon: addonInsert.data,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to add invoice item' });
+  }
+});
+
+router.post('/:id/returns', authenticateToken, requireRole('admin', 'manager'), validateParams(idParamsSchema), validateBody(invoiceReturnSchema), async (req, res) => {
+  const inv = await dbQuery(scopeQueryByContext(supabase.from('invoices').select('*'), req.context).eq('id', req.validated.params.id).single(), res);
+  if (!inv) return res.status(404).json({ error: 'Invoice not found' });
+  if (!rowMatchesContext(inv, req.context)) return res.status(403).json({ error: 'Forbidden' });
+
+  try {
+    const body = req.validated.body;
+    const customerId = body.customer_id || await invoiceCustomerId(inv, req.context);
+    if (!customerId) return res.status(400).json({ error: 'customer_id is required for returns' });
+
+    const returnInsert = await insertRecordWithOptionalScope(supabase, 'customer_returns', {
+      order_id: body.order_id || inv.order_id || null,
+      invoice_id: inv.id,
+      customer_id: customerId,
+      return_date: new Date().toISOString().slice(0, 10),
+      status: 'credited',
+      created_by: req.user?.id || null,
+    }, req.context);
+    if (returnInsert.error) throw returnInsert.error;
+
+    const memoInsert = await insertRecordWithOptionalScope(supabase, 'credit_memos', {
+      customer_id: customerId,
+      original_invoice_id: inv.id,
+      amount: asMoney(body.amount),
+      reason: body.reason,
+      status: 'issued',
+    }, req.context);
+    if (memoInsert.error) throw memoInsert.error;
+
+    res.status(201).json({
+      return: returnInsert.data,
+      credit_memo: memoInsert.data,
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || 'Failed to create return credit' });
+  }
 });
 
 // Save signature → generate PDF → email customer

@@ -1,5 +1,5 @@
 const { supabase } = require('./supabase');
-const { buildScopeFields } = require('./operating-context');
+const { buildScopeFields, executeWithOptionalScope } = require('./operating-context');
 
 function toNumber(value, fallback = 0) {
   const n = parseFloat(value);
@@ -52,6 +52,10 @@ async function applyInventoryLedgerEntry({
   createdBy = 'system',
   lotId = null,
   unitCost = null,
+  cost_basis = null,
+  uom = null,
+  conversion_factor = null,
+  ledger_ref = null,
   preventNegative = true,
   setAbsoluteQty = null,
   context = null,
@@ -105,6 +109,10 @@ async function applyInventoryLedgerEntry({
     change_type: String(changeType || 'adjustment').trim() || 'adjustment',
     notes: notes || null,
     created_by: createdBy || 'system',
+    cost_basis: cost_basis == null ? null : roundCost(cost_basis),
+    uom: uom == null ? null : String(uom).trim() || null,
+    conversion_factor: conversion_factor == null ? null : toNumber(conversion_factor, null),
+    ledger_ref: ledger_ref == null ? null : String(ledger_ref),
     ...buildScopeFields(context || {}, {
       company_id: item.company_id || undefined,
       location_id: item.location_id || undefined,
@@ -112,11 +120,12 @@ async function applyInventoryLedgerEntry({
   };
   if (lotId) historyPayload.lot_id = lotId;
 
-  const { error: historyErr } = await supabase
-    .from('inventory_stock_history')
-    .insert([historyPayload]);
-  if (historyErr) {
-    throw formatLedgerError(historyErr.message, 'LEDGER_HISTORY_FAILED', { item_number: item.item_number });
+  const historyResult = await executeWithOptionalScope(
+    (candidate) => supabase.from('inventory_stock_history').insert([candidate]),
+    historyPayload
+  );
+  if (historyResult.error) {
+    throw formatLedgerError(historyResult.error.message, 'LEDGER_HISTORY_FAILED', { item_number: item.item_number });
   }
 
   return {

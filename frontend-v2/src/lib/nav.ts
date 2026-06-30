@@ -10,11 +10,12 @@ import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard, Package, Map, Globe2,
   Factory, ShoppingCart, Warehouse, Search,
+  PackageCheck,
   Users, Handshake, ClipboardList, Briefcase,
   DollarSign, Receipt, Lock,
   BarChart2, Sparkles, FileText, Bot,
   User, Building2, Settings, Plug, CheckSquare, Calendar, ScanSearch,
-  Phone,
+  Phone, ShieldCheck,
 } from 'lucide-react';
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -55,6 +56,7 @@ const OrdersPage       = lazyNamed(() => import('../pages/OrdersPage'), 'OrdersP
 const RoutesPage       = lazyNamed(() => import('../pages/RoutesPage'), 'RoutesPage');
 const MapPage          = lazyNamed(() => import('../pages/MapPage'), 'MapPage');
 const InventoryPage    = lazyNamed(() => import('../pages/InventoryPage'), 'InventoryPage');
+const KitsPage         = lazyNamed(() => import('../pages/KitsPage'), 'KitsPage');
 const PurchasingPage   = lazyNamed(() => import('../pages/PurchasingPage'), 'PurchasingPage');
 const WarehousePage    = lazyNamed(() => import('../pages/WarehousePage'), 'WarehousePage');
 const TraceabilityPage = lazyNamed(() => import('../pages/TraceabilityPage'), 'TraceabilityPage');
@@ -63,6 +65,7 @@ const VendorsPage      = lazyNamed(() => import('../pages/VendorsPage'), 'Vendor
 const DSRPage          = lazyNamed(() => import('../pages/DSRPage'), 'DSRPage');
 const SalesRepPage     = lazyNamed(() => import('../pages/SalesRepPage'), 'SalesRepPage');
 const FinancialsPage   = lazyNamed(() => import('../pages/FinancialsPage'), 'FinancialsPage');
+const PricingPage      = lazyNamed(() => import('../pages/PricingPage'), 'PricingPage');
 const InvoicesPage     = lazyNamed(() => import('../pages/InvoicesPage'), 'InvoicesPage');
 const CreditHoldPage   = lazyNamed(() => import('../pages/CreditHoldPage'), 'CreditHoldPage');
 const AnalyticsPage    = lazyNamed(() => import('../pages/AnalyticsPage'), 'AnalyticsPage');
@@ -77,6 +80,7 @@ const CompliancePage   = lazyNamed(() => import('../pages/ComplianceDashboardPag
 const PlanningPage     = lazyNamed(() => import('../pages/PlanningPage'), 'PlanningPage');
 const AuditLogPage     = lazyNamed(() => import('../pages/AuditLogPage'), 'AuditLogPage');
 const PhoneOrdersPage  = lazyNamed(() => import('../pages/PhoneOrdersPage'), 'PhoneOrdersPage');
+const SuperadminPage   = lazyNamed(() => import('../pages/SuperadminPage'), 'SuperadminPage');
 
 export const NAV_ITEM_IDS = {
   dashboard: 'dashboard',
@@ -85,6 +89,7 @@ export const NAV_ITEM_IDS = {
   routes: 'routes',
   map: 'map',
   inventory: 'inventory',
+  kits: 'kits',
   purchasing: 'purchasing',
   warehouse: 'warehouse',
   traceability: 'traceability',
@@ -93,6 +98,7 @@ export const NAV_ITEM_IDS = {
   salesRep: 'sales-rep',
   phoneOrders: 'phone-orders',
   financials: 'financials',
+  pricing: 'pricing',
   invoices: 'invoices',
   creditHold: 'credit-hold',
   analytics: 'analytics',
@@ -107,6 +113,7 @@ export const NAV_ITEM_IDS = {
   compliance: 'compliance',
   planning: 'planning',
   auditLog: 'audit-log',
+  superadmin: 'superadmin',
 } as const;
 
 // ── Nav groups ────────────────────────────────────────────────────────────────
@@ -135,6 +142,7 @@ export const navGroups: NavGroup[] = [
     label: 'Inventory',
     items: [
       { id: NAV_ITEM_IDS.inventory, label: 'Inventory', path: '/inventory', icon: Factory, component: InventoryPage },
+      { id: NAV_ITEM_IDS.kits, label: 'Kits', path: '/kits', icon: PackageCheck, component: KitsPage, roles: ['admin', 'manager'] },
       { id: 'purchasing', label: 'Purchasing', path: '/purchasing', icon: ShoppingCart, component: PurchasingPage },
       { id: 'warehouse', label: 'Warehouse', path: '/warehouse', icon: Warehouse, component: WarehousePage },
       { id: NAV_ITEM_IDS.traceability, label: 'Traceability', path: '/traceability', icon: Search, component: TraceabilityPage },
@@ -155,6 +163,7 @@ export const navGroups: NavGroup[] = [
     label: 'Financials',
     items: [
       { id: NAV_ITEM_IDS.financials, label: 'Financials', path: '/financials', icon: DollarSign, component: FinancialsPage },
+      { id: NAV_ITEM_IDS.pricing, label: 'Pricing', path: '/pricing', icon: DollarSign, component: PricingPage, roles: ['admin', 'manager'] },
       { id: NAV_ITEM_IDS.invoices, label: 'Invoices', path: '/invoices', icon: Receipt, component: InvoicesPage },
       { id: NAV_ITEM_IDS.creditHold, label: 'Credit Hold', path: '/credit-hold', icon: Lock, component: CreditHoldPage, roles: ['admin', 'manager'] },
     ],
@@ -175,6 +184,7 @@ export const navGroups: NavGroup[] = [
     id: 'admin',
     label: 'Admin',
     items: [
+      { id: NAV_ITEM_IDS.superadmin, label: 'Superadmin', path: '/superadmin', icon: ShieldCheck, component: SuperadminPage, roles: ['superadmin'] },
       { id: NAV_ITEM_IDS.users, label: 'Users', path: '/users', icon: User, component: UsersPage, roles: ['admin', 'superadmin'] },
       { id: NAV_ITEM_IDS.companies, label: 'Companies', path: '/companies', icon: Building2, component: CompaniesPage, roles: ['superadmin'] },
       { id: NAV_ITEM_IDS.settings, label: 'Settings', path: '/settings', icon: Settings, component: SettingsPage },

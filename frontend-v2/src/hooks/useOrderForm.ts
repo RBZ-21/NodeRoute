@@ -124,6 +124,9 @@ export function useOrderForm({
   }
 
   function addLine()  { setLines((c) => [...c, emptyLine()]); }
+  function applyLines(nextLines: OrderLineDraft[]) {
+    setLines(nextLines.length ? nextLines : [emptyLine()]);
+  }
   function removeLine(index: number) { setLines((c) => (c.length === 1 ? c : c.filter((_, i) => i !== index))); }
 
   function reset() {
@@ -323,7 +326,7 @@ export function useOrderForm({
     subtotal, charges, draftTotal,
     ftlSet, catchWeightSet, defaultPriceMap,
     lotsCache,
-    updateLine, toggleLineCatchWeight, addLine, removeLine,
+    updateLine, toggleLineCatchWeight, addLine, applyLines, removeLine,
     reset, populate, buildPayload,
     isDirty,
   };

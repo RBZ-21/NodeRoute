@@ -11,7 +11,7 @@ import {
   usePurchaseOrders,
   useVendorPurchaseOrders,
 } from '../hooks/usePurchasing';
-import { useVendorsQuery } from '../hooks/useVendors';
+import { type Vendor, useVendorsQuery } from '../hooks/useVendors';
 import { VendorPerformanceCard } from './VendorPerformanceCard';
 import { PurchasingReceivingInsights } from './PurchasingReceivingInsights';
 import { ReceivePoDrawer } from './ReceivePoDrawer';
@@ -41,6 +41,14 @@ export function PurchasingPage() {
   const [vendorFilter, setVendorFilter] = useState<'all' | string>(vendorParam || 'all');
   const [activeReceivePo, setActiveReceivePo] = useState<VendorPurchaseOrder | null>(null);
   const [activeDraft, setActiveDraft] = useState<PurchaseOrder | null>(null);
+
+  const planningVendor = useMemo(() => {
+    const selectedVendorName = vendorParam || (vendorFilter === 'all' ? '' : vendorFilter);
+    if (!selectedVendorName) return null;
+    return vendorRecords.find((vendor) =>
+      String(vendor.name || '').trim().toLowerCase() === selectedVendorName.trim().toLowerCase()
+    ) || null;
+  }, [vendorFilter, vendorParam, vendorRecords]);
 
   const summary = useMemo(() => ({
     count: orders.length,
@@ -167,6 +175,29 @@ export function PurchasingPage() {
 
       {/* ── Vendor Performance Scorecard ── */}
       <VendorPerformanceCard />
+
+      {planningVendor ? (
+        <Card>
+          <CardHeader>
+            <CardTitle>Vendor Planning Rules</CardTitle>
+            <CardDescription>{planningVendor.name || 'Selected vendor'}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+              <PlanningMetric label="Minimum Order" value={asNumber(planningVendor.min_order_value) > 0 ? money(asNumber(planningVendor.min_order_value)) : 'None'} />
+              <PlanningMetric label="Pallet Qty" value={planningQuantityLabel(planningVendor.pallet_qty)} />
+              <PlanningMetric label="Layer Qty" value={planningQuantityLabel(planningVendor.layer_qty)} />
+              <PlanningMetric label="Lead Time" value={asNumber(planningVendor.lead_time_days) > 0 ? `${asNumber(planningVendor.lead_time_days)} days` : 'Default'} />
+              <PlanningMetric label="Seasonal Windows" value={`${seasonalWindowCount(planningVendor)} active`} />
+            </div>
+            {!vendorHasPlanningConfig(planningVendor) ? (
+              <div className="mt-3 rounded-md border border-border bg-muted/30 px-3 py-2 text-sm text-muted-foreground">
+                This vendor is using the default reorder calculation.
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <CreatePurchaseOrderForm
         setNotice={setNotice}
@@ -328,4 +359,40 @@ function StatCard({ label, value }: { label: string; value: string }) {
   return (
     <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className="text-2xl">{value}</CardTitle></CardHeader></Card>
   );
+}
+
+function PlanningMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div className="rounded-md border border-border bg-muted/20 px-3 py-2">
+      <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">{label}</div>
+      <div className="mt-1 text-lg font-semibold text-foreground">{value}</div>
+    </div>
+  );
+}
+
+function planningQuantityLabel(value: unknown): string {
+  const parsed = asNumber(value);
+  return parsed > 0 ? parsed.toLocaleString() : 'None';
+}
+
+function seasonalWindowCount(vendor: Vendor): number {
+  const windows = vendor.seasonal_usage_windows;
+  if (Array.isArray(windows)) return windows.length;
+  if (typeof windows === 'string' && windows.trim()) {
+    try {
+      const parsed = JSON.parse(windows);
+      return Array.isArray(parsed) ? parsed.length : 0;
+    } catch {
+      return 0;
+    }
+  }
+  return 0;
+}
+
+function vendorHasPlanningConfig(vendor: Vendor): boolean {
+  return asNumber(vendor.min_order_value) > 0
+    || asNumber(vendor.pallet_qty) > 0
+    || asNumber(vendor.layer_qty) > 0
+    || asNumber(vendor.lead_time_days) > 0
+    || seasonalWindowCount(vendor) > 0;
 }

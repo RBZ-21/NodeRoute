@@ -1,4 +1,6 @@
 import { useEffect, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Button } from '../components/ui/button';
 import { Card, CardHeader, CardDescription } from '../components/ui/card';
 import { fetchWithAuth } from '../lib/api';
 import { InventoryTab } from '../components/warehouse/InventoryTab';
@@ -29,6 +31,7 @@ function NoticeBanner({ msg }: { msg: string }) {
 }
 
 export function WarehousePage() {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('inventory');
   const [summary, setSummary] = useState<WarehouseSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
@@ -73,6 +76,12 @@ export function WarehousePage() {
         <SummaryCard label="Stops Completed" value={summaryLoading ? '—' : (summary?.todayStopsCompleted ?? '—')} />
         <SummaryCard label="Today's Scans" value={summaryLoading ? '—' : (summary?.todayScans ?? '—')} />
         <SummaryCard label="Open Returns" value={summaryLoading ? '—' : (summary?.openReturns ?? '—')} />
+      </div>
+
+      <div className="flex flex-wrap gap-2">
+        <Button variant="outline" onClick={() => navigate('/inventory?tab=cycle-counts')}>Cycle Counts</Button>
+        <Button variant="outline" onClick={() => navigate('/inventory?tab=availability')}>Availability</Button>
+        <Button variant="outline" onClick={() => navigate('/inventory?tab=returns')}>Inventory Returns</Button>
       </div>
 
       <div className="flex gap-1 border-b border-border">

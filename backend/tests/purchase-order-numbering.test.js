@@ -7,7 +7,7 @@ const { generatePurchaseOrderNumber } = require('../services/purchase-order-numb
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const purchaseOrdersRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'purchase-orders.js'), 'utf8');
-const lotPoMigrationSource = fs.readFileSync(path.join(repoRoot, 'supabase', 'migrations', '20260508_lot_codes_source_po_number.sql'), 'utf8');
+const lotPoMigrationSource = fs.readFileSync(path.join(repoRoot, 'supabase', 'migrations', '20260508000000_lot_codes_source_po_number.sql'), 'utf8');
 
 test('generatePurchaseOrderNumber creates a timestamped PO identifier', () => {
   const fixedDate = new Date(2026, 4, 8, 14, 3, 9);

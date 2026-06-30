@@ -79,7 +79,8 @@ test('ops planning endpoints enforce bounded query controls', () => {
   ]) {
     assert.ok(opsRouteSource.includes(constraint), `missing planning constraint ${constraint}`);
   }
-  assert.ok(opsRouteSource.includes("urgency: reorderQty <= 0 ? 'none' : (stock <= avgDaily * leadTimeDays ? 'high' : 'normal')"));
+  assert.ok(opsRouteSource.includes("urgency: roundedReorderQty <= 0 ? 'none' : (stock <= avgDaily * resolvedLeadTimeDays ? 'high' : 'normal')"));
+  assert.ok(opsRouteSource.includes('vendorConfig'));
 });
 
 test('operations workspace tabs are registered in the React nav', () => {

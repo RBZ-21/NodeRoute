@@ -11,7 +11,7 @@ function source(...parts) {
 
 const salesRepRoute = source('backend', 'routes', 'sales-reps.js');
 const crmMigration = source('supabase', 'migrations', '20260504_crm_ar_hub.sql');
-const forecastMigration = source('supabase', 'migrations', '20260518_sales_rep_forecast_items.sql');
+const forecastMigration = source('supabase', 'migrations', '20260518000600_sales_rep_forecast_items.sql');
 
 test('Sales Rep Hub tables and columns are backed by migrations', () => {
   for (const marker of [

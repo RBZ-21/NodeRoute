@@ -40,11 +40,30 @@ export function clearSession() {
   localStorage.removeItem(SESSION_EXPIRES_AT_KEY);
 }
 
+function normalizedBasePath(baseUrl: string | undefined) {
+  const base = String(baseUrl || '').trim();
+  if (!base || base === '/' || base === './') return '';
+  const withLeadingSlash = base.startsWith('/') ? base : `/${base}`;
+  return withLeadingSlash.endsWith('/') ? withLeadingSlash.slice(0, -1) : withLeadingSlash;
+}
+
+export function loginRedirectUrl(
+  currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`,
+  baseUrl = import.meta.env.BASE_URL,
+) {
+  const configuredBase = normalizedBasePath(baseUrl);
+  const currentPathname = currentPath.split(/[?#]/)[0] || '/';
+  const activeBase = configuredBase && (currentPathname === configuredBase || currentPathname.startsWith(`${configuredBase}/`))
+    ? configuredBase
+    : '';
+  const loginPath = `${activeBase}/login`;
+  const next = currentPath && currentPath !== loginPath ? `?next=${encodeURIComponent(currentPath)}` : '';
+  return `${loginPath}${next}`;
+}
+
 export function redirectToLogin(message?: string) {
   if (message) saveAuthError(message);
-  const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-  const next = currentPath && currentPath !== '/login' ? `?next=${encodeURIComponent(currentPath)}` : '';
-  window.location.href = `/login${next}`;
+  window.location.href = loginRedirectUrl();
 }
 
 /** Read the CSRF token from the readable csrf-token cookie the server sets on login. */

@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../components/ui/button';
+import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Combobox } from '../components/ui/combobox';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth } from '../lib/api';
+import { fetchWithAuth, getUserRole, sendWithAuth } from '../lib/api';
 import { useRoutes } from '../hooks/useRoutes';
 import { asMoney, asNumber, fmtDate, normalizeText, productSelectionKey } from './orders.types';
 import type { Customer, InventoryProduct, LotCode, OrderCharge, OrderLineDraft } from './orders.types';
@@ -35,6 +36,7 @@ type Props = {
   updateLine: (index: number, key: keyof OrderLineDraft, value: string) => void;
   toggleLineCatchWeight: (index: number) => void;
   addLine: () => void;
+  applyLines: (lines: OrderLineDraft[]) => void;
   removeLine: (index: number) => void;
   onSubmit: (sendToProcessing: boolean) => void;
   onCancel: () => void;
@@ -42,6 +44,56 @@ type Props = {
   productsLoading?: boolean;
   validationErrors?: OrderFormValidationErrors;
 };
+
+type ResolvedLinePrice = {
+  price: number;
+  method: string;
+  source_id?: string | null;
+  minimum_sell?: {
+    allowed: boolean;
+    min_price: number | null;
+    source_id?: string | null;
+  };
+};
+
+type OrderGuideItem = {
+  product_id: string;
+  default_qty?: number | string | null;
+  default_uom?: string | null;
+  sort_order?: number | string | null;
+};
+
+type OrderGuide = {
+  id: string;
+  name: string;
+  items?: OrderGuideItem[];
+};
+
+type HotMessage = {
+  id?: string;
+  message: string;
+  message_type?: string;
+};
+
+type ScanResponse = {
+  action?: string;
+  order?: {
+    items?: Array<Record<string, unknown>>;
+  };
+};
+
+function normalizeResolvedLinePrice(value: unknown): ResolvedLinePrice | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const candidate = value as Partial<ResolvedLinePrice>;
+  if (candidate.price == null) return null;
+  const price = asNumber(candidate.price);
+  if (!Number.isFinite(price)) return null;
+  return {
+    ...candidate,
+    price,
+    method: String(candidate.method || 'resolved'),
+  };
+}
 
 export type OrderFormValidationErrors = Partial<Record<
   'customerName' | 'customerEmail' | 'customerAddress' | 'items',
@@ -71,10 +123,12 @@ export function OrderFormCard({
   lines, products, lotsCache, ftlSet, catchWeightSet,
   subtotal, charges, draftTotal,
   updateLine, toggleLineCatchWeight, addLine, removeLine,
+  applyLines,
   onSubmit, onCancel, submitting, productsLoading = false,
   validationErrors = {},
 }: Props) {
   const { data: routes = [] } = useRoutes();
+  const userRole = getUserRole();
 
   const lookupInFlightRef = useRef<string | null>(null);
   const lookupDisabledRef = useRef(false);
@@ -83,6 +137,15 @@ export function OrderFormCard({
   const [addressLookupLoading, setAddressLookupLoading] = useState(false);
   const [browseLineIndex, setBrowseLineIndex] = useState<number | null>(null);
   const [browseSearch, setBrowseSearch] = useState('');
+  const [resolvedLinePrices, setResolvedLinePrices] = useState<Record<number, ResolvedLinePrice>>({});
+  const [pricingError, setPricingError] = useState('');
+  const [orderGuides, setOrderGuides] = useState<OrderGuide[]>([]);
+  const [hotMessages, setHotMessages] = useState<HotMessage[]>([]);
+  const [selectedGuideId, setSelectedGuideId] = useState('');
+  const [workflowError, setWorkflowError] = useState('');
+  const [workflowNotice, setWorkflowNotice] = useState('');
+  const [barcodeValue, setBarcodeValue] = useState('');
+  const [scanLoading, setScanLoading] = useState(false);
 
   useEffect(() => () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -189,6 +252,153 @@ export function OrderFormCard({
     [products],
   );
 
+  const selectedCustomerId = useMemo(() => {
+    const normalized = normalizedCustomerName(customerName);
+    if (!normalized) return '';
+    return customers.find((customer) => normalizedCustomerName(customer.company_name || '') === normalized)?.id || '';
+  }, [customerName, customers]);
+
+  function lineDraftFromProduct(product: InventoryProduct | undefined, guideItem: Partial<OrderGuideItem> = {}): OrderLineDraft {
+    const qty = String(guideItem.default_qty ?? '1');
+    const itemNumber = normalizeText(product?.item_number);
+    const productId = normalizeText(product?.id || guideItem.product_id);
+    const isCatchWeight = !!product?.is_catch_weight;
+    const defaultUnit = normalizeText(guideItem.default_uom || product?.unit).toLowerCase() === 'lb' ? 'lb' : 'each';
+    return {
+      productId,
+      name: normalizeText(product?.description) || itemNumber || productId,
+      itemNumber,
+      unit: isCatchWeight ? 'lb' : defaultUnit,
+      quantity: isCatchWeight ? '' : qty,
+      requestedWeight: !isCatchWeight && defaultUnit === 'lb' ? qty : '',
+      unitPrice: !isCatchWeight && asNumber(product?.cost) > 0 ? String(asNumber(product?.cost)) : '',
+      notes: '',
+      lotId: '',
+      isCatchWeight,
+      estimatedWeight: isCatchWeight ? qty : '',
+      pricePerLb: isCatchWeight && product?.default_price_per_lb != null ? String(asNumber(product.default_price_per_lb)) : '',
+    };
+  }
+
+  function lineDraftFromOrderItem(item: Record<string, unknown>): OrderLineDraft {
+    const productId = normalizeText(item.product_id);
+    const itemNumber = normalizeText(item.item_number);
+    const product = products.find((candidate) =>
+      normalizeText(candidate.id) === productId
+      || (itemNumber && normalizeText(candidate.item_number) === itemNumber)
+    );
+    const isCatchWeight = item.is_catch_weight === true;
+    const unit = isCatchWeight || normalizeText(item.unit).toLowerCase() === 'lb' ? 'lb' : 'each';
+    return {
+      productId: productId || normalizeText(product?.id),
+      name: normalizeText(item.name || item.description || product?.description),
+      itemNumber: itemNumber || normalizeText(product?.item_number),
+      unit,
+      quantity: isCatchWeight ? '' : String(item.requested_qty ?? item.quantity ?? ''),
+      requestedWeight: !isCatchWeight && unit === 'lb' ? String(item.requested_weight ?? item.quantity ?? '') : '',
+      unitPrice: isCatchWeight ? '' : String(item.unit_price ?? item.price ?? ''),
+      notes: normalizeText(item.notes),
+      lotId: normalizeText(item.lot_id),
+      isCatchWeight,
+      estimatedWeight: isCatchWeight ? String(item.estimated_weight ?? item.requested_weight ?? item.quantity ?? '') : '',
+      pricePerLb: isCatchWeight ? String(item.price_per_lb ?? item.unit_price ?? '') : '',
+    };
+  }
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadWorkflowContext() {
+      if (!selectedCustomerId) {
+        setOrderGuides([]);
+        setHotMessages([]);
+        setSelectedGuideId('');
+        setWorkflowError('');
+        return;
+      }
+      try {
+        const [guidesResult, messagesResult] = await Promise.all([
+          fetchWithAuth<{ guides?: OrderGuide[] }>(`/api/order-guides?customerId=${encodeURIComponent(selectedCustomerId)}`),
+          fetchWithAuth<{ messages?: HotMessage[] }>(`/api/customer-messages?customerId=${encodeURIComponent(selectedCustomerId)}&type=order_entry`),
+        ]);
+        if (!cancelled) {
+          setOrderGuides(guidesResult.guides || []);
+          setHotMessages(messagesResult.messages || []);
+          setWorkflowError('');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setOrderGuides([]);
+          setHotMessages([]);
+          setWorkflowError(String((error as Error)?.message || 'Could not load customer order context'));
+        }
+      }
+    }
+    void loadWorkflowContext();
+    return () => { cancelled = true; };
+  }, [selectedCustomerId]);
+
+  const pricingLookupKey = useMemo(
+    () => lines.map((line) => [
+      normalizeText(line.productId),
+      normalizeText(line.itemNumber),
+      line.quantity,
+      line.requestedWeight,
+      line.estimatedWeight,
+      line.unit,
+      line.isCatchWeight ? 'cw' : 'std',
+    ].join(':')).join('|'),
+    [lines],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+    async function loadResolvedPrices() {
+      if (!selectedCustomerId) {
+        setResolvedLinePrices({});
+        setPricingError('');
+        return;
+      }
+
+      const lookups = lines
+        .map((line, index) => ({ line, index }))
+        .filter(({ line }) => normalizeText(line.productId) || normalizeText(line.itemNumber));
+
+      if (!lookups.length) {
+        setResolvedLinePrices({});
+        setPricingError('');
+        return;
+      }
+
+      try {
+        const entries = await Promise.all(lookups.map(async ({ line, index }) => {
+          const productId = normalizeText(line.productId) || `item:${normalizeText(line.itemNumber)}`;
+          const qty = line.isCatchWeight
+            ? asNumber(line.estimatedWeight)
+            : line.unit === 'lb'
+              ? asNumber(line.requestedWeight || line.quantity)
+              : asNumber(line.quantity);
+          const result = await fetchWithAuth<unknown>(
+            `/api/pricing/resolve?customerId=${encodeURIComponent(selectedCustomerId)}&productId=${encodeURIComponent(productId)}&qty=${encodeURIComponent(String(qty || 1))}&uom=${encodeURIComponent(line.unit || '')}`,
+          );
+          const normalized = normalizeResolvedLinePrice(result);
+          return normalized ? ([index, normalized] as const) : null;
+        }));
+        if (!cancelled) {
+          setResolvedLinePrices(Object.fromEntries(entries.filter((entry): entry is readonly [number, ResolvedLinePrice] => Boolean(entry))));
+          setPricingError('');
+        }
+      } catch (error) {
+        if (!cancelled) {
+          setPricingError(String((error as Error)?.message || 'Could not resolve line pricing'));
+          setResolvedLinePrices({});
+        }
+      }
+    }
+
+    void loadResolvedPrices();
+    return () => { cancelled = true; };
+  }, [lines, pricingLookupKey, selectedCustomerId]);
+
   const browsableProducts = useMemo(() => {
     const needle = normalizeText(browseSearch).toLowerCase();
     return products
@@ -213,6 +423,37 @@ export function OrderFormCard({
     updateLine(index, 'productId', productSelectionKey(product));
     setBrowseLineIndex(null);
     setBrowseSearch('');
+  }
+
+  function applySelectedGuide() {
+    const guide = orderGuides.find((candidate) => candidate.id === selectedGuideId);
+    if (!guide) return;
+    const nextLines = (guide.items || [])
+      .slice()
+      .sort((a, b) => asNumber(a.sort_order) - asNumber(b.sort_order))
+      .map((item) => lineDraftFromProduct(products.find((product) => normalizeText(product.id) === normalizeText(item.product_id)), item));
+    if (!nextLines.length) return;
+    applyLines(nextLines);
+    setWorkflowNotice(`Applied ${guide.name}.`);
+  }
+
+  async function scanBarcode() {
+    const barcode = barcodeValue.trim();
+    if (!editingOrderId || !barcode || scanLoading) return;
+    setScanLoading(true);
+    setWorkflowError('');
+    setWorkflowNotice('');
+    try {
+      const result = await sendWithAuth<ScanResponse>(`/api/orders/${encodeURIComponent(editingOrderId)}/scan`, 'POST', { barcode });
+      const nextItems = result.order?.items || [];
+      if (nextItems.length) applyLines(nextItems.map(lineDraftFromOrderItem));
+      setBarcodeValue('');
+      setWorkflowNotice(result.action === 'duplicate' ? 'Barcode already scanned for this draft.' : 'Barcode scan applied.');
+    } catch (error) {
+      setWorkflowError(String((error as Error)?.message || 'Could not scan barcode'));
+    } finally {
+      setScanLoading(false);
+    }
   }
 
   return (
@@ -315,6 +556,62 @@ export function OrderFormCard({
         )}
         <p className="text-xs text-muted-foreground">Out-of-stock items can still be added while the order is being built. Use <strong>Browse Inventory</strong> if the customer wants to see the current catalog.</p>
 
+        {hotMessages.length ? (
+          <div className="rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900">
+            {hotMessages.map((message) => (
+              <div key={message.id || message.message}>{message.message}</div>
+            ))}
+          </div>
+        ) : null}
+        {workflowError && (
+          <div className="rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive">{workflowError}</div>
+        )}
+        {workflowNotice && (
+          <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800">{workflowNotice}</div>
+        )}
+
+        <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
+          <div className="flex flex-wrap items-end gap-2 rounded-md border border-border bg-muted/20 p-3">
+            <label className="min-w-56 flex-1 space-y-1 text-sm">
+              <span className="font-semibold text-muted-foreground">Order Guide</span>
+              <select
+                value={selectedGuideId}
+                onChange={(event) => setSelectedGuideId(event.target.value)}
+                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                disabled={!orderGuides.length}
+              >
+                <option value="">{orderGuides.length ? 'Select guide' : 'No guide'}</option>
+                {orderGuides.map((guide) => (
+                  <option key={guide.id} value={guide.id}>{guide.name}</option>
+                ))}
+              </select>
+            </label>
+            <Button type="button" variant="outline" onClick={applySelectedGuide} disabled={!selectedGuideId}>
+              Apply
+            </Button>
+          </div>
+          <div className="flex flex-wrap items-end gap-2 rounded-md border border-border bg-muted/20 p-3">
+            <label className="min-w-56 flex-1 space-y-1 text-sm">
+              <span className="font-semibold text-muted-foreground">Barcode Scan</span>
+              <Input
+                value={barcodeValue}
+                onChange={(event) => setBarcodeValue(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    void scanBarcode();
+                  }
+                }}
+                placeholder="Scan or type barcode"
+                disabled={!editingOrderId || scanLoading}
+              />
+            </label>
+            <Button type="button" variant="outline" onClick={() => void scanBarcode()} disabled={!editingOrderId || !barcodeValue.trim() || scanLoading}>
+              {scanLoading ? 'Scanning...' : 'Add'}
+            </Button>
+          </div>
+        </div>
+
         <label className="space-y-1 text-sm">
           <span className="font-semibold text-muted-foreground">Notes</span>
           <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Special handling or packing notes" />
@@ -348,6 +645,9 @@ export function OrderFormCard({
 
         {validationErrors.items && (
           <p className="text-sm text-destructive">{validationErrors.items}</p>
+        )}
+        {pricingError && (
+          <p className="text-sm text-destructive">{pricingError}</p>
         )}
 
         <div className="table-scroll-container overflow-x-auto rounded-lg border border-border">
@@ -383,6 +683,10 @@ export function OrderFormCard({
                 const lineTotal = isCw
                   ? asMoney(asNumber(line.estimatedWeight) * asNumber(line.pricePerLb))
                   : asMoney((line.unit === 'lb' ? asNumber(line.requestedWeight) : asNumber(line.quantity)) * asNumber(line.unitPrice));
+                const resolvedPrice = resolvedLinePrices[index];
+                const minSell = resolvedPrice?.minimum_sell;
+                const belowMinimum = minSell && minSell.allowed === false && minSell.min_price != null;
+                const canOverrideMinimum = userRole === 'admin' || userRole === 'superadmin';
                 return (
                   <TableRow key={index} className={needsLot ? 'bg-amber-50/50' : ''}>
                     <TableCell>
@@ -461,6 +765,16 @@ export function OrderFormCard({
                         </div>
                       ) : (
                         <Input type="number" min="0" step="0.01" value={line.unitPrice} onChange={(e) => updateLine(index, 'unitPrice', e.target.value)} />
+                      )}
+                      {resolvedPrice && (
+                        <div className="mt-1 space-y-1 text-[11px] leading-tight text-muted-foreground">
+                          <div>Resolved {asMoney(asNumber(resolvedPrice.price))} · {resolvedPrice.method.replace(/_/g, ' ')}</div>
+                          {belowMinimum && (
+                            <Badge variant={canOverrideMinimum ? 'warning' : 'destructive'} className="whitespace-nowrap">
+                              Min {asMoney(asNumber(minSell.min_price))}{canOverrideMinimum ? ' override' : ''}
+                            </Badge>
+                          )}
+                        </div>
                       )}
                     </TableCell>
                     <TableCell>

@@ -43,6 +43,43 @@ export function AnalyticsPage() {
     ];
   }, [rollups]);
 
+  const analyticsPacks = useMemo(() => {
+    const skuRows = rollups?.sku || [];
+    const customerRows = rollups?.customer || [];
+    const lowMarginRows = skuRows.filter((row) => asNumber(row.margin_pct) < 10).slice(0, 8);
+    const projectionRows = skuRows.slice(0, 8).map((row) => ({
+      ...row,
+      projected: Math.max(0, asNumber(row.qty) * 1.12),
+    }));
+
+    return [
+      {
+        title: 'Gross Profit Trend',
+        description: 'Highest gross profit items in the current window.',
+        rows: skuRows.slice(0, 8).map((row) => ({ label: row.label, value: asNumber(row.margin) })),
+        metric: money(skuRows.reduce((sum, row) => sum + asNumber(row.margin), 0)),
+      },
+      {
+        title: 'Comparative Sales',
+        description: 'Top customer sales concentration for the selected range.',
+        rows: customerRows.slice(0, 8).map((row) => ({ label: row.label, value: asNumber(row.revenue) })),
+        metric: money(customerRows.reduce((sum, row) => sum + asNumber(row.revenue), 0)),
+      },
+      {
+        title: 'Price Exceptions',
+        description: 'Low-margin item rows that need pricing review.',
+        rows: lowMarginRows.map((row) => ({ label: row.label, value: Math.max(0, 10 - asNumber(row.margin_pct)) })),
+        metric: lowMarginRows.length.toLocaleString(),
+      },
+      {
+        title: 'Weekly Projections',
+        description: 'Projected next-week movement from current sales velocity.',
+        rows: projectionRows.map((row) => ({ label: row.label, value: row.projected })),
+        metric: projectionRows.reduce((sum, row) => sum + row.projected, 0).toLocaleString(undefined, { maximumFractionDigits: 1 }),
+      },
+    ];
+  }, [rollups]);
+
   function downloadCsv(filename: string, rows: string[][]) {
     const csv = rows.map((row) => row.map(csvEscape).join(',')).join('\n');
     const blob = new Blob([csv], { type: 'text/csv' });
@@ -129,6 +166,21 @@ export function AnalyticsPage() {
         ))}
       </div>
 
+      <div className="grid gap-4 xl:grid-cols-2">
+        {analyticsPacks.map((pack) => (
+          <Card key={pack.title}>
+            <CardHeader className="space-y-1">
+              <CardDescription>{pack.title}</CardDescription>
+              <CardTitle className="text-2xl">{pack.metric}</CardTitle>
+              <CardDescription>{pack.description}</CardDescription>
+            </CardHeader>
+            <CardContent>
+              <MiniBarChart rows={pack.rows} />
+            </CardContent>
+          </Card>
+        ))}
+      </div>
+
       <Card>
         <CardHeader>
           <CardTitle>Top Customers</CardTitle>
@@ -153,6 +205,29 @@ export function AnalyticsPage() {
           </CardContent>
         </Card>
       </div>
+    </div>
+  );
+}
+
+function MiniBarChart({ rows }: { rows: { label?: string; value: number }[] }) {
+  const maxValue = Math.max(1, ...rows.map((row) => asNumber(row.value)));
+  if (!rows.length) {
+    return <div className="rounded-md border border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">No chart data available.</div>;
+  }
+  return (
+    <div className="space-y-2">
+      {rows.map((row, index) => {
+        const pct = Math.max(4, Math.min(100, (asNumber(row.value) / maxValue) * 100));
+        return (
+          <div key={`${row.label || 'row'}-${index}`} className="grid grid-cols-[minmax(0,1fr)_3fr_auto] items-center gap-3 text-sm">
+            <div className="truncate text-muted-foreground">{row.label || 'Unassigned'}</div>
+            <div className="h-3 overflow-hidden rounded-sm bg-muted">
+              <div className="h-full rounded-sm bg-primary" style={{ width: `${pct}%` }} />
+            </div>
+            <div className="min-w-16 text-right tabular-nums">{asNumber(row.value).toLocaleString(undefined, { maximumFractionDigits: 1 })}</div>
+          </div>
+        );
+      })}
     </div>
   );
 }

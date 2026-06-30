@@ -4,7 +4,16 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { type Invoice, type InvoiceLotEntry, useDeleteInvoice, useInvoices, useResendInvoiceEmail, useUpdateInvoice } from '../hooks/useInvoices';
+import {
+  type Invoice,
+  type InvoiceLotEntry,
+  useAddInvoiceAddon,
+  useCreateInvoiceReturn,
+  useDeleteInvoice,
+  useInvoices,
+  useResendInvoiceEmail,
+  useUpdateInvoice,
+} from '../hooks/useInvoices';
 import { type InvoiceFollowUpResult, useInvoiceFollowUp, useLatePaymentRisk } from '../hooks/useAI';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { AiInsightBanner } from '../components/ui/ai-insight-banner';
@@ -112,6 +121,8 @@ export function InvoicesPage() {
   const updateInvoice = useUpdateInvoice();
   const deleteInvoice = useDeleteInvoice();
   const resendInvoiceEmail = useResendInvoiceEmail();
+  const addInvoiceAddon = useAddInvoiceAddon();
+  const createInvoiceReturn = useCreateInvoiceReturn();
   const latePaymentRisk = useLatePaymentRisk(true);
   const { isPending: invoiceFollowUpPending, mutate: mutateInvoiceFollowUp } = useInvoiceFollowUp();
 
@@ -130,6 +141,8 @@ export function InvoicesPage() {
   const [followUpError, setFollowUpError] = useState('');
   const [markingPaidInvoiceId, setMarkingPaidInvoiceId] = useState<string | null>(null);
   const [markingDeliveredInvoiceId, setMarkingDeliveredInvoiceId] = useState<string | null>(null);
+  const [addonDraft, setAddonDraft] = useState({ product_id: '', qty: '1', uom: 'each', price: '', reason: '' });
+  const [returnDraft, setReturnDraft] = useState({ amount: '', reason: '' });
 
   const riskByCustomer = useMemo(() => {
     return new Map((latePaymentRisk.data?.risks || []).map((risk) => [risk.customer_name.toLowerCase(), risk]));
@@ -205,6 +218,8 @@ export function InvoicesPage() {
     setEditing(false);
     setConfirmDelete(false);
     setFollowUpError('');
+    setAddonDraft({ product_id: '', qty: '1', uom: 'each', price: '', reason: '' });
+    setReturnDraft({ amount: '', reason: '' });
     if (followUpInvoiceId !== String(inv.id || '')) {
       setFollowUpDraft(null);
     }
@@ -407,6 +422,67 @@ export function InvoicesPage() {
     } catch {
       setActionError('Could not copy follow-up to clipboard');
     }
+  }
+
+  function submitAddon() {
+    const id = selected?.id;
+    if (!id || !addonDraft.product_id.trim()) {
+      setActionError('Product ID is required for an add-on.');
+      return;
+    }
+    setActionError('');
+    addInvoiceAddon.mutate(
+      {
+        id,
+        payload: {
+          product_id: addonDraft.product_id.trim(),
+          qty: Number(addonDraft.qty) || 1,
+          uom: addonDraft.uom.trim() || null,
+          price: addonDraft.price.trim() ? Number(addonDraft.price) : undefined,
+          reason: addonDraft.reason.trim() || null,
+        },
+      },
+      {
+        onSuccess: (result) => {
+          if (result.invoice && selected) {
+            setSelected({ ...selected, ...result.invoice });
+            setDraft((current) => ({ ...current, ...result.invoice }));
+          }
+          setAddonDraft({ product_id: '', qty: '1', uom: 'each', price: '', reason: '' });
+          setNotice(`Add-on saved for invoice ${selected ? invoiceId(selected) : ''}.`);
+        },
+        onError: (mutationError) => {
+          setActionError(String((mutationError as Error)?.message || 'Could not add invoice item'));
+        },
+      },
+    );
+  }
+
+  function submitReturnCredit() {
+    const id = selected?.id;
+    if (!id || !returnDraft.reason.trim()) {
+      setActionError('Return reason is required.');
+      return;
+    }
+    setActionError('');
+    createInvoiceReturn.mutate(
+      {
+        id,
+        payload: {
+          amount: Number(returnDraft.amount) || 0,
+          reason: returnDraft.reason.trim(),
+        },
+      },
+      {
+        onSuccess: () => {
+          setReturnDraft({ amount: '', reason: '' });
+          setNotice(`Credit memo issued for invoice ${selected ? invoiceId(selected) : ''}.`);
+        },
+        onError: (mutationError) => {
+          setActionError(String((mutationError as Error)?.message || 'Could not create return credit'));
+        },
+      },
+    );
   }
 
   function renderInvoiceRows(rows: Invoice[], emptyMessage: string) {
@@ -766,6 +842,71 @@ export function InvoicesPage() {
                     Print is locked for this invoice because weight-based items are still marked as estimated. Finish final weight entry before creating a customer-facing PDF.
                   </div>
                 ) : null}
+
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="text-base">Add-Ons and Credits</CardTitle>
+                  </CardHeader>
+                  <CardContent className="space-y-4">
+                    <div className="grid gap-3 md:grid-cols-[minmax(0,1fr)_100px_100px_100px]">
+                      <Input
+                        placeholder="Product ID"
+                        value={addonDraft.product_id}
+                        onChange={(event) => setAddonDraft((current) => ({ ...current, product_id: event.target.value }))}
+                      />
+                      <Input
+                        placeholder="Qty"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={addonDraft.qty}
+                        onChange={(event) => setAddonDraft((current) => ({ ...current, qty: event.target.value }))}
+                      />
+                      <Input
+                        placeholder="UOM"
+                        value={addonDraft.uom}
+                        onChange={(event) => setAddonDraft((current) => ({ ...current, uom: event.target.value }))}
+                      />
+                      <Input
+                        placeholder="Price"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={addonDraft.price}
+                        onChange={(event) => setAddonDraft((current) => ({ ...current, price: event.target.value }))}
+                      />
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Input
+                        className="min-w-64 flex-1"
+                        placeholder="Add-on reason"
+                        value={addonDraft.reason}
+                        onChange={(event) => setAddonDraft((current) => ({ ...current, reason: event.target.value }))}
+                      />
+                      <Button size="sm" onClick={submitAddon} disabled={addInvoiceAddon.isPending}>
+                        {addInvoiceAddon.isPending ? 'Saving...' : 'Add to Invoice'}
+                      </Button>
+                    </div>
+                    <div className="grid gap-3 border-t border-border pt-4 md:grid-cols-[120px_minmax(0,1fr)_auto]">
+                      <Input
+                        placeholder="Amount"
+                        type="number"
+                        min="0"
+                        step="0.01"
+                        value={returnDraft.amount}
+                        onChange={(event) => setReturnDraft((current) => ({ ...current, amount: event.target.value }))}
+                      />
+                      <Input
+                        placeholder="Return reason"
+                        value={returnDraft.reason}
+                        onChange={(event) => setReturnDraft((current) => ({ ...current, reason: event.target.value }))}
+                      />
+                      <Button size="sm" variant="outline" onClick={submitReturnCredit} disabled={createInvoiceReturn.isPending}>
+                        {createInvoiceReturn.isPending ? 'Issuing...' : 'Issue Credit'}
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
 
                 {shouldSuggestFollowUp(selected) ? (
                   <Card className="border-blue-200 bg-blue-50/60">

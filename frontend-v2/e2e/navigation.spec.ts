@@ -1,12 +1,12 @@
 import { test, expect } from '@playwright/test';
-import { login } from './helpers/auth';
+import { appPath, login } from './helpers/auth';
 
 const TEST_EMAIL    = process.env.TEST_EMAIL    ?? 'admin@noderoute.local';
 const TEST_PASSWORD = process.env.TEST_PASSWORD ?? 'password';
 
 test.describe('Navigation & auth', () => {
   test('redirects unauthenticated users to login', async ({ page }) => {
-    await page.goto('/orders');
+    await page.goto(appPath('/orders'));
     await expect(page).toHaveURL(/login/, { timeout: 8_000 });
   });
 
@@ -23,7 +23,7 @@ test.describe('Navigation & auth', () => {
       ['Routes', '/routes'],
     ]) {
       await page.getByRole('link', { name: new RegExp(label, 'i') }).click();
-      await expect(page).toHaveURL(new RegExp(path), { timeout: 6_000 });
+      await expect(page).toHaveURL(new RegExp(appPath(path)), { timeout: 6_000 });
     }
   });
 });

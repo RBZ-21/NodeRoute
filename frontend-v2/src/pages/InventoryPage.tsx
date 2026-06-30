@@ -98,6 +98,56 @@ function InventoryLotsCell({ lots, isFtlProduct }: { lots: InventoryLotSummary[]
   );
 }
 
+type InventoryWorkflowTab = 'overview' | 'costs' | 'cycle-counts' | 'kits' | 'availability' | 'returns';
+
+const INVENTORY_WORKFLOW_TABS: { id: InventoryWorkflowTab; label: string }[] = [
+  { id: 'overview', label: 'Overview' },
+  { id: 'costs', label: 'Costs' },
+  { id: 'cycle-counts', label: 'Cycle Counts' },
+  { id: 'kits', label: 'Kits' },
+  { id: 'availability', label: 'Availability' },
+  { id: 'returns', label: 'Returns' },
+];
+
+function InventoryWorkflowPanel({ tab, onOpenKits }: { tab: InventoryWorkflowTab; onOpenKits: () => void }) {
+  if (tab === 'overview') return null;
+  const content: Record<Exclude<InventoryWorkflowTab, 'overview'>, { title: string; description: string; action?: JSX.Element }> = {
+    costs: {
+      title: 'Costs',
+      description: 'Base, landed, lot, market, and real cost fields are available on item edit and lot workflows.',
+    },
+    'cycle-counts': {
+      title: 'Cycle Counts',
+      description: 'Cycle count APIs are ready for count creation, variance submission, and ledger-backed commit.',
+    },
+    kits: {
+      title: 'Kits',
+      description: 'Run in-house kit recipes and review processing runs from the Kits workspace.',
+      action: <Button variant="outline" onClick={onOpenKits}>Open Kits</Button>,
+    },
+    availability: {
+      title: 'Availability',
+      description: '30-day projection data is available through the inventory projection endpoint.',
+    },
+    returns: {
+      title: 'Returns',
+      description: 'Inventory returns can be recorded and optionally restocked through the returns workflow.',
+    },
+  };
+  const selected = content[tab];
+  return (
+    <Card>
+      <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+        <div>
+          <CardTitle>{selected.title}</CardTitle>
+          <CardDescription>{selected.description}</CardDescription>
+        </div>
+        {selected.action}
+      </CardHeader>
+    </Card>
+  );
+}
+
 export function InventoryPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
@@ -395,6 +445,14 @@ export function InventoryPage() {
     ? String((inventoryQuery.error as Error)?.message || 'Could not load inventory')
     : '';
   const displayError = error || fetchError;
+  const tabParam = String(searchParams.get('tab') || 'overview') as InventoryWorkflowTab;
+  const inventoryWorkflowTab = INVENTORY_WORKFLOW_TABS.some((tab) => tab.id === tabParam) ? tabParam : 'overview';
+
+  function setInventoryWorkflowTab(tab: InventoryWorkflowTab) {
+    const next = new URLSearchParams(searchParams);
+    if (tab === 'overview') next.delete('tab'); else next.set('tab', tab);
+    setSearchParams(next);
+  }
 
   return (
     <div className="space-y-5">
@@ -408,6 +466,25 @@ export function InventoryPage() {
         <SummaryCard label="Out Of Stock" value={summary.outOfStock.toLocaleString()} />
         <SummaryCard label="Inventory Value" value={money(summary.inventoryValue)} />
       </div>
+
+      <div className="flex flex-wrap gap-1 border-b border-border">
+        {INVENTORY_WORKFLOW_TABS.map((tab) => (
+          <button
+            key={tab.id}
+            onClick={() => setInventoryWorkflowTab(tab.id)}
+            className={[
+              'border-b-2 px-4 py-2 text-sm font-medium transition-colors -mb-px',
+              inventoryWorkflowTab === tab.id
+                ? 'border-primary text-primary'
+                : 'border-transparent text-muted-foreground hover:border-border hover:text-foreground',
+            ].join(' ')}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      <InventoryWorkflowPanel tab={inventoryWorkflowTab} onOpenKits={() => navigate('/kits')} />
 
       {/* ── Low-Stock Alert Banner ─────────────────────────────────────── */}
       {lowStockItems.length > 0 && (

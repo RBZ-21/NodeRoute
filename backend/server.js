@@ -20,7 +20,11 @@ const authRouter          = require('./routes/auth');
 const usersRouter         = require('./routes/users');
 const ordersRouter        = require('./routes/orders');
 const invoicesRouter      = require('./routes/invoices');
+const printRouter         = require('./routes/print');
 const inventoryRouter     = require('./routes/inventory');
+const inventoryProjectionsRouter = require('./routes/inventory-projections');
+const kitsRouter          = require('./routes/kits');
+const cycleCountsRouter   = require('./routes/cycle-counts');
 const deliveriesRouter    = require('./routes/deliveries');
 const stopsRouter         = require('./routes/stops');
 const routesRouter        = require('./routes/routes');
@@ -33,6 +37,10 @@ const searchRouter        = require('./routes/search');
 const userPreferencesRouter = require('./routes/user-preferences');
 const productMediaRouter  = require('./routes/product-media');
 const mapsRouter          = require('./routes/maps');
+const pricingRouter       = require('./routes/pricing');
+const promotionsRouter    = require('./routes/promotions');
+const orderGuidesRouter   = require('./routes/order-guides');
+const customerMessagesRouter = require('./routes/customer-messages');
 const portalRouter        = require('./routes/portal');
 const driverRouter        = require('./routes/driver');
 const driversRouter       = require('./routes/drivers');
@@ -44,6 +52,7 @@ const settingsRouter      = require('./routes/settings');
 const temperatureLogsRouter = require('./routes/temperature-logs');
 const opsRouter           = require('./routes/ops');
 const reportingRouter     = require('./routes/reporting').router;
+const reportSchedulesRouter = require('./routes/report-schedules');
 const lotsRouter          = require('./routes/lots');
 const integrationsRouter  = require('./routes/integrations');
 const warehouseRouter          = require('./routes/warehouse');
@@ -55,7 +64,9 @@ const onboardingRouter    = require('./routes/onboarding');
 const waitlistRouter      = require('./routes/waitlist');
 const dwellRouter         = require('./routes/dwell');
 const salesRepsRouter     = require('./routes/sales-reps');
+const arRouter            = require('./routes/ar');
 const arHubRouter         = require('./routes/ar-hub');
+const apRouter            = require('./routes/ap');
 const creditHoldRouter    = require('./routes/credit-hold');
 const vendorBillsRouter   = require('./routes/vendor-bills');
 const complianceRouter    = require('./routes/compliance');
@@ -210,7 +221,11 @@ app.use('/auth', authLimiter, authRouter);
 app.use('/api/users', requireApiAuth, usersRouter);
 app.use('/api/orders', requireApiAuth, ordersRouter);
 app.use('/api/invoices', requireApiAuth, invoicesRouter);
+app.use('/api/print', requireApiAuth, printRouter);
+app.use('/api/inventory', requireApiAuth, inventoryProjectionsRouter);
 app.use('/api/inventory', requireApiAuth, inventoryRouter);
+app.use('/api/kits', requireApiAuth, kitsRouter);
+app.use('/api/cycle-counts', requireApiAuth, cycleCountsRouter);
 // Public/customer-token API routers must be mounted before the broad /api dispatch router.
 app.use('/api/portal', publicLimiter, portalRouter);
 app.use('/api/track', publicLimiter, trackingRouter);
@@ -228,6 +243,10 @@ app.use('/api/user-preferences', requireApiAuth, userPreferencesRouter);
 app.use('/api/dashboard-layouts', requireApiAuth, userPreferencesRouter.dashboardLayoutsRouter);
 app.use('/api/product-media', requireApiAuth, productMediaRouter);
 app.use('/api/maps', requireApiAuth, mapsRouter);
+app.use('/api/pricing', requireApiAuth, pricingRouter);
+app.use('/api/promotions', requireApiAuth, promotionsRouter);
+app.use('/api/order-guides', requireApiAuth, orderGuidesRouter);
+app.use('/api/customer-messages', requireApiAuth, customerMessagesRouter);
 app.use('/api/driver', requireApiAuth, driverRouter);
 app.use('/api/drivers', requireApiAuth, driversRouter);
 app.use('/api/vendors', requireApiAuth, vendorsRouter);
@@ -237,6 +256,8 @@ app.use('/api/settings', requireApiAuth, settingsRouter);
 app.use('/api/temperature-logs', requireApiAuth, temperatureLogsRouter);
 app.use('/api/ops', requireApiAuth, opsRouter);
 app.use('/api/reporting', requireApiAuth, reportingRouter);
+app.use('/api/reports', requireApiAuth, reportingRouter);
+app.use('/api/report-schedules', requireApiAuth, reportSchedulesRouter);
 app.use('/api/lots', requireApiAuth, lotsRouter);
 app.use('/api/integrations', requireApiAuth, integrationsRouter);
 app.use('/api/warehouse/locations', requireApiAuth, warehouseLocationsRouter);
@@ -250,8 +271,11 @@ app.use('/api/company-config', requireApiAuth, companyConfigRouter);
 app.use('/api/onboarding', requireApiAuth, onboardingRouter);
 app.use('/api/dwell', requireApiAuth, dwellRouter);
 app.use('/api/sales-reps', requireApiAuth, salesRepsRouter);
+app.use('/api/ar', requireApiAuth, arRouter);
 app.use('/api/ar', requireApiAuth, arHubRouter);
+app.use('/api/ap', requireApiAuth, apRouter);
 app.use('/api/credit', requireApiAuth, creditHoldRouter);
+app.use('/api/credit-hold', requireApiAuth, creditHoldRouter);
 app.use('/api/vendor-bills', requireApiAuth, vendorBillsRouter);
 app.use('/api/compliance', requireApiAuth, complianceRouter);
 app.use('/api/audit-log', requireApiAuth, auditLogRouter);
@@ -285,7 +309,7 @@ app.get(/^\/driver-app\/.*/, (req, res) => res.sendFile(driverAppEntry));
 const frontendV2Routes = [
   '/orders', '/deliveries', '/map', '/drivers', '/routes', '/stops',
   '/customers', '/users', '/invoices', '/analytics', '/inventory',
-  '/forecast', '/financials', '/purchasing', '/reorder', '/vendors', '/warehouse',
+  '/forecast', '/financials', '/pricing', '/purchasing', '/reorder', '/vendors', '/warehouse',
   '/planning', '/integrations', '/aihelp', '/settings', '/reports',
   '/admin/traceability',
   '/superadmin/companies',

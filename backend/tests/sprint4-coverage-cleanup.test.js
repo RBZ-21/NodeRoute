@@ -17,7 +17,7 @@ const purchasingRoute = source('backend', 'routes', 'ops', 'purchasing-order-rou
 const dailyBlastService = source('backend', 'services', 'daily-fish-blast.js');
 const scheduler = source('backend', 'lib', 'scheduler.js');
 const zodValidate = source('backend', 'lib', 'zod-validate.js');
-const sprint4Migration = source('supabase', 'migrations', '20260517_sprint4_ledger_blast_security.sql');
+const sprint4Migration = source('supabase', 'migrations', '20260517000400_sprint4_ledger_blast_security.sql');
 
 test('vendor bills endpoint has validation, tenant checks, and receive-to-bill PO linkage', () => {
   for (const marker of [

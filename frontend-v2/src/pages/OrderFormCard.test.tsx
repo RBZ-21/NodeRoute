@@ -9,6 +9,7 @@ const { fetchWithAuthMock } = vi.hoisted(() => ({
 
 vi.mock('../lib/api', () => ({
   fetchWithAuth: fetchWithAuthMock,
+  getUserRole: () => 'admin',
 }));
 
 vi.mock('../hooks/useRoutes', () => ({

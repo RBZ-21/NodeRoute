@@ -2,6 +2,7 @@
 const express = require('express');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const apLedger = require('../services/ap-ledger');
 const {
   filterRowsByContext,
   rowMatchesContext,
@@ -65,6 +66,9 @@ router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), async (
     res
   );
   if (!data) return;
+  if (fields.status === 'approved' && String(existing.status || '').toLowerCase() !== 'approved') {
+    data.ap_ledger_entry = await apLedger.postBill(data.id, { db: supabase, context: req.context });
+  }
   res.json(data);
 });
 

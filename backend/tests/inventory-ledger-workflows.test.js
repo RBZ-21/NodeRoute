@@ -170,3 +170,66 @@ test('depleteLotsFefo returns remaining > 0 when lots are insufficient', async (
   assert.ok(result.remaining > 0, `remaining should be > 0 when requesting 20 but only 15 available; got ${result.remaining}`);
   assert.strictEqual(result.remaining, 5, 'remaining should be 5 (20 requested - 15 available)');
 });
+
+test('inventory ledger remains backward compatible when cost metadata is omitted', async () => {
+  const backupRoot = fs.mkdtempSync(path.join(require('node:os').tmpdir(), 'noderoute-ledger-backcompat-'));
+  const previousBackupPath = process.env.NODEROUTE_BACKUP_PATH;
+  const previousForceDemoMode = process.env.NODEROUTE_FORCE_DEMO_MODE;
+
+  process.env.NODEROUTE_BACKUP_PATH = backupRoot;
+  process.env.NODEROUTE_FORCE_DEMO_MODE = 'true';
+  for (const key of Object.keys(require.cache)) {
+    if (
+      key.includes(`${path.sep}backend${path.sep}services${path.sep}supabase.js`) ||
+      key.includes(`${path.sep}backend${path.sep}services${path.sep}inventory-ledger.js`)
+    ) {
+      delete require.cache[key];
+    }
+  }
+
+  try {
+    const { supabase } = require(path.join(repoRoot, 'backend', 'services', 'supabase.js'));
+    const { applyInventoryLedgerEntry } = require(path.join(repoRoot, 'backend', 'services', 'inventory-ledger.js'));
+    await supabase.from('products').insert([{
+      id: 'product-backcompat',
+      item_number: 'BACKCOMPAT-1',
+      description: 'Backcompat Product',
+      on_hand_qty: 5,
+      cost: 2,
+      company_id: 'company-ledger',
+      location_id: 'location-ledger',
+    }]);
+
+    const result = await applyInventoryLedgerEntry({
+      itemNumber: 'BACKCOMPAT-1',
+      deltaQty: 2,
+      changeType: 'adjustment',
+      context: {
+        companyId: 'company-ledger',
+        activeCompanyId: 'company-ledger',
+        locationId: 'location-ledger',
+        activeLocationId: 'location-ledger',
+      },
+    });
+
+    assert.equal(result.qty_after, 7);
+    assert.equal(result.entry.cost_basis, null);
+    assert.equal(result.entry.uom, null);
+    assert.equal(result.entry.conversion_factor, null);
+    assert.equal(result.entry.ledger_ref, null);
+  } finally {
+    if (previousBackupPath === undefined) delete process.env.NODEROUTE_BACKUP_PATH;
+    else process.env.NODEROUTE_BACKUP_PATH = previousBackupPath;
+    if (previousForceDemoMode === undefined) delete process.env.NODEROUTE_FORCE_DEMO_MODE;
+    else process.env.NODEROUTE_FORCE_DEMO_MODE = previousForceDemoMode;
+    for (const key of Object.keys(require.cache)) {
+      if (
+        key.includes(`${path.sep}backend${path.sep}services${path.sep}supabase.js`) ||
+        key.includes(`${path.sep}backend${path.sep}services${path.sep}inventory-ledger.js`)
+      ) {
+        delete require.cache[key];
+      }
+    }
+    fs.rmSync(backupRoot, { recursive: true, force: true });
+  }
+});

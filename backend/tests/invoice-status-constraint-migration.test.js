@@ -5,7 +5,7 @@ const assert = require('node:assert/strict');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const migration = fs.readFileSync(
-  path.join(repoRoot, 'supabase', 'migrations', '20260518_invoice_status_constraint.sql'),
+  path.join(repoRoot, 'supabase', 'migrations', '20260518000400_invoice_status_constraint.sql'),
   'utf8',
 );
 

@@ -41,6 +41,107 @@ function round(value, digits) {
   return parseFloat(Number(value || 0).toFixed(digits));
 }
 
+function positiveNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function nonNegativeInteger(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) && parsed >= 0 ? Math.floor(parsed) : null;
+}
+
+function parseSeasonalWindows(value) {
+  if (!value) return [];
+  if (Array.isArray(value)) return value;
+  if (typeof value === 'string') {
+    try {
+      const parsed = JSON.parse(value);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+  return [];
+}
+
+function normalizeVendorPlanningConfig(config = {}) {
+  const normalized = {
+    min_order_value: positiveNumber(config.min_order_value ?? config.minOrderValue),
+    pallet_qty: positiveNumber(config.pallet_qty ?? config.palletQty),
+    layer_qty: positiveNumber(config.layer_qty ?? config.layerQty),
+    lead_time_days: nonNegativeInteger(config.lead_time_days ?? config.leadTimeDays),
+    seasonal_usage_windows: parseSeasonalWindows(config.seasonal_usage_windows ?? config.seasonalUsageWindows),
+  };
+  normalized.has_config = Boolean(
+    normalized.min_order_value
+    || normalized.pallet_qty
+    || normalized.layer_qty
+    || normalized.lead_time_days !== null
+    || normalized.seasonal_usage_windows.length
+  );
+  return normalized;
+}
+
+function monthFromDate(value) {
+  const date = value instanceof Date ? value : new Date(value || Date.now());
+  if (Number.isNaN(date.getTime())) return new Date().getUTCMonth() + 1;
+  return date.getUTCMonth() + 1;
+}
+
+function dateOnlyAddDays(value, days) {
+  const date = value instanceof Date ? new Date(value.getTime()) : new Date(value || Date.now());
+  if (Number.isNaN(date.getTime())) return null;
+  date.setUTCHours(0, 0, 0, 0);
+  date.setUTCDate(date.getUTCDate() + Math.max(0, Number(days) || 0));
+  return date.toISOString().slice(0, 10);
+}
+
+function monthInWindow(month, startMonth, endMonth) {
+  if (!startMonth || !endMonth) return false;
+  if (startMonth <= endMonth) return month >= startMonth && month <= endMonth;
+  return month >= startMonth || month <= endMonth;
+}
+
+function resolveSeasonalCoefficient(vendorConfig, asOfDate) {
+  const config = normalizeVendorPlanningConfig(vendorConfig);
+  const month = monthFromDate(asOfDate);
+  for (const window of config.seasonal_usage_windows) {
+    const startMonth = nonNegativeInteger(
+      window?.start_month ?? window?.month_start ?? window?.startMonth ?? window?.from_month
+    );
+    const endMonth = nonNegativeInteger(
+      window?.end_month ?? window?.month_end ?? window?.endMonth ?? window?.to_month
+    );
+    const coefficient = positiveNumber(window?.coefficient ?? window?.usage_coefficient ?? window?.multiplier);
+    if (
+      startMonth >= 1
+      && startMonth <= 12
+      && endMonth >= 1
+      && endMonth <= 12
+      && coefficient
+      && monthInWindow(month, startMonth, endMonth)
+    ) {
+      return coefficient;
+    }
+  }
+  return 1;
+}
+
+function roundUpToMultiple(value, multiple) {
+  const qty = Math.max(0, Number(value) || 0);
+  const step = positiveNumber(multiple);
+  if (!step || qty <= 0) return qty;
+  return Math.ceil(qty / step) * step;
+}
+
+function resolveVendorRounding(vendorConfig) {
+  const config = normalizeVendorPlanningConfig(vendorConfig);
+  if (config.pallet_qty) return { source: 'pallet', multiple: config.pallet_qty };
+  if (config.layer_qty) return { source: 'layer', multiple: config.layer_qty };
+  return { source: null, multiple: null };
+}
+
 function poLineRequiresLot(line) {
   return LOT_REQUIRED.test(
     `${line?.description || line?.product_name || line?.name || ''} ${line?.category || ''}`
@@ -462,16 +563,59 @@ function buildProjectionRows(inventory, usageByName, { days, lookbackDays }) {
   });
 }
 
-function buildPurchasingSuggestions(inventory, usageByName, { coverageDays, leadTimeDays, lookbackDays, leadTimeResolver }) {
+function buildVendorPlanningSummary(suggestions, vendorConfig = {}) {
+  const config = normalizeVendorPlanningConfig(vendorConfig);
+  const totalEstimatedCost = round(
+    (suggestions || []).reduce((sum, suggestion) => {
+      const qty = toNumber(suggestion.suggested_order_qty, 0);
+      const unitCost = toNumber(suggestion.estimated_unit_cost, 0);
+      return sum + qty * unitCost;
+    }, 0),
+    2
+  );
+  const minimumOrderWarning = config.min_order_value && totalEstimatedCost > 0 && totalEstimatedCost < config.min_order_value
+    ? {
+        min_order_value: round(config.min_order_value, 2),
+        estimated_order_value: totalEstimatedCost,
+        shortfall: round(config.min_order_value - totalEstimatedCost, 2),
+      }
+    : null;
+  return {
+    min_order_value: config.min_order_value ? round(config.min_order_value, 2) : null,
+    total_estimated_cost: totalEstimatedCost,
+    minimum_order_warning: minimumOrderWarning,
+  };
+}
+
+function buildPurchasingSuggestions(inventory, usageByName, {
+  coverageDays,
+  leadTimeDays,
+  lookbackDays,
+  leadTimeResolver,
+  vendorConfig = null,
+  asOfDate = null,
+} = {}) {
   const defaultLeadTimeDays = leadTimeDays;
-  return (inventory || []).map((item) => {
+  const config = normalizeVendorPlanningConfig(vendorConfig || {});
+  const seasonalCoefficient = resolveSeasonalCoefficient(config, asOfDate);
+  const rounding = resolveVendorRounding(config);
+  const suggestions = (inventory || []).map((item) => {
     const resolvedLead = typeof leadTimeResolver === 'function' ? leadTimeResolver(item) : null;
-    const leadTimeDays = Math.max(0, toNumber(resolvedLead?.leadTimeDays, defaultLeadTimeDays));
+    const resolvedLeadTimeDays = config.lead_time_days !== null
+      ? config.lead_time_days
+      : Math.max(0, toNumber(resolvedLead?.leadTimeDays, defaultLeadTimeDays));
+    const resolvedLeadSource = config.lead_time_days !== null
+      ? 'vendor_config'
+      : (resolvedLead?.source || 'manual');
     const key = String(item.name || item.description || '').trim().toLowerCase();
     const stock = toNumber(item.stock_qty ?? item.on_hand_qty, 0);
-    const avgDaily = (usageByName.get(key) || 0) / lookbackDays;
-    const target = avgDaily * (coverageDays + leadTimeDays);
+    const baseAvgDaily = (usageByName.get(key) || 0) / lookbackDays;
+    const avgDaily = baseAvgDaily * seasonalCoefficient;
+    const target = avgDaily * (coverageDays + resolvedLeadTimeDays);
     const reorderQty = Math.max(0, target - stock);
+    const roundedReorderQty = rounding.multiple
+      ? roundUpToMultiple(reorderQty, rounding.multiple)
+      : reorderQty;
     return {
       product_id: item.id,
       item_number: String(item.item_number || '').trim() || null,
@@ -479,15 +623,27 @@ function buildPurchasingSuggestions(inventory, usageByName, { coverageDays, lead
       unit: item.unit || 'unit',
       stock_qty: parseFloat(stock.toFixed(3)),
       avg_daily_usage: parseFloat(avgDaily.toFixed(3)),
-      lead_time_days: leadTimeDays,
-      lead_time_source: resolvedLead?.source || 'manual',
+      base_avg_daily_usage: parseFloat(baseAvgDaily.toFixed(3)),
+      seasonal_coefficient: parseFloat(seasonalCoefficient.toFixed(3)),
+      lead_time_days: resolvedLeadTimeDays,
+      lead_time_source: resolvedLeadSource,
       historical_lead_time: resolvedLead?.history || null,
       coverage_days: coverageDays,
-      suggested_order_qty: parseFloat(reorderQty.toFixed(3)),
+      pre_round_suggested_order_qty: parseFloat(reorderQty.toFixed(3)),
+      suggested_order_qty: parseFloat(roundedReorderQty.toFixed(3)),
+      vendor_rounding_source: rounding.source,
+      vendor_rounding_multiple: rounding.multiple ? parseFloat(rounding.multiple.toFixed(3)) : null,
+      suggested_order_date: dateOnlyAddDays(asOfDate || new Date(), resolvedLeadTimeDays),
       estimated_unit_cost: parseFloat(toNumber(item.cost, 0).toFixed(4)),
-      urgency: reorderQty <= 0 ? 'none' : (stock <= avgDaily * leadTimeDays ? 'high' : 'normal'),
+      urgency: roundedReorderQty <= 0 ? 'none' : (stock <= avgDaily * resolvedLeadTimeDays ? 'high' : 'normal'),
+      vendor_minimum_warning: null,
     };
   }).filter((suggestion) => suggestion.suggested_order_qty > 0);
+  const planningSummary = buildVendorPlanningSummary(suggestions, config);
+  return suggestions.map((suggestion) => ({
+    ...suggestion,
+    vendor_minimum_warning: planningSummary.minimum_order_warning,
+  }));
 }
 
 function resolveInventoryMatch(item, inventory) {
@@ -533,6 +689,7 @@ module.exports = {
   applyInventoryLedgerEntry,
   buildVendorLeadTimeStats,
   buildVendorProductLeadTimeStats,
+  buildVendorPlanningSummary,
   buildProjectionRows,
   buildPurchasingSuggestions,
   calculateVendorPoLeadMetrics,

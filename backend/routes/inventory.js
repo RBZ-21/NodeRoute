@@ -104,6 +104,27 @@ const inventoryTransferBodySchema = z.object({
   qty: z.coerce.number().positive('qty must be > 0'),
   notes: z.string().optional(),
 }).passthrough();
+const inventoryShortageBodySchema = z.object({
+  product_id: z.string().trim().min(1).optional(),
+  item_number: z.string().trim().min(1).optional(),
+  lot_id: z.string().trim().min(1).optional(),
+  shortage_qty: z.coerce.number().positive('shortage_qty must be > 0'),
+  reason: z.string().optional(),
+}).passthrough().refine((body) => body.product_id || body.item_number, {
+  message: 'product_id or item_number is required',
+});
+const inventoryReturnBodySchema = z.object({
+  order_id: z.string().trim().min(1).optional(),
+  product_id: z.string().trim().min(1).optional(),
+  item_number: z.string().trim().min(1).optional(),
+  lot_id: z.string().trim().min(1).optional(),
+  return_qty: z.coerce.number().positive('return_qty must be > 0'),
+  return_uom: z.string().trim().min(1).optional().default('each'),
+  condition: z.string().optional(),
+  restocked: z.boolean().optional().default(false),
+}).passthrough().refine((body) => body.product_id || body.item_number, {
+  message: 'product_id or item_number is required',
+});
 
 async function triggerReorderForItemNumber(itemNumber, context) {
   const normalized = String(itemNumber || '').trim();
@@ -121,6 +142,41 @@ async function triggerReorderForItemNumber(itemNumber, context) {
   } catch (err) {
     console.warn('[reorder] product check skipped after inventory mutation:', err.message);
   }
+}
+
+async function loadProductForInventoryWorkflow({ productId, itemNumber }, context) {
+  let query = scopeQueryByContext(supabase.from('products').select('*'), context);
+  query = productId ? query.eq('id', productId) : query.eq('item_number', itemNumber);
+  const { data, error } = await query.single();
+  if (error || !data || !rowMatchesContext(data, context)) return null;
+  return data;
+}
+
+async function loadLotForInventoryWorkflow(lotId, context) {
+  if (!lotId) return null;
+  const { data, error } = await scopeQueryByContext(
+    supabase.from('inventory_lots').select('*'),
+    context,
+  )
+    .eq('id', lotId)
+    .single();
+  if (error || !data || !rowMatchesContext(data, context)) return null;
+  return data;
+}
+
+async function updateLotQuantity(lot, nextQty, context) {
+  if (!lot?.id) return null;
+  const normalizedQty = parseFloat(Math.max(0, nextQty).toFixed(4));
+  const status = normalizedQty <= 0 ? 'depleted' : (lot.status || 'active');
+  const { data, error } = await scopeQueryByContext(
+    supabase.from('inventory_lots').update({ qty_on_hand: normalizedQty, status }),
+    context,
+  )
+    .eq('id', lot.id)
+    .select()
+    .single();
+  if (error) throw error;
+  return data;
 }
 const inventoryYieldBodySchema = z.object({
   raw_weight: z.coerce.number().positive('raw_weight must be > 0'),
@@ -812,6 +868,110 @@ router.post('/transfer', authenticateToken, requireRole('admin', 'manager'), val
     if (ledgerErr.code === 'LEDGER_NEGATIVE_STOCK' || ledgerErr.code === 'LEDGER_INVALID_TRANSFER_TARGET') {
       return res.status(400).json({ error: ledgerErr.message });
     }
+    res.status(500).json({ error: ledgerErr.message });
+  }
+});
+
+// POST /api/inventory/adjust-shortage — write off missing stock and record the shortage.
+router.post('/adjust-shortage', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryShortageBodySchema), async (req, res) => {
+  try {
+    const body = req.validated.body;
+    const product = await loadProductForInventoryWorkflow({ productId: body.product_id, itemNumber: body.item_number }, req.context);
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+
+    const lotRequired = String(product.lot_item || '').toUpperCase() === 'Y';
+    if (lotRequired && !body.lot_id) {
+      return res.status(422).json({ error: `${product.description || product.name || product.item_number} requires a lot for shortage adjustments`, requires_lot: true });
+    }
+
+    const lot = await loadLotForInventoryWorkflow(body.lot_id, req.context);
+    if (body.lot_id && !lot) return res.status(404).json({ error: 'Lot not found' });
+    if (lot && String(lot.item_number || '') !== String(product.item_number || '')) {
+      return res.status(400).json({ error: 'Lot does not belong to selected product' });
+    }
+    if (lot && toFiniteNumber(lot.qty_on_hand, 0) < body.shortage_qty) {
+      return res.status(422).json({ error: `Cannot short more than lot on hand (${lot.qty_on_hand})` });
+    }
+
+    if (lot) await updateLotQuantity(lot, toFiniteNumber(lot.qty_on_hand, 0) - body.shortage_qty, req.context);
+    const ledger = await applyInventoryLedgerEntry({
+      itemNumber: product.item_number,
+      deltaQty: -body.shortage_qty,
+      changeType: 'shortage',
+      notes: body.reason || 'Inventory shortage adjustment',
+      createdBy: req.user.name || req.user.email,
+      lotId: lot?.id || null,
+      context: req.context,
+    });
+
+    const result = await insertRecordWithOptionalScope(supabase, 'inventory_shortages', {
+      product_id: product.id,
+      lot_id: lot?.id || null,
+      shortage_qty: body.shortage_qty,
+      reason: body.reason || null,
+      adjusted_by: req.user.id || null,
+      adjusted_at: new Date().toISOString(),
+    }, req.context);
+    if (result.error) return res.status(500).json({ error: result.error.message });
+    await triggerReorderForItemNumber(product.item_number, req.context);
+    res.status(201).json({ shortage: result.data, ledger: ledger.entry, product: ledger.item_after });
+  } catch (ledgerErr) {
+    if (ledgerErr.code === 'LEDGER_NEGATIVE_STOCK') return res.status(400).json({ error: ledgerErr.message });
+    res.status(500).json({ error: ledgerErr.message });
+  }
+});
+
+// POST /api/inventory/return — record customer/vendor returns and optionally restock.
+router.post('/return', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryReturnBodySchema), async (req, res) => {
+  try {
+    const body = req.validated.body;
+    const product = await loadProductForInventoryWorkflow({ productId: body.product_id, itemNumber: body.item_number }, req.context);
+    if (!product) return res.status(404).json({ error: 'Product not found' });
+
+    const lotRequired = String(product.lot_item || '').toUpperCase() === 'Y';
+    if (body.restocked && lotRequired && !body.lot_id) {
+      return res.status(422).json({ error: `${product.description || product.name || product.item_number} requires a lot before returned stock can be restocked`, requires_lot: true });
+    }
+
+    const lot = await loadLotForInventoryWorkflow(body.lot_id, req.context);
+    if (body.lot_id && !lot) return res.status(404).json({ error: 'Lot not found' });
+    if (lot && String(lot.item_number || '') !== String(product.item_number || '')) {
+      return res.status(400).json({ error: 'Lot does not belong to selected product' });
+    }
+
+    let ledger = null;
+    if (body.restocked) {
+      if (lot) await updateLotQuantity(lot, toFiniteNumber(lot.qty_on_hand, 0) + body.return_qty, req.context);
+      ledger = await applyInventoryLedgerEntry({
+        itemNumber: product.item_number,
+        deltaQty: body.return_qty,
+        changeType: 'return_restock',
+        notes: body.condition || 'Inventory return restocked',
+        createdBy: req.user.name || req.user.email,
+        lotId: lot?.id || null,
+        uom: body.return_uom,
+        preventNegative: false,
+        context: req.context,
+      });
+      await triggerReorderForItemNumber(product.item_number, req.context);
+    }
+
+    const result = await insertRecordWithOptionalScope(supabase, 'inventory_returns', {
+      order_id: body.order_id || null,
+      product_id: product.id,
+      lot_id: lot?.id || null,
+      return_qty: body.return_qty,
+      return_uom: body.return_uom,
+      condition: body.condition || null,
+      restocked: !!body.restocked,
+      restocked_at: body.restocked ? new Date().toISOString() : null,
+      created_by: req.user.id || null,
+      created_at: new Date().toISOString(),
+    }, req.context);
+    if (result.error) return res.status(500).json({ error: result.error.message });
+    res.status(201).json({ return: result.data, ledger: ledger?.entry || null, product: ledger?.item_after || product });
+  } catch (ledgerErr) {
+    if (ledgerErr.code === 'LEDGER_NEGATIVE_STOCK') return res.status(400).json({ error: ledgerErr.message });
     res.status(500).json({ error: ledgerErr.message });
   }
 });
