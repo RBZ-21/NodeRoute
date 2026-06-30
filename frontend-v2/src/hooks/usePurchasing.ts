@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWithAuth, sendWithAuth, uploadWithAuth } from '../lib/api';
+import { fetchWithAuth, sendWithAuth, uploadWithAuth, uploadFilesWithAuth } from '../lib/api';
 
 export type PurchaseOrder = {
   id: string;
@@ -298,9 +298,17 @@ export function useReceiveVendorPurchaseOrder() {
   });
 }
 
-/** Upload a PO or dock invoice image for AI scanning. Uses cookie-based auth. */
+/** Upload a single PO or dock invoice image for AI scanning. Uses cookie-based auth. */
 export async function scanPoFile(file: File): Promise<PoScanResult> {
   return uploadWithAuth<PoScanResult>('/api/ai/scan-po', 'image', file);
+}
+
+/**
+ * Upload one or more pages of a single PO / dock invoice for AI scanning.
+ * All pages are merged into one result by the vision model.
+ */
+export async function scanPoFiles(files: File[]): Promise<PoScanResult> {
+  return uploadFilesWithAuth<PoScanResult>('/api/ai/scan-po', 'image', files);
 }
 
 export function openPurchaseOrderPdf(orderId: string) {

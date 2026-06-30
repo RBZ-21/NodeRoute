@@ -1,13 +1,14 @@
-import { useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
+import { PoScanUploader } from '../components/PoScanUploader';
 import {
   type PoScanResult,
   type VendorPoReceiptRules,
   type VendorPurchaseOrder,
-  scanPoFile,
+  scanPoFiles,
   useReceiveVendorPurchaseOrder,
 } from '../hooks/usePurchasing';
 import {
@@ -16,7 +17,6 @@ import {
   asNumber,
   buildReceiveDraft,
   findReceiveScanMatchIndex,
-  handleFileInputChange,
   lineRequiresLot,
   remainingQty,
 } from './purchasing.helpers';
@@ -62,8 +62,6 @@ export function ReceivePoDrawer({ po, onPosted, onClose, setNotice, setFormError
   const [receiveRules, setReceiveRules] = useState<VendorPoReceiptRules>(() => buildInitialRules(po));
   const [barcodeScan, setBarcodeScan] = useState('');
   const [barcodeMatch, setBarcodeMatch] = useState<{ lineIndex: number; lineName: string } | null>(null);
-  const receiveFileInputRef = useRef<HTMLInputElement>(null);
-  const receiveCameraInputRef = useRef<HTMLInputElement>(null);
 
   const receiveDetectedLotCount = useMemo(
     () => (receiveScanResult?.items || []).filter((item) => String(item.lot_number || '').trim()).length,
@@ -121,12 +119,12 @@ export function ReceivePoDrawer({ po, onPosted, onClose, setNotice, setFormError
     return { mappedCount, unmatchedItems };
   }
 
-  async function handleReceiveScanFile(file: File) {
+  async function handleReceiveScanFiles(files: File[]) {
     setReceiveScanLoading(true);
     setReceiveScanError('');
     setReceiveScanResult(null);
     try {
-      const result = await scanPoFile(file);
+      const result = await scanPoFiles(files);
       const applied = applyReceiveScanResult(result);
       if (!result.items?.length) {
         setReceiveScanError('The image uploaded, but no receipt line items were detected. Try a clearer, well-lit photo that includes the full item table, or enter received quantities manually.');
@@ -289,19 +287,10 @@ export function ReceivePoDrawer({ po, onPosted, onClose, setNotice, setFormError
           <div>
             <div className="text-sm font-semibold text-foreground">AI Dock Invoice Scanner</div>
             <div className="text-xs text-muted-foreground">
-              Scan the vendor invoice for this open PO to prefill receive quantities, unit costs, and lot numbers.
+              Scan the vendor invoice for this open PO to prefill receive quantities, unit costs, and lot numbers. Add a page per sheet for a multi-page invoice.
             </div>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <input ref={receiveFileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => handleFileInputChange(e, receiveFileInputRef, handleReceiveScanFile)} />
-            <input ref={receiveCameraInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="hidden" onChange={(e) => handleFileInputChange(e, receiveCameraInputRef, handleReceiveScanFile)} />
-            <Button variant="outline" onClick={() => receiveFileInputRef.current?.click()} disabled={receiveScanLoading}>
-              {receiveScanLoading ? 'Scanning…' : 'Upload Invoice'}
-            </Button>
-            <Button variant="outline" onClick={() => receiveCameraInputRef.current?.click()} disabled={receiveScanLoading}>
-              {receiveScanLoading ? 'Scanning…' : 'Use Camera'}
-            </Button>
-          </div>
+          <PoScanUploader onScan={handleReceiveScanFiles} loading={receiveScanLoading} />
         </div>
         {receiveScanError ? (
           <div className="rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive">

@@ -5,11 +5,12 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Combobox } from '../components/ui/combobox';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
+import { PoScanUploader } from '../components/PoScanUploader';
 import {
   type InventoryProduct,
   type PoScanResult,
   type PurchaseOrder,
-  scanPoFile,
+  scanPoFiles,
   useAbandonPurchaseOrder,
   useConfirmPurchaseOrder,
   useInventoryProducts,
@@ -27,7 +28,6 @@ import {
   buildVendorOptions,
   emptyLine,
   formatLeadTimeDays,
-  handleFileInputChange,
   lineRequiresLot,
   money,
   normalizeCatalogItemNumber,
@@ -133,8 +133,6 @@ export function CreatePurchaseOrderForm({ setNotice, setFormError, editingDraft 
   const [scanError, setScanError] = useState('');
   const [scanResult, setScanResult] = useState<PoScanResult | null>(null);
   const [scannedVendorDraft, setScannedVendorDraft] = useState<VendorDraft | null>(null);
-  const fileInputRef = useRef<HTMLInputElement>(null);
-  const cameraInputRef = useRef<HTMLInputElement>(null);
   const prefillHydratedRef = useRef(false);
 
   useEffect(() => {
@@ -304,12 +302,12 @@ export function CreatePurchaseOrderForm({ setNotice, setFormError, editingDraft 
     setNotice('PO scan complete — review and confirm the lines below.');
   }
 
-  async function handleScanFile(file: File) {
+  async function handleScanFiles(files: File[]) {
     setScanLoading(true);
     setScanError('');
     setScanResult(null);
     try {
-      const result = await scanPoFile(file);
+      const result = await scanPoFiles(files);
       applyScanResult(result);
       if (!result.items?.length) {
         setScanError('The image uploaded, but no invoice line items were detected. Try a clearer, well-lit photo that includes the full item table, or enter the lines manually below.');
@@ -441,14 +439,9 @@ export function CreatePurchaseOrderForm({ setNotice, setFormError, editingDraft 
         <CardHeader className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
           <div>
             <CardTitle>AI PO Scanner</CardTitle>
-            <CardDescription>Snap a photo on your phone or upload an image. AI extracts line items and pre-fills the form below.</CardDescription>
+            <CardDescription>Snap a photo on your phone or upload images. Add a page per sheet for a multi-page invoice — AI merges the line items and pre-fills the form below.</CardDescription>
           </div>
-          <div className="flex flex-wrap items-center gap-2">
-            <input ref={fileInputRef} type="file" accept="image/jpeg,image/png,image/webp" className="hidden" onChange={(e) => handleFileInputChange(e, fileInputRef, handleScanFile)} />
-            <input ref={cameraInputRef} type="file" accept="image/jpeg,image/png,image/webp" capture="environment" className="hidden" onChange={(e) => handleFileInputChange(e, cameraInputRef, handleScanFile)} />
-            <Button variant="outline" onClick={() => fileInputRef.current?.click()} disabled={scanLoading}>{scanLoading ? 'Scanning…' : '📁 Upload Image'}</Button>
-            <Button variant="outline" onClick={() => cameraInputRef.current?.click()} disabled={scanLoading}>{scanLoading ? 'Scanning…' : '📷 Take Photo'}</Button>
-          </div>
+          <PoScanUploader onScan={handleScanFiles} loading={scanLoading} />
         </CardHeader>
         {scanError && <CardContent><div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{scanError}</div></CardContent>}
         {scanResult && (

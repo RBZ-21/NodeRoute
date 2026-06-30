@@ -1,21 +1,5 @@
-import type { ChangeEvent, RefObject } from 'react';
 import type { PoScanResult, VendorPurchaseOrder } from '../hooks/usePurchasing';
 import type { Vendor } from '../hooks/useVendors';
-
-/**
- * Shared file-input change handler for the PO/receipt scanners: grabs the
- * selected file, clears the input (so re-selecting the same file re-fires),
- * and hands it to the provided async handler.
- */
-export function handleFileInputChange(
-  e: ChangeEvent<HTMLInputElement>,
-  ref: RefObject<HTMLInputElement>,
-  onFile: (file: File) => Promise<void> | void,
-) {
-  const file = e.target.files?.[0];
-  if (ref.current) ref.current.value = '';
-  if (file) void onFile(file);
-}
 
 export type PurchaseItemDraft = {
   description: string;

@@ -28,7 +28,27 @@ const { getAiScanErrorResponse } = require('../services/ai-errors');
 const { filterRowsByContext, scopeQueryByContext } = require('../services/operating-context');
 
 const router = express.Router();
+const MAX_SCAN_PAGES = 5;
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+// Multer rejects extra files past maxCount / oversized files with terse codes;
+// translate those into the same friendly 400s the handler uses for its own checks.
+function scanUpload(req, res, next) {
+  const middleware = upload.fields([
+    { name: 'file', maxCount: MAX_SCAN_PAGES },
+    { name: 'image', maxCount: MAX_SCAN_PAGES },
+  ]);
+  middleware(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_UNEXPECTED_FILE' || err.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ error: `Too many pages. Upload at most ${MAX_SCAN_PAGES} images per scan.` });
+    }
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'Each image must be 10MB or smaller.' });
+    }
+    return next(err);
+  });
+}
 const CHAT_STOPWORDS = new Set([
   'a', 'about', 'all', 'an', 'and', 'any', 'are', 'as', 'at', 'be', 'by', 'can',
   'customer', 'customers', 'delivery', 'deliveries', 'do', 'for', 'from', 'get',
@@ -503,30 +523,30 @@ router.post(
   authenticateToken,
   requireRole('admin', 'manager'),
   aiRateLimit('scan-po'),
-  upload.fields([
-    { name: 'file', maxCount: 1 },
-    { name: 'image', maxCount: 1 },
-  ]),
+  scanUpload,
   async (req, res) => {
-    const uploadedFile = req.files?.file?.[0] || req.files?.image?.[0] || null;
-    if (!uploadedFile) {
-      return res.status(400).json({ error: 'No file uploaded. Send the image as multipart field "file" or "image".' });
+    const uploadedFiles = [...(req.files?.file || []), ...(req.files?.image || [])];
+    if (uploadedFiles.length === 0) {
+      return res.status(400).json({ error: 'No file uploaded. Send the image(s) as multipart field "file" or "image".' });
+    }
+    if (uploadedFiles.length > MAX_SCAN_PAGES) {
+      return res.status(400).json({ error: `Too many pages. Upload at most ${MAX_SCAN_PAGES} images per scan.` });
     }
 
     const allowed = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
-    if (!allowed.includes(uploadedFile.mimetype)) {
+    const badFile = uploadedFiles.find((f) => !allowed.includes(f.mimetype));
+    if (badFile) {
       return res.status(400).json({ error: 'Unsupported file type. Upload a JPEG, PNG, WEBP, or PDF.' });
     }
 
     try {
-      const base64 = uploadedFile.buffer.toString('base64');
-      const mimeType = uploadedFile.mimetype;
-      const result = await parsePurchaseOrderImage(base64, mimeType);
+      const pages = uploadedFiles.map((f) => ({ base64: f.buffer.toString('base64'), mimeType: f.mimetype }));
+      const result = await parsePurchaseOrderImage(pages);
       const scanRecord = await recordPoInvoiceScan({
         context: req.context || {},
         createdBy: req.user?.name || req.user?.email || 'system',
-        fileName: uploadedFile.originalname || null,
-        mimeType: uploadedFile.mimetype || null,
+        fileName: uploadedFiles.map((f) => f.originalname).filter(Boolean).join(', ') || null,
+        mimeType: uploadedFiles[0]?.mimetype || null,
         parsed: result,
         source: 'ai-scan-po',
       });

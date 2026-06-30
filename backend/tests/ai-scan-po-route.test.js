@@ -52,8 +52,11 @@ function mockAiModule({ parsedResult, thrownError, calls }) {
     generateBulkReorderAlerts: async () => ({}),
     scoreLatePaymentRisk: async () => ({}),
     detectPricingAnomalies: async () => ({}),
-    parsePurchaseOrderImage: async (base64Image, mimeType) => {
-      calls.push({ base64Image, mimeType });
+    parsePurchaseOrderImage: async (pages, mimeType) => {
+      // The route now passes an ordered array of { base64, mimeType } pages.
+      // Normalize to an array so legacy single-arg callers stay assertable.
+      const pageList = Array.isArray(pages) ? pages : [{ base64: pages, mimeType }];
+      calls.push({ pages: pageList });
       if (thrownError) throw thrownError;
       return parsedResult;
     },
@@ -160,17 +163,21 @@ async function startAiScanHarness(t, { userRole = 'manager', parsedResult, throw
   };
 }
 
-async function postScanPo(baseUrl, { cookie, csrfToken, filePath, fileName, mimeType, authorization, fieldName = 'file' } = {}) {
+async function postScanPo(baseUrl, { cookie, csrfToken, filePath, fileName, mimeType, authorization, fieldName = 'file', files } = {}) {
   const headers = {};
   if (cookie) headers.cookie = cookie;
   if (csrfToken) headers['x-csrf-token'] = csrfToken;
   if (authorization) headers.authorization = authorization;
 
   const options = { method: 'POST', headers };
-  if (filePath) {
+  // `files` lets a test attach several pages; falls back to the single-file shape.
+  const attachments = files || (filePath ? [{ filePath, fileName, mimeType, fieldName }] : []);
+  if (attachments.length) {
     const form = new FormData();
-    const blob = new Blob([fs.readFileSync(filePath)], { type: mimeType });
-    form.append(fieldName, blob, fileName);
+    for (const att of attachments) {
+      const blob = new Blob([fs.readFileSync(att.filePath)], { type: att.mimeType });
+      form.append(att.fieldName || 'file', blob, att.fileName);
+    }
     options.body = form;
   }
 
@@ -194,7 +201,7 @@ test('scan-po accepts bearer auth after driver token contract restoration and st
   });
 
   assert.equal(response.status, 400);
-  assert.deepEqual(response.body, { error: 'No file uploaded. Send the image as multipart field "file" or "image".' });
+  assert.deepEqual(response.body, { error: 'No file uploaded. Send the image(s) as multipart field "file" or "image".' });
   assert.equal(harness.aiCalls.length, 0);
 });
 
@@ -245,9 +252,10 @@ test('scan-po parses a PNG upload and records the scan workflow metadata', async
 
   assert.equal(response.status, 200);
   assert.equal(harness.aiCalls.length, 1);
-  assert.equal(harness.aiCalls[0].mimeType, 'image/png');
-  assert.equal(typeof harness.aiCalls[0].base64Image, 'string');
-  assert.ok(harness.aiCalls[0].base64Image.length > 0);
+  assert.equal(harness.aiCalls[0].pages.length, 1);
+  assert.equal(harness.aiCalls[0].pages[0].mimeType, 'image/png');
+  assert.equal(typeof harness.aiCalls[0].pages[0].base64, 'string');
+  assert.ok(harness.aiCalls[0].pages[0].base64.length > 0);
 
   assert.equal(harness.workflowCalls.length, 1);
   assert.equal(harness.workflowCalls[0].createdBy, 'Manager User');
@@ -299,7 +307,7 @@ test('scan-po sends PDF uploads to AI as application/pdf while keeping the origi
 
   assert.equal(response.status, 200);
   assert.equal(harness.aiCalls.length, 1);
-  assert.equal(harness.aiCalls[0].mimeType, 'application/pdf');
+  assert.equal(harness.aiCalls[0].pages[0].mimeType, 'application/pdf');
   assert.equal(harness.workflowCalls[0].mimeType, 'application/pdf');
   assert.equal(harness.workflowCalls[0].fileName, 'sample-po.pdf');
 });
@@ -359,4 +367,74 @@ test('scan-po returns a clear failure when the AI vision request fails', async (
   assert.equal(response.status, 502);
   assert.deepEqual(response.body, { error: 'PO scan failed. Please try again with a clearer image or enter the details manually.' });
   assert.equal(harness.workflowCalls.length, 0);
+});
+
+test('scan-po merges multiple page uploads into a single parse and records every filename', async (t) => {
+  const parsedResult = {
+    vendor: 'Harbor Foods',
+    po_number: 'PO-3003',
+    date: '2026-06-30',
+    total_cost: 120,
+    items: [],
+  };
+  const harness = await startAiScanHarness(t, { parsedResult });
+
+  const response = await postScanPo(harness.baseUrl, {
+    cookie: harness.sessionCookie,
+    csrfToken: harness.csrfToken,
+    files: [
+      { filePath: fixturePngPath, fileName: 'page-1.png', mimeType: 'image/png', fieldName: 'image' },
+      { filePath: fixturePdfPath, fileName: 'page-2.pdf', mimeType: 'application/pdf', fieldName: 'image' },
+    ],
+  });
+
+  assert.equal(response.status, 200);
+  // One combined parse call carrying both pages in order.
+  assert.equal(harness.aiCalls.length, 1);
+  assert.equal(harness.aiCalls[0].pages.length, 2);
+  assert.equal(harness.aiCalls[0].pages[0].mimeType, 'image/png');
+  assert.equal(harness.aiCalls[0].pages[1].mimeType, 'application/pdf');
+
+  // Audit record lists all page filenames.
+  assert.equal(harness.workflowCalls.length, 1);
+  assert.equal(harness.workflowCalls[0].fileName, 'page-1.png, page-2.pdf');
+});
+
+test('scan-po rejects more than five pages before calling the AI model', async (t) => {
+  const harness = await startAiScanHarness(t);
+
+  const files = Array.from({ length: 6 }, (_, i) => ({
+    filePath: fixturePngPath,
+    fileName: `page-${i + 1}.png`,
+    mimeType: 'image/png',
+    fieldName: 'image',
+  }));
+
+  const response = await postScanPo(harness.baseUrl, {
+    cookie: harness.sessionCookie,
+    csrfToken: harness.csrfToken,
+    files,
+  });
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(response.body, { error: 'Too many pages. Upload at most 5 images per scan.' });
+  assert.equal(harness.aiCalls.length, 0);
+  assert.equal(harness.workflowCalls.length, 0);
+});
+
+test('scan-po rejects the batch when one page has an unsupported type', async (t) => {
+  const harness = await startAiScanHarness(t);
+
+  const response = await postScanPo(harness.baseUrl, {
+    cookie: harness.sessionCookie,
+    csrfToken: harness.csrfToken,
+    files: [
+      { filePath: fixturePngPath, fileName: 'page-1.png', mimeType: 'image/png', fieldName: 'image' },
+      { filePath: fixturePngPath, fileName: 'notes.txt', mimeType: 'text/plain', fieldName: 'image' },
+    ],
+  });
+
+  assert.equal(response.status, 400);
+  assert.deepEqual(response.body, { error: 'Unsupported file type. Upload a JPEG, PNG, WEBP, or PDF.' });
+  assert.equal(harness.aiCalls.length, 0);
 });

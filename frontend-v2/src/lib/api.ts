@@ -159,8 +159,17 @@ export async function sendWithAuth<T>(url: string, method: 'POST' | 'PUT' | 'PAT
  * @param file   - The File object from the input or drop event
  */
 export async function uploadWithAuth<T>(url: string, field: string, file: File): Promise<T> {
+  return uploadFilesWithAuth<T>(url, field, [file]);
+}
+
+/**
+ * Upload one or more files (multipart/form-data) under the same field name.
+ * Each file is appended as `field`, so the server receives them as an array
+ * (e.g. multer `upload.fields([{ name: field, maxCount }])`).
+ */
+export async function uploadFilesWithAuth<T>(url: string, field: string, files: File[]): Promise<T> {
   const formData = new FormData();
-  formData.append(field, file);
+  files.forEach((file) => formData.append(field, file));
   const makeRequest = () => fetch(url, {
     method: 'POST',
     credentials: 'include',

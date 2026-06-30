@@ -4,10 +4,11 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { PurchasingPage } from './PurchasingPage';
 import { renderWithQueryClient } from '../test/renderWithQueryClient';
 
-const { fetchWithAuthMock, sendWithAuthMock, uploadWithAuthMock } = vi.hoisted(() => ({
+const { fetchWithAuthMock, sendWithAuthMock, uploadWithAuthMock, uploadFilesWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
   sendWithAuthMock: vi.fn(),
   uploadWithAuthMock: vi.fn(),
+  uploadFilesWithAuthMock: vi.fn(),
 }));
 
 const openMock = vi.fn();
@@ -17,6 +18,7 @@ vi.mock('../lib/api', () => ({
   fetchWithAuth: fetchWithAuthMock,
   sendWithAuth: sendWithAuthMock,
   uploadWithAuth: uploadWithAuthMock,
+  uploadFilesWithAuth: uploadFilesWithAuthMock,
 }));
 
 const baseOrders = [
@@ -341,6 +343,7 @@ describe('PurchasingPage', () => {
     fetchWithAuthMock.mockReset();
     sendWithAuthMock.mockReset();
     uploadWithAuthMock.mockReset();
+    uploadFilesWithAuthMock.mockReset();
     openMock.mockReset();
     fetchMock.mockReset();
     openMock.mockReturnValue({
@@ -355,6 +358,10 @@ describe('PurchasingPage', () => {
     vi.stubGlobal('open', openMock);
     vi.stubGlobal('fetch', fetchMock);
     uploadWithAuthMock.mockImplementation(async () => {
+      const response = await fetchMock();
+      return response.json();
+    });
+    uploadFilesWithAuthMock.mockImplementation(async () => {
       const response = await fetchMock();
       return response.json();
     });
@@ -758,6 +765,7 @@ describe('PurchasingPage', () => {
     if (!uploadInput) throw new Error('Expected receiving upload input');
     const file = new File(['scan'], 'dock-invoice.jpg', { type: 'image/jpeg' });
     fireEvent.change(uploadInput, { target: { files: [file] } });
+    fireEvent.click(await screen.findByRole('button', { name: /Scan 1 page/ }));
 
     await waitFor(() => {
       expect((screen.getAllByPlaceholderText('0.00')[0] as HTMLInputElement).value).toBe('5');
@@ -863,6 +871,7 @@ describe('PurchasingPage', () => {
     if (!uploadInput) throw new Error('Expected upload input');
     const file = new File(['scan'], 'po-scan.jpg', { type: 'image/jpeg' });
     fireEvent.change(uploadInput, { target: { files: [file] } });
+    fireEvent.click(await screen.findByRole('button', { name: /Scan 1 page/ }));
 
     expect(await screen.findByText((text) => text.includes('Weighted items detected:'))).toBeInTheDocument();
     expect(screen.getByText((text) => text.includes('Lot numbers detected:'))).toBeInTheDocument();
@@ -922,6 +931,7 @@ describe('PurchasingPage', () => {
     if (!uploadInput) throw new Error('Expected upload input');
     const file = new File(['scan'], 'new-vendor-invoice.jpg', { type: 'image/jpeg' });
     fireEvent.change(uploadInput, { target: { files: [file] } });
+    fireEvent.click(await screen.findByRole('button', { name: /Scan 1 page/ }));
 
     expect(await screen.findByText('New vendor detected from invoice')).toBeInTheDocument();
     expect(screen.getAllByDisplayValue('Dockside Seafood LLC').length).toBeGreaterThan(0);
@@ -978,6 +988,7 @@ describe('PurchasingPage', () => {
     if (!uploadInput) throw new Error('Expected upload input');
     const file = new File(['scan'], 'count-scan.jpg', { type: 'image/jpeg' });
     fireEvent.change(uploadInput, { target: { files: [file] } });
+    fireEvent.click(await screen.findByRole('button', { name: /Scan 1 page/ }));
 
     expect(await screen.findByText((text) => text.includes('Count items awaiting per-line approval:'))).toBeInTheDocument();
 
