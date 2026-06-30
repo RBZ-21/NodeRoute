@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   clearSession,
+  loginRedirectUrl,
   markSessionRenewed,
   renewSession,
   SESSION_EXPIRES_AT_KEY,
@@ -79,5 +80,16 @@ describe('session renewal helpers', () => {
 
     expect(localStorage.getItem('nr_user')).toBeNull();
     expect(localStorage.getItem(SESSION_EXPIRES_AT_KEY)).toBeNull();
+  });
+});
+
+describe('auth redirect helpers', () => {
+  it('keeps dashboard-v2 mounted routes inside the configured Vite base', () => {
+    expect(loginRedirectUrl('/dashboard-v2/orders?tab=routes', '/dashboard-v2/'))
+      .toBe('/dashboard-v2/login?next=%2Fdashboard-v2%2Forders%3Ftab%3Droutes');
+  });
+
+  it('keeps root-mounted routes on root login even when a dashboard base is configured', () => {
+    expect(loginRedirectUrl('/orders', '/dashboard-v2/')).toBe('/login?next=%2Forders');
   });
 });

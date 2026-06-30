@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { login } from './helpers/auth';
+import { appPath, login } from './helpers/auth';
 
 /**
  * E2E: Order → Route Assignment
@@ -22,7 +22,7 @@ test.describe('Order → Route assignment', () => {
   });
 
   test('orders page loads and shows order list', async ({ page }) => {
-    await page.goto('/orders');
+    await page.goto(appPath('/orders'));
     await expect(page).toHaveTitle(/NodeRoute|Orders/i);
     // The orders table or empty-state message should be visible
     await expect(
@@ -31,7 +31,7 @@ test.describe('Order → Route assignment', () => {
   });
 
   test('order form contains a route selector', async ({ page }) => {
-    await page.goto('/orders');
+    await page.goto(appPath('/orders'));
     // Open the new order form — adjust button text if needed
     const newOrderBtn = page.getByRole('button', { name: /new order|add order|create order/i });
     await expect(newOrderBtn).toBeVisible({ timeout: 8_000 });
@@ -43,7 +43,7 @@ test.describe('Order → Route assignment', () => {
   });
 
   test('submitting an order with a route keeps the route_id', async ({ page }) => {
-    await page.goto('/orders');
+    await page.goto(appPath('/orders'));
     const newOrderBtn = page.getByRole('button', { name: /new order|add order|create order/i });
     await newOrderBtn.click();
 
@@ -63,7 +63,7 @@ test.describe('Order → Route assignment', () => {
     await expect(page.getByLabel(/customer name/i)).not.toBeVisible({ timeout: 8_000 });
 
     // Navigate to Routes and confirm the stop is listed there
-    await page.goto('/routes');
+    await page.goto(appPath('/routes'));
     await expect(page.getByText("Hank's Seafood")).toBeVisible({ timeout: 8_000 });
 
     // The stop should be under the correct route

@@ -208,9 +208,12 @@ Most unit/integration tests run in demo/offline mode by default. Playwright test
 |---|---|
 | `PORT` | HTTP port (default: `3001`) |
 | `CORS_ORIGINS` | Comma-separated list of allowed browser origins |
-| `GOOGLE_MAPS_KEY` | Server-side Google Maps API key for address lookup |
-| `VITE_GOOGLE_MAPS_KEY` | Browser-side Google Maps key for the admin live map and public tracking map. Restrict this key in Google Cloud Console to the production domains that serve the dashboard and public tracking page. |
-| `VITE_MAP_API_KEY` | Legacy browser-side maps key alias; prefer `VITE_GOOGLE_MAPS_KEY` |
+| `GOOGLE_MAPS_API_KEY` | Canonical server-side Google Maps key for Geocoding, Distance Matrix, and Directions proxy calls. Keep this server-only. |
+| `GOOGLE_MAPS_KEY` | Legacy server-side Google Maps key alias; prefer `GOOGLE_MAPS_API_KEY`. |
+| `VITE_GOOGLE_MAPS_PUBLIC_KEY` | Canonical browser-side Google Maps key for the admin live map and public tracking map. Restrict this key by HTTP referrer. |
+| `VITE_GOOGLE_MAPS_KEY` | Legacy browser-side maps key alias; prefer `VITE_GOOGLE_MAPS_PUBLIC_KEY`. |
+| `VITE_MAP_API_KEY` | Legacy browser-side maps key alias; prefer `VITE_GOOGLE_MAPS_PUBLIC_KEY`. |
+| `ALLOWED_IMAGE_HOSTS` | Comma-separated allowlist for URL-based product images. Leave empty to reject remote image URLs by default. |
 | `ADMIN_EMAIL` / `ADMIN_PASSWORD` | Credentials for the auto-created admin account on first boot |
 | `PORTAL_CODE_TTL_MS` | How long a portal login code stays valid (default: 10 minutes) |
 | `PORTAL_AUTH_RATE_LIMIT` | Max login attempts per window (default: 5) |
@@ -281,3 +284,5 @@ Most unit/integration tests run in demo/offline mode by default. Playwright test
 - The frontend supports two Playwright tracks:
   - `frontend-v2/e2e` for the shared app-level suite
   - `frontend-v2/tests` for local smoke/UAT-style workflow coverage
+- The Vite e2e suite is mounted under `/dashboard-v2/*`. The local smoke suite
+  requires a running backend plus `TEST_EMAIL` and `TEST_PASSWORD`.

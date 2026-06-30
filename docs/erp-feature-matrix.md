@@ -57,42 +57,58 @@ some sub-capabilities deferred; **Deferred** = not in this release.
 | Suite | Command | Result |
 | --- | --- | --- |
 | Backend | `npm run test --workspace=backend` | **438 passed, 0 failed, 1 skipped** + stress-smoke pass |
-| Frontend | `npm run test --workspace=noderoute-frontend-v2` | **135 passed (24 files)** |
+| Frontend | `npm run test --workspace=noderoute-frontend-v2` | **137 passed (24 files)** |
 
 ### Playwright smoke workflows
 
-The Playwright e2e/smoke suites (`frontend-v2/e2e/*`, `frontend-v2/tests/*`)
-require a live backend on `:3001` with seeded auth, which was not available in
-this offline verification pass. The ERP-specific workflows below are **not**
-encoded as standalone Playwright specs; their behavior is covered by the backend
-integration and frontend unit suites (all passing above). Status reflects that
-coverage path.
+The available Playwright suites were executed during Phase 9:
+
+- `npm run test:e2e --workspace=noderoute-frontend-v2 -- --project=chromium --reporter=line`
+  now reaches the mounted dashboard app after a base-path fix; result:
+  **1 passed, 8 failed**. The passing check is unauthenticated redirect. The
+  remaining authenticated checks submit the login form but time out waiting to
+  leave `/login`, so the local Vite-only run still needs a working backend auth
+  target and seeded credentials before it can exercise the protected workflows.
+- `npm run test:smoke --workspace=noderoute-frontend-v2 -- --reporter=line`
+  result: **2 failed before workflow execution** because `TEST_EMAIL` and
+  `TEST_PASSWORD` were not set for the live-stack smoke environment.
+
+The ERP-specific workflows below are **not** encoded as standalone Playwright
+specs yet; their behavior is covered by the backend integration and frontend
+unit suites (all passing above). Status reflects that coverage path plus the
+live-stack blocker for Playwright.
 
 | Workflow (phase) | Playwright spec present | Verified via | Status |
 | --- | --- | --- | --- |
-| Navigation customization (P1) | no | `frontend-v2 src/lib/nav.test.ts`, `backend user navigation preferences` tests | Pass (unit/integration) |
-| Product image display in search (P1) | no | `backend/tests/product-media.test.js` | Pass (integration) |
-| Dashboard layout persistence (P1) | no | backend user-preferences round-trip tests | Pass (integration) |
-| Order entry with pricing enforcement (P4+P5) | no | `backend pricing-engine` / `orders-pricing-enforcement` / `order-entry` tests | Pass (integration) |
-| Invoice add-on and return (P5) | no | backend order-entry / invoice-documents tests | Pass (integration) |
-| Cash receipt application (P6) | no | `backend ar-ledger` / `cash-receipts` tests | Pass (integration) |
-| Purchasing suggestion with vendor minimum (P7) | no | `backend vendor-minimum` / purchasing-planning tests | Pass (integration) |
-| Report run and download (P8) | no | `backend report-scheduler` / `report-exporter` tests; `ReportsPage.test.tsx` | Pass (integration/unit) |
-| Route map visualization (P2) | partial (`e2e/routes.spec.ts`) | `frontend-v2 MapPage.test.tsx`; live render needs Maps key | Pass (unit); live e2e not run |
+| Navigation customization (P1) | no | `frontend-v2/src/lib/nav.test.ts`, backend user navigation preferences tests | Pass (unit/integration); Playwright deferred |
+| Product image display in search (P1) | no | `backend/tests/product-media.test.js` | Pass (integration); Playwright deferred |
+| Dashboard layout persistence (P1) | no | backend user-preferences round-trip tests and `DashboardBuilderPage` test | Pass (integration/unit); Playwright deferred |
+| Order entry with pricing enforcement (P4+P5) | no | backend pricing-engine / orders-pricing-enforcement / order-entry tests | Pass (integration); Playwright deferred |
+| Invoice add-on and return (P5) | no | backend order-entry / invoice-documents tests | Pass (integration); Playwright deferred |
+| Cash receipt application (P6) | no | backend ar-ledger / cash-receipts tests | Pass (integration); Playwright deferred |
+| Purchasing suggestion with vendor minimum (P7) | no | backend vendor-minimum / purchasing-planning tests | Pass (integration); Playwright deferred |
+| Report run and download (P8) | no | backend report-scheduler / report-exporter tests; `ReportsPage.test.tsx` | Pass (integration/unit); Playwright deferred |
+| Route map visualization (P2) | partial (`e2e/routes.spec.ts`) | `frontend-v2/src/pages/MapPage.test.tsx`; live render needs Maps key | Pass (unit); live Playwright blocked by auth/backend setup |
 
-> Pre-ERP Playwright specs (`navigation`, `order-route`, `routes`) require the
-> live stack and seeded credentials; they were not executed in this pass. To run
-> them: start the backend on `:3001`, then `npm run test:e2e --workspace=noderoute-frontend-v2`.
+> Playwright follow-up: start the backend on `:3001`, provide `TEST_EMAIL` and
+> `TEST_PASSWORD`, then run both Playwright tracks. The Vite e2e suite uses
+> `/dashboard-v2/*` paths to match the configured frontend base.
 
 ## Phase 9 — RLS & Service-Role Verification
 
 - **Migration ordering:** all 137 migrations confirmed present and in order on the
-  remote project (`list_migrations`), ending with the Phase 1–8 ERP migrations
-  through `20260629223719_report_scheduler_alerts`.
+  remote project via Supabase CLI and MCP `list_migrations`, ending with the
+  Phase 1–8 ERP migrations through `20260629223719_report_scheduler_alerts`.
+  `supabase db push --dry-run` reports `Remote database is up to date`.
 - **RLS coverage:** every new ERP table created in Phases 1–8 has both
   `enable row level security` and a tenant policy in the same migration —
   61 tables / 61 enable-RLS / 61 policies. Supabase **security advisor reports
-  zero `rls_disabled` errors**.
+  zero `rls_disabled` errors**. Live catalog check: 136 public tables, **0**
+  without RLS. Of 130 tables with `company_id`/`location_id`, 128 have explicit
+  tenant-policy references; the two exceptions are historical
+  `credit_hold_log` / `credit_hold_overrides` tables whose authenticated-client
+  policies are deny-all (`false` / `false`) and are accessed through backend
+  service-role routes only.
 - **Route scoping:** all new ERP route files were scanned for `.from()` calls not
   guarded by `scopeQueryByContext` / `filterRowsByContext` /
   `insertRecordWithOptionalScope` / `buildScopeFields`. Flagged sites were
@@ -105,15 +121,17 @@ coverage path.
 - **Service-role exposure:** no `service_role` / `SUPABASE_SERVICE` references in
   `backend/routes/` or `frontend-v2/src/`. References are confined to
   `backend/lib/config.js` and `backend/services/supabase.js` (plus tests).
+  The only live `auth.role() = 'service_role'` policy references are infra
+  gates on `portal_auth_attempts`, `portal_challenges`, and
+  `stripe_webhook_events`, not ERP tenant authorization.
 
 ## Phase 9 — DB Health
 
-Source: Supabase advisors (`get_advisors`) — the Supabase CLI (`supabase inspect
-db unused-indexes` / `bloat`) was unavailable locally, so the read-only advisor
-API was used instead. The `bloat` inspection specifically requires the CLI and
-was not run.
+Source: Supabase CLI v2.108.0 through `npx --yes supabase@latest`, using the
+`.env`-derived DB URL. `inspect db unused-indexes` is deprecated in favor of
+`inspect db index-stats`, but still ran successfully for this pass.
 
-**Security advisors:** 9 WARN-level lints, **zero ERROR**:
+**Security advisors:** 8 WARN-level lints, **zero ERROR**:
 - `function_search_path_mutable` ×5 — `fn_audit_log_customer_change`,
   `fn_audit_log_order_change`, `seafood_inventory_insert_fn`,
   `set_reorder_suggestions_updated_at`, `sync_products_inventory_report_fields`
@@ -124,6 +142,7 @@ was not run.
   public signup.
 
 **Performance advisors:** 595 lints, **zero ERROR**:
+- Level split: 381 INFO, 214 WARN.
 - `unused_index` (INFO) ×249 — expected immediately after a large migration batch;
   many new ERP indexes have no accumulated scan stats yet. Re-evaluate after the
   features see production traffic before dropping any.
@@ -132,6 +151,16 @@ was not run.
   migrations addressed part of this).
 - `unindexed_foreign_keys` (INFO) ×132.
 - `auth_rls_initplan` (WARN) ×1.
+
+**Unused index inspection:** 500 index rows returned; 359 currently show zero
+scans. Largest zero-scan entries include `idx_products_reorder_enabled` (96 kB),
+`idx_auth_refresh_sessions_token_hash` (40 kB), and `idx_orders_items_gin`
+(32 kB). Treat as post-migration telemetry, not an immediate drop list.
+
+**Bloat inspection:** 107 rows returned; 67 show non-zero estimated waste. Largest
+items are small: `public."Customers"` (112 kB), `reorder_suggestions` (48 kB),
+`auth_refresh_sessions` (40 kB), `products` (32 kB), and
+`orders::idx_orders_items_gin` (24 kB).
 
 ## Known Deferred Integrations
 

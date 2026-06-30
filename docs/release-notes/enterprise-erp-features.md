@@ -145,18 +145,27 @@ posting over dropping the schema.
 ## 7. Verification summary (Phase 9)
 
 - Backend test suite: **438 passing, 0 failing, 1 skipped** + stress-smoke pass.
-- Frontend (`noderoute-frontend-v2`) test suite: **135 passing** (24 files).
+- Frontend (`noderoute-frontend-v2`) test suite: **137 passing** (24 files).
 - RLS: every new ERP table has RLS enabled + a tenant policy; Supabase security
-  advisor reports **zero `rls_disabled` errors**.
+  advisor reports **zero `rls_disabled` errors**. A live catalog check found 136
+  public tables and **0** without RLS; the only tenant-column tables without
+  tenant-policy references are historical `credit_hold_log` /
+  `credit_hold_overrides`, whose authenticated-client policies are deny-all.
+- Supabase migration history: CLI and MCP both confirm 137 local/remote
+  migrations through `20260629223719_report_scheduler_alerts`; `db push
+  --dry-run` reports `Remote database is up to date`.
 - Service-role exposure: **no** `service_role` / `SUPABASE_SERVICE` references in
   `backend/routes/` or `frontend-v2/src/` (confined to `backend/lib/` and
-  `backend/services/`).
+  `backend/services/`). The only live `auth.role() = 'service_role'` policy
+  references are infra gates on portal challenge/audit and Stripe webhook tables.
 - One latent scoping bug was found and fixed during this pass: the auto
   product-creation path in `backend/routes/ops/purchasing-order-routes.js` (PO
   receiving, unmatched-inventory branch) inserted into `products` without a
   `company_id`, which is `NOT NULL` with no default — now scoped via
   `buildScopeFields(req.context)`.
-- Playwright e2e/smoke suites require a live backend on `:3001` with seeded auth,
-  which was not available in this offline verification pass; ERP workflow
-  correctness is covered by the backend integration and frontend unit suites
-  above. See the Playwright section in the feature matrix.
+- Playwright: the Chromium Vite e2e suite now reaches `/dashboard-v2/*` after a
+  base-path fix; unauthenticated redirect passes, while authenticated tests are
+  blocked without a backend auth service behind the Vite dev server. The local
+  smoke suite is blocked until `TEST_EMAIL` and `TEST_PASSWORD` are set. ERP
+  workflow correctness is covered by the backend integration and frontend unit
+  suites above. See the Playwright section in the feature matrix.

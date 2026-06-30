@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { login } from './helpers/auth';
+import { appPath, login } from './helpers/auth';
 
 const TEST_EMAIL    = process.env.TEST_EMAIL    ?? 'admin@noderoute.local';
 const TEST_PASSWORD = process.env.TEST_PASSWORD ?? 'password';
@@ -10,7 +10,7 @@ test.describe('Routes page', () => {
   });
 
   test('routes page loads', async ({ page }) => {
-    await page.goto('/routes');
+    await page.goto(appPath('/routes'));
     await expect(
       page.getByRole('heading', { name: /routes/i })
         .or(page.getByText(/no routes|add route/i))
@@ -18,7 +18,7 @@ test.describe('Routes page', () => {
   });
 
   test('can create a new route', async ({ page }) => {
-    await page.goto('/routes');
+    await page.goto(appPath('/routes'));
     const addBtn = page.getByRole('button', { name: /new route|add route|create route/i });
     await expect(addBtn).toBeVisible({ timeout: 8_000 });
     await addBtn.click();
@@ -28,7 +28,7 @@ test.describe('Routes page', () => {
   });
 
   test('open invoices can be assigned to a route', async ({ page }) => {
-    await page.goto('/routes');
+    await page.goto(appPath('/routes'));
     // Look for an "Add Stop" or "Assign Invoice" control
     const assignBtn = page.getByRole('button', { name: /add stop|assign invoice|add invoice/i }).first();
     await expect(assignBtn).toBeVisible({ timeout: 8_000 });
