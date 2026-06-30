@@ -107,6 +107,11 @@ function mockInventoryApi() {
         onboarding_completed: true,
       };
     }
+    if (url === '/api/settings/company') {
+      return {
+        businessName: 'Blue Harbor Seafood Co.',
+      };
+    }
     if (url === '/api/lots?active_only=true') return activeLots;
     if (url.startsWith('/api/inventory/ledger?')) return ledgerResponse;
     if (url === '/api/reporting/recent-sold-items?days=30') {
@@ -340,11 +345,12 @@ describe('InventoryPage', () => {
     expect(openMock).toHaveBeenCalled();
     expect(writeMock).toHaveBeenCalled();
     const printedHtml = String(writeMock.mock.calls[0]?.[0] || '');
-    expect(printedHtml).toContain('Inventory Count Sheet');
+    expect(printedHtml).toContain('<title>Blue Harbor Seafood Co. Inventory Count Sheet</title>');
     expect(printedHtml).toContain('Packaging');
     expect(printedHtml).toContain('Shipping Box');
     expect(printedHtml).not.toContain('Fresh Salmon');
     expect(printedHtml).toContain('Physical Count');
+    expect(printedHtml).toContain('class="print-footer">Blue Harbor Seafood Co.</div>');
     expect(focusMock).toHaveBeenCalled();
     expect(printMock).toHaveBeenCalled();
 
