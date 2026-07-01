@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Button } from '../components/ui/button';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
+import { Modal } from '../components/ui/overlay-panel';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import {
   type PendingOrder,
@@ -113,16 +113,15 @@ export function AddStopsModal({ route, pendingOrders, allStops, refetchStops, on
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}>
-      <Card className="w-full max-w-2xl max-h-[85vh] overflow-y-auto shadow-xl">
-        <CardHeader className="flex flex-row items-start justify-between">
-          <div className="space-y-1">
-            <CardTitle>Add Stops</CardTitle>
-            <CardDescription>{route.name || route.id}</CardDescription>
-          </div>
-          <Button variant="ghost" size="sm" onClick={onClose}>Close</Button>
-        </CardHeader>
-        <CardContent className="space-y-6">
+    <Modal
+      open
+      title="Add Stops"
+      description={route.name || route.id}
+      onClose={onClose}
+      widthClassName="max-w-2xl"
+      contentClassName="max-h-[85vh] overflow-y-auto px-5 py-4"
+    >
+      <div className="space-y-6">
           <div className="space-y-3">
             <p className="text-sm font-semibold text-muted-foreground">Manual Stop</p>
             <div className="grid gap-3 md:grid-cols-3">
@@ -188,8 +187,7 @@ export function AddStopsModal({ route, pendingOrders, allStops, refetchStops, on
           ) : (
             <p className="text-sm text-muted-foreground">No pending orders available to add from.</p>
           )}
-        </CardContent>
-      </Card>
-    </div>
+      </div>
+    </Modal>
   );
 }

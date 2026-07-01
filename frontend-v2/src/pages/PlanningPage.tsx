@@ -1,9 +1,13 @@
 import { useMemo, useState } from 'react';
 import { Button } from '../components/ui/button';
+import { SelectInput } from '../components/ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
+import { TableEmptyState } from '../components/ui/data-state';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { type PlanningRule, type RuleStatus, useDeleteRule, usePlanningRules, useToggleRule } from '../hooks/usePlanning';
+import { useToast } from '../components/ui/toast';
 
 const statusColors = { active: 'green', inactive: 'gray', draft: 'yellow' } as const;
 
@@ -18,7 +22,7 @@ export function PlanningPage() {
 
   const [typeFilter, setTypeFilter] = useState<'all' | string>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | RuleStatus>('all');
-  const [notice, setNotice] = useState('');
+  const toast = useToast();
 
   const typeOptions = useMemo(() => {
     const unique = new Set<string>();
@@ -39,19 +43,19 @@ export function PlanningPage() {
     const nextStatus: RuleStatus = rule.status === 'active' ? 'inactive' : 'active';
     try {
       await toggleRule.mutateAsync({ id: rule.id, nextStatus });
-      setNotice(`Rule ${rule.name} is now ${nextStatus}.`);
-    } catch (err) { setNotice(String((err as Error)?.message || 'Could not update rule')); }
+      toast.success(`Rule ${rule.name} is now ${nextStatus}.`);
+    } catch (err) { toast.error(String((err as Error)?.message || 'Could not update rule')); }
   }
 
   async function handleDelete(rule: PlanningRule) {
     if (!confirm(`Delete rule "${rule.name}"?`)) return;
     try {
       await deleteRule.mutateAsync(rule.id);
-      setNotice(`Deleted rule ${rule.name}.`);
-    } catch (err) { setNotice(String((err as Error)?.message || 'Could not delete rule')); }
+      toast.success(`Deleted rule ${rule.name}.`);
+    } catch (err) { toast.error(String((err as Error)?.message || 'Could not delete rule')); }
   }
 
-  if (isLoading) return <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading planning rules...</div>;
+  if (isLoading) return <PageSkeleton />;
   if (isError) return <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message)}</div>;
 
   if (endpointUnavailable) {
@@ -61,14 +65,13 @@ export function PlanningPage() {
           <CardTitle>No Rules Configured</CardTitle>
           <CardDescription>No rules endpoint is available yet. Configure your first planning rule to start automation.</CardDescription>
         </CardHeader>
-        <CardContent><Button onClick={() => setNotice('New rule builder opened.')}>Create First Rule</Button></CardContent>
+        <CardContent><Button onClick={() => toast.success('New rule builder opened.')}>Create First Rule</Button></CardContent>
       </Card>
     );
   }
 
   return (
     <div className="space-y-5">
-      {notice && <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div>}
 
       <Card>
         <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -79,21 +82,21 @@ export function PlanningPage() {
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Type</span>
-              <select value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={typeFilter} onChange={(e) => setTypeFilter(e.target.value)}>
                 <option value="all">All Types</option>
                 {typeOptions.map((t) => <option key={t} value={t}>{t}</option>)}
-              </select>
+              </SelectInput>
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | RuleStatus)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | RuleStatus)}>
                 <option value="all">All</option>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
                 <option value="draft">Draft</option>
-              </select>
+              </SelectInput>
             </label>
-            <Button onClick={() => setNotice('New rule builder opened.')}>New Rule</Button>
+            <Button onClick={() => toast.success('New rule builder opened.')}>New Rule</Button>
           </div>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
@@ -119,7 +122,7 @@ export function PlanningPage() {
                     <TableCell><StatusBadge status={rule.status} colorMap={statusColors} fallbackLabel="Unknown" /></TableCell>
                     <TableCell>
                       <div className="flex flex-wrap gap-1">
-                        <Button variant="ghost" size="sm" onClick={() => setNotice(`Editing rule ${rule.name}.`)} disabled={busy}>Edit Rule</Button>
+                        <Button variant="ghost" size="sm" onClick={() => toast.success(`Editing rule ${rule.name}.`)} disabled={busy}>Edit Rule</Button>
                         <Button variant="secondary" size="sm" onClick={() => handleToggle(rule)} disabled={busy}>
                           {rule.status === 'active' ? 'Set Inactive' : 'Set Active'}
                         </Button>
@@ -129,7 +132,13 @@ export function PlanningPage() {
                   </TableRow>
                 );
               }) : (
-                <TableRow><TableCell colSpan={8} className="text-muted-foreground">No rules match the current filters.</TableCell></TableRow>
+                <TableEmptyState
+                  colSpan={8}
+                  title="No rules match the current filters."
+                  description="Create a planning rule or adjust the filters to review existing automation."
+                  actionLabel="New Rule"
+                  onAction={() => toast.success('New rule builder opened.')}
+                />
               )}
             </TableBody>
           </Table>

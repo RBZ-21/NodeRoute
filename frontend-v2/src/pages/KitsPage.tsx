@@ -1,6 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { TableEmptyState } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
 
@@ -108,7 +109,13 @@ export function KitsPage() {
                 </TableRow>
               ))}
               {!recipes.length ? (
-                <TableRow><TableCell colSpan={4} className="py-6 text-center text-sm text-muted-foreground">No kit recipes yet.</TableCell></TableRow>
+                <TableEmptyState
+                  colSpan={4}
+                  title="No kit recipes yet."
+                  description="Refresh recipes after adding kit setup data."
+                  actionLabel="Refresh Recipes"
+                  onAction={() => void recipesQuery.refetch()}
+                />
               ) : null}
             </TableBody>
           </Table>
@@ -140,7 +147,13 @@ export function KitsPage() {
                 </TableRow>
               ))}
               {!runs.length ? (
-                <TableRow><TableCell colSpan={4} className="py-6 text-center text-sm text-muted-foreground">No processing runs yet.</TableCell></TableRow>
+                <TableEmptyState
+                  colSpan={4}
+                  title="No processing runs yet."
+                  description="Run an active kit recipe to create processing history."
+                  actionLabel={recipes.length ? 'Run First Active Kit' : 'Refresh Runs'}
+                  onAction={() => { if (recipes[0]?.id) runMutation.mutate(recipes[0].id); else void runsQuery.refetch(); }}
+                />
               ) : null}
             </TableBody>
           </Table>

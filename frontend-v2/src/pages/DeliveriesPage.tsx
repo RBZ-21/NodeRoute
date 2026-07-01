@@ -1,8 +1,14 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import { SelectInput } from '../components/ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { useToast } from '../components/ui/toast';
+import { StatCard } from '../components/ui/stat-card';
 import { Input } from '../components/ui/input';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
+import { TableEmptyState } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { type Delivery, useDeliveries, useUpdateDeliveryStatus } from '../hooks/useDeliveries';
 
@@ -38,11 +44,11 @@ function statusBadge(status: DeliveryViewStatus) {
 }
 
 export function DeliveriesPage() {
+  const navigate = useNavigate();
   const { data: deliveries = [], isLoading, isError, error, refetch } = useDeliveries();
   const updateStatus = useUpdateDeliveryStatus();
 
-  const [notice, setNotice] = useState('');
-  const [actionError, setActionError] = useState('');
+  const toast = useToast();
   const [statusFilter, setStatusFilter] = useState<'all' | DeliveryViewStatus>('all');
   const [startDate, setStartDate] = useState('');
   const [endDate, setEndDate] = useState('');
@@ -80,13 +86,11 @@ export function DeliveriesPage() {
   }
 
   function setDeliveryStatus(delivery: Delivery, nextStatus: string) {
-    if (!delivery.orderDbId) return;
-    setActionError('');
-    updateStatus.mutate(
+    if (!delivery.orderDbId) return;    updateStatus.mutate(
       { id: delivery.orderDbId, status: nextStatus },
       {
-        onSuccess: () => setNotice(`Updated ${delivery.orderId || delivery.orderDbId!.slice(0, 8)} to ${nextStatus}.`),
-        onError: (err) => setActionError(String((err as Error).message || 'Could not update delivery status')),
+        onSuccess: () => toast.success(`Updated ${delivery.orderId || delivery.orderDbId!.slice(0, 8)} to ${nextStatus}.`),
+        onError: (err) => toast.error(String((err as Error).message || 'Could not update delivery status')),
       }
     );
   }
@@ -99,23 +103,21 @@ export function DeliveriesPage() {
     for (const id of ids) {
       try { await updateStatus.mutateAsync({ id, status: nextStatus }); successCount++; } catch { /* continue */ }
     }
-    setNotice(`Bulk updated ${successCount}/${ids.length} deliveries to ${nextStatus}.`);
+    toast.success(`Bulk updated ${successCount}/${ids.length} deliveries to ${nextStatus}.`);
     setSelected(new Set());
     setBulkUpdating(false);
   }
 
   return (
     <div className="space-y-5">
-      {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading deliveries...</div> : null}
+      {isLoading ? <PageSkeleton /> : null}
       {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load deliveries')}</div> : null}
-      {actionError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{actionError}</div> : null}
-      {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard label="Active" value={summary.active.toLocaleString()} />
-        <SummaryCard label="Pending" value={summary.pending.toLocaleString()} />
-        <SummaryCard label="Completed" value={summary.completed.toLocaleString()} />
-        <SummaryCard label="Failed" value={summary.failed.toLocaleString()} />
+        <StatCard label="Active" value={summary.active.toLocaleString()} />
+        <StatCard label="Pending" value={summary.pending.toLocaleString()} />
+        <StatCard label="Completed" value={summary.completed.toLocaleString()} />
+        <StatCard label="Failed" value={summary.failed.toLocaleString()} />
       </div>
 
       <Card>
@@ -128,13 +130,13 @@ export function DeliveriesPage() {
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | DeliveryViewStatus)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | DeliveryViewStatus)}>
                 <option value="all">All</option>
                 <option value="active">Active</option>
                 <option value="pending">Pending</option>
                 <option value="completed">Completed</option>
                 <option value="failed">Failed</option>
-              </select>
+              </SelectInput>
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Start Date</span>
@@ -201,18 +203,18 @@ export function DeliveriesPage() {
                   </TableRow>
                 );
               }) : (
-                <TableRow><TableCell colSpan={9} className="text-muted-foreground">No deliveries found for the selected filters.</TableCell></TableRow>
+                <TableEmptyState
+                  colSpan={9}
+                  title="No deliveries found for the selected filters."
+                  description="Dispatch a route when work is ready to leave the shop, then delivery activity will appear here."
+                  actionLabel="Open Routes"
+                  onAction={() => navigate('/routes')}
+                />
               )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className="text-2xl">{value}</CardTitle></CardHeader></Card>
   );
 }

@@ -1,5 +1,6 @@
-import { useRef, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button } from '../components/ui/button';
+import { useFocusTrap } from '../components/ui/overlay-panel';
 import { sendWithAuth } from '../lib/api';
 
 interface SignatureModalProps {
@@ -15,6 +16,13 @@ export function SignatureModal({ stopId, onClose, onSaved }: SignatureModalProps
   const [error, setError] = useState('');
   const [signerName, setSignerName] = useState('');
   const lastPos = useRef<{ x: number; y: number } | null>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(true, panelRef);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   function getPos(e: React.MouseEvent | React.TouchEvent) {
     const canvas = canvasRef.current;
@@ -86,9 +94,9 @@ export function SignatureModal({ stopId, onClose, onSaved }: SignatureModalProps
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 z-50 flex items-center justify-center" role="dialog" aria-modal="true" aria-label="Capture Customer Signature">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative z-10 w-full max-w-sm rounded-xl bg-background p-6 shadow-xl space-y-4">
+      <div ref={panelRef} tabIndex={-1} className="relative z-10 w-full max-w-sm rounded-xl bg-background p-6 shadow-xl space-y-4 outline-none">
         <h2 className="text-lg font-semibold">Capture Customer Signature</h2>
         <p className="text-sm text-muted-foreground">Sign below to confirm delivery for stop #{stopId}.</p>
 

@@ -4,6 +4,8 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
+import { LoadingSkeleton } from '../components/ui/data-state';
+import { useToast } from '../components/ui/toast';
 import { fetchWithPortalAuth, sendWithPortalAuth } from '../lib/portalApi';
 import { formatMoney } from './portal.types';
 import type { PortalCatalogItem, PortalOrder } from './portal.types';
@@ -20,8 +22,7 @@ export function PortalOrderingTab({ pastOrders, onSubmitted }: { pastOrders: Por
   const [enabled, setEnabled] = useState<boolean | null>(null);
   const [catalog, setCatalog] = useState<PortalCatalogItem[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const toast = useToast();
   const [cart, setCart] = useState<Record<string, number>>({});
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
@@ -29,9 +30,7 @@ export function PortalOrderingTab({ pastOrders, onSubmitted }: { pastOrders: Por
   useEffect(() => {
     let cancelled = false;
     (async () => {
-      setLoading(true);
-      setError('');
-      try {
+      setLoading(true);      try {
         const status = await fetchWithPortalAuth<{ enabled: boolean }>('/api/portal/ordering-status');
         if (cancelled) return;
         setEnabled(status.enabled);
@@ -40,7 +39,7 @@ export function PortalOrderingTab({ pastOrders, onSubmitted }: { pastOrders: Por
           if (!cancelled) setCatalog(items);
         }
       } catch (err) {
-        if (!cancelled) setError(String((err as Error).message || 'Could not load online ordering.'));
+        if (!cancelled) toast.error(String((err as Error).message || 'Could not load online ordering.'));
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -74,16 +73,14 @@ export function PortalOrderingTab({ pastOrders, onSubmitted }: { pastOrders: Por
   async function submitCart() {
     if (!cartLines.length) return;
     setSubmitting(true);
-    setError('');
-    setNotice('');
     try {
       const items = cartLines.map((item) => ({ product_id: item.id, item_number: item.item_number, quantity: cart[item.id] }));
       const result = await sendWithPortalAuth<{ order_number: string }>('/api/portal/orders/submit', 'POST', { items });
       setCart({});
-      setNotice(`Order ${result.order_number} submitted. Your distributor will confirm shortly.`);
+      toast.success(`Order ${result.order_number} submitted. Your distributor will confirm shortly.`);
       onSubmitted();
     } catch (err) {
-      setError(String((err as Error).message || 'Could not submit order.'));
+      toast.error(String((err as Error).message || 'Could not submit order.'));
     } finally {
       setSubmitting(false);
     }
@@ -91,22 +88,26 @@ export function PortalOrderingTab({ pastOrders, onSubmitted }: { pastOrders: Por
 
   async function reorder(orderId: string) {
     setSubmitting(true);
-    setError('');
-    setNotice('');
     try {
       const result = await sendWithPortalAuth<{ order_number: string; skipped?: string[] }>(`/api/portal/orders/${orderId}/reorder`, 'POST');
       const skippedNote = result.skipped?.length ? ` (unavailable items skipped: ${result.skipped.join(', ')})` : '';
-      setNotice(`Reorder ${result.order_number} submitted.${skippedNote}`);
+      toast.success(`Reorder ${result.order_number} submitted.${skippedNote}`);
       onSubmitted();
     } catch (err) {
-      setError(String((err as Error).message || 'Could not reorder.'));
+      toast.error(String((err as Error).message || 'Could not reorder.'));
     } finally {
       setSubmitting(false);
     }
   }
 
   if (loading) {
-    return <Card><CardContent className="py-10 text-center text-sm text-muted-foreground">Loading online ordering…</CardContent></Card>;
+    return (
+      <Card>
+        <CardContent className="py-6">
+          <LoadingSkeleton rows={4} label="Loading online ordering" />
+        </CardContent>
+      </Card>
+    );
   }
 
   // ── Locked upsell card (add-on not purchased) ──────────────────────────────
@@ -130,8 +131,6 @@ export function PortalOrderingTab({ pastOrders, onSubmitted }: { pastOrders: Por
 
   return (
     <div className="space-y-4">
-      {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
-      {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
       {/* Reorder from past orders */}
       {pastOrders.length > 0 && (

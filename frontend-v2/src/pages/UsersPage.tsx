@@ -1,8 +1,13 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { StatCard } from '../components/ui/stat-card';
+import { useToast } from '../components/ui/toast';
 import { Input } from '../components/ui/input';
+import { SelectInput } from '../components/ui/select-input';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
+import { TableEmptyState } from '../components/ui/data-state';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { getUserRole } from '../lib/api';
@@ -70,8 +75,7 @@ export function UsersPage() {
   const changeRole = useChangeUserRole();
   const removeUser = useRemoveUser();
 
-  const [notice, setNotice] = useState('');
-  const [errorMessage, setErrorMessage] = useState('');
+  const toast = useToast();
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<RoleFilter>('all');
   const [inviteName, setInviteName] = useState('');
@@ -81,6 +85,7 @@ export function UsersPage() {
   const [addEmail, setAddEmail] = useState('');
   const [addPassword, setAddPassword] = useState('');
   const [addRole, setAddRole] = useState<Role>('driver');
+  const inviteSectionRef = useRef<HTMLDivElement | null>(null);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -106,51 +111,49 @@ export function UsersPage() {
   async function submitInvite() {
     const name = inviteName.trim(); const email = inviteEmail.trim();
     if (!name || !email) {
-      setErrorMessage('Name and email are required to send an invite.');
+      toast.error('Name and email are required to send an invite.');
       return;
     }
-    try {
-      setErrorMessage('');
-      const data = await inviteUser.mutateAsync({ name, email, role: inviteRole });
-      setNotice(inviteStatusMessage(data));
+    try {      const data = await inviteUser.mutateAsync({ name, email, role: inviteRole });
+      toast.success(inviteStatusMessage(data));
       setInviteName(''); setInviteEmail(''); setInviteRole('driver');
     } catch (err) {
-      setErrorMessage(String((err as Error)?.message || 'Failed to send invite'));
+      toast.error(String((err as Error)?.message || 'Failed to send invite'));
     }
   }
 
   async function submitAddUser() {
     const name = addName.trim(); const email = addEmail.trim(); const password = addPassword.trim();
     if (!name || !email || !password) {
-      setErrorMessage('Name, email, and password are all required.');
+      toast.error('Name, email, and password are all required.');
       return;
     }
     if (password.length < 8) {
-      setErrorMessage('Password must be at least 8 characters.');
+      toast.error('Password must be at least 8 characters.');
       return;
     }
-    try {
-      setErrorMessage('');
-      await addUser.mutateAsync({ name, email, password, role: addRole });
-      setNotice(`User ${email} created and set to active.`);
+    try {      await addUser.mutateAsync({ name, email, password, role: addRole });
+      toast.success(`User ${email} created and set to active.`);
       setAddName(''); setAddEmail(''); setAddPassword(''); setAddRole('driver');
     } catch (err) {
-      setErrorMessage(String((err as Error)?.message || 'Failed to create user'));
+      toast.error(String((err as Error)?.message || 'Failed to create user'));
     }
+  }
+
+  function focusInviteForm() {
+    inviteSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
 
   return (
     <div className="space-y-5">
-      {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading users...</div> : null}
+      {isLoading ? <PageSkeleton /> : null}
       {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load users')}</div> : null}
-      {errorMessage ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{errorMessage}</div> : null}
-      {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard label="Team Members" value={users.length.toLocaleString()} />
-        <SummaryCard label="Active" value={summary.active.toLocaleString()} />
-        <SummaryCard label="Pending Setup" value={summary.pending.toLocaleString()} />
-        <SummaryCard label="Admins" value={summary.admins.toLocaleString()} />
+        <StatCard label="Team Members" value={users.length.toLocaleString()} />
+        <StatCard label="Active" value={summary.active.toLocaleString()} />
+        <StatCard label="Pending Setup" value={summary.pending.toLocaleString()} />
+        <StatCard label="Admins" value={summary.admins.toLocaleString()} />
       </div>
 
       {canAdminister ? (
@@ -161,29 +164,31 @@ export function UsersPage() {
               <Input placeholder="Full name" value={addName} onChange={(e) => setAddName(e.target.value)} disabled={addUser.isPending} />
               <Input type="email" placeholder="email@company.com" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} disabled={addUser.isPending} />
               <Input type="password" placeholder="Password (min 8 chars)" value={addPassword} onChange={(e) => setAddPassword(e.target.value)} disabled={addUser.isPending} />
-              <select value={addRole} onChange={(e) => setAddRole(e.target.value as Role)} disabled={addUser.isPending} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={addRole} onChange={(e) => setAddRole(e.target.value as Role)} disabled={addUser.isPending}>
                 {inviteRoleOptions.map((o) => <option key={o} value={o}>{o.charAt(0).toUpperCase() + o.slice(1)}</option>)}
-              </select>
+              </SelectInput>
               <Button onClick={submitAddUser} disabled={addUser.isPending}>{addUser.isPending ? 'Creating...' : 'Add User'}</Button>
             </div>
           </CardContent>
         </Card>
       ) : null}
 
-      <Card>
-        <CardHeader className="space-y-2"><CardTitle>Invite Team Member</CardTitle><CardDescription>Create secure invite links and assign a role before first sign-in.</CardDescription></CardHeader>
-        <CardContent className="space-y-3">
-          <div className="grid gap-3 md:grid-cols-4">
-            <Input placeholder="Full name" value={inviteName} onChange={(e) => setInviteName(e.target.value)} disabled={!canInvite || inviteUser.isPending} />
-            <Input type="email" placeholder="work@email.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} disabled={!canInvite || inviteUser.isPending} />
-            <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as Role)} disabled={!canInvite || inviteUser.isPending} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
-              {inviteRoleOptions.map((o) => <option key={o} value={o}>{o.charAt(0).toUpperCase() + o.slice(1)}</option>)}
-            </select>
-            <Button onClick={submitInvite} disabled={!canInvite || inviteUser.isPending}>{inviteUser.isPending ? 'Sending Invite...' : 'Send Invite'}</Button>
-          </div>
-          {!canInvite && <div className="text-xs text-muted-foreground">Only admin and manager accounts can send invites.</div>}
-        </CardContent>
-      </Card>
+      <div ref={inviteSectionRef}>
+        <Card>
+          <CardHeader className="space-y-2"><CardTitle>Invite Team Member</CardTitle><CardDescription>Create secure invite links and assign a role before first sign-in.</CardDescription></CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid gap-3 md:grid-cols-4">
+              <Input placeholder="Full name" value={inviteName} onChange={(e) => setInviteName(e.target.value)} disabled={!canInvite || inviteUser.isPending} />
+              <Input type="email" placeholder="work@email.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} disabled={!canInvite || inviteUser.isPending} />
+              <SelectInput value={inviteRole} onChange={(e) => setInviteRole(e.target.value as Role)} disabled={!canInvite || inviteUser.isPending}>
+                {inviteRoleOptions.map((o) => <option key={o} value={o}>{o.charAt(0).toUpperCase() + o.slice(1)}</option>)}
+              </SelectInput>
+              <Button onClick={submitInvite} disabled={!canInvite || inviteUser.isPending}>{inviteUser.isPending ? 'Sending Invite...' : 'Send Invite'}</Button>
+            </div>
+            {!canInvite && <div className="text-xs text-muted-foreground">Only admin and manager accounts can send invites.</div>}
+          </CardContent>
+        </Card>
+      </div>
 
       <Card>
         <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -191,13 +196,13 @@ export function UsersPage() {
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Role</span>
-              <select value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as RoleFilter)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={roleFilter} onChange={(e) => setRoleFilter(e.target.value as RoleFilter)}>
                 <option value="all">All Roles</option>
                 <option value="superadmin">Superadmin</option>
                 <option value="admin">Admin</option>
                 <option value="manager">Manager</option>
                 <option value="driver">Driver</option>
-              </select>
+              </SelectInput>
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Search</span>
@@ -235,11 +240,11 @@ export function UsersPage() {
                     <TableCell>
                       {editable ? (
                         <div className="flex flex-wrap items-center gap-2">
-                          <select value={role} onChange={(e) => void changeRole.mutateAsync({ id: user.id, role: e.target.value as Role })} disabled={busy} className="h-9 rounded-md border border-input bg-background px-2 text-xs">
+                          <SelectInput value={role} onChange={(e) => void changeRole.mutateAsync({ id: user.id, role: e.target.value as Role })} disabled={busy} className="h-9 px-2 text-xs">
                             <option value="driver">Driver</option>
                             <option value="manager">Manager</option>
                             <option value="admin">Admin</option>
-                          </select>
+                          </SelectInput>
                           <Button size="sm" variant="outline" className="border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => { if (window.confirm(`Remove ${user.name || user.email}?`)) void removeUser.mutateAsync(user.id); }} disabled={busy}>Remove</Button>
                         </div>
                       ) : (
@@ -249,18 +254,18 @@ export function UsersPage() {
                   </TableRow>
                 );
               }) : (
-                <TableRow><TableCell colSpan={8} className="text-muted-foreground">No users found for the selected filters.</TableCell></TableRow>
+                <TableEmptyState
+                  colSpan={8}
+                  title="No users found for the selected filters."
+                  description="Invite a team member to add them to this access directory."
+                  actionLabel="Send Invite"
+                  onAction={focusInviteForm}
+                />
               )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className="text-2xl">{value}</CardTitle></CardHeader></Card>
   );
 }

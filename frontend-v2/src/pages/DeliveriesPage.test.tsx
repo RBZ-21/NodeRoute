@@ -1,7 +1,14 @@
 import { fireEvent, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { DeliveriesPage } from './DeliveriesPage';
 import { renderWithQueryClient } from '../test/renderWithQueryClient';
+
+function renderDeliveriesPage() {
+  return renderWithQueryClient(<DeliveriesPage />, {
+    wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter>,
+  });
+}
 
 const { fetchWithAuthMock, sendWithAuthMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
@@ -70,7 +77,7 @@ describe('DeliveriesPage', () => {
   });
 
   it('renders summaries and applies the current status/date filters', async () => {
-    const { container } = renderWithQueryClient(<DeliveriesPage />);
+    const { container } = renderDeliveriesPage();
 
     expect(await screen.findByText('DEL-100')).toBeInTheDocument();
     expect(screen.getByText('DEL-200')).toBeInTheDocument();
@@ -96,7 +103,7 @@ describe('DeliveriesPage', () => {
   it('updates delivery status and refreshes the dispatch feed', async () => {
     sendWithAuthMock.mockResolvedValueOnce({});
 
-    renderWithQueryClient(<DeliveriesPage />);
+    renderDeliveriesPage();
 
     const blueFinRow = (await screen.findByText('DEL-100')).closest('tr') as HTMLElement | null;
     if (!blueFinRow) throw new Error('Expected Blue Fin delivery row');
@@ -118,7 +125,7 @@ describe('DeliveriesPage', () => {
       return [];
     });
 
-    const { unmount } = renderWithQueryClient(<DeliveriesPage />);
+    const { unmount } = renderDeliveriesPage();
 
     expect(await screen.findByText('Dispatch feed unavailable')).toBeInTheDocument();
     unmount();
@@ -127,7 +134,7 @@ describe('DeliveriesPage', () => {
     sendWithAuthMock.mockRejectedValueOnce(new Error('Status service unavailable'));
     mockDeliveriesApi();
 
-    renderWithQueryClient(<DeliveriesPage />);
+    renderDeliveriesPage();
 
     const blueFinRow = (await screen.findByText('DEL-100')).closest('tr') as HTMLElement | null;
     if (!blueFinRow) throw new Error('Expected Blue Fin delivery row');

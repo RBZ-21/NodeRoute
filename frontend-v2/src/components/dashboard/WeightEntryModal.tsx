@@ -1,7 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Scale, X, Printer, CheckCircle2 } from 'lucide-react';
 import { Button } from '../ui/button';
 import { Badge } from '../ui/badge';
+import { useFocusTrap } from '../ui/overlay-panel';
+import { useToast } from '../ui/toast';
 import { sendWithAuth } from '../../lib/api';
 import { cn } from '../../lib/utils';
 
@@ -116,8 +118,14 @@ export function WeightEntryModal({
   const [weightInputs, setWeightInputs] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState<Record<string, boolean>>({});
   const [saved, setSaved] = useState<Record<string, boolean>>({});
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const toast = useToast();
+  const panelRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(true, panelRef);
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') onClose(); };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose]);
 
   function setInput(key: string, value: string) {
     setWeightInputs((prev) => ({ ...prev, [key]: value }));
@@ -127,11 +135,10 @@ export function WeightEntryModal({
     const key = `${order.id}:${itemIndex}`;
     const val = parseFloat(weightInputs[key] ?? '');
     if (!Number.isFinite(val) || val <= 0) {
-      setError('Enter a valid weight greater than 0.');
+      toast.error('Enter a valid weight greater than 0.');
       return;
     }
     setSaving((s) => ({ ...s, [key]: true }));
-    setError('');
     try {
       const updated = await sendWithAuth<Order>(
         `/api/orders/${order.id}/items/${itemIndex}/actual-weight`,
@@ -140,10 +147,9 @@ export function WeightEntryModal({
       );
       onOrderUpdated(updated);
       setSaved((s) => ({ ...s, [key]: true }));
-      setNotice('Weight saved.');
-      setTimeout(() => setNotice(''), 2500);
+      toast.success('Weight saved.');
     } catch (err) {
-      setError(String((err as Error).message || 'Could not save weight'));
+      toast.error(String((err as Error).message || 'Could not save weight'));
     } finally {
       setSaving((s) => { const next = { ...s }; delete next[key]; return next; });
     }
@@ -154,9 +160,12 @@ export function WeightEntryModal({
     <div
       className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/50 px-4 py-10"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
+      role="dialog"
+      aria-modal="true"
+      aria-label="Weight Entry Queue"
     >
       {/* Panel */}
-      <div className="w-full max-w-4xl rounded-xl border border-border bg-background shadow-2xl">
+      <div ref={panelRef} tabIndex={-1} className="w-full max-w-4xl rounded-xl border border-border bg-background shadow-2xl outline-none">
 
         {/* Header */}
         <div className="flex items-center justify-between gap-4 border-b border-border px-6 py-4">
@@ -173,10 +182,6 @@ export function WeightEntryModal({
             <X className="h-5 w-5" />
           </button>
         </div>
-
-        {/* Notices */}
-        {error  && <div className="mx-6 mt-4 rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div>}
-        {notice && <div className="mx-6 mt-4 rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div>}
 
         {/* Order list */}
         <div className="divide-y divide-border">

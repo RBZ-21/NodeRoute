@@ -1,8 +1,9 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter } from 'react-router-dom';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { OrdersPage } from './OrdersPage';
+import { ToastProvider } from '../components/ui/toast';
 
 const { fetchWithAuthMock, sendWithAuthMock, getUserRoleMock } = vi.hoisted(() => ({
   fetchWithAuthMock: vi.fn(),
@@ -25,9 +26,11 @@ function renderOrdersPage(initialEntry = '/orders') {
   });
   const renderResult = render(
     <QueryClientProvider client={queryClient}>
-      <MemoryRouter initialEntries={[initialEntry]}>
-        <OrdersPage />
-      </MemoryRouter>
+      <ToastProvider>
+        <MemoryRouter initialEntries={[initialEntry]}>
+          <OrdersPage />
+        </MemoryRouter>
+      </ToastProvider>
     </QueryClientProvider>
   );
   return {
@@ -65,6 +68,10 @@ describe('OrdersPage', () => {
     vi.stubGlobal('confirm', vi.fn(() => true));
   });
 
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('renders order rows and filters them by status', async () => {
     fetchWithAuthMock.mockImplementation(async (url: string) => {
       if (url.startsWith('/api/orders')) {
@@ -92,6 +99,35 @@ describe('OrdersPage', () => {
       expect(screen.getByText('ORD-001')).toBeInTheDocument();
       expect(screen.queryByText('ORD-002')).not.toBeInTheDocument();
     });
+  });
+
+  it('paginates the orders workbench after filtering', async () => {
+    const manyOrders = Array.from({ length: 26 }, (_, index) => ({
+      id: `order-${index + 1}`,
+      order_number: `ORD-${String(index + 1).padStart(3, '0')}`,
+      customer_name: `Customer ${index + 1}`,
+      status: 'pending',
+      items: [{ name: 'Atlantic Salmon', quantity: 1, unit_price: 12 }],
+      created_at: '2026-04-01T00:00:00Z',
+    }));
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/orders')) return manyOrders;
+      if (url === '/api/inventory' || url === '/api/customers') return [];
+      return [];
+    });
+
+    renderOrdersPage();
+
+    expect(await screen.findByText('ORD-001')).toBeInTheDocument();
+    expect(screen.queryByText('ORD-026')).not.toBeInTheDocument();
+    expect(screen.getByText('Page 1 of 2')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(await screen.findByText('ORD-026')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('Order # or customer'), { target: { value: 'ORD-026' } });
+    expect(await screen.findByText('Page 1 of 1')).toBeInTheDocument();
+    expect(screen.getByText('ORD-026')).toBeInTheDocument();
   });
 
   it('bulk-updates selected order statuses from the workbench', async () => {
@@ -132,7 +168,7 @@ describe('OrdersPage', () => {
 
     renderOrdersPage();
     // The order form now lives inside the "+ New Order" slide-over drawer.
-    fireEvent.click(await screen.findByRole('button', { name: '+ New Order' }));
+    fireEvent.click((await screen.findAllByRole('button', { name: '+ New Order' }))[0]);
     await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Create Draft Order' }));
@@ -185,7 +221,7 @@ describe('OrdersPage', () => {
 
     renderOrdersPage();
     // The order form now lives inside the "+ New Order" slide-over drawer.
-    fireEvent.click(await screen.findByRole('button', { name: '+ New Order' }));
+    fireEvent.click((await screen.findAllByRole('button', { name: '+ New Order' }))[0]);
     await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Walkup Cafe' } });
@@ -206,7 +242,7 @@ describe('OrdersPage', () => {
   it('hydrates address and email when the typed customer name exactly matches a saved customer', async () => {
     renderOrdersPage();
     // The order form now lives inside the "+ New Order" slide-over drawer.
-    fireEvent.click(await screen.findByRole('button', { name: '+ New Order' }));
+    fireEvent.click((await screen.findAllByRole('button', { name: '+ New Order' }))[0]);
     await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview Market' } });
@@ -222,7 +258,7 @@ describe('OrdersPage', () => {
 
     renderOrdersPage();
     // The order form now lives inside the "+ New Order" slide-over drawer.
-    fireEvent.click(await screen.findByRole('button', { name: '+ New Order' }));
+    fireEvent.click((await screen.findAllByRole('button', { name: '+ New Order' }))[0]);
     await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview' } });
@@ -262,7 +298,7 @@ describe('OrdersPage', () => {
 
     renderOrdersPage();
     // The order form now lives inside the "+ New Order" slide-over drawer.
-    fireEvent.click(await screen.findByRole('button', { name: '+ New Order' }));
+    fireEvent.click((await screen.findAllByRole('button', { name: '+ New Order' }))[0]);
     await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview Market' } });
@@ -333,7 +369,7 @@ describe('OrdersPage', () => {
 
     renderOrdersPage();
     // The order form now lives inside the "+ New Order" slide-over drawer.
-    fireEvent.click(await screen.findByRole('button', { name: '+ New Order' }));
+    fireEvent.click((await screen.findAllByRole('button', { name: '+ New Order' }))[0]);
     await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Oceanview Market' } });
@@ -363,6 +399,67 @@ describe('OrdersPage', () => {
         }),
       );
     });
+  });
+
+  it('fills every parsed AI intake line without waiting on timers', async () => {
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/orders')) return [];
+      if (url === '/api/inventory') {
+        return [
+          { id: 'prod-salmon', item_number: 'SAL-01', description: 'Atlantic Salmon', cost: 12, unit: 'each' },
+          { id: 'prod-shrimp', item_number: 'SHR-01', description: 'White Shrimp', cost: 9, unit: 'each' },
+        ];
+      }
+      if (url === '/api/customers') return [{ id: 'cust-1', company_name: 'Oceanview Market', billing_email: 'buyer@oceanview.test', address: '123 Harbor St' }];
+      if (url.startsWith('/api/order-guides')) return { guides: [] };
+      if (url.startsWith('/api/customer-messages')) return { messages: [] };
+      if (url.startsWith('/api/pricing/resolve')) return { price: 12, method: 'catalog' };
+      return [];
+    });
+    sendWithAuthMock.mockImplementation(async (url: string) => {
+      if (url === '/api/ai/order-intake') {
+        return {
+          customer_name_hint: 'Oceanview Market',
+          order_notes: 'Friday delivery',
+          items: [
+            { name: 'Atlantic Salmon', unit: 'each', amount: 2, unit_price: 12, item_number: 'SAL-01' },
+            { name: 'White Shrimp', unit: 'each', amount: 3, unit_price: 9, item_number: 'SHR-01' },
+          ],
+        };
+      }
+      if (url === '/api/orders') return { id: 'ai-order-id' };
+      return {};
+    });
+
+    renderOrdersPage();
+    expect(await screen.findByText('No orders match the current filters.')).toBeInTheDocument();
+
+    vi.useFakeTimers();
+    fireEvent.click(screen.getByRole('button', { name: /Parse Customer Message/i }));
+    fireEvent.change(screen.getByPlaceholderText(/Hi, can I get/i), { target: { value: 'Oceanview needs salmon and shrimp' } });
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Parse & Fill' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(screen.getByRole('button', { name: 'Create Draft Order' })).toBeInTheDocument();
+    expect(screen.getByDisplayValue('buyer@oceanview.test')).toBeInTheDocument();
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Create Draft Order' }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    const orderCall = sendWithAuthMock.mock.calls.find(([url]) => url === '/api/orders');
+    expect(orderCall?.[2]).toEqual(expect.objectContaining({
+      customerName: 'Oceanview Market',
+      notes: 'Friday delivery',
+      items: [
+        expect.objectContaining({ name: 'Atlantic Salmon', quantity: 2, unit_price: 12 }),
+        expect.objectContaining({ name: 'White Shrimp', quantity: 3, unit_price: 9 }),
+      ],
+    }));
   });
 
   it('loads an order into edit mode and sends an update request', async () => {
@@ -532,7 +629,8 @@ describe('OrdersPage', () => {
     expect(await screen.findByText('ORD-CW')).toBeInTheDocument();
     expect(screen.getByText((content) => content.includes('Weight Pending'))).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Enter Weights' }));
+    fireEvent.click(screen.getByRole('button', { name: /Actions for ORD-CW/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Enter Weights' }));
     expect(await screen.findByText(/Weight Entry/)).toBeInTheDocument();
 
     fireEvent.change(screen.getByPlaceholderText('lbs'), { target: { value: '10.250' } });
@@ -576,7 +674,7 @@ describe('OrdersPage', () => {
     renderOrdersPage();
 
     expect(await screen.findByText('ORD-LB')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /ORD-LB/ }));
+    fireEvent.click(screen.getAllByRole('button', { name: /ORD-LB/ })[0]);
 
     expect(await screen.findByText(/Weight Entry/)).toBeInTheDocument();
   });
@@ -624,7 +722,7 @@ describe('OrdersPage', () => {
     vi.stubGlobal('confirm', confirmMock);
 
     renderOrdersPage();
-    fireEvent.click(await screen.findByRole('button', { name: '+ New Order' }));
+    fireEvent.click((await screen.findAllByRole('button', { name: '+ New Order' }))[0]);
     await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.change(screen.getByPlaceholderText('Oceanview Market'), { target: { value: 'Half-typed customer' } });
@@ -646,7 +744,7 @@ describe('OrdersPage', () => {
     vi.stubGlobal('confirm', confirmMock);
 
     renderOrdersPage();
-    fireEvent.click(await screen.findByRole('button', { name: '+ New Order' }));
+    fireEvent.click((await screen.findAllByRole('button', { name: '+ New Order' }))[0]);
     await screen.findByRole('button', { name: 'Create Draft Order' });
 
     fireEvent.click(screen.getByRole('button', { name: 'Close panel' }));
@@ -688,7 +786,8 @@ describe('OrdersPage', () => {
     renderOrdersPage();
 
     expect(await screen.findByText('ORD-SEND')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Send to Processing' }));
+    fireEvent.click(screen.getByRole('button', { name: /Actions for ORD-SEND/ }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Send to Processing' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith(

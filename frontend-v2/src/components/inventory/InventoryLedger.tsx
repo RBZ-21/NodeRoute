@@ -1,5 +1,7 @@
 import { Button } from '../ui/button';
+import { SelectInput } from '../ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { TableEmptyState, TableLoadingRow } from '../ui/data-state';
 import { Input } from '../ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import type { LedgerEntry, LedgerSummary } from '../../types/inventory.types';
@@ -26,9 +28,9 @@ export function InventoryLedger({ ledgerLoading, ledgerSummary, ledgerEntries, l
         <div className="grid gap-3 md:grid-cols-4">
           <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Item Filter</span><Input value={ledgerItemFilter} onChange={(e) => onItemFilterChange(e.target.value)} placeholder="Item number" /></label>
           <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Change Type</span>
-            <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={ledgerTypeFilter} onChange={(e) => onTypeFilterChange(e.target.value)}>
+            <SelectInput className="w-full" value={ledgerTypeFilter} onChange={(e) => onTypeFilterChange(e.target.value)}>
               <option value="">All</option>{CHANGE_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+            </SelectInput>
           </label>
           <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Limit</span><Input type="number" min="1" max="500" value={ledgerLimit} onChange={(e) => onLimitChange(e.target.value)} /></label>
           <div className="flex items-end"><Button onClick={onApplyFilters} disabled={ledgerLoading}>Apply Ledger Filters</Button></div>
@@ -55,7 +57,17 @@ export function InventoryLedger({ ledgerLoading, ledgerSummary, ledgerEntries, l
                   <TableCell>{entry.notes ?? '-'}</TableCell>
                   <TableCell>{entry.created_by ?? '-'}</TableCell>
                 </TableRow>
-              )) : <TableRow><TableCell colSpan={7} className="text-muted-foreground">{ledgerLoading ? 'Loading ledger entries...' : 'No ledger entries for current filters.'}</TableCell></TableRow>}
+              )) : ledgerLoading ? (
+                <TableLoadingRow colSpan={7} label="Loading ledger entries" />
+              ) : (
+                <TableEmptyState
+                  colSpan={7}
+                  title="No ledger entries for current filters."
+                  description="Adjust the ledger filters or apply a broader limit to review stock movement history."
+                  actionLabel="Apply Filters"
+                  onAction={onApplyFilters}
+                />
+              )}
             </TableBody>
           </Table>
         </div>

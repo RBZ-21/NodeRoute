@@ -4,6 +4,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ChevronDown, ChevronUp, Phone } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
 import { phoneOrderKeys } from './phone-order-keys';
 
@@ -46,11 +47,7 @@ export function PhoneOrdersPage() {
   const draftCount = orders.filter((o) => o.status === 'draft').length;
 
   if (isLoading) {
-    return (
-      <div className="flex items-center justify-center py-16 text-muted-foreground text-sm">
-        Loading phone orders…
-      </div>
-    );
+    return <PageSkeleton />;
   }
 
   if (isError) {

@@ -1,7 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { SelectInput } from '../ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { TableEmptyState } from '../ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { fetchWithAuth, sendWithAuth } from '../../lib/api';
 import type { InventoryItem } from '../../types/inventory.types';
@@ -131,14 +133,14 @@ export function InventoryTab({
             onChange={(e) => setSearch(e.target.value)}
             className="rounded border border-input bg-background px-3 py-1.5 text-sm w-40"
           />
-          <select
+          <SelectInput
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
-            className="rounded border border-input bg-background px-2 py-1.5 text-sm"
+            className="h-auto rounded px-2 py-1.5"
           >
             <option value="">All Class Names</option>
             {categories.map((c) => <option key={c} value={c}>{c}</option>)}
-          </select>
+          </SelectInput>
           <Button variant="outline" size="sm" onClick={exportCsv}>Export CSV</Button>
           <Button variant="outline" size="sm" onClick={reload} disabled={loading}>{loading ? 'Loading...' : 'Refresh'}</Button>
         </div>
@@ -208,7 +210,13 @@ export function InventoryTab({
                 </TableCell>
               </TableRow>
             )) : (
-              <TableRow><TableCell colSpan={13} className="text-muted-foreground">No items match filters.</TableCell></TableRow>
+              <TableEmptyState
+                colSpan={13}
+                title="No items match filters."
+                description="Clear the filters or refresh warehouse inventory to load current on-hand rows."
+                actionLabel="Refresh"
+                onAction={() => void reload()}
+              />
             )}
           </TableBody>
         </Table>

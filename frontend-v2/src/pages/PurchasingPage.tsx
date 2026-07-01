@@ -1,8 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { useToast } from '../components/ui/toast';
+import { StatCard } from '../components/ui/stat-card';
+import { Input } from '../components/ui/input';
+import { SelectInput } from '../components/ui/select-input';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
+import { TableEmptyState } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import {
   type PurchaseOrder,
@@ -26,6 +32,25 @@ import {
   statusTone,
 } from './purchasing.helpers';
 
+const RECEIVING_STATUS_OPTIONS = [
+  { value: 'open', label: 'Open' },
+  { value: 'partial_received', label: 'Partial Received' },
+  { value: 'backordered', label: 'Backordered' },
+];
+
+const PURCHASE_STATUS_OPTIONS = [
+  { value: 'draft', label: 'Draft' },
+  { value: 'received', label: 'Received' },
+  { value: 'partial_received', label: 'Partial Received' },
+  { value: 'backordered', label: 'Backordered' },
+  { value: 'cancelled', label: 'Cancelled' },
+  { value: 'abandoned', label: 'Abandoned' },
+];
+
+function normalizePoStatus(value: unknown, fallback: string) {
+  return String(value || fallback).trim().toLowerCase().replace(/[\s-]+/g, '_');
+}
+
 export function PurchasingPage() {
   const [searchParams] = useSearchParams();
   const vendorParam   = String(searchParams.get('vendor') || '').trim();
@@ -36,11 +61,16 @@ export function PurchasingPage() {
   const { data: vendorPurchaseOrders = [], isLoading: vendorPoLoading, isError: vendorPoError, error: vendorPoErrorValue, refetch: refetchVendorPos } = useVendorPurchaseOrders();
   const { data: vendorRecords = [] } = useVendorsQuery();
 
-  const [notice, setNotice] = useState('');
+  const toast = useToast();
   const [formError, setFormError] = useState('');
   const [vendorFilter, setVendorFilter] = useState<'all' | string>(vendorParam || 'all');
+  const [receivingSearch, setReceivingSearch] = useState('');
+  const [receivingStatusFilter, setReceivingStatusFilter] = useState<'all' | string>('all');
+  const [purchaseSearch, setPurchaseSearch] = useState('');
+  const [purchaseStatusFilter, setPurchaseStatusFilter] = useState<'all' | string>('all');
   const [activeReceivePo, setActiveReceivePo] = useState<VendorPurchaseOrder | null>(null);
   const [activeDraft, setActiveDraft] = useState<PurchaseOrder | null>(null);
+  const createPoSectionRef = useRef<HTMLDivElement | null>(null);
 
   const planningVendor = useMemo(() => {
     const selectedVendorName = vendorParam || (vendorFilter === 'all' ? '' : vendorFilter);
@@ -58,10 +88,18 @@ export function PurchasingPage() {
 
   const vendorOptions = useMemo(() => buildVendorOptions(orders, vendorRecords), [orders, vendorRecords]);
 
-  const filteredOrders = useMemo(() =>
-    vendorFilter === 'all' ? orders : orders.filter((o) => String(o.vendor || '').trim() === vendorFilter),
-    [orders, vendorFilter],
-  );
+  const filteredOrders = useMemo(() => {
+    const needle = purchaseSearch.trim().toLowerCase();
+    return orders.filter((order) => {
+      if (vendorFilter !== 'all' && String(order.vendor || '').trim() !== vendorFilter) return false;
+      if (purchaseStatusFilter !== 'all' && normalizePoStatus(order.status, 'received') !== purchaseStatusFilter) return false;
+      if (!needle) return true;
+      return (
+        String(order.po_number || order.id || '').toLowerCase().includes(needle) ||
+        String(order.vendor || '').toLowerCase().includes(needle)
+      );
+    });
+  }, [orders, purchaseSearch, purchaseStatusFilter, vendorFilter]);
 
   const openVendorPurchaseOrders = useMemo(
     () =>
@@ -71,6 +109,18 @@ export function PurchasingPage() {
       }),
     [vendorPurchaseOrders],
   );
+
+  const filteredOpenVendorPurchaseOrders = useMemo(() => {
+    const needle = receivingSearch.trim().toLowerCase();
+    return openVendorPurchaseOrders.filter((po) => {
+      if (receivingStatusFilter !== 'all' && normalizePoStatus(po.status, 'open') !== receivingStatusFilter) return false;
+      if (!needle) return true;
+      return (
+        String(po.po_number || po.id || '').toLowerCase().includes(needle) ||
+        String(po.vendor || po.vendor_name || '').toLowerCase().includes(needle)
+      );
+    });
+  }, [openVendorPurchaseOrders, receivingSearch, receivingStatusFilter]);
 
   const discrepancyLog = useMemo(() => {
     const entries: ReceiptDiscrepancyEntry[] = [];
@@ -147,13 +197,16 @@ export function PurchasingPage() {
     }
   }
 
+  function focusCreatePurchaseOrder() {
+    createPoSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+
   return (
     <div className="space-y-5">
-      {isLoading || vendorPoLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading purchasing data...</div> : null}
+      {isLoading || vendorPoLoading ? <PageSkeleton /> : null}
       {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load purchase orders')}</div> : null}
       {vendorPoError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((vendorPoErrorValue as Error)?.message || 'Could not load vendor PO receiving data')}</div> : null}
       {formError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{formError}</div> : null}
-      {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
       {vendorParam ? (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700">
           Filtered by vendor from Vendors page: <strong>{vendorParam}</strong>
@@ -199,12 +252,14 @@ export function PurchasingPage() {
         </Card>
       ) : null}
 
-      <CreatePurchaseOrderForm
-        setNotice={setNotice}
-        setFormError={setFormError}
-        editingDraft={activeDraft}
-        onDraftChange={setActiveDraft}
-      />
+      <div ref={createPoSectionRef}>
+        <CreatePurchaseOrderForm
+          setNotice={toast.success}
+          setFormError={setFormError}
+          editingDraft={activeDraft}
+          onDraftChange={setActiveDraft}
+        />
+      </div>
 
       <Card>
         <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
@@ -214,6 +269,17 @@ export function PurchasingPage() {
           </div>
           <div className="flex flex-wrap items-center gap-2">
             <Badge variant="neutral">{openVendorPurchaseOrders.length} open / partial</Badge>
+            <label className="space-y-1 text-sm">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Search</span>
+              <Input placeholder="PO # or vendor" value={receivingSearch} onChange={(e) => setReceivingSearch(e.target.value)} className="w-52" />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
+              <SelectInput value={receivingStatusFilter} onChange={(e) => setReceivingStatusFilter(e.target.value)}>
+                <option value="all">All</option>
+                {RECEIVING_STATUS_OPTIONS.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
+              </SelectInput>
+            </label>
             <Button variant="outline" onClick={() => refetchVendorPos()}>Refresh Receiving Queue</Button>
           </div>
         </CardHeader>
@@ -234,7 +300,7 @@ export function PurchasingPage() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {openVendorPurchaseOrders.length ? openVendorPurchaseOrders.map((po) => (
+                {filteredOpenVendorPurchaseOrders.length ? filteredOpenVendorPurchaseOrders.map((po) => (
                   <TableRow key={po.id}>
                     <TableCell className="font-medium">{po.po_number || po.id.slice(0, 8)}</TableCell>
                     <TableCell>{po.vendor || po.vendor_name || '-'}</TableCell>
@@ -261,11 +327,13 @@ export function PurchasingPage() {
                     </TableCell>
                   </TableRow>
                 )) : (
-                  <TableRow>
-                    <TableCell colSpan={9} className="text-muted-foreground">
-                      No open vendor purchase orders are waiting on receipts right now.
-                    </TableCell>
-                  </TableRow>
+                  <TableEmptyState
+                    colSpan={9}
+                    title="No open vendor purchase orders match the selected filters."
+                    description="Create or confirm a purchase order before receiving stock."
+                    actionLabel="+ Create Purchase Order"
+                    onAction={focusCreatePurchaseOrder}
+                  />
                 )}
               </TableBody>
             </Table>
@@ -279,7 +347,7 @@ export function PurchasingPage() {
               po={activeReceivePo}
               onPosted={setActiveReceivePo}
               onClose={() => setActiveReceivePo(null)}
-              setNotice={setNotice}
+              setNotice={toast.success}
               setFormError={setFormError}
             />
           ) : (
@@ -299,11 +367,22 @@ export function PurchasingPage() {
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Search</span>
+              <Input placeholder="PO # or vendor" value={purchaseSearch} onChange={(e) => setPurchaseSearch(e.target.value)} className="w-52" />
+            </label>
+            <label className="space-y-1 text-sm">
+              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
+              <SelectInput value={purchaseStatusFilter} onChange={(e) => setPurchaseStatusFilter(e.target.value)}>
+                <option value="all">All</option>
+                {PURCHASE_STATUS_OPTIONS.map((status) => <option key={status.value} value={status.value}>{status.label}</option>)}
+              </SelectInput>
+            </label>
+            <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Vendor</span>
-              <select value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={vendorFilter} onChange={(e) => setVendorFilter(e.target.value)}>
                 <option value="all">All Vendors</option>
                 {vendorOptions.map((opt) => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
-              </select>
+              </SelectInput>
             </label>
             <Button variant="outline" onClick={() => refetch()}>Refresh</Button>
           </div>
@@ -334,7 +413,7 @@ export function PurchasingPage() {
                   <TableCell>{order.created_at ? new Date(order.created_at).toLocaleDateString() : '-'}</TableCell>
                   <TableCell className="text-right">
                     {String(order.status || '').trim().toLowerCase() === 'draft' ? (
-                      <Button variant="secondary" size="sm" onClick={() => { setActiveDraft(order); setFormError(''); setNotice(`Loaded draft ${order.po_number || order.id.slice(0, 8)} for editing.`); }}>
+                      <Button variant="secondary" size="sm" onClick={() => { setActiveDraft(order); setFormError(''); toast.success(`Loaded draft ${order.po_number || order.id.slice(0, 8)} for editing.`); }}>
                         Resume Draft
                       </Button>
                     ) : (
@@ -345,19 +424,19 @@ export function PurchasingPage() {
                   </TableCell>
                 </TableRow>
               )) : (
-                <TableRow><TableCell colSpan={8} className="text-muted-foreground">No purchase orders found for the selected filters.</TableCell></TableRow>
+                <TableEmptyState
+                  colSpan={8}
+                  title="No purchase orders found for the selected filters."
+                  description="Create a purchase order to start tracking vendor spend and receipt history."
+                  actionLabel="+ Create Purchase Order"
+                  onAction={focusCreatePurchaseOrder}
+                />
               )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function StatCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className="text-2xl">{value}</CardTitle></CardHeader></Card>
   );
 }
 

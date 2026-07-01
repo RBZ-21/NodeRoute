@@ -2,6 +2,7 @@ import { useMemo, useState } from 'react';
 import { RefreshCw, TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '../components/ui/card';
+import { TableEmptyState } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { useDSR, localDateKey } from '../hooks/useDSR';
 
@@ -55,11 +56,12 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function SectionTable({ title, description, rows, cols }: {
+function SectionTable({ title, description, rows, cols, onRefresh }: {
   title: string;
   description: string;
   rows: Array<{ label: string; revenue: number; margin: number; margin_pct: number; order_count: number; invoice_count: number }>;
   cols?: string[];
+  onRefresh: () => void;
 }) {
   return (
     <Card>
@@ -90,9 +92,13 @@ function SectionTable({ title, description, rows, cols }: {
                 <TableCell>{r.invoice_count}</TableCell>
               </TableRow>
             )) : (
-              <TableRow>
-                <TableCell colSpan={6} className="text-muted-foreground">No data for this period.</TableCell>
-              </TableRow>
+              <TableEmptyState
+                colSpan={6}
+                title="No data for this period."
+                description="Refresh the daily report or choose another date to load revenue rows."
+                actionLabel="Refresh"
+                onAction={onRefresh}
+              />
             )}
           </TableBody>
         </Table>
@@ -220,9 +226,13 @@ export function DSRPage() {
                     <TableCell>{row.receipt_count}</TableCell>
                   </TableRow>
                 )) : (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-muted-foreground">No receiving activity was posted for this date.</TableCell>
-                  </TableRow>
+                  <TableEmptyState
+                    colSpan={6}
+                    title="No receiving activity was posted for this date."
+                    description="Refresh the report after receipts are posted or choose another date."
+                    actionLabel="Refresh"
+                    onAction={() => void refetch()}
+                  />
                 )}
               </TableBody>
             </Table>
@@ -255,9 +265,13 @@ export function DSRPage() {
                     <TableCell className={row.low_stock_sku_count > 0 ? 'text-amber-600' : 'text-emerald-600'}>{row.low_stock_sku_count}</TableCell>
                   </TableRow>
                 )) : (
-                  <TableRow>
-                    <TableCell colSpan={5} className="text-muted-foreground">No inventory rows are available for category rollup.</TableCell>
-                  </TableRow>
+                  <TableEmptyState
+                    colSpan={5}
+                    title="No inventory rows are available for category rollup."
+                    description="Refresh the report after inventory is loaded or choose another date."
+                    actionLabel="Refresh"
+                    onAction={() => void refetch()}
+                  />
                 )}
               </TableBody>
             </Table>
@@ -293,9 +307,13 @@ export function DSRPage() {
                   <TableCell className="text-red-500">{row.short_qty.toFixed(2)}</TableCell>
                 </TableRow>
               )) : (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-muted-foreground">No short-ship exceptions were logged for this date.</TableCell>
-                </TableRow>
+                <TableEmptyState
+                  colSpan={6}
+                  title="No short-ship exceptions were logged for this date."
+                  description="Refresh after receiving activity posts or choose another date."
+                  actionLabel="Refresh"
+                  onAction={() => void refetch()}
+                />
               )}
             </TableBody>
           </Table>
@@ -308,6 +326,7 @@ export function DSRPage() {
         description="Total revenue, margin, and order count per driver."
         rows={drivers}
         cols={['Driver']}
+        onRefresh={() => void refetch()}
       />
 
       {/* Revenue by Route */}
@@ -316,6 +335,7 @@ export function DSRPage() {
         description="Breakdown of revenue and margin per route."
         rows={routes}
         cols={['Route']}
+        onRefresh={() => void refetch()}
       />
 
       {/* Top Customers */}
@@ -324,6 +344,7 @@ export function DSRPage() {
         description="Customers ranked by revenue for the selected date."
         rows={customers.slice(0, 20)}
         cols={['Customer']}
+        onRefresh={() => void refetch()}
       />
     </div>
   );

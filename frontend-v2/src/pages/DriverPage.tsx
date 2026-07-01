@@ -2,7 +2,6 @@ import {
   Camera,
   CheckCircle2,
   Gauge,
-  Loader2,
   LogOut,
   Navigation,
   NotebookText,
@@ -12,7 +11,9 @@ import {
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import { SelectInput } from '../components/ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
 import { sendWithAuth, logoutSession } from '../lib/api';
 import { useDriverWorkspace } from '../hooks/useDriverWorkspace';
 import { useLocationSharing } from '../hooks/useLocationSharing';
@@ -215,10 +216,9 @@ export function DriverPage() {
 
   if (loading) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-enterprise-gradient">
-        <div className="flex items-center gap-3 text-sm text-muted-foreground">
-          <Loader2 className="h-4 w-4 animate-spin" />
-          Loading driver workspace...
+      <div className="min-h-screen bg-enterprise-gradient p-4 md:p-6">
+        <div className="mx-auto max-w-[1180px]">
+          <PageSkeleton />
         </div>
       </div>
     );
@@ -268,8 +268,8 @@ export function DriverPage() {
               </Button>
             ))}
             {routes.length > 1 ? (
-              <select
-                className="ml-auto h-9 rounded-md border border-input bg-background px-3 text-sm text-foreground"
+              <SelectInput
+                className="ml-auto h-9 text-foreground"
                 value={activeRoute?.id || ''}
                 onChange={(e) => setSelectedRouteId(e.target.value)}
               >
@@ -278,7 +278,7 @@ export function DriverPage() {
                     {route.name || `Route ${route.id.slice(0, 8)}`}
                   </option>
                 ))}
-              </select>
+              </SelectInput>
             ) : null}
           </div>
         </header>

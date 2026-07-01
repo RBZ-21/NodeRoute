@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Badge, type BadgeVariant } from '../ui/badge';
 import { Button } from '../ui/button';
+import { SelectInput } from '../ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { TableEmptyState } from '../ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { fetchWithAuth, sendWithAuth } from '../../lib/api';
 import { RETURN_STATUS_COLORS } from './WarehouseTypes';
@@ -127,7 +129,7 @@ export function ReturnsTab({
           <CardHeader><CardTitle>Resolve Return</CardTitle></CardHeader>
           <CardContent>
             <div className="grid gap-3 sm:grid-cols-3">
-              <div className="space-y-1"><label className="text-xs font-medium text-muted-foreground">New Status</label><select className="w-full rounded border border-input bg-background px-2 py-1.5 text-sm" value={resolveForm.status} onChange={(e) => setResolveForm({ ...resolveForm, status: e.target.value })}><option value="resolved">resolved</option><option value="restocked">restocked</option><option value="discarded">discarded</option></select></div>
+              <div className="space-y-1"><label className="text-xs font-medium text-muted-foreground">New Status</label><SelectInput className="h-auto w-full rounded px-2 py-1.5" value={resolveForm.status} onChange={(e) => setResolveForm({ ...resolveForm, status: e.target.value })}><option value="resolved">resolved</option><option value="restocked">restocked</option><option value="discarded">discarded</option></SelectInput></div>
               <div className="space-y-1"><label className="text-xs font-medium text-muted-foreground">Resolution Notes</label><input className="w-full rounded border border-input bg-background px-3 py-1.5 text-sm" value={resolveForm.resolution} onChange={(e) => setResolveForm({ ...resolveForm, resolution: e.target.value })} /></div>
               <div className="flex items-end gap-2"><label className="flex items-center gap-2 text-sm"><input type="checkbox" checked={resolveForm.restocked} onChange={(e) => setResolveForm({ ...resolveForm, restocked: e.target.checked })} />Restocked</label></div>
               <div className="flex gap-2 sm:col-span-3">
@@ -142,10 +144,10 @@ export function ReturnsTab({
         <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="space-y-1"><CardTitle>Returns Tracking</CardTitle><CardDescription>Log and resolve customer product returns.</CardDescription></div>
           <div className="flex flex-wrap gap-2">
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded border border-input bg-background px-2 py-1.5 text-sm">
+            <SelectInput value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-auto rounded px-2 py-1.5">
               <option value="">All Statuses</option>
               {['open', 'resolved', 'restocked', 'discarded'].map((s) => <option key={s} value={s}>{s}</option>)}
-            </select>
+            </SelectInput>
             <Button variant="outline" size="sm" onClick={exportCsv}>Export CSV</Button>
             <Button variant="outline" size="sm" onClick={load} disabled={loading}>{loading ? 'Loading...' : 'Refresh'}</Button>
             <Button size="sm" onClick={() => setShowForm((v) => !v)}>+ Log Return</Button>
@@ -176,7 +178,13 @@ export function ReturnsTab({
                   </TableCell>
                 </TableRow>
               )) : (
-                <TableRow><TableCell colSpan={7} className="text-muted-foreground">No returns found.</TableCell></TableRow>
+                <TableEmptyState
+                  colSpan={7}
+                  title="No returns found."
+                  description="Log a customer return to start tracking resolution and restock activity."
+                  actionLabel="+ Log Return"
+                  onAction={() => setShowForm(true)}
+                />
               )}
             </TableBody>
           </Table>

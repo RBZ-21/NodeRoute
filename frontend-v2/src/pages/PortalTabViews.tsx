@@ -3,6 +3,7 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
+import { LoadingSkeleton } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import {
   asNumber,
@@ -37,7 +38,9 @@ export function EmptyState({ title, description }: { title: string; description:
 export function LoadingCard({ message }: { message: string }) {
   return (
     <Card>
-      <CardContent className="p-8 text-center text-sm text-muted-foreground">{message}</CardContent>
+      <CardContent className="p-6">
+        <LoadingSkeleton rows={4} label={message} />
+      </CardContent>
     </Card>
   );
 }

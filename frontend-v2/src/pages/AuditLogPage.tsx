@@ -10,6 +10,7 @@
 
 import { useState, useCallback } from 'react';
 import { fetchWithAuth } from '../lib/api';
+import { SelectInput } from '../components/ui/select-input';
 
 // ── Types ──────────────────────────────────────────────────────────────────
 interface AuditEvent {
@@ -138,10 +139,10 @@ function FilterBar({
       {showActionType && (
         <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">
           Action Type
-          <select value={actionType} onChange={(e) => setActionType(e.target.value)}
-            className="border rounded px-2 py-1.5 text-sm">
+          <SelectInput value={actionType} onChange={(e) => setActionType(e.target.value)}
+            className="h-auto rounded px-2 py-1.5">
             {ACTION_TYPES.map((t) => <option key={t} value={t}>{t === 'all' ? 'All Types' : t.replace(/_/g, ' ')}</option>)}
-          </select>
+          </SelectInput>
         </label>
       )}
       <label className="flex flex-col gap-1 text-xs font-medium text-gray-600">

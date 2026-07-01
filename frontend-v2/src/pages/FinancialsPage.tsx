@@ -3,6 +3,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
 import {
@@ -309,7 +310,7 @@ export function FinancialsPage() {
 
   return (
     <div className="space-y-5">
-      {invoicesQuery.isPending ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading financial data...</div> : null}
+      {invoicesQuery.isPending ? <PageSkeleton /> : null}
       {fetchError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{fetchError}</div> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-3">

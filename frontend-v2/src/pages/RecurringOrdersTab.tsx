@@ -4,6 +4,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input';
 import { Badge } from '../components/ui/badge';
 import { Modal } from '../components/ui/overlay-panel';
+import { LoadingSkeleton } from '../components/ui/data-state';
 import {
   useRecurringOrders,
   useSaveRecurringOrder,
@@ -111,7 +112,7 @@ export function RecurringOrdersTab() {
         <Button onClick={openNew}>+ New Standing Order</Button>
       </div>
 
-      {recurringQuery.isPending ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading…</div> : null}
+      {recurringQuery.isPending ? <LoadingSkeleton rows={2} label="Loading standing orders" /> : null}
 
       <div className="grid gap-3 md:grid-cols-2">
         {orders.map((order) => (
@@ -134,8 +135,10 @@ export function RecurringOrdersTab() {
           </Card>
         ))}
         {!recurringQuery.isPending && orders.length === 0 ? (
-          <div className="rounded-md border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground md:col-span-2">
-            No standing orders yet. Create one to auto-generate recurring orders.
+          <div className="space-y-2 rounded-md border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground md:col-span-2">
+            <div className="font-medium text-foreground">No standing orders yet.</div>
+            <div>Create one to auto-generate recurring orders.</div>
+            <Button size="sm" onClick={openNew}>+ New Standing Order</Button>
           </div>
         ) : null}
       </div>

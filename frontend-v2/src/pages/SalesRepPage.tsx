@@ -1,7 +1,10 @@
 import { useState } from 'react';
 import { Button } from '../components/ui/button';
+import { SelectInput } from '../components/ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { useToast } from '../components/ui/toast';
 import { Input } from '../components/ui/input';
+import { LoadingSkeleton, TableEmptyState } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import {
   useLogVisit,
@@ -27,7 +30,7 @@ function money(value: unknown) {
 export function SalesRepPage() {
   const [tab, setTab] = useState<Tab>('customers');
   const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
-  const [notice, setNotice] = useState('');
+  const toast = useToast();
 
   const [visitCustomerId, setVisitCustomerId] = useState('');
   const [visitCustomerName, setVisitCustomerName] = useState('');
@@ -56,7 +59,7 @@ export function SalesRepPage() {
   } = useOrderHistory(selectedCustomer?.id ?? null);
   const logVisit = useLogVisit();
 
-  const loading = loadingCustomers || loadingVisits || loadingAlerts || loadingOrders || logVisit.isPending;
+  const loading = loadingCustomers || loadingVisits || loadingAlerts || loadingOrders;
   const loadError = customersError || visitsError || alertsError || ordersError;
 
   async function submitVisit(e: React.FormEvent) {
@@ -69,10 +72,10 @@ export function SalesRepPage() {
         notes: visitNotes,
         outcome: visitOutcome,
       });
-      setNotice('Visit logged successfully');
+      toast.success('Visit logged successfully');
       setVisitNotes('');
     } catch (err) {
-      setNotice(String((err as Error)?.message || 'Failed to log visit'));
+      toast.error(String((err as Error)?.message || 'Failed to log visit'));
     }
   }
 
@@ -89,13 +92,12 @@ export function SalesRepPage() {
         <p className="text-sm text-muted-foreground">Customer visits, order history, and AI-driven upsell alerts.</p>
       </div>
 
-      {notice && <div className="rounded-md border border-green-300 bg-green-50 px-4 py-2 text-sm text-green-800">{notice}</div>}
       {loadError && (
         <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">
           Sales Rep data could not be loaded. Please try again.
         </div>
       )}
-      {loading && <div className="text-sm text-muted-foreground">Loading...</div>}
+      {loading && <LoadingSkeleton rows={3} label="Loading sales rep data" />}
 
       <div className="flex gap-2 border-b border-border pb-2">
         {tabs.map((t) => (
@@ -142,7 +144,13 @@ export function SalesRepPage() {
                     </TableCell>
                   </TableRow>
                 )) : (
-                  <TableRow><TableCell colSpan={5} className="text-muted-foreground">No customers assigned.</TableCell></TableRow>
+                  <TableEmptyState
+                    colSpan={5}
+                    title="No customers assigned."
+                    description="Log a visit manually or check customer assignments with an administrator."
+                    actionLabel="Log Visit"
+                    onAction={() => setTab('visits')}
+                  />
                 )}
               </TableBody>
             </Table>
@@ -163,9 +171,9 @@ export function SalesRepPage() {
                   <Input value={visitCustomerName} onChange={(e) => setVisitCustomerName(e.target.value)} placeholder="Optional" />
                 </label>
                 <label className="space-y-1 text-sm font-medium">Outcome
-                  <select value={visitOutcome} onChange={(e) => setVisitOutcome(e.target.value)} className="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm">
+                  <SelectInput value={visitOutcome} onChange={(e) => setVisitOutcome(e.target.value)} className="flex h-9 w-full bg-transparent py-1 shadow-sm">
                     {OUTCOMES.map((o) => <option key={o} value={o}>{o.replace(/_/g, ' ')}</option>)}
-                  </select>
+                  </SelectInput>
                 </label>
                 <label className="space-y-1 text-sm font-medium sm:col-span-2">Notes
                   <textarea value={visitNotes} onChange={(e) => setVisitNotes(e.target.value)} rows={3} className="flex w-full rounded-md border border-input bg-transparent px-3 py-2 text-sm shadow-sm" placeholder="Visit notes..." />
@@ -196,7 +204,13 @@ export function SalesRepPage() {
                       <TableCell>{v.visited_at ? new Date(v.visited_at).toLocaleDateString() : '—'}</TableCell>
                     </TableRow>
                   )) : (
-                    <TableRow><TableCell colSpan={5} className="text-muted-foreground">No visits logged yet.</TableCell></TableRow>
+                    <TableEmptyState
+                      colSpan={5}
+                      title="No visits logged yet."
+                      description="Record the first customer visit to build sales activity history."
+                      actionLabel="Log Visit"
+                      onAction={() => setTab('visits')}
+                    />
                   )}
                 </TableBody>
               </Table>
@@ -224,7 +238,13 @@ export function SalesRepPage() {
                     <TableCell className="text-sm text-muted-foreground">{a.alert}</TableCell>
                   </TableRow>
                 )) : (
-                  <TableRow><TableCell colSpan={3} className="text-muted-foreground">No upsell alerts right now.</TableCell></TableRow>
+                  <TableEmptyState
+                    colSpan={3}
+                    title="No upsell alerts right now."
+                    description="Review assigned customers or wait for new demand signals to generate alerts."
+                    actionLabel="View Customers"
+                    onAction={() => setTab('customers')}
+                  />
                 )}
               </TableBody>
             </Table>
@@ -256,7 +276,13 @@ export function SalesRepPage() {
                     <TableCell>{money(o.total)}</TableCell>
                   </TableRow>
                 )) : (
-                  <TableRow><TableCell colSpan={4} className="text-muted-foreground">No orders found.</TableCell></TableRow>
+                  <TableEmptyState
+                    colSpan={4}
+                    title="No orders found."
+                    description="Return to the customer list to review another account."
+                    actionLabel="Back to Customers"
+                    onAction={() => setTab('customers')}
+                  />
                 )}
               </TableBody>
             </Table>

@@ -1,12 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import { SelectInput } from '../components/ui/select-input';
+import { PaginationControls } from '../components/ui/pagination';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
+import { ActionMenu } from '../components/ui/action-menu';
+import { TableEmptyState } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { asMoney, calcOrderTotal, hasPendingWeight, isWeightManagedItem, normalizedStatus, orderCustomerId, statusVariant } from './orders.types';
 import type { Order, OrderStatus } from './orders.types';
 import type { Role } from '../lib/api';
+import { usePagination } from '../hooks/usePagination';
 
 type Props = {
   orders: Order[];
@@ -26,6 +31,7 @@ type Props = {
   onToggleWeightCapture: (order: Order) => void;
   onDelete: (id: string) => void;
   onBulkStatusChange: (orderIds: string[], status: OrderStatus) => Promise<void> | void;
+  onCreateOrder: () => void;
 };
 
 function hasCatchWeightPending(order: Order): boolean {
@@ -35,11 +41,12 @@ function hasCatchWeightPending(order: Order): boolean {
 export function OrdersWorkbench({
   orders, customerIdParam, search, setSearch, status, setStatus,
   weightCaptureOrderId, role, onLoad, onEdit, onSend, onMarkDelivered, onResendInvoice, onFulfill,
-  onToggleWeightCapture, onDelete, onBulkStatusChange,
+  onToggleWeightCapture, onDelete, onBulkStatusChange, onCreateOrder,
 }: Props) {
   const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
   const [bulkStatus, setBulkStatus] = useState<OrderStatus>('in_process');
   const [bulkUpdating, setBulkUpdating] = useState(false);
+  const [pageSize, setPageSize] = useState(25);
 
   const filtered = useMemo(() => {
     const needle = search.trim().toLowerCase();
@@ -54,14 +61,15 @@ export function OrdersWorkbench({
       );
     });
   }, [orders, customerIdParam, search, status]);
+  const pagination = usePagination(filtered, pageSize);
 
   useEffect(() => {
-    const visibleIds = new Set(filtered.map((order) => order.id));
+    const visibleIds = new Set(pagination.pageItems.map((order) => order.id));
     setSelectedIds((current) => new Set([...current].filter((id) => visibleIds.has(id))));
-  }, [filtered]);
+  }, [pagination.pageItems]);
 
-  const selectedVisibleIds = filtered.filter((order) => selectedIds.has(order.id)).map((order) => order.id);
-  const allVisibleSelected = filtered.length > 0 && selectedVisibleIds.length === filtered.length;
+  const selectedVisibleIds = pagination.pageItems.filter((order) => selectedIds.has(order.id)).map((order) => order.id);
+  const allVisibleSelected = pagination.pageItems.length > 0 && selectedVisibleIds.length === pagination.pageItems.length;
 
   function toggleOrderSelected(orderId: string, checked: boolean) {
     setSelectedIds((current) => {
@@ -75,7 +83,7 @@ export function OrdersWorkbench({
   function toggleAllVisible(checked: boolean) {
     setSelectedIds((current) => {
       const next = new Set(current);
-      for (const order of filtered) {
+      for (const order of pagination.pageItems) {
         if (checked) next.add(order.id);
         else next.delete(order.id);
       }
@@ -108,10 +116,10 @@ export function OrdersWorkbench({
           </div>
           <div className="space-y-1">
             <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
-            <select
+            <SelectInput
               value={status}
               onChange={(e) => setStatus(e.target.value as OrderStatus | 'all')}
-              className="flex h-10 rounded-md border border-input bg-background px-3 text-sm"
+              className="flex"
             >
               <option value="all">All</option>
               <option value="pending">Pending</option>
@@ -119,7 +127,7 @@ export function OrdersWorkbench({
               <option value="delivered">Delivered</option>
               <option value="invoiced">Invoiced</option>
               <option value="cancelled">Cancelled</option>
-            </select>
+            </SelectInput>
           </div>
           <Button variant="outline" onClick={onLoad}>Refresh</Button>
         </div>
@@ -141,10 +149,10 @@ export function OrdersWorkbench({
               </span>
             </label>
             <div className="flex flex-wrap items-center gap-2">
-              <select
+              <SelectInput
                 value={bulkStatus}
                 onChange={(event) => setBulkStatus(event.target.value as OrderStatus)}
-                className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                className="h-9 px-2"
                 aria-label="Bulk status"
                 disabled={!selectedVisibleIds.length || bulkUpdating}
               >
@@ -153,7 +161,7 @@ export function OrdersWorkbench({
                 <option value="delivered">Delivered</option>
                 <option value="invoiced">Invoiced</option>
                 <option value="cancelled">Cancelled</option>
-              </select>
+              </SelectInput>
               <Button
                 variant="outline"
                 size="sm"
@@ -181,7 +189,7 @@ export function OrdersWorkbench({
             </TableHeader>
             <TableBody>
               {filtered.length ? (
-                filtered.map((order) => {
+                pagination.pageItems.map((order) => {
                   const parsedStatus = normalizedStatus(order.status);
                   const pendingWeights = hasCatchWeightPending(order);
                   const linkedInvoiceId = order.invoice_id || order.invoiceId;
@@ -221,44 +229,69 @@ export function OrdersWorkbench({
                       <TableCell>{asMoney(calcOrderTotal(order))}</TableCell>
                       <TableCell>{order.created_at ? new Date(order.created_at).toLocaleDateString() : '-'}</TableCell>
                       <TableCell>
-                        <div className="flex flex-wrap gap-1">
+                        <div className="flex items-center gap-1">
                           <Button variant="ghost" size="sm" onClick={() => onEdit(order)}>Edit Order</Button>
-                          {parsedStatus === 'pending' ? (
-                            <Button variant="secondary" size="sm" onClick={() => onSend(order)}>Send to Processing</Button>
-                          ) : null}
-                          {parsedStatus === 'pending' ? (
-                            <Button variant="outline" size="sm" onClick={() => onMarkDelivered(order)}>Mark as Delivered</Button>
-                          ) : null}
-                          {linkedInvoiceId ? (
-                            <Button variant="outline" size="sm" onClick={() => onResendInvoice(order)}>Resend Invoice Email</Button>
-                          ) : null}
-                          {parsedStatus === 'in_process' ? (
-                            <Button variant="secondary" size="sm" onClick={() => onFulfill(order)}>Quick Fulfill</Button>
-                          ) : null}
-                          {(order.items || []).some((it) => isWeightManagedItem(it)) && (role === 'admin' || role === 'manager' || role === 'superadmin') ? (
-                            <Button
-                              variant={weightCaptureOrderId === order.id ? 'secondary' : 'outline'}
-                              size="sm"
-                              onClick={() => onToggleWeightCapture(order)}
-                            >
-                              Enter Weights
-                            </Button>
-                          ) : null}
-                          <Button variant="ghost" size="sm" onClick={() => onDelete(order.id)}>Delete Order</Button>
+                          <ActionMenu
+                            ariaLabel={`Actions for ${order.order_number || order.id.slice(0, 8)}${weightCaptureOrderId === order.id ? ', weight entry open' : ''}`}
+                            items={[
+                              {
+                                label: 'Send to Processing',
+                                onClick: () => onSend(order),
+                                hidden: parsedStatus !== 'pending',
+                              },
+                              {
+                                label: 'Mark as Delivered',
+                                onClick: () => onMarkDelivered(order),
+                                hidden: parsedStatus !== 'pending',
+                              },
+                              {
+                                label: 'Resend Invoice Email',
+                                onClick: () => onResendInvoice(order),
+                                hidden: !linkedInvoiceId,
+                              },
+                              {
+                                label: 'Quick Fulfill',
+                                onClick: () => onFulfill(order),
+                                hidden: parsedStatus !== 'in_process',
+                              },
+                              {
+                                label: 'Enter Weights',
+                                onClick: () => onToggleWeightCapture(order),
+                                hidden: !(order.items || []).some((it) => isWeightManagedItem(it)) || !(role === 'admin' || role === 'manager' || role === 'superadmin'),
+                              },
+                              {
+                                label: 'Delete Order',
+                                onClick: () => onDelete(order.id),
+                                destructive: true,
+                              },
+                            ]}
+                          />
                         </div>
                       </TableCell>
                     </TableRow>
                   );
                 })
               ) : (
-                <TableRow>
-                  <TableCell colSpan={8} className="text-muted-foreground">
-                    No orders match the current filters.
-                  </TableCell>
-                </TableRow>
+                <TableEmptyState
+                  colSpan={8}
+                  title="No orders match the current filters."
+                  description="Create an order or adjust the search and status filters to find existing work."
+                  actionLabel="+ New Order"
+                  onAction={onCreateOrder}
+                />
               )}
             </TableBody>
           </Table>
+          {filtered.length ? (
+            <PaginationControls
+              page={pagination.page}
+              pageCount={pagination.pageCount}
+              setPage={pagination.setPage}
+              itemCount={pagination.itemCount}
+              pageSize={pagination.pageSize}
+              onPageSizeChange={setPageSize}
+            />
+          ) : null}
         </div>
       </CardContent>
     </Card>

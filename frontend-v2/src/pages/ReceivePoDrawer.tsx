@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import { SelectInput } from '../components/ui/select-input';
 import { Input } from '../components/ui/input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { PoScanUploader } from '../components/PoScanUploader';
@@ -251,26 +252,24 @@ export function ReceivePoDrawer({ po, onPosted, onClose, setNotice, setFormError
       <div className="grid gap-3 lg:grid-cols-3">
         <label className="space-y-1 text-sm">
           <span className="font-semibold text-muted-foreground">Over-receipt policy</span>
-          <select
+          <SelectInput
             value={String(receiveRules.over_receipt_policy || 'cap')}
             onChange={(e) => setReceiveRules((cur) => ({ ...cur, over_receipt_policy: e.target.value }))}
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
           >
             <option value="reject">Reject overages</option>
             <option value="cap">Cap at ordered qty</option>
             <option value="allow">Allow over-receipts</option>
-          </select>
+          </SelectInput>
         </label>
         <label className="space-y-1 text-sm">
           <span className="font-semibold text-muted-foreground">Backorder policy</span>
-          <select
+          <SelectInput
             value={String(receiveRules.backorder_policy || 'open')}
             onChange={(e) => setReceiveRules((cur) => ({ ...cur, backorder_policy: e.target.value }))}
-            className="h-10 rounded-md border border-input bg-background px-3 text-sm"
           >
             <option value="open">Keep backorders open</option>
             <option value="waive">Waive shorted qty</option>
-          </select>
+          </SelectInput>
         </label>
         <label className="space-y-1 text-sm">
           <span className="font-semibold text-muted-foreground">Carrier / Shipping Company</span>

@@ -15,6 +15,9 @@
  */
 
 import { useEffect, useState, useCallback, useMemo } from 'react';
+import { LoadingSkeleton } from '../components/ui/data-state';
+import { Modal } from '../components/ui/overlay-panel';
+import { SelectInput } from '../components/ui/select-input';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -329,7 +332,7 @@ export function CreditHoldPage() {
           ))}
         </div>
       )}
-      {loading && !stats && <div className="text-sm text-gray-400">Loading dashboard…</div>}
+      {loading && !stats && <LoadingSkeleton rows={4} label="Loading credit hold dashboard" className="border-gray-200 bg-gray-50" />}
 
       {/* ── Tabs ── */}
       <div className="border-b flex gap-6">
@@ -506,11 +509,11 @@ export function CreditHoldPage() {
 
       {/* ── Place Hold Modal ── */}
       {holdModal && customer && (
-        <Modal title="Place Credit Hold" onClose={() => setHoldModal(false)}>
+        <Modal open widthClassName="max-w-md" title="Place Credit Hold" onClose={() => setHoldModal(false)}>
           <label className="block text-sm font-medium text-gray-700 mb-1">Reason</label>
-          <select value={holdReason} onChange={e => setHoldReason(e.target.value)} className="w-full border rounded px-3 py-2 text-sm mb-3">
+          <SelectInput value={holdReason} onChange={e => setHoldReason(e.target.value)} className="w-full rounded mb-3">
             {HOLD_REASONS.map(r => <option key={r} value={r}>{r.replace(/_/g,' ')}</option>)}
-          </select>
+          </SelectInput>
           <label className="block text-sm font-medium text-gray-700 mb-1">Notes (optional)</label>
           <textarea value={holdNotes} onChange={e => setHoldNotes(e.target.value)} rows={3} className="w-full border rounded px-3 py-2 text-sm mb-3" />
           {actionError && <p className="text-sm text-red-600 mb-2">{actionError}</p>}
@@ -529,7 +532,7 @@ export function CreditHoldPage() {
 
       {/* ── Release Hold Modal ── */}
       {releaseModal && customer && (
-        <Modal title="Release Credit Hold" onClose={() => setReleaseModal(false)}>
+        <Modal open widthClassName="max-w-md" title="Release Credit Hold" onClose={() => setReleaseModal(false)}>
           <label className="block text-sm font-medium text-gray-700 mb-1">Release Notes (required)</label>
           <textarea value={releaseNotes} onChange={e => setReleaseNotes(e.target.value)} rows={3} className="w-full border rounded px-3 py-2 text-sm mb-3" />
           {actionError && <p className="text-sm text-red-600 mb-2">{actionError}</p>}
@@ -548,7 +551,7 @@ export function CreditHoldPage() {
 
       {/* ── Override Modal ── */}
       {overrideModal && customer && (
-        <Modal title="Grant Order Override" onClose={() => setOverrideModal(false)}>
+        <Modal open widthClassName="max-w-md" title="Grant Order Override" onClose={() => setOverrideModal(false)}>
           <label className="block text-sm font-medium text-gray-700 mb-1">Order ID</label>
           <input value={overrideOrderId} onChange={e => setOverrideOrderId(e.target.value)} className="w-full border rounded px-3 py-2 text-sm mb-3" />
           <label className="block text-sm font-medium text-gray-700 mb-1">Override Reason</label>
@@ -575,13 +578,13 @@ export function CreditHoldPage() {
 
       {/* ── Settings Modal ── */}
       {settingsModal && customer && (
-        <Modal title="Credit Settings" onClose={() => setSettingsModal(false)}>
+        <Modal open widthClassName="max-w-md" title="Credit Settings" onClose={() => setSettingsModal(false)}>
           <label className="block text-sm font-medium text-gray-700 mb-1">Credit Limit (blank = unlimited)</label>
           <input type="number" value={settingsCreditLimit} onChange={e => setSettingsCreditLimit(e.target.value)} className="w-full border rounded px-3 py-2 text-sm mb-3" />
           <label className="block text-sm font-medium text-gray-700 mb-1">Credit Terms</label>
-          <select value={settingsTerms} onChange={e => setSettingsTerms(e.target.value)} className="w-full border rounded px-3 py-2 text-sm mb-3">
+          <SelectInput value={settingsTerms} onChange={e => setSettingsTerms(e.target.value)} className="w-full rounded mb-3">
             {CREDIT_TERMS.map(t => <option key={t} value={t}>{t}</option>)}
-          </select>
+          </SelectInput>
           <label className="block text-sm font-medium text-gray-700 mb-1">Warning Threshold %</label>
           <input type="number" min={0} max={100} value={settingsThreshold} onChange={e => setSettingsThreshold(e.target.value)} className="w-full border rounded px-3 py-2 text-sm mb-3" />
           <label className="block text-sm font-medium text-gray-700 mb-1">Auto-Hold Threshold (blank = credit limit)</label>
@@ -614,7 +617,7 @@ export function CreditHoldPage() {
               <button onClick={() => setHistoryOpen(false)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
             </div>
             <div className="overflow-y-auto flex-1 p-5 space-y-3">
-              {historyLoading && <p className="text-sm text-gray-400">Loading…</p>}
+              {historyLoading && <LoadingSkeleton rows={3} label="Loading credit history" className="border-gray-200 bg-gray-50" />}
               {!historyLoading && timeline.length === 0 && <p className="text-sm text-gray-400">No history found.</p>}
               {timeline.map((ev) => (
                 <div key={ev.id} className="border rounded p-3 text-sm">
@@ -630,22 +633,6 @@ export function CreditHoldPage() {
           </div>
         </div>
       )}
-    </div>
-  );
-}
-
-// ── Reusable Modal Shell ───────────────────────────────────────────────────────
-function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
-      <div className="fixed inset-0 bg-black/40" onClick={onClose} />
-      <div className="relative z-50 bg-white rounded-lg shadow-xl w-full max-w-md mx-4 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-semibold text-gray-900">{title}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
-        </div>
-        {children}
-      </div>
     </div>
   );
 }

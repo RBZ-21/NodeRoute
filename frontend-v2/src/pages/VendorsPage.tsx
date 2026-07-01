@@ -3,11 +3,16 @@ import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
+import { SelectInput } from '../components/ui/select-input';
 import { StatusBadge } from '../components/ui/status-badge';
+import { SlideOver } from '../components/ui/overlay-panel';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
+import { LoadingSkeleton, TableEmptyState } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { useInventoryProducts } from '../hooks/usePurchasing';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
 import { type Vendor, useSaveVendorMutation, useVendorsQuery } from '../hooks/useVendors';
+import { useToast } from '../components/ui/toast';
 
 type VendorStatus = 'active' | 'inactive' | 'on-hold' | 'other';
 
@@ -109,8 +114,7 @@ export function VendorsPage() {
     [inventoryProductsQuery.data],
   );
 
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const toast = useToast();
   const [statusFilter, setStatusFilter] = useState<'all' | VendorStatus>('all');
   const [categoryFilter, setCategoryFilter] = useState<'all' | string>('all');
 
@@ -135,7 +139,7 @@ export function VendorsPage() {
       const result = await sendWithAuth<VendorScore & { vendor_id: string }>('/api/ai/vendor-score', 'POST', { vendor_id: id });
       setVendorScores((prev) => ({ ...prev, [id]: result }));
     } catch (err) {
-      setError(String((err as Error).message || 'Vendor scoring failed'));
+      toast.error(String((err as Error).message || 'Vendor scoring failed'));
     } finally {
       setScoreLoading((prev) => ({ ...prev, [id]: false }));
     }
@@ -149,7 +153,7 @@ export function VendorsPage() {
       const result = await fetchWithAuth<VendorApStatus>(`/api/vendors/${encodeURIComponent(id)}/ap-status`);
       setVendorApStatus((prev) => ({ ...prev, [id]: result }));
     } catch (err) {
-      setError(String((err as Error).message || 'Vendor AP status failed'));
+      toast.error(String((err as Error).message || 'Vendor AP status failed'));
     } finally {
       setApStatusLoading((prev) => ({ ...prev, [id]: false }));
     }
@@ -182,31 +186,27 @@ export function VendorsPage() {
   async function saveVendor() {
     const id = selected?.id || selected?.vendor_id || selected?.vendorId;
     if (!id) return;
-    setSaving(true);
-    setError('');
-    try {
+    setSaving(true);    try {
       const updated = await saveVendorMutation.mutateAsync({ id: String(id), draft });
       setSelected({ ...selected!, ...updated });
       setEditing(false);
-      setNotice(`${draft.name || vendorName(draft)} saved.`);
+      toast.success(`${draft.name || vendorName(draft)} saved.`);
     } catch (err) {
-      setError(String((err as Error).message || 'Save failed'));
+      toast.error(String((err as Error).message || 'Save failed'));
     } finally {
       setSaving(false);
     }
   }
 
   async function createVendor() {
-    setNewSaving(true);
-    setError('');
-    try {
+    setNewSaving(true);    try {
       await saveVendorMutation.mutateAsync({ id: undefined, draft: newDraft });
       setAddingNew(false);
       setNewDraft({ status: 'active', catalog_item_numbers: [], seasonal_usage_windows: [] });
-      setNotice(`Vendor "${newDraft.name || 'New Vendor'}" created.`);
+      toast.success(`Vendor "${newDraft.name || 'New Vendor'}" created.`);
       await vendorsQuery.refetch();
     } catch (err) {
-      setError(String((err as Error).message || 'Create failed'));
+      toast.error(String((err as Error).message || 'Create failed'));
     } finally {
       setNewSaving(false);
     }
@@ -218,19 +218,17 @@ export function VendorsPage() {
 
   function newPO(vendor: Vendor) {
     navigate(`/purchasing?vendor=${encodeURIComponent(vendorName(vendor))}`);
-    setNotice(`Opened new PO flow for ${vendorName(vendor)}.`);
+    toast.success(`Opened new PO flow for ${vendorName(vendor)}.`);
   }
 
   const fetchError = vendorsQuery.error
     ? String((vendorsQuery.error as Error)?.message || 'Could not load vendors')
     : '';
-  const displayError = error || fetchError;
 
   return (
     <div className="space-y-5">
-      {vendorsQuery.isPending ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading vendors...</div> : null}
-      {displayError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{displayError}</div> : null}
-      {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
+      {vendorsQuery.isPending ? <PageSkeleton /> : null}
+      {fetchError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{fetchError}</div> : null}
 
       <Card>
         <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
@@ -241,19 +239,19 @@ export function VendorsPage() {
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | VendorStatus)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | VendorStatus)}>
                 <option value="all">All</option>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
                 <option value="on-hold">On Hold</option>
-              </select>
+              </SelectInput>
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Category</span>
-              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
                 <option value="all">All Categories</option>
                 {categoryOptions.map((category) => <option key={category} value={category}>{category}</option>)}
-              </select>
+              </SelectInput>
             </label>
             <Button variant="outline" onClick={() => void vendorsQuery.refetch()}>Refresh</Button>
             <Button onClick={() => { setNewDraft({ status: 'active', catalog_item_numbers: [], seasonal_usage_windows: [] }); setAddingNew(true); }}>+ Add Vendor</Button>
@@ -325,7 +323,13 @@ export function VendorsPage() {
                   </TableRow>
                 );
               }) : (
-                <TableRow><TableCell colSpan={13} className="text-muted-foreground">No vendors found for the selected filters.</TableCell></TableRow>
+                <TableEmptyState
+                  colSpan={13}
+                  title="No vendors found for the selected filters."
+                  description="Add a vendor profile to track purchasing rules, catalog coverage, and AP status."
+                  actionLabel="+ Add Vendor"
+                  onAction={() => { setNewDraft({ status: 'active', catalog_item_numbers: [], seasonal_usage_windows: [] }); setAddingNew(true); }}
+                />
               )}
             </TableBody>
           </Table>
@@ -333,21 +337,20 @@ export function VendorsPage() {
       </Card>
 
       {addingNew ? (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setAddingNew(false)} />
-          <div className="relative z-10 flex h-full w-full max-w-md flex-col overflow-y-auto bg-background shadow-xl">
-            <div className="flex items-center justify-between border-b px-6 py-4">
-              <div>
-                <h2 className="text-lg font-semibold">New Vendor</h2>
-                <p className="text-sm text-muted-foreground">Fill in the details below to add a vendor.</p>
-              </div>
-              <div className="flex gap-2">
-                <Button size="sm" variant="outline" onClick={() => setAddingNew(false)}>Cancel</Button>
-                <Button size="sm" disabled={newSaving} onClick={createVendor}>{newSaving ? 'Saving...' : 'Save'}</Button>
-                <Button size="sm" variant="ghost" onClick={() => setAddingNew(false)}>✕</Button>
-              </div>
-            </div>
-            <div className="flex-1 space-y-4 p-6">
+        <SlideOver
+          open
+          title="New Vendor"
+          description="Fill in the details below to add a vendor."
+          onClose={() => setAddingNew(false)}
+          widthClassName="max-w-md"
+          actions={
+            <>
+              <Button size="sm" variant="outline" onClick={() => setAddingNew(false)}>Cancel</Button>
+              <Button size="sm" disabled={newSaving} onClick={createVendor}>{newSaving ? 'Saving...' : 'Save'}</Button>
+            </>
+          }
+        >
+          <div className="space-y-4">
               <VendorField label="Name" value={newDraft.name} editing onChange={(v) => setNewDraft((d) => ({ ...d, name: v }))} />
               <VendorField label="Contact" value={newDraft.contact} editing onChange={(v) => setNewDraft((d) => ({ ...d, contact: v }))} />
               <VendorField label="Email" value={newDraft.email} editing onChange={(v) => setNewDraft((d) => ({ ...d, email: v }))} />
@@ -369,40 +372,36 @@ export function VendorsPage() {
               />
               <div className="flex items-start gap-3">
                 <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Status</span>
-                <select value={newDraft.status || 'active'} onChange={(e) => setNewDraft((d) => ({ ...d, status: e.target.value }))} className="flex-1 h-10 rounded-md border border-input bg-background px-3 text-sm">
+                <SelectInput value={newDraft.status || 'active'} onChange={(e) => setNewDraft((d) => ({ ...d, status: e.target.value }))} className="flex-1">
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
                   <option value="on-hold">On Hold</option>
-                </select>
+                </SelectInput>
               </div>
               <VendorField label="Notes" value={newDraft.notes} editing onChange={(v) => setNewDraft((d) => ({ ...d, notes: v }))} multiline />
-            </div>
           </div>
-        </div>
+        </SlideOver>
       ) : null}
 
       {selected ? (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-black/30" onClick={() => setSelected(null)} />
-          <div className="relative z-10 flex h-full w-full max-w-md flex-col overflow-y-auto bg-background shadow-xl">
-            <div className="flex items-center justify-between border-b px-6 py-4">
-              <div>
-                <h2 className="text-lg font-semibold">{vendorName(selected)}</h2>
-                <p className="text-sm text-muted-foreground">{vendorId(selected, 0)}</p>
-              </div>
-              <div className="flex gap-2">
-                {!editing ? (
-                  <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
-                ) : (
-                  <>
-                    <Button size="sm" variant="outline" onClick={() => { setEditing(false); setDraft({ ...selected }); }}>Cancel</Button>
-                    <Button size="sm" disabled={saving} onClick={saveVendor}>{saving ? 'Saving...' : 'Save'}</Button>
-                  </>
-                )}
-                <Button size="sm" variant="ghost" onClick={() => setSelected(null)}>✕</Button>
-              </div>
-            </div>
-            <div className="flex-1 space-y-4 p-6">
+        <SlideOver
+          open
+          title={vendorName(selected)}
+          description={vendorId(selected, 0)}
+          onClose={() => setSelected(null)}
+          widthClassName="max-w-md"
+          actions={
+            !editing ? (
+              <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
+            ) : (
+              <>
+                <Button size="sm" variant="outline" onClick={() => { setEditing(false); setDraft({ ...selected }); }}>Cancel</Button>
+                <Button size="sm" disabled={saving} onClick={saveVendor}>{saving ? 'Saving...' : 'Save'}</Button>
+              </>
+            )
+          }
+        >
+          <div className="space-y-4">
               <VendorField label="Name" value={draft.name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, name: v }))} />
               <VendorField label="Contact" value={draft.contact || draft.contactName || draft.contact_name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, contact: v }))} />
               <VendorField label="Email" value={draft.email} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, email: v }))} />
@@ -433,19 +432,18 @@ export function VendorsPage() {
               <div className="flex items-start gap-3">
                 <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Status</span>
                 {editing ? (
-                  <select value={draft.status || ''} onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value }))} className="flex-1 h-10 rounded-md border border-input bg-background px-3 text-sm">
+                  <SelectInput value={draft.status || ''} onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value }))} className="flex-1">
                     <option value="active">Active</option>
                     <option value="inactive">Inactive</option>
                     <option value="on-hold">On Hold</option>
-                  </select>
+                  </SelectInput>
                 ) : (
                   <span className="text-sm capitalize">{selected.status || '-'}</span>
                 )}
               </div>
               <VendorField label="Notes" value={draft.notes} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} multiline />
-            </div>
           </div>
-        </div>
+        </SlideOver>
       ) : null}
     </div>
   );
@@ -562,9 +560,7 @@ function VendorCatalogField({
                 aria-label="Search catalog items"
               />
               {loading ? (
-                <div className="rounded-md border border-border bg-background px-3 py-2 text-sm text-muted-foreground">
-                  Loading inventory items...
-                </div>
+                <LoadingSkeleton rows={3} label="Loading inventory items" className="bg-background" />
               ) : filteredProducts.length ? (
                 <div className="max-h-64 space-y-2 overflow-y-auto pr-1">
                   {filteredProducts.map((product) => {

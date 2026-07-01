@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Badge } from '../ui/badge';
 import { Button } from '../ui/button';
+import { SelectInput } from '../ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { TableEmptyState } from '../ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { fetchWithAuth, sendWithAuth } from '../../lib/api';
 import { LOCATION_TYPE_LABELS } from './WarehouseTypes';
@@ -77,9 +79,9 @@ export function LocationsTab({ onNotice, onError }: { onNotice: (m: string) => v
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Type *</label>
-                <select required className="w-full rounded border border-input bg-background px-2 py-1.5 text-sm" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
+                <SelectInput required className="h-auto w-full rounded px-2 py-1.5" value={form.type} onChange={(e) => setForm({ ...form, type: e.target.value })}>
                   {Object.entries(LOCATION_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                </select>
+                </SelectInput>
               </div>
               <div className="space-y-1 sm:col-span-2">
                 <label className="text-xs font-medium text-muted-foreground">Notes</label>
@@ -122,15 +124,15 @@ export function LocationsTab({ onNotice, onError }: { onNotice: (m: string) => v
                     <>
                       <TableCell><input className="w-28 rounded border border-input bg-background px-2 py-1 text-sm" value={editForm.name} onChange={(e) => setEditForm({ ...editForm, name: e.target.value })} /></TableCell>
                       <TableCell>
-                        <select className="rounded border border-input bg-background px-1 py-1 text-sm" value={editForm.type} onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}>
+                        <SelectInput className="h-auto rounded px-1 py-1" value={editForm.type} onChange={(e) => setEditForm({ ...editForm, type: e.target.value })}>
                           {Object.entries(LOCATION_TYPE_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
-                        </select>
+                        </SelectInput>
                       </TableCell>
                       <TableCell>
-                        <select className="rounded border border-input bg-background px-1 py-1 text-sm" value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}>
+                        <SelectInput className="h-auto rounded px-1 py-1" value={editForm.status} onChange={(e) => setEditForm({ ...editForm, status: e.target.value })}>
                           <option value="active">active</option>
                           <option value="inactive">inactive</option>
-                        </select>
+                        </SelectInput>
                       </TableCell>
                       <TableCell><input className="w-32 rounded border border-input bg-background px-2 py-1 text-sm" value={editForm.notes} onChange={(e) => setEditForm({ ...editForm, notes: e.target.value })} /></TableCell>
                       <TableCell>
@@ -158,7 +160,13 @@ export function LocationsTab({ onNotice, onError }: { onNotice: (m: string) => v
                   )}
                 </TableRow>
               )) : (
-                <TableRow><TableCell colSpan={5} className="text-muted-foreground">No locations configured yet.</TableCell></TableRow>
+                <TableEmptyState
+                  colSpan={5}
+                  title="No locations configured yet."
+                  description="Add a cooler, freezer, depot, or dry storage area to start mapping warehouse stock."
+                  actionLabel="+ Add Location"
+                  onAction={() => setShowForm(true)}
+                />
               )}
             </TableBody>
           </Table>

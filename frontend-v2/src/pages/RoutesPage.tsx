@@ -2,12 +2,17 @@ import { lazy, Suspense, useMemo, useState } from 'react';
 import { getUserRole } from '../lib/api';
 import { useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/button';
+import { SelectInput } from '../components/ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { StatCard } from '../components/ui/stat-card';
+import { useToast } from '../components/ui/toast';
 import { Combobox } from '../components/ui/combobox';
 import { Input } from '../components/ui/input';
 import { Modal } from '../components/ui/overlay-panel';
 import { LiveIndicator } from '../components/ui/live-indicator';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
 import { StatusBadge } from '../components/ui/status-badge';
+import { ActionMenu } from '../components/ui/action-menu';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import {
   type AssignmentsResult,
@@ -27,7 +32,7 @@ import {
   useRoutes,
   useUpdateRoute,
 } from '../hooks/useRoutes';
-import { useDriveTime } from '../hooks/useMap';
+import { useDriveTimes } from '../hooks/useMap';
 import { AIDriverAssignmentsCard } from './AIDriverAssignmentsCard';
 import { RouteOptimizationResultCard } from './RouteOptimizationResultCard';
 import { AddStopsModal } from './AddStopsModal';
@@ -71,6 +76,12 @@ function resolvedStopIds(route: RouteRecord, allStops: StopRecord[]) {
   return (route.active_stop_ids || route.stop_ids || []).filter((id) => stopMap.has(String(id)));
 }
 
+function firstResolvedStop(route: RouteRecord, allStops: StopRecord[]) {
+  return resolvedStopIds(route, allStops)
+    .map((id) => allStops.find((stop) => String(stop.id) === String(id)))
+    .find(Boolean) as StopRecord | undefined;
+}
+
 export function RoutesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
 
@@ -99,8 +110,7 @@ export function RoutesPage() {
   const optimizeRoute = useOptimizeRoute();
   const driverAssignments = useDriverAssignments();
 
-  const [notice, setNotice] = useState('');
-  const [actionError, setActionError] = useState('');
+  const toast = useToast();
 
   // Create form (rendered inside the "+ New Route" modal)
   const [createOpen, setCreateOpen] = useState(false);
@@ -173,6 +183,18 @@ export function RoutesPage() {
     routes.filter((r) => statusFilter === 'all' || normalizeStatus(r.status) === statusFilter),
     [routes, statusFilter],
   );
+  const routeDriveTimePairs = useMemo(() =>
+    filtered.map((route) => {
+      const firstStop = firstResolvedStop(route, allStops);
+      return {
+        key: route.id,
+        from: route.location_id || firstStop?.location_id || null,
+        to: firstStop?.customer_id || null,
+      };
+    }),
+    [allStops, filtered],
+  );
+  const routeDriveTimes = useDriveTimes(routeDriveTimePairs);
 
   const routeStopIds = useMemo(
     () => editRoute?.active_stop_ids || editRoute?.stop_ids || [],
@@ -299,53 +321,47 @@ export function RoutesPage() {
   // ── Actions ────────────────────────────────────────────────────────────────
 
   function handleCreateRoute() {
-    if (!newName.trim()) { setActionError('Route name is required.'); return; }
+    if (!newName.trim()) { toast.error('Route name is required.'); return; }
     const resolvedDriver = resolveDriverSelection(drivers, newDriverName, newDriverId);
     if (!resolvedDriver) {
-      setActionError('Choose a driver from the saved user list or leave the route unassigned.');
+      toast.error('Choose a driver from the saved user list or leave the route unassigned.');
       return;
-    }
-    setActionError('');
-    createRoute.mutate(
+    }    createRoute.mutate(
       { name: newName.trim(), driver: resolvedDriver.driverName, driverId: resolvedDriver.driverId, notes: newNotes.trim() },
       {
         onSuccess: () => {
-          setNotice(`Route "${newName.trim()}" created.`);
+          toast.success(`Route "${newName.trim()}" created.`);
           closeCreateModal({ skipConfirm: true });
         },
-        onError: (err) => setActionError(String((err as Error).message || 'Could not create route')),
+        onError: (err) => toast.error(String((err as Error).message || 'Could not create route')),
       }
     );
   }
 
   function handleSaveEdit() {
-    if (!editRoute || !editName.trim()) { setActionError('Route name is required.'); return; }
+    if (!editRoute || !editName.trim()) { toast.error('Route name is required.'); return; }
     const resolvedDriver = resolveDriverSelection(drivers, editDriverName, editDriverId);
     if (!resolvedDriver) {
-      setActionError('Choose a driver from the saved user list or clear the route assignment.');
+      toast.error('Choose a driver from the saved user list or clear the route assignment.');
       return;
-    }
-    setActionError('');
-    updateRoute.mutate(
+    }    updateRoute.mutate(
       { id: editRoute.id, patch: { name: editName.trim(), driver: resolvedDriver.driverName, driverId: resolvedDriver.driverId, notes: editNotes.trim() } },
       {
         onSuccess: () => {
-          setNotice('Route updated.');
+          toast.success('Route updated.');
           setEditRoute((prev) => prev ? { ...prev, name: editName.trim(), driver: resolvedDriver.driverName, driver_id: resolvedDriver.driverId, notes: editNotes.trim() } : null);
           setEditDriverName(resolvedDriver.driverName);
           setEditDriverId(String(resolvedDriver.driverId || ''));
         },
-        onError: (err) => setActionError(String((err as Error).message || 'Could not update route')),
+        onError: (err) => toast.error(String((err as Error).message || 'Could not update route')),
       }
     );
   }
 
   function handleDeleteRoute(route: RouteRecord) {
-    if (!confirm(`Delete route "${route.name || route.id}"?`)) return;
-    setActionError('');
-    deleteRoute.mutate(route.id, {
-      onSuccess: () => { setNotice('Route deleted.'); if (editRoute?.id === route.id) closeEdit(); },
-      onError: (err) => setActionError(String((err as Error).message || 'Could not delete route')),
+    if (!confirm(`Delete route "${route.name || route.id}"?`)) return;    deleteRoute.mutate(route.id, {
+      onSuccess: () => { toast.success('Route deleted.'); if (editRoute?.id === route.id) closeEdit(); },
+      onError: (err) => toast.error(String((err as Error).message || 'Could not delete route')),
     });
   }
 
@@ -353,17 +369,13 @@ export function RoutesPage() {
     if (!editRoute) return;
     const stop = editRouteStops.find((item) => item.id === stopId);
     const stopLabel = stop?.name || stop?.address || stopId;
-    if (!confirm(`Remove stop "${stopLabel}" from route "${editRoute.name || editRoute.id}"?`)) return;
-    setActionError('');
-    patchRouteStops(editRoute.id, routeStopIds.filter((id) => id !== stopId))
-      .catch((err) => setActionError(String((err as Error).message || 'Could not remove stop')));
+    if (!confirm(`Remove stop "${stopLabel}" from route "${editRoute.name || editRoute.id}"?`)) return;    patchRouteStops(editRoute.id, routeStopIds.filter((id) => id !== stopId))
+      .catch((err) => toast.error(String((err as Error).message || 'Could not remove stop')));
   }
 
   async function handleAddStopToRoute() {
     if (!editRoute || !selectedStopCustomerId) return;
-    setAddingStop(true);
-    setActionError('');
-    try {
+    setAddingStop(true);    try {
       const opt = stopOptions.find((o) => o.value === selectedStopCustomerId);
       if (!opt) throw new Error('Could not find selected customer');
       const existingStop = allStops.find((s) => normalizedLocationKey(s.name, s.address) === normalizedLocationKey(opt.label, opt.address));
@@ -380,15 +392,15 @@ export function RoutesPage() {
         if (!newStop?.id) throw new Error('Stop could not be created');
         stopId = newStop.id;
       } else {
-        setNotice(`"${opt.label}" is already on this route.`);
+        toast.success(`"${opt.label}" is already on this route.`);
         return;
       }
       await patchRouteStops(editRoute.id, [...routeStopIds, stopId]);
-      setNotice(`"${opt.label}" added to route.`);
+      toast.success(`"${opt.label}" added to route.`);
       setStopSearch('');
       setSelectedStopCustomerId('');
     } catch (err) {
-      setActionError(String((err as Error).message || 'Could not add stop'));
+      toast.error(String((err as Error).message || 'Could not add stop'));
     } finally {
       setAddingStop(false);
     }
@@ -396,9 +408,7 @@ export function RoutesPage() {
 
   async function handleAddOrdersAsStops() {
     if (!editRoute || !selectedOrderIds.size) return;
-    setAddingStops(true);
-    setActionError('');
-    try {
+    setAddingStops(true);    try {
       const orders = pendingOrders.filter((o) => selectedOrderIds.has(o.id));
       const newStopIds: string[] = [];
       const failed: string[] = [];
@@ -414,23 +424,23 @@ export function RoutesPage() {
       }
       if (newStopIds.length) {
         await patchRouteStops(editRoute.id, [...routeStopIds, ...newStopIds]);
-        setNotice(`${newStopIds.length} stop${newStopIds.length > 1 ? 's' : ''} added.${failed.length ? ` Skipped (no address): ${failed.join(', ')}` : ''}`);
+        toast.success(`${newStopIds.length} stop${newStopIds.length > 1 ? 's' : ''} added.${failed.length ? ` Skipped (no address): ${failed.join(', ')}` : ''}`);
         setSelectedOrderIds(new Set());
       } else {
-        setActionError(`No stops added. Missing addresses for: ${failed.join(', ')}`);
+        toast.error(`No stops added. Missing addresses for: ${failed.join(', ')}`);
       }
     } catch (err) {
-      setActionError(String((err as Error).message || 'Could not add stops'));
+      toast.error(String((err as Error).message || 'Could not add stops'));
     } finally {
       setAddingStops(false);
     }
   }
 
   function handleRunOptimize(routeId: string) {
-    setOptimizeResult(null); setOptimizeRouteId(routeId); setActionError('');
+    setOptimizeResult(null); setOptimizeRouteId(routeId);
     optimizeRoute.mutate(routeId, {
       onSuccess: (result) => setOptimizeResult(result),
-      onError: (err) => setActionError(String((err as Error).message || 'Route optimization failed')),
+      onError: (err) => toast.error(String((err as Error).message || 'Route optimization failed')),
     });
   }
 
@@ -439,33 +449,31 @@ export function RoutesPage() {
     updateRoute.mutate(
       { id: optimizeRouteId, patch: { stopIds: optimizeResult.optimized_stop_ids, activeStopIds: optimizeResult.optimized_stop_ids } },
       {
-        onSuccess: () => { setNotice('Route stop order updated.'); setOptimizeResult(null); setOptimizeRouteId(null); },
-        onError: (err) => setActionError(String((err as Error).message || 'Could not apply optimization')),
+        onSuccess: () => { toast.success('Route stop order updated.'); setOptimizeResult(null); setOptimizeRouteId(null); },
+        onError: (err) => toast.error(String((err as Error).message || 'Could not apply optimization')),
       }
     );
   }
 
   function handleDriverAssignments() {
-    setAssignmentsResult(null); setActionError('');
+    setAssignmentsResult(null);
     driverAssignments.mutate(undefined, {
       onSuccess: (result) => setAssignmentsResult(result),
-      onError: (err) => setActionError(String((err as Error).message || 'Driver assignment failed')),
+      onError: (err) => toast.error(String((err as Error).message || 'Driver assignment failed')),
     });
   }
 
   function handleApplyDriverSuggestion(routeId: string, recommendedDriverName: string) {
     const resolvedDriver = resolveDriverSelection(drivers, recommendedDriverName, '');
     if (!resolvedDriver?.driverId) {
-      setActionError(`Could not link "${recommendedDriverName}" to a saved driver user.`);
+      toast.error(`Could not link "${recommendedDriverName}" to a saved driver user.`);
       return;
     }
-    const linkedDriverId = resolvedDriver.driverId;
-    setActionError('');
-    updateRoute.mutate(
+    const linkedDriverId = resolvedDriver.driverId;    updateRoute.mutate(
       { id: routeId, patch: { driver: resolvedDriver.driverName, driverId: linkedDriverId } },
       {
         onSuccess: () => {
-          setNotice(`Assigned ${resolvedDriver.driverName} to the route.`);
+          toast.success(`Assigned ${resolvedDriver.driverName} to the route.`);
           setAssignmentsResult((prev) => prev ? {
             ...prev,
             assignments: prev.assignments.filter((assignment) => assignment.route_id !== routeId),
@@ -476,7 +484,7 @@ export function RoutesPage() {
             setEditRoute((prev) => prev ? { ...prev, driver: resolvedDriver.driverName, driver_id: linkedDriverId } : null);
           }
         },
-        onError: (err) => setActionError(String((err as Error).message || 'Could not apply driver assignment')),
+        onError: (err) => toast.error(String((err as Error).message || 'Could not apply driver assignment')),
       },
     );
   }
@@ -491,13 +499,9 @@ export function RoutesPage() {
 
   function handleDispatchRoute(route: RouteRecord) {
     const assignedDriverId = String(route.driver_id || '').trim();
-    if (!assignedDriverId) {
-      setNotice('');
-      setActionError(`Assign a driver before dispatching "${route.name || route.id.slice(0, 8)}".`);
+    if (!assignedDriverId) {      toast.error(`Assign a driver before dispatching "${route.name || route.id.slice(0, 8)}".`);
       return;
-    }
-    setActionError('');
-    setDispatchCandidate(route);
+    }    setDispatchCandidate(route);
   }
 
   function confirmDispatchRoute() {
@@ -505,18 +509,14 @@ export function RoutesPage() {
     const route = dispatchCandidate;
     const assignedDriverId = String(route.driver_id || '').trim();
     if (!assignedDriverId) {
-      setDispatchCandidate(null);
-      setNotice('');
-      setActionError(`Assign a driver before dispatching "${route.name || route.id.slice(0, 8)}".`);
+      setDispatchCandidate(null);      toast.error(`Assign a driver before dispatching "${route.name || route.id.slice(0, 8)}".`);
       return;
-    }
-    setActionError('');
-    setDispatchCandidate(null);
+    }    setDispatchCandidate(null);
     updateRoute.mutate(
       { id: route.id, patch: { status: 'active', dispatched_at: new Date().toISOString() } },
       {
-        onSuccess: () => setNotice(`Route "${route.name || route.id.slice(0, 8)}" marked as departed. Customer ETA and live tracking can now begin.`),
-        onError: (err) => setActionError(String((err as Error).message || 'Could not dispatch route')),
+        onSuccess: () => toast.success(`Route "${route.name || route.id.slice(0, 8)}" marked as departed. Customer ETA and live tracking can now begin.`),
+        onError: (err) => toast.error(String((err as Error).message || 'Could not dispatch route')),
       },
     );
   }
@@ -524,13 +524,11 @@ export function RoutesPage() {
   function handleCancelDispatch(route: RouteRecord) {
     const routeLabel = route.name || route.id.slice(0, 8);
     const confirmed = confirm(`Cancel dispatch for "${routeLabel}"? Customer ETA and live tracking will pause until this route is dispatched again.`);
-    if (!confirmed) return;
-    setActionError('');
-    updateRoute.mutate(
+    if (!confirmed) return;    updateRoute.mutate(
       { id: route.id, patch: { status: 'pending', dispatched_at: null } },
       {
-        onSuccess: () => setNotice(`Dispatch cancelled for "${routeLabel}". Customer ETA and live tracking are paused until dispatch starts again.`),
-        onError: (err) => setActionError(String((err as Error).message || 'Could not cancel dispatch')),
+        onSuccess: () => toast.success(`Dispatch cancelled for "${routeLabel}". Customer ETA and live tracking are paused until dispatch starts again.`),
+        onError: (err) => toast.error(String((err as Error).message || 'Could not cancel dispatch')),
       },
     );
   }
@@ -560,7 +558,7 @@ export function RoutesPage() {
       </div>
 
       {activeTab !== 'routes' ? (
-        <Suspense fallback={<div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading…</div>}>
+        <Suspense fallback={<PageSkeleton />}>
           {activeTab === 'dispatch' ? <DispatchTab /> : activeTab === 'deliveries' ? <DeliveriesTab /> : <StopsTab />}
         </Suspense>
       ) : (
@@ -570,45 +568,43 @@ export function RoutesPage() {
         const driverLabel = dispatchCandidate.driver || driverDisplayName(driverById.get(String(dispatchCandidate.driver_id || ''))) || 'Unassigned';
         const stopCount = resolvedStopIds(dispatchCandidate, allStops).length;
         return (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/45 px-4" role="dialog" aria-modal="true" aria-labelledby="dispatch-confirm-title">
-            <div className="w-full max-w-md rounded-lg border border-border bg-background p-5 shadow-xl">
-              <div className="space-y-1">
-                <h2 id="dispatch-confirm-title" className="text-lg font-semibold">Dispatch route?</h2>
-                <p className="text-sm text-muted-foreground">Customer ETA and live tracking will begin for this route.</p>
+          <Modal
+            open
+            title="Dispatch route?"
+            description="Customer ETA and live tracking will begin for this route."
+            onClose={() => setDispatchCandidate(null)}
+            widthClassName="max-w-md"
+          >
+            <dl className="grid gap-3 text-sm">
+              <div className="flex items-center justify-between gap-4">
+                <dt className="text-muted-foreground">Route</dt>
+                <dd className="font-medium text-right">{routeLabel}</dd>
               </div>
-              <dl className="mt-4 grid gap-3 text-sm">
-                <div className="flex items-center justify-between gap-4">
-                  <dt className="text-muted-foreground">Route</dt>
-                  <dd className="font-medium text-right">{routeLabel}</dd>
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <dt className="text-muted-foreground">Driver</dt>
-                  <dd className="font-medium text-right">{driverLabel}</dd>
-                </div>
-                <div className="flex items-center justify-between gap-4">
-                  <dt className="text-muted-foreground">Stops</dt>
-                  <dd className="font-medium text-right">{stopCount}</dd>
-                </div>
-              </dl>
-              <div className="mt-5 flex justify-end gap-2">
-                <Button variant="ghost" onClick={() => setDispatchCandidate(null)}>Cancel</Button>
-                <Button onClick={confirmDispatchRoute} disabled={updateRoute.isPending}>Dispatch Route</Button>
+              <div className="flex items-center justify-between gap-4">
+                <dt className="text-muted-foreground">Driver</dt>
+                <dd className="font-medium text-right">{driverLabel}</dd>
               </div>
+              <div className="flex items-center justify-between gap-4">
+                <dt className="text-muted-foreground">Stops</dt>
+                <dd className="font-medium text-right">{stopCount}</dd>
+              </div>
+            </dl>
+            <div className="mt-5 flex justify-end gap-2">
+              <Button variant="ghost" onClick={() => setDispatchCandidate(null)}>Cancel</Button>
+              <Button onClick={confirmDispatchRoute} disabled={updateRoute.isPending}>Dispatch Route</Button>
             </div>
-          </div>
+          </Modal>
         );
       })() : null}
-      {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading routes...</div> : null}
+      {isLoading ? <PageSkeleton /> : null}
       {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load routes')}</div> : null}
-      {actionError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{actionError}</div> : null}
-      {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
       <div className="flex flex-wrap items-end gap-3">
         <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard label="Routes" value={routes.length.toLocaleString()} />
-          <SummaryCard label="Active" value={summary.active.toLocaleString()} />
-          <SummaryCard label="Pending" value={summary.pending.toLocaleString()} />
-          <SummaryCard label="Completed" value={summary.completed.toLocaleString()} />
+          <StatCard label="Routes" value={routes.length.toLocaleString()} />
+          <StatCard label="Active" value={summary.active.toLocaleString()} />
+          <StatCard label="Pending" value={summary.pending.toLocaleString()} />
+          <StatCard label="Completed" value={summary.completed.toLocaleString()} />
         </div>
         <Button className="shrink-0" onClick={() => setCreateOpen(true)}>+ New Route</Button>
       </div>
@@ -832,13 +828,13 @@ export function RoutesPage() {
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | RouteStatus)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | RouteStatus)}>
                 <option value="all">All</option>
                 <option value="active">Active</option>
                 <option value="pending">Pending</option>
                 <option value="completed">Completed</option>
                 <option value="cancelled">Cancelled</option>
-              </select>
+              </SelectInput>
             </label>
             <LiveIndicator updatedAt={dataUpdatedAt} onRefresh={() => { void refetch(); void refetchStops(); }} refreshing={isFetching} />
           </div>
@@ -864,10 +860,7 @@ export function RoutesPage() {
                 const stopCount = resolvedStopIds(route, allStops).length;
                 const isEditing = editRoute?.id === route.id;
                 const assignedDriver = route.driver || driverDisplayName(driverById.get(String(route.driver_id || '')));
-                const hasAssignedDriverId = String(route.driver_id || '').trim().length > 0;
-                const firstStop = resolvedStopIds(route, allStops)
-                  .map((id) => allStops.find((stop) => String(stop.id) === String(id)))
-                  .find(Boolean) as StopRecord | undefined;
+                const firstStop = firstResolvedStop(route, allStops);
                 return (
                   <TableRow key={route.id} className={isEditing ? 'bg-primary/5' : ''}>
                     <TableCell className="font-medium">{route.name || route.id.slice(0, 8)}</TableCell>
@@ -877,55 +870,69 @@ export function RoutesPage() {
                     </TableCell>
                     <TableCell>{stopCount}</TableCell>
                     <TableCell>
-                      <RouteDriveTimeCell route={route} firstStop={firstStop} />
+                      <RouteDriveTimeCell
+                        route={route}
+                        firstStop={firstStop}
+                        driveTime={routeDriveTimes.data?.[route.id] ?? null}
+                        driveTimeLoading={routeDriveTimes.isLoading}
+                        driveTimeError={routeDriveTimes.isError}
+                      />
                     </TableCell>
                     <TableCell>{route.created_at ? new Date(route.created_at).toLocaleDateString() : '-'}</TableCell>
                     <TableCell>
-                      <div className="flex flex-wrap gap-1">
+                      <div className="flex items-center gap-1">
                         <Button variant={isEditing ? 'secondary' : 'ghost'} size="sm" onClick={() => isEditing ? closeEdit() : openEdit(route)}>
                           {isEditing ? 'Close' : 'Edit'}
                         </Button>
-                        {canManageStops && (
-                          <Button variant="ghost" size="sm" onClick={() => setAddStopsRoute(route)}>
-                            Add Stops
-                          </Button>
-                        )}
-                        <Button variant="ghost" size="sm" onClick={() => switchTab('stops', { routeId: route.id })}>Stops</Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleRunOptimize(route.id)} disabled={optimizeRoute.isPending && optimizeRouteId === route.id} title="AI optimize stop order">
-                          {optimizeRoute.isPending && optimizeRouteId === route.id ? '…' : '❆ Optimize'}
-                        </Button>
-                        {!isDispatched && canChangeDispatch && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            title={hasAssignedDriverId ? 'Mark route as dispatched - driver has left the dock' : 'Assign a driver before dispatching this route'}
-                            onClick={() => handleDispatchRoute(route)}
-                            disabled={updateRoute.isPending}
-                          >
-                            Dispatch Route
-                          </Button>
-                        )}
-                        {isDispatched && canChangeDispatch && (
-                          <Button
-                            variant="outline"
-                            size="sm"
-                            className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                            title="Cancel dispatch and pause customer ETA/live tracking"
-                            onClick={() => handleCancelDispatch(route)}
-                            disabled={updateRoute.isPending}
-                          >
-                            Cancel Dispatch
-                          </Button>
-                        )}
-                        <a href={`https://maps.google.com/?q=${encodeURIComponent(route.name || '')}`} target="_blank" rel="noreferrer">
-                          <Button variant="secondary" size="sm">Map</Button>
-                        </a>
+                        <ActionMenu
+                          items={[
+                            {
+                              label: 'Add Stops',
+                              onClick: () => setAddStopsRoute(route),
+                              hidden: !canManageStops,
+                            },
+                            {
+                              label: 'Stops',
+                              onClick: () => switchTab('stops', { routeId: route.id }),
+                            },
+                            {
+                              label: optimizeRoute.isPending && optimizeRouteId === route.id ? 'Optimizing...' : 'Optimize',
+                              onClick: () => handleRunOptimize(route.id),
+                              disabled: optimizeRoute.isPending && optimizeRouteId === route.id,
+                            },
+                            {
+                              label: 'Dispatch Route',
+                              onClick: () => handleDispatchRoute(route),
+                              disabled: updateRoute.isPending,
+                              hidden: isDispatched || !canChangeDispatch,
+                            },
+                            {
+                              label: 'Cancel Dispatch',
+                              onClick: () => handleCancelDispatch(route),
+                              disabled: updateRoute.isPending,
+                              destructive: true,
+                              hidden: !isDispatched || !canChangeDispatch,
+                            },
+                            {
+                              label: 'Map',
+                              onClick: () => window.open(`https://maps.google.com/?q=${encodeURIComponent(route.name || '')}`, '_blank', 'noopener,noreferrer'),
+                            },
+                          ]}
+                        />
                       </div>
                     </TableCell>
                   </TableRow>
                 );
               }) : (
-                <TableRow><TableCell colSpan={7} className="text-muted-foreground">No routes found.</TableCell></TableRow>
+                <TableRow>
+                  <TableCell colSpan={7}>
+                    <div className="space-y-2 py-6 text-center">
+                      <div className="font-medium text-foreground">No routes found.</div>
+                      <div className="text-sm text-muted-foreground">Create a route, then add stops and assign a driver.</div>
+                      <Button size="sm" onClick={() => setCreateOpen(true)}>+ New Route</Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
               )}
             </TableBody>
           </Table>
@@ -940,8 +947,8 @@ export function RoutesPage() {
           allStops={allStops}
           refetchStops={refetchStops}
           onClose={() => setAddStopsRoute(null)}
-          setNotice={setNotice}
-          setActionError={setActionError}
+          setNotice={toast.success}
+          setActionError={toast.error}
         />
       )}
       </>
@@ -950,24 +957,35 @@ export function RoutesPage() {
   );
 }
 
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className="text-2xl">{value}</CardTitle></CardHeader></Card>
-  );
-}
-
-function RouteDriveTimeCell({ route, firstStop }: { route: RouteRecord; firstStop?: StopRecord }) {
+function RouteDriveTimeCell({
+  route,
+  firstStop,
+  driveTime,
+  driveTimeLoading,
+  driveTimeError,
+}: {
+  route: RouteRecord;
+  firstStop?: StopRecord;
+  driveTime: { duration_seconds: number; distance_meters: number } | null;
+  driveTimeLoading: boolean;
+  driveTimeError: boolean;
+}) {
   const from = route.location_id || firstStop?.location_id || null;
   const to = firstStop?.customer_id || null;
-  const driveTime = useDriveTime(from, to, 'driving');
 
   if (!from || !to) return <span className="text-muted-foreground">No customer</span>;
-  if (driveTime.isLoading) return <span className="text-muted-foreground">Loading...</span>;
-  if (driveTime.isError) return <span className="text-destructive">Unavailable</span>;
-  if (!driveTime.data) return <span className="text-muted-foreground">Not cached</span>;
+  if (driveTimeLoading) {
+    return (
+      <span role="status" aria-label="Loading drive time" className="inline-block h-4 w-16 animate-pulse rounded bg-muted align-middle">
+        <span className="sr-only">Loading drive time</span>
+      </span>
+    );
+  }
+  if (driveTimeError) return <span className="text-destructive">Unavailable</span>;
+  if (!driveTime) return <span className="text-muted-foreground">Not cached</span>;
 
-  const minutes = Math.round(Number(driveTime.data.duration_seconds || 0) / 60);
-  const miles = Number(driveTime.data.distance_meters || 0) / 1609.344;
+  const minutes = Math.round(Number(driveTime.duration_seconds || 0) / 60);
+  const miles = Number(driveTime.distance_meters || 0) / 1609.344;
   return (
     <span className="text-sm">
       {minutes} min <span className="text-muted-foreground">({miles.toFixed(1)} mi)</span>

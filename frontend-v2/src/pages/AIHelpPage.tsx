@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../components/ui/button';
+import { SelectInput } from '../components/ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import { useAIChat, useAIWalkthrough, type ChatMessage } from '../hooks/useAI';
@@ -161,15 +162,15 @@ export function AIHelpPage() {
             <div className="grid gap-3 lg:grid-cols-[220px_minmax(0,1fr)_auto]">
               <label className="space-y-1 text-sm">
                 <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Feature</span>
-                <select
+                <SelectInput
                   value={walkthroughFeature}
                   onChange={(e) => setWalkthroughFeature(e.target.value)}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  className="w-full"
                 >
                   {WALKTHROUGH_FEATURES.map((feature) => (
                     <option key={feature} value={feature}>{feature}</option>
                   ))}
-                </select>
+                </SelectInput>
               </label>
               <label className="space-y-1 text-sm">
                 <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Goal</span>

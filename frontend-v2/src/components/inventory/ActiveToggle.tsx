@@ -31,6 +31,7 @@ export function ActiveToggle({
     <button
       onClick={toggle}
       disabled={saving}
+      aria-label={isActive ? 'Mark item inactive' : 'Restore item as active'}
       title={isActive ? 'Active — click to mark inactive (seasonal/off-season)' : 'Inactive — click to restore as active'}
       className={[
         'inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1',

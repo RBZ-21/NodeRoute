@@ -22,6 +22,8 @@ import { WeightEntryModal } from '../components/dashboard/WeightEntryModal';
 import { NegativeStockQty } from '../components/inventory/NegativeStock';
 import { LiveIndicator } from '../components/ui/live-indicator';
 import { AiInsightBanner } from '../components/ui/ai-insight-banner';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
+import { TableEmptyState } from '../components/ui/data-state';
 import { getUserRole, sendWithAuth, type Role } from '../lib/api';
 import { cn } from '../lib/utils';
 import {
@@ -291,7 +293,7 @@ export function DashboardPage() {
 
   return (
     <div className="space-y-5">
-      {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading dashboard...</div> : null}
+      {isLoading ? <PageSkeleton /> : null}
       {displayError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{displayError}</div> : null}
 
       {/* Weight Entry Modal */}
@@ -411,7 +413,13 @@ export function DashboardPage() {
                     </TableRow>
                   ))
                 ) : (
-                  <TableRow><TableCell colSpan={6} className="text-muted-foreground">No active deliveries right now. Once dispatch starts assigning work, live delivery activity will show up here.</TableCell></TableRow>
+                  <TableEmptyState
+                    colSpan={6}
+                    title="No active deliveries right now."
+                    description="Once dispatch starts assigning work, live delivery activity will show up here."
+                    actionLabel="Open Deliveries"
+                    onAction={() => navigate('/routes?tab=deliveries')}
+                  />
                 )}
               </TableBody>
             </Table>

@@ -2,6 +2,9 @@ import { useEffect, useMemo, useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
+import { SelectInput } from '../components/ui/select-input';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
+import { TableEmptyState } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { type ReportPreset, useSalesReport } from '../hooks/useReports';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
@@ -175,7 +178,7 @@ export function ReportsPage() {
 
   return (
     <div className="space-y-5">
-      {definitionsLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading report library...</div> : null}
+      {definitionsLoading ? <PageSkeleton /> : null}
       {definitionsError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{definitionsError}</div> : null}
       {scheduleStatus ? <div className="rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{scheduleStatus}</div> : null}
       {scheduleError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{scheduleError}</div> : null}
@@ -188,16 +191,16 @@ export function ReportsPage() {
           </div>
           <label className="space-y-1 text-sm">
             <span className="font-semibold text-muted-foreground">Export Format</span>
-            <select
+            <SelectInput
               value={selectedFormat}
               onChange={(e) => setSelectedFormat(e.target.value as ReportFormat)}
-              className="flex h-10 min-w-32 rounded-md border border-input bg-background px-3 text-sm"
+              className="flex min-w-32"
             >
               <option value="csv">CSV</option>
               <option value="text">Text</option>
               <option value="pdf">PDF</option>
               <option value="xlsx">Excel</option>
-            </select>
+            </SelectInput>
           </label>
         </CardHeader>
         <CardContent className="space-y-5">
@@ -249,15 +252,15 @@ export function ReportsPage() {
               <div className="grid gap-3 md:grid-cols-4">
                 <label className="space-y-1 text-sm">
                   <span className="font-semibold text-muted-foreground">Cadence</span>
-                  <select
+                  <SelectInput
                     value={scheduleCadence}
                     onChange={(e) => setScheduleCadence(e.target.value as ScheduleCadence)}
-                    className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                    className="flex w-full"
                   >
                     <option value="daily">Daily</option>
                     <option value="weekly">Weekly</option>
                     <option value="monthly">Monthly</option>
-                  </select>
+                  </SelectInput>
                 </label>
                 <label className="space-y-1 text-sm">
                   <span className="font-semibold text-muted-foreground">Time</span>
@@ -284,7 +287,7 @@ export function ReportsPage() {
         </CardContent>
       </Card>
 
-      {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading sales report...</div> : null}
+      {isLoading ? <PageSkeleton /> : null}
       {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load sales report')}</div> : null}
 
       <Card>
@@ -315,10 +318,10 @@ export function ReportsPage() {
           <div className="grid gap-3 md:grid-cols-4">
             <label className="space-y-1 text-sm">
               <span className="font-semibold text-muted-foreground">Item Filter</span>
-              <select
+              <SelectInput
                 value={reportItemFilter}
                 onChange={(e) => setReportItemFilter(e.target.value)}
-                className="flex h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                className="flex w-full"
               >
                 <option value="all">All Items</option>
                 {(salesReport?.available_items ?? []).map((item) => (
@@ -326,7 +329,7 @@ export function ReportsPage() {
                     {item.label}{item.item_number ? ` (#${item.item_number})` : ''}
                   </option>
                 ))}
-              </select>
+              </SelectInput>
             </label>
             {reportPreset === 'range' ? (
               <>
@@ -401,9 +404,19 @@ export function ReportsPage() {
                   </TableRow>
                 ))
               ) : (
-                <TableRow>
-                  <TableCell colSpan={6} className="text-muted-foreground">No sales rows found for the selected report filters.</TableCell>
-                </TableRow>
+                <TableEmptyState
+                  colSpan={6}
+                  title="No sales rows found for the selected report filters."
+                  description="Switch the preset or date range to broaden the sales report."
+                  actionLabel="Show Daily Report"
+                  onAction={() => {
+                    const { start, end } = syncRangeDefaults('daily');
+                    setReportPreset('daily');
+                    setReportStartDate(start);
+                    setReportEndDate(end);
+                    setReportItemFilter('all');
+                  }}
+                />
               )}
             </TableBody>
           </Table>

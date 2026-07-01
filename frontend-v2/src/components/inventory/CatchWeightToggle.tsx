@@ -20,6 +20,7 @@ export function CatchWeightToggle({ item, onToggled }: { item: InventoryItem; on
 
   return (
     <button onClick={toggle} disabled={saving}
+      aria-label={item.is_catch_weight ? 'Disable catch weight' : 'Enable catch weight'}
       title={item.is_catch_weight ? 'Catch weight ON — click to turn off' : 'Not catch weight — click to enable'}
       className={['inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1', item.is_catch_weight ? 'bg-orange-500 focus:ring-orange-400' : 'bg-gray-200 focus:ring-gray-400', saving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'].join(' ')}>
       <span className={['inline-block h-4 w-4 rounded-full bg-white shadow transition-transform', item.is_catch_weight ? 'translate-x-6' : 'translate-x-1'].join(' ')} />

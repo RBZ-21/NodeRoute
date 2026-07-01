@@ -58,6 +58,7 @@ function renderOrderForm(overrides: Partial<React.ComponentProps<typeof OrderFor
     updateLine: vi.fn(),
     toggleLineCatchWeight: vi.fn(),
     addLine: vi.fn(),
+    applyLines: vi.fn(),
     removeLine: vi.fn(),
     onSubmit: vi.fn(),
     onCancel: vi.fn(),
@@ -128,5 +129,64 @@ describe('OrderFormCard address lookup', () => {
 
     expect(setRouteId).toHaveBeenCalledWith('route-north');
     expect(setFulfillmentType).toHaveBeenCalledWith('delivery');
+  });
+});
+
+describe('OrderFormCard pricing lookup', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    fetchWithAuthMock.mockReset();
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url.startsWith('/api/order-guides')) return { guides: [] };
+      if (url.startsWith('/api/customer-messages')) return { messages: [] };
+      if (url.startsWith('/api/pricing/resolve')) return { price: 12.5, method: 'customer' };
+      return {};
+    });
+  });
+
+  function pricingCalls() {
+    return fetchWithAuthMock.mock.calls.filter(([url]) => String(url).startsWith('/api/pricing/resolve'));
+  }
+
+  it('debounces pricing resolves and ignores non-pricing line changes', async () => {
+    const line = {
+      ...emptyLine(),
+      productId: 'product-1',
+      name: 'Salmon',
+      quantity: '2',
+      unit: 'each' as const,
+      notes: '',
+    };
+    const { rerender, props } = renderOrderForm({
+      customerName: 'Oceanview Market',
+      customerEmail: 'buyer@oceanview.test',
+      customerAddress: '123 Harbor St',
+      customers: [{ id: 'cust-1', company_name: 'Oceanview Market' }],
+      lines: [line],
+    });
+
+    expect(pricingCalls()).toHaveLength(0);
+
+    await act(async () => {
+      vi.advanceTimersByTime(349);
+      await Promise.resolve();
+    });
+    expect(pricingCalls()).toHaveLength(0);
+
+    await act(async () => {
+      vi.advanceTimersByTime(1);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pricingCalls()).toHaveLength(1);
+
+    rerender(<OrderFormCard {...props} customerName="Oceanview Market" customerEmail="buyer@oceanview.test" customerAddress="123 Harbor St" customers={[{ id: 'cust-1', company_name: 'Oceanview Market' }]} lines={[{ ...line, notes: 'pack separately' }]} />);
+
+    await act(async () => {
+      vi.advanceTimersByTime(400);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(pricingCalls()).toHaveLength(1);
   });
 });

@@ -94,6 +94,32 @@ describe('CustomersPage', () => {
     expect(await screen.findByText('No invoices found for this customer.')).toBeInTheDocument();
   });
 
+  it('paginates the customer roster after filtering', async () => {
+    const manyCustomers = Array.from({ length: 26 }, (_, index) => ({
+      id: `cust-${index + 1}`,
+      customer_number: `C-${String(index + 1).padStart(3, '0')}`,
+      company_name: `Customer ${index + 1}`,
+      email: `customer${index + 1}@example.com`,
+      phone: '555-0101',
+      status: 'active',
+      credit_hold: false,
+    }));
+    mockCustomersApi(manyCustomers);
+
+    renderCustomersPage();
+
+    expect(await screen.findByText('Customer 1')).toBeInTheDocument();
+    expect(screen.queryByText('Customer 26')).not.toBeInTheDocument();
+    expect(screen.getByText('Page 1 of 2')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(await screen.findByText('Customer 26')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('Name, #, email...'), { target: { value: 'Customer 26' } });
+    expect(await screen.findByText('Page 1 of 1')).toBeInTheDocument();
+    expect(screen.getByText('Customer 26')).toBeInTheDocument();
+  });
+
   it('places a credit hold and reloads the customer list', async () => {
     sendWithAuthMock.mockResolvedValueOnce({});
 

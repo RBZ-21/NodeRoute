@@ -1,5 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Button } from '../components/ui/button';
+import { SelectInput } from '../components/ui/select-input';
 import { Modal } from '../components/ui/overlay-panel';
 import { sendWithAuth } from '../lib/api';
 
@@ -188,14 +189,14 @@ export function OrderCsvImport({ open, onClose, onImported }: { open: boolean; o
               {TARGET_FIELDS.map((field) => (
                 <label key={field.key} className="grid grid-cols-2 items-center gap-2 text-sm">
                   <span className="font-medium">{field.label}{field.required ? <span className="text-destructive"> *</span> : ''}</span>
-                  <select
-                    className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                  <SelectInput
+                    className="h-9 px-2"
                     value={mapping[field.key] || ''}
                     onChange={(e) => setMapping((m) => ({ ...m, [field.key]: e.target.value }))}
                   >
                     <option value="">— not mapped —</option>
                     {parsed.headers.map((h) => <option key={h} value={h}>{h}</option>)}
-                  </select>
+                  </SelectInput>
                 </label>
               ))}
             </div>

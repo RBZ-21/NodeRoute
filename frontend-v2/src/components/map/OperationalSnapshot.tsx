@@ -1,5 +1,6 @@
 import { useMemo } from 'react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { LoadingSkeleton } from '../ui/data-state';
 import { cn } from '../../lib/utils';
 import {
   type Delivery,
@@ -86,7 +87,7 @@ export function OperationalSnapshot({ enabled = true }: { enabled?: boolean }) {
         <CardDescription>Live service quality, route flow, and stop efficiency.</CardDescription>
       </CardHeader>
       <CardContent className="space-y-4 px-4 pb-4 pt-0">
-        {isLoading ? <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-xs text-muted-foreground">Loading operational snapshot...</div> : null}
+        {isLoading ? <LoadingSkeleton rows={2} label="Loading operational snapshot" /> : null}
         <div className="grid gap-3 sm:grid-cols-2">
           <MiniMetric label="Avg Stop Duration" value={`${analytics?.avgStopTime || '0.0'} min`} />
           <MiniMetric label="Avg Speed" value={`${analytics?.avgSpeed || '0.0'} mph`} />

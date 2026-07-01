@@ -24,35 +24,40 @@ function getImpersonatedCompany(): string | null {
 export function ImpersonationBanner() {
   const company = getImpersonatedCompany();
   const [restoring, setRestoring] = useState(false);
+  const [error, setError] = useState('');
 
   if (!company) return null;
 
   async function restore() {
     setRestoring(true);
     try {
+      setError('');
       await sendWithAuth('/api/superadmin/restore-session', 'POST');
       localStorage.removeItem('nr_impersonating');
       localStorage.removeItem('nr_user');
       window.location.replace('/companies');
     } catch (err) {
-      alert(`Could not restore superadmin session: ${(err as Error).message}`);
+      setError(`Could not restore superadmin session: ${(err as Error).message}`);
       setRestoring(false);
     }
   }
 
   return (
-    <div className="flex items-center justify-between gap-3 bg-violet-600 px-4 py-2 text-sm text-white">
-      <span>
-        <strong>Inspecting:</strong> {company} — you are viewing this tenant as their admin.
-      </span>
-      <button
-        type="button"
-        disabled={restoring}
-        onClick={restore}
-        className="rounded border border-white/40 bg-white/10 px-3 py-1 text-xs font-semibold hover:bg-white/20 disabled:opacity-60 transition-colors"
-      >
-        {restoring ? 'Restoring…' : '← Return to SuperAdmin'}
-      </button>
-    </div>
+    <>
+      {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
+      <div className="flex items-center justify-between gap-3 bg-violet-600 px-4 py-2 text-sm text-white">
+        <span>
+          <strong>Inspecting:</strong> {company} — you are viewing this tenant as their admin.
+        </span>
+        <button
+          type="button"
+          disabled={restoring}
+          onClick={restore}
+          className="rounded border border-white/40 bg-white/10 px-3 py-1 text-xs font-semibold hover:bg-white/20 disabled:opacity-60 transition-colors"
+        >
+          {restoring ? 'Restoring…' : '← Return to SuperAdmin'}
+        </button>
+      </div>
+    </>
   );
 }
