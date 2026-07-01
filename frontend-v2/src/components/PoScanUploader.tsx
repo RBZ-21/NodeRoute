@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type ChangeEvent, type RefObject } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent, type RefObject } from 'react';
 import { Button } from './ui/button';
 
-const ACCEPT = 'image/jpeg,image/png,image/webp';
+const ACCEPTED_IMAGE_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const ACCEPT = Array.from(ACCEPTED_IMAGE_TYPES).join(',');
 
 export type PoScanUploaderProps = {
   /** Called with all staged pages, in order, when the user presses Scan. */
@@ -11,6 +12,14 @@ export type PoScanUploaderProps = {
   /** Max pages allowed in a single scan. */
   maxPages?: number;
 };
+
+function isAcceptedImageFile(file: File) {
+  return ACCEPTED_IMAGE_TYPES.has(file.type);
+}
+
+function safePreviewSrc(url: string | undefined) {
+  return url?.startsWith('blob:') ? url : undefined;
+}
 
 /**
  * Stages one or more photos of a single multi-page PO / dock invoice, then
@@ -23,19 +32,19 @@ export function PoScanUploader({ onScan, loading, maxPages = 5 }: PoScanUploader
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
 
-  // Object URLs for thumbnails — recomputed whenever the page list changes,
-  // and revoked on change/unmount to avoid leaks.
-  const [previews, setPreviews] = useState<string[]>([]);
+  // Object URLs for thumbnails — recomputed synchronously with `pages` so
+  // indices never desync (a useState+useEffect version briefly served stale
+  // thumbnails at the wrong index after a mid-list removal). Revoked on
+  // change/unmount to avoid leaks.
+  const previews = useMemo(() => pages.map((f) => URL.createObjectURL(f)), [pages]);
   useEffect(() => {
-    const urls = pages.map((f) => URL.createObjectURL(f));
-    setPreviews(urls);
-    return () => urls.forEach((u) => URL.revokeObjectURL(u));
-  }, [pages]);
+    return () => previews.forEach((u) => URL.revokeObjectURL(u));
+  }, [previews]);
 
   const atCap = pages.length >= maxPages;
 
   function addFiles(e: ChangeEvent<HTMLInputElement>, ref: RefObject<HTMLInputElement>) {
-    const selected = Array.from(e.target.files || []);
+    const selected = Array.from(e.target.files || []).filter(isAcceptedImageFile);
     if (ref.current) ref.current.value = ''; // allow re-selecting the same file
     if (!selected.length) return;
     setPages((prev) => [...prev, ...selected].slice(0, maxPages));
@@ -91,29 +100,32 @@ export function PoScanUploader({ onScan, loading, maxPages = 5 }: PoScanUploader
 
       {pages.length > 0 && (
         <div className="flex flex-wrap gap-2">
-          {pages.map((file, index) => (
-            <div
-              key={`${file.name}-${index}`}
-              className="relative h-20 w-20 overflow-hidden rounded-md border bg-muted"
-              title={file.name}
-            >
-              {previews[index] && (
-                <img src={previews[index]} alt={`Page ${index + 1}`} className="h-full w-full object-cover" />
-              )}
-              <span className="absolute bottom-0 left-0 bg-black/60 px-1 text-[10px] text-white">
-                {index + 1}
-              </span>
-              <button
-                type="button"
-                onClick={() => removePage(index)}
-                disabled={loading}
-                aria-label={`Remove page ${index + 1}`}
-                className="absolute right-0 top-0 flex h-5 w-5 items-center justify-center bg-black/60 text-xs text-white hover:bg-destructive disabled:opacity-50"
+          {pages.map((file, index) => {
+            const previewSrc = safePreviewSrc(previews[index]);
+            return (
+              <div
+                key={`${file.name}-${index}`}
+                className="relative h-20 w-20 overflow-hidden rounded-md border bg-muted"
+                title={file.name}
               >
-                ✕
-              </button>
-            </div>
-          ))}
+                {previewSrc && (
+                  <img src={previewSrc} alt={`Page ${index + 1}`} className="h-full w-full object-cover" />
+                )}
+                <span className="absolute bottom-0 left-0 bg-black/60 px-1 text-[10px] text-white">
+                  {index + 1}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => removePage(index)}
+                  disabled={loading}
+                  aria-label={`Remove page ${index + 1}`}
+                  className="absolute right-0 top-0 flex h-5 w-5 items-center justify-center bg-black/60 text-xs text-white hover:bg-destructive disabled:opacity-50"
+                >
+                  ✕
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
     </div>

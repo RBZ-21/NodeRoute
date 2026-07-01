@@ -71,6 +71,19 @@ describe('PoScanUploader', () => {
     expect(onScan).toHaveBeenCalledWith([files[0], files[1]]);
   });
 
+  it('ignores unsupported file types before creating previews', () => {
+    const onScan = vi.fn();
+    const { container } = render(<PoScanUploader onScan={onScan} loading={false} />);
+
+    const input = uploadInputFor(container);
+    const htmlFile = new File(['<script>alert(1)</script>'], 'not-an-image.html', { type: 'text/html' });
+    fireEvent.change(input, { target: { files: [htmlFile] } });
+
+    expect(URL.createObjectURL).not.toHaveBeenCalled();
+    expect(screen.getByRole('button', { name: /Scan 0 pages/ })).toBeDisabled();
+    expect(onScan).not.toHaveBeenCalled();
+  });
+
   it('disables scanning until at least one page is staged', () => {
     const onScan = vi.fn();
     render(<PoScanUploader onScan={onScan} loading={false} />);
