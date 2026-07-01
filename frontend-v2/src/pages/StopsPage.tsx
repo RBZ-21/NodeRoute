@@ -1,8 +1,13 @@
 import { useMemo, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/button';
+import { SelectInput } from '../components/ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { useToast } from '../components/ui/toast';
+import { StatCard } from '../components/ui/stat-card';
 import { Input } from '../components/ui/input';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
+import { TableEmptyState } from '../components/ui/data-state';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { type StopRecord, type StopStatus, useStops, useUpdateStop } from '../hooks/useStops';
@@ -56,13 +61,14 @@ function mapHref(stop: StopRecord): string {
 }
 
 export function StopsPage() {
+  const navigate = useNavigate();
   const [searchParams] = useSearchParams();
   const routeIdParam = searchParams.get('routeId') || '';
 
   const { data: stops = [], isLoading, isError, error, refetch } = useStops(routeIdParam || undefined);
   const updateStop = useUpdateStop();
 
-  const [notice, setNotice] = useState('');
+  const toast = useToast();
   const [statusFilter, setStatusFilter] = useState<'all' | StopStatus>('all');
   const [routeFilter, setRouteFilter] = useState<'all' | string>(routeIdParam || 'all');
   const [dateFilter, setDateFilter] = useState('');
@@ -101,7 +107,7 @@ export function StopsPage() {
 
   function setStopStatus(stop: StopRecord, index: number, nextStatus: 'completed' | 'failed') {
     setStatusOverrides((current) => ({ ...current, [stopKey(stop, index)]: nextStatus }));
-    setNotice(`Stop ${stopNumberLabel(stop, index)} marked ${nextStatus}.`);
+    toast.success(`Stop ${stopNumberLabel(stop, index)} marked ${nextStatus}.`);
   }
 
   function startEditNote(stop: StopRecord, index: number) {
@@ -111,26 +117,25 @@ export function StopsPage() {
 
   function saveNote(stop: StopRecord, index: number) {
     if (!stop.id) {
-      setNotice(`Stop ${stopNumberLabel(stop, index)} notes updated locally.`);
+      toast.success(`Stop ${stopNumberLabel(stop, index)} notes updated locally.`);
       setEditingKey(null);
       return;
     }
     updateStop.mutate(
       { id: stop.id, patch: { driver_notes: noteDraft.driverNotes, door_code: noteDraft.door_code } },
-      { onSuccess: () => { setEditingKey(null); setNotice(`Stop ${stopNumberLabel(stop, index)} notes saved.`); } }
+      { onSuccess: () => { setEditingKey(null); toast.success(`Stop ${stopNumberLabel(stop, index)} notes saved.`); } }
     );
   }
 
   return (
     <div className="space-y-5">
-      {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading stops...</div> : null}
+      {isLoading ? <PageSkeleton /> : null}
       {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load stops')}</div> : null}
-      {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard label="Pending" value={summary.pending.toLocaleString()} />
-        <SummaryCard label="Arrived" value={summary.arrived.toLocaleString()} />
-        <SummaryCard label="Completed" value={summary.completed.toLocaleString()} />
-        <SummaryCard label="Failed" value={summary.failed.toLocaleString()} />
+        <StatCard label="Pending" value={summary.pending.toLocaleString()} />
+        <StatCard label="Arrived" value={summary.arrived.toLocaleString()} />
+        <StatCard label="Completed" value={summary.completed.toLocaleString()} />
+        <StatCard label="Failed" value={summary.failed.toLocaleString()} />
       </div>
 
       <Card>
@@ -142,20 +147,20 @@ export function StopsPage() {
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | StopStatus)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | StopStatus)}>
                 <option value="all">All</option>
                 <option value="pending">Pending</option>
                 <option value="arrived">Arrived</option>
                 <option value="completed">Completed</option>
                 <option value="failed">Failed</option>
-              </select>
+              </SelectInput>
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Route</span>
-              <select value={routeFilter} onChange={(e) => setRouteFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={routeFilter} onChange={(e) => setRouteFilter(e.target.value)}>
                 <option value="all">All Routes</option>
                 {routeOptions.map((route) => <option key={route} value={route}>{route}</option>)}
-              </select>
+              </SelectInput>
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Date</span>
@@ -221,18 +226,18 @@ export function StopsPage() {
                   </TableRow>
                 );
               }) : (
-                <TableRow><TableCell colSpan={8} className="text-muted-foreground">No stops found for the selected filters.</TableCell></TableRow>
+                <TableEmptyState
+                  colSpan={8}
+                  title="No stops found for the selected filters."
+                  description="Add stops from the route workspace or adjust the filters to review current work."
+                  actionLabel="Open Routes"
+                  onAction={() => navigate('/routes')}
+                />
               )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className="text-2xl">{value}</CardTitle></CardHeader></Card>
   );
 }

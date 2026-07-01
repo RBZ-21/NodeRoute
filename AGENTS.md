@@ -52,3 +52,9 @@ missing, recreate it for offline demo development with these key settings:
 - Lint: `npm --prefix frontend-v2 run lint` (ESLint; currently warnings only).
 - Tests: `npm test` runs backend (`node --test`) + `frontend-v2` Vitest.
 - The `ios-driver-app/` (SwiftUI) requires macOS + Xcode and is out of scope on Linux.
+
+### Local reports
+- Do not commit generated reports, scans, Playwright reports, audit exports, or
+  similar output artifacts to the repo.
+- Save all report artifacts locally under `Reports/` at the repo root
+  (`/Users/ryan/NodeRoute Systems/Reports`). The folder is gitignored.

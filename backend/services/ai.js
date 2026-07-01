@@ -114,7 +114,8 @@ Rules:
 8. For each line item, classify whether it looks weighted merchandise, count-based merchandise, or unknown.
 9. Extract a lot number when one is visibly tied to the item. If no lot number is visible, return null and confidence "none".
 10. Extract visible vendor contact details from the invoice header when present. Use null for missing vendor details.
-11. Only return an empty items array when there are truly no visible product or charge rows.`;
+11. Only return an empty items array when there are truly no visible product or charge rows.
+12. When several images are provided, they are sequential pages of one document. Merge all line items across the pages into a single result, read the vendor, PO number, date, and total once, and do not double-count header or total rows that repeat across pages.`;
 
 const FORECAST_SCHEMA = {
   name: 'inventory_demand_forecast',
@@ -1258,8 +1259,30 @@ function normalizePOScan(result) {
   };
 }
 
-async function parsePurchaseOrderImage(base64Image, mimeType = 'image/jpeg') {
-  const normalizedMimeType = mimeType === 'application/pdf' ? 'application/pdf' : mimeType;
+/**
+ * Normalize the various accepted call shapes into an ordered array of
+ * `{ base64, mimeType }` page descriptors.
+ *
+ * Accepts:
+ *   - parsePurchaseOrderImage(base64String, mimeType)        // legacy single
+ *   - parsePurchaseOrderImage({ base64, mimeType })          // single object
+ *   - parsePurchaseOrderImage([{ base64, mimeType }, ...])   // multi-page
+ */
+function normalizePoScanPages(input, fallbackMimeType = 'image/jpeg') {
+  const toPage = (page) => {
+    const base64 = typeof page === 'string' ? page : page && page.base64;
+    if (!base64) return null;
+    const rawMime = (page && typeof page === 'object' && page.mimeType) || fallbackMimeType;
+    const mimeType = rawMime === 'application/pdf' ? 'application/pdf' : rawMime;
+    return { base64, mimeType };
+  };
+  const list = Array.isArray(input) ? input : [input];
+  return list.map(toPage).filter(Boolean);
+}
+
+async function parsePurchaseOrderImage(images, mimeType = 'image/jpeg') {
+  const pages = normalizePoScanPages(images, mimeType);
+  if (pages.length === 0) throw new Error('PO scan requires at least one image');
   try {
     const client = getClient();
     const response = await client.chat.completions.create({
@@ -1277,7 +1300,10 @@ async function parsePurchaseOrderImage(base64Image, mimeType = 'image/jpeg') {
         role: 'user',
         content: [
           { type: 'text', text: PO_SCAN_PROMPT },
-          { type: 'image_url', image_url: { url: `data:${normalizedMimeType};base64,${base64Image}`, detail: 'high' } },
+          ...pages.map((page) => ({
+            type: 'image_url',
+            image_url: { url: `data:${page.mimeType};base64,${page.base64}`, detail: 'high' },
+          })),
         ],
       }],
     });

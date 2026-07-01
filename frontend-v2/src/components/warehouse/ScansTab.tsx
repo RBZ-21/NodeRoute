@@ -1,7 +1,9 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Badge, type BadgeVariant } from '../ui/badge';
 import { Button } from '../ui/button';
+import { SelectInput } from '../ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
+import { TableEmptyState } from '../ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
 import { fetchWithAuth, sendWithAuth } from '../../lib/api';
 import { ACTION_COLORS } from './WarehouseTypes';
@@ -79,9 +81,9 @@ export function ScansTab({ onNotice, onError }: { onNotice: (m: string) => void;
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Action *</label>
-                <select required className="w-full rounded border border-input bg-background px-2 py-1.5 text-sm" value={form.action} onChange={(e) => setForm({ ...form, action: e.target.value })}>
+                <SelectInput required className="h-auto w-full rounded px-2 py-1.5" value={form.action} onChange={(e) => setForm({ ...form, action: e.target.value })}>
                   {['scan', 'receive', 'pick', 'adjust', 'transfer'].map((a) => <option key={a} value={a}>{a}</option>)}
-                </select>
+                </SelectInput>
               </div>
               <div className="space-y-1">
                 <label className="text-xs font-medium text-muted-foreground">Quantity</label>
@@ -118,10 +120,10 @@ export function ScansTab({ onNotice, onError }: { onNotice: (m: string) => void;
             <CardDescription>Receive, pick, adjust, scan, and transfer events.</CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
-            <select value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} aria-label="Filter by action" className="rounded border border-input bg-background px-2 py-1.5 text-sm">
+            <SelectInput value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} aria-label="Filter by action" className="h-auto rounded px-2 py-1.5">
               <option value="">All Actions</option>
               {['scan', 'receive', 'pick', 'adjust', 'transfer'].map((a) => <option key={a} value={a}>{a}</option>)}
-            </select>
+            </SelectInput>
             <input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} aria-label="Filter by date" className="rounded border border-input bg-background px-2 py-1.5 text-sm" />
             <Button variant="outline" size="sm" onClick={exportCsv}>Export CSV</Button>
             <Button variant="outline" size="sm" onClick={load} disabled={loading}>{loading ? 'Loading...' : 'Refresh'}</Button>
@@ -153,7 +155,13 @@ export function ScansTab({ onNotice, onError }: { onNotice: (m: string) => void;
                   <TableCell className="text-xs text-muted-foreground max-w-[180px] truncate">{s.notes || '-'}</TableCell>
                 </TableRow>
               )) : (
-                <TableRow><TableCell colSpan={6} className="text-muted-foreground">No scan events found.</TableCell></TableRow>
+                <TableEmptyState
+                  colSpan={6}
+                  title="No scan events found."
+                  description="Log a scan event or refresh after warehouse activity is posted."
+                  actionLabel="+ Log Event"
+                  onAction={() => setShowForm(true)}
+                />
               )}
             </TableBody>
           </Table>

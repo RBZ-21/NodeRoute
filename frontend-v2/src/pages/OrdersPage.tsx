@@ -2,7 +2,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { StatCard } from '../components/ui/stat-card';
+import { useToast } from '../components/ui/toast';
 import { Button } from '../components/ui/button';
+import { SelectInput } from '../components/ui/select-input';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
 import { getUserRole, sendWithAuth } from '../lib/api';
 import { useOrderForm } from '../hooks/useOrderForm';
 import {
@@ -17,7 +21,7 @@ import {
   useSendOrderMutation,
   useSubmitOrderMutation,
 } from '../hooks/useOrders';
-import { SlideOver } from '../components/ui/overlay-panel';
+import { SlideOver, Modal } from '../components/ui/overlay-panel';
 import { RecurringOrdersTab } from './RecurringOrdersTab';
 import { OrderCsvImport } from './OrderCsvImport';
 import { OrderWeightsBoard } from './OrderWeightsBoard';
@@ -34,9 +38,8 @@ import {
   orderHasCapturedWeights,
   orderHasPendingWeights,
   orderItemQty,
-  productSelectionKey,
 } from './orders.types';
-import type { Order, OrderStatus } from './orders.types';
+import type { Order, OrderLineDraft, OrderStatus } from './orders.types';
 import { usePricingAnomalies } from '../hooks/useAI';
 
 function escapeHtml(value: unknown): string {
@@ -132,8 +135,7 @@ export function OrdersPage() {
 
   const form = useOrderForm({ products, lotsCache });
 
-  const [notice, setNotice]   = useState('');
-  const [error, setError]     = useState('');
+  const toast = useToast();
   const [ordersTab, setOrdersTab] = useState<'orders' | 'recurring'>('orders');
   const [importOpen, setImportOpen] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
@@ -227,36 +229,37 @@ export function OrdersPage() {
         };
       });
 
-      function applyLine(idx: number, line: ParsedLine) {
+      function lineDraftFromParsedLine(line: ParsedLine): OrderLineDraft {
         const matched = products.find((product) =>
           normalizeText(product.item_number) === normalizeText(line.itemNumber)
           || product.description?.toLowerCase() === line.description.toLowerCase()
         );
-        if (matched) {
-          form.updateLine(idx, 'productId', productSelectionKey(matched));
-        } else if (line.itemNumber) {
-          form.updateLine(idx, 'itemNumber', line.itemNumber);
-        }
-        form.updateLine(idx, 'quantity', line.quantity);
         const safeUnit = line.unit === 'lb' || line.unit === 'each' ? line.unit : 'each';
-        form.updateLine(idx, 'unit', safeUnit);
-        if (line.unitPrice) form.updateLine(idx, 'unitPrice', line.unitPrice);
-        if (line.notes) form.updateLine(idx, 'notes', line.notes);
+        const isCatchWeight = !!matched?.is_catch_weight;
+        const unit = isCatchWeight ? 'lb' : safeUnit;
+        return {
+          productId: normalizeText(matched?.id),
+          itemNumber: normalizeText(matched?.item_number || line.itemNumber),
+          name: normalizeText(matched?.description || line.description),
+          unit,
+          quantity: isCatchWeight ? '' : line.quantity,
+          requestedWeight: !isCatchWeight && unit === 'lb' ? line.quantity : '',
+          unitPrice: isCatchWeight ? '' : line.unitPrice,
+          notes: line.notes,
+          lotId: '',
+          isCatchWeight,
+          estimatedWeight: isCatchWeight ? line.quantity : '',
+          pricePerLb: isCatchWeight ? line.unitPrice : '',
+        };
       }
 
       if (matchedLines.length) {
-        applyLine(0, matchedLines[0]);
-        for (let i = 1; i < matchedLines.length; i++) {
-          form.addLine();
-        }
-        setTimeout(() => {
-          for (let i = 1; i < matchedLines.length; i++) applyLine(i, matchedLines[i]);
-        }, 50);
+        form.applyLines(matchedLines.map(lineDraftFromParsedLine));
       }
       setIntakeOpen(false);
       setIntakeText('');
       setFormOpen(true);
-      setNotice(`Parsed ${matchedLines.length} item(s) from message.${result.warnings?.length ? ' Warnings: ' + result.warnings.join('; ') : ''}`);
+      toast.success(`Parsed ${matchedLines.length} item(s) from message.${result.warnings?.length ? ' Warnings: ' + result.warnings.join('; ') : ''}`);
     } catch (err) {
       setIntakeError(String((err as Error).message || 'Parse failed'));
     } finally {
@@ -280,7 +283,7 @@ export function OrdersPage() {
     form.populate(order);
     setFormErrors({});
     setFormOpen(true);
-    setNotice(`Editing ${order.order_number || order.id.slice(0, 8)}`);
+    toast.success(`Editing ${order.order_number || order.id.slice(0, 8)}`);
   }, [form]);
 
   // One-shot deep link (?orderId=&action=). Call the latest handleEditOrder via
@@ -295,7 +298,7 @@ export function OrdersPage() {
     const requestedAction = String(searchParams.get('action') || '').trim().toLowerCase();
     if (requestedAction === 'weights' && orderIdParam) {
       setWeightCaptureOrder(order);
-      setNotice(`Opened weights for ${order.order_number || order.id.slice(0, 8)}.`);
+      toast.success(`Opened weights for ${order.order_number || order.id.slice(0, 8)}.`);
     } else {
       handleEditOrderRef.current(order);
     }
@@ -325,11 +328,11 @@ export function OrdersPage() {
     if (!payload.items.length) nextErrors.items = 'Add at least one order item with quantity greater than 0.';
     if (Object.keys(nextErrors).length) {
       setFormErrors(nextErrors);
-      setError('Fix the highlighted fields before saving.');
+      toast.error('Fix the highlighted fields before saving.');
       return;
     }
 
-    setSubmitting(true); setError(''); setNotice(''); setFormErrors({});
+    setSubmitting(true); setFormErrors({});
     try {
       const order = await submitOrderMutation.mutateAsync({ editingOrderId: form.editingOrderId, payload });
       let printableOrder = order;
@@ -343,14 +346,14 @@ export function OrdersPage() {
         printableOrder = { ...order, ...sentOrder, items: sentOrder.items || order.items };
         printOrderSlip(printableOrder, printPopup);
       }
-      setNotice(
+      toast.success(
         form.editingOrderId
           ? sendToProcessing ? 'Order updated and sent to processing.' : 'Order updated.'
           : sendToProcessing ? 'Order created and sent to processing.' : 'Order created.',
       );
       closeOrderForm({ skipConfirm: true });
     } catch (err) {
-      setError(String((err as Error).message || 'Could not save order'));
+      toast.error(String((err as Error).message || 'Could not save order'));
     } finally {
       setSubmitting(false);
     }
@@ -360,9 +363,9 @@ export function OrdersPage() {
     if (!confirm('Delete this order?')) return;
     try {
       await deleteOrderMutation.mutateAsync(id);
-      setNotice('Order deleted.');
+      toast.success('Order deleted.');
     } catch (err) {
-      setError(String((err as Error).message || 'Could not delete order'));
+      toast.error(String((err as Error).message || 'Could not delete order'));
     }
   }
 
@@ -375,10 +378,10 @@ export function OrdersPage() {
         taxRate: asNumber(order.tax_rate) || 0.09,
       });
       printOrderSlip({ ...order, ...sentOrder, items: sentOrder.items || order.items }, printPopup);
-      setNotice(`Order ${order.order_number || order.id.slice(0, 8)} sent to processing.`);
+      toast.success(`Order ${order.order_number || order.id.slice(0, 8)} sent to processing.`);
     } catch (err) {
       printPopup?.close();
-      setError(String((err as Error).message || 'Could not send order to processing'));
+      toast.error(String((err as Error).message || 'Could not send order to processing'));
     }
   }
 
@@ -394,14 +397,14 @@ export function OrdersPage() {
       await queryClient.invalidateQueries({ queryKey: orderKeys.all });
       await queryClient.invalidateQueries({ queryKey: ['invoices'] });
       if (result.emailSent) {
-        setNotice(`Order ${orderLabel} marked as delivered and invoice emailed.`);
+        toast.success(`Order ${orderLabel} marked as delivered and invoice emailed.`);
       } else if (result.emailError) {
-        setNotice(`Order ${orderLabel} marked as delivered. Invoice email skipped: ${result.emailError}`);
+        toast.success(`Order ${orderLabel} marked as delivered. Invoice email skipped: ${result.emailError}`);
       } else {
-        setNotice(`Order ${orderLabel} marked as delivered.`);
+        toast.success(`Order ${orderLabel} marked as delivered.`);
       }
     } catch (err) {
-      setError(String((err as Error).message || 'Could not mark order as delivered'));
+      toast.error(String((err as Error).message || 'Could not mark order as delivered'));
     }
   }
 
@@ -409,15 +412,15 @@ export function OrdersPage() {
     const invoiceId = order.invoice_id || order.invoiceId;
     const orderLabel = order.order_number || order.id.slice(0, 8);
     if (!invoiceId) {
-      setError(`Order ${orderLabel} does not have a linked invoice yet.`);
+      toast.error(`Order ${orderLabel} does not have a linked invoice yet.`);
       return;
     }
     try {
       await sendWithAuth(`/api/invoices/${invoiceId}/resend`, 'POST');
       await queryClient.invalidateQueries({ queryKey: ['invoices'] });
-      setNotice(`Invoice email resent for order ${orderLabel}.`);
+      toast.success(`Invoice email resent for order ${orderLabel}.`);
     } catch (err) {
-      setError(String((err as Error).message || 'Could not resend invoice email'));
+      toast.error(String((err as Error).message || 'Could not resend invoice email'));
     }
   }
 
@@ -425,17 +428,15 @@ export function OrdersPage() {
     if (!orderIds.length) return;
     const statusLabel = nextStatus.replace('_', ' ');
     if (!confirm(`Update ${orderIds.length} selected order(s) to ${statusLabel}?`)) return;
-    setError('');
-    setNotice('');
     try {
       await Promise.all(orderIds.map((orderId) =>
         sendWithAuth<Order>(`/api/orders/${orderId}`, 'PATCH', { status: nextStatus })
       ));
       await queryClient.invalidateQueries({ queryKey: orderKeys.all });
       await queryClient.invalidateQueries({ queryKey: ['invoices'] });
-      setNotice(`Updated ${orderIds.length} order(s) to ${statusLabel}.`);
+      toast.success(`Updated ${orderIds.length} order(s) to ${statusLabel}.`);
     } catch (err) {
-      setError(String((err as Error).message || 'Could not update selected orders'));
+      toast.error(String((err as Error).message || 'Could not update selected orders'));
       throw err;
     }
   }
@@ -446,30 +447,29 @@ export function OrdersPage() {
       const result = await fulfillOrderMutation.mutateAsync({ orderId: order.id, items: order.items });
       const orderLabel = order.order_number || order.id.slice(0, 8);
       if (result.emailSent) {
-        setNotice(`Order ${orderLabel} fulfilled and invoice emailed.`);
+        toast.success(`Order ${orderLabel} fulfilled and invoice emailed.`);
       } else if (result.emailError) {
-        setNotice(`Order ${orderLabel} fulfilled. Invoice email skipped: ${result.emailError}`);
+        toast.success(`Order ${orderLabel} fulfilled. Invoice email skipped: ${result.emailError}`);
       } else {
-        setNotice(`Order ${orderLabel} fulfilled.`);
+        toast.success(`Order ${orderLabel} fulfilled.`);
       }
     } catch (err) {
-      setError(String((err as Error).message || 'Could not fulfill order'));
+      toast.error(String((err as Error).message || 'Could not fulfill order'));
     }
   }
 
   async function saveActualWeight(orderId: string, itemIndex: number) {
     const key = `${orderId}:${itemIndex}`;
     const val = parseFloat(weightInputs[key] ?? '');
-    if (!Number.isFinite(val) || val <= 0) { setError('Actual weight must be a positive number.'); return; }
+    if (!Number.isFinite(val) || val <= 0) { toast.error('Actual weight must be a positive number.'); return; }
     setSavingWeight((s) => ({ ...s, [key]: true }));
-    setError('');
     try {
       const updated = await saveWeightMutation.mutateAsync({ orderId, itemIndex, actualWeight: val });
       if (weightCaptureOrder?.id === orderId) setWeightCaptureOrder(updated);
       setWeightInputs((wi) => { const next = { ...wi }; delete next[key]; return next; });
-      setNotice('Actual weight saved. Order total recalculated.');
+      toast.success('Actual weight saved. Order total recalculated.');
     } catch (err) {
-      setError(String((err as Error).message || 'Could not save actual weight'));
+      toast.error(String((err as Error).message || 'Could not save actual weight'));
     } finally {
       setSavingWeight((s) => { const next = { ...s }; delete next[key]; return next; });
     }
@@ -478,6 +478,11 @@ export function OrdersPage() {
   function handleToggleWeightCapture(order: Order) {
     setWeightCaptureOrder((prev) => (prev?.id === order.id ? null : order));
     setWeightInputs({});
+  }
+
+  function openNewOrder() {
+    setFormErrors({});
+    setFormOpen(true);
   }
 
   const openOrders = orders.filter((order) => {
@@ -494,13 +499,25 @@ export function OrdersPage() {
   const fetchError = ordersQuery.error
     ? String((ordersQuery.error as Error)?.message || 'Could not load orders')
     : '';
-  const displayError = error || fetchError;
+  const retryingOrders = Boolean(fetchError && ordersQuery.isFetching);
 
   return (
     <div className="space-y-5">
-      {ordersQuery.isPending ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading orders...</div> : null}
-      {displayError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{displayError}</div> : null}
-      {notice  ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
+      {ordersQuery.isPending ? <PageSkeleton /> : null}
+      {fetchError ? (
+        <div className="flex flex-col gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between">
+          <span>{fetchError}</span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="self-start border-destructive/30 text-destructive hover:bg-destructive/10 sm:self-auto"
+            onClick={() => void ordersQuery.refetch()}
+            disabled={retryingOrders}
+          >
+            {retryingOrders ? 'Retrying...' : 'Retry'}
+          </Button>
+        </div>
+      ) : null}
       {customerIdParam ? (
         <div className="rounded-md border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700">
           Filtered by customer from Customers page: <strong>{customerIdParam}</strong>
@@ -528,12 +545,12 @@ export function OrdersPage() {
       <>
       <div className="flex flex-wrap items-end gap-3">
         <div className="grid flex-1 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          <SummaryCard title="Orders"               value={orders.length.toLocaleString()} />
-          <SummaryCard title="Pending"              value={summary.pending.toLocaleString()} />
-          <SummaryCard title="In Process"           value={summary.inProcess.toLocaleString()} />
-          <SummaryCard title="Total Pipeline Value" value={asMoney(summary.totalValue)} />
+          <StatCard label="Orders"               value={orders.length.toLocaleString()} />
+          <StatCard label="Pending"              value={summary.pending.toLocaleString()} />
+          <StatCard label="In Process"           value={summary.inProcess.toLocaleString()} />
+          <StatCard label="Total Pipeline Value" value={asMoney(summary.totalValue)} />
         </div>
-        <Button onClick={() => { setFormErrors({}); setFormOpen(true); }} className="shrink-0">
+        <Button onClick={openNewOrder} className="shrink-0">
           + New Order
         </Button>
         <Button variant="outline" onClick={() => setImportOpen(true)} className="shrink-0">
@@ -572,32 +589,32 @@ export function OrdersPage() {
             ✦ Parse Customer Message → Order
           </button>
           {intakeOpen && (
-            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-              <div className="w-full max-w-lg rounded-xl border border-border bg-background shadow-xl">
-                <div className="border-b border-border px-5 py-4">
-                  <h2 className="font-semibold">Parse Customer Message</h2>
-                  <p className="mt-0.5 text-xs text-muted-foreground">Paste a customer email, text, or fax. AI will extract line items and pre-fill the order form.</p>
-                </div>
-                <div className="p-5 space-y-3">
-                  {intakeError && <div className="rounded border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive">{intakeError}</div>}
-                  <textarea
-                    className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-                    rows={7}
-                    placeholder={"e.g. Hi, can I get 10 lbs of salmon, 2 cases of shrimp, and 5 lbs of tuna? – Joe's Seafood"}
-                    aria-label="Customer message to parse into an order"
-                    value={intakeText}
-                    onChange={(e) => setIntakeText(e.target.value)}
-                    disabled={intakeParsing}
-                  />
-                </div>
-                <div className="flex justify-end gap-2 border-t border-border px-5 py-3">
-                  <button onClick={() => { setIntakeOpen(false); setIntakeText(''); setIntakeError(''); }} className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted" disabled={intakeParsing}>Cancel</button>
-                  <button onClick={() => void runOrderIntake()} disabled={intakeParsing || !intakeText.trim()} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
-                    {intakeParsing ? 'Parsing...' : 'Parse & Fill'}
-                  </button>
-                </div>
+            <Modal
+              open
+              title="Parse Customer Message"
+              description="Paste a customer email, text, or fax. AI will extract line items and pre-fill the order form."
+              onClose={() => { setIntakeOpen(false); setIntakeText(''); setIntakeError(''); }}
+              widthClassName="max-w-lg"
+            >
+              <div className="space-y-3">
+                {intakeError && <div className="rounded border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive">{intakeError}</div>}
+                <textarea
+                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
+                  rows={7}
+                  placeholder={"e.g. Hi, can I get 10 lbs of salmon, 2 cases of shrimp, and 5 lbs of tuna? – Joe's Seafood"}
+                  aria-label="Customer message to parse into an order"
+                  value={intakeText}
+                  onChange={(e) => setIntakeText(e.target.value)}
+                  disabled={intakeParsing}
+                />
               </div>
-            </div>
+              <div className="mt-4 flex justify-end gap-2 border-t border-border pt-3">
+                <button onClick={() => { setIntakeOpen(false); setIntakeText(''); setIntakeError(''); }} className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted" disabled={intakeParsing}>Cancel</button>
+                <button onClick={() => void runOrderIntake()} disabled={intakeParsing || !intakeText.trim()} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
+                  {intakeParsing ? 'Parsing...' : 'Parse & Fill'}
+                </button>
+              </div>
+            </Modal>
           )}
         </div>
       )}
@@ -662,6 +679,7 @@ export function OrdersPage() {
         onToggleWeightCapture={handleToggleWeightCapture}
         onDelete={deleteOrder}
         onBulkStatusChange={bulkUpdateOrderStatus}
+        onCreateOrder={openNewOrder}
       />
 
       {weightBoardFilter ? (
@@ -699,17 +717,17 @@ export function OrdersPage() {
             <div className="flex flex-wrap items-center gap-2">
               <label className="flex items-center gap-2 text-sm text-muted-foreground">
                 Lookback
-                <select
+                <SelectInput
                   value={anomalyDays}
                   onChange={(e) => setAnomalyDays(Number(e.target.value))}
-                  className="h-8 rounded-md border border-input bg-background px-2 text-sm"
+                  className="h-8 px-2"
                 >
                   <option value={7}>7 days</option>
                   <option value={14}>14 days</option>
                   <option value={30}>30 days</option>
                   <option value={60}>60 days</option>
                   <option value={90}>90 days</option>
-                </select>
+                </SelectInput>
               </label>
               <Button
                 size="sm"
@@ -781,19 +799,8 @@ export function OrdersPage() {
       <OrderCsvImport
         open={importOpen}
         onClose={() => setImportOpen(false)}
-        onImported={(count) => { setNotice(`Imported ${count} order(s) from CSV.`); void queryClient.invalidateQueries({ queryKey: orderKeys.all }); }}
+        onImported={(count) => { toast.success(`Imported ${count} order(s) from CSV.`); void queryClient.invalidateQueries({ queryKey: orderKeys.all }); }}
       />
     </div>
-  );
-}
-
-function SummaryCard({ title, value }: { title: string; value: string }) {
-  return (
-    <Card>
-      <CardHeader className="space-y-1">
-        <CardDescription>{title}</CardDescription>
-        <CardTitle className="text-2xl">{value}</CardTitle>
-      </CardHeader>
-    </Card>
   );
 }

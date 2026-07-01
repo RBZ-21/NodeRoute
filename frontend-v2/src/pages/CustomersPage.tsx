@@ -1,11 +1,19 @@
 // NOTE: This file retains all existing logic. The only addition is an
 // "Invoices" tab inside the customer detail slide-over panel.
 // The tab fetches /api/invoices?customer_id=<id> and renders a small table.
-import { useId, useMemo, useRef, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import { SelectInput } from '../components/ui/select-input';
+import { PaginationControls } from '../components/ui/pagination';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { StatCard } from '../components/ui/stat-card';
+import { DetailField } from '../components/ui/detail-field';
+import { Modal, SlideOver } from '../components/ui/overlay-panel';
+import { useToast } from '../components/ui/toast';
 import { Input } from '../components/ui/input';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
+import { LoadingSkeleton } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
 import {
@@ -16,6 +24,7 @@ import {
   useDeleteCustomerMutation,
   useSaveCustomerMutation,
 } from '../hooks/useCustomers';
+import { usePagination } from '../hooks/usePagination';
 
 type DetailTab = 'info' | 'delivery' | 'billing' | 'invoices';
 
@@ -35,8 +44,7 @@ export function CustomersPage() {
 
   const customers = useMemo(() => customersQuery.data ?? [], [customersQuery.data]);
 
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const toast = useToast();
   const [search, setSearch] = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | string>('all');
   const [showCreateForm, setShowCreateForm] = useState(false);
@@ -68,6 +76,7 @@ export function CustomersPage() {
   type RiskResult = { risk_level: string; risk_score: number; risk_factors: string[]; recommended_action: string; summary: string };
   const [riskScores, setRiskScores] = useState<Record<string, RiskResult>>({});
   const [riskLoading, setRiskLoading] = useState<Record<string, boolean>>({});
+  const [pageSize, setPageSize] = useState(25);
 
   async function scoreRisk(customerId: string) {
     setRiskLoading((r) => ({ ...r, [customerId]: true }));
@@ -75,13 +84,12 @@ export function CustomersPage() {
       const result = await sendWithAuth<RiskResult & { customer_id: string }>('/api/ai/customer-risk', 'POST', { customer_id: customerId });
       setRiskScores((prev) => ({ ...prev, [customerId]: result }));
     } catch (err) {
-      setError(String((err as Error).message || 'Risk scoring failed'));
+      toast.error(String((err as Error).message || 'Risk scoring failed'));
     } finally {
       setRiskLoading((r) => ({ ...r, [customerId]: false }));
     }
   }
 
-  const panelRef = useRef<HTMLDivElement>(null);
   const deliveryAddressId = useId();
   const billingAddressId = useId();
 
@@ -99,7 +107,7 @@ export function CustomersPage() {
       );
       if (result?.address) {
         setDraft((d) => ({ ...d, [targetField]: result.address }));
-        setNotice(`Address found: ${result.address}`);
+        toast.success(`Address found: ${result.address}`);
       } else {
         setAddressLookupError(`No address found for "${name}". Try editing the company name and searching again.`);
       }
@@ -112,15 +120,13 @@ export function CustomersPage() {
 
   async function saveCustomer() {
     if (!selected?.id) return;
-    setSaving(true);
-    setError('');
-    try {
+    setSaving(true);    try {
       const updated = await saveCustomerMutation.mutateAsync({ id: selected.id, draft });
       setSelected({ ...selected, ...updated });
       setEditing(false);
-      setNotice(`${draft.company_name || 'Customer'} saved.`);
+      toast.success(`${draft.company_name || 'Customer'} saved.`);
     } catch (err) {
-      setError(String((err as Error).message || 'Save failed'));
+      toast.error(String((err as Error).message || 'Save failed'));
     } finally {
       setSaving(false);
     }
@@ -135,10 +141,10 @@ export function CustomersPage() {
         setEditing(false);
         setConfirmDelete(false);
         setDraft({});
-        setNotice(`${customerName} deleted.`);
+        toast.success(`${customerName} deleted.`);
       },
       onError: (err) => {
-        setError(String((err as Error).message || 'Could not delete customer.'));
+        toast.error(String((err as Error).message || 'Could not delete customer.'));
       },
     });
   }
@@ -165,13 +171,11 @@ export function CustomersPage() {
   async function createCustomer() {
     const companyName = String(newCustomer.company_name || '').trim();
     if (!companyName) {
-      setError('Company name is required to create a customer.');
+      toast.error('Company name is required to create a customer.');
       return;
     }
 
-    setCreatingCustomer(true);
-    setError('');
-    try {
+    setCreatingCustomer(true);    try {
       await sendWithAuth('/api/customers', 'POST', {
         company_name: companyName,
         contact_name: newCustomer.contact_name?.trim() || null,
@@ -182,10 +186,10 @@ export function CustomersPage() {
         status: newCustomer.status || 'active',
       });
       await customersQuery.refetch();
-      setNotice(`Customer ${companyName} added.`);
+      toast.success(`Customer ${companyName} added.`);
       resetCreateForm();
     } catch (err) {
-      setError(String((err as Error).message || 'Could not create customer.'));
+      toast.error(String((err as Error).message || 'Could not create customer.'));
     } finally {
       setCreatingCustomer(false);
     }
@@ -193,32 +197,28 @@ export function CustomersPage() {
 
   async function placeCreditHold() {
     if (!holdTarget?.id) return;
-    setHoldSaving(true);
-    setError('');
-    try {
+    setHoldSaving(true);    try {
       await sendWithAuth(`/api/customers/${holdTarget.id}/hold`, 'POST', {
         reason: holdReason.trim() || null,
       });
       await customersQuery.refetch();
-      setNotice(`Credit hold placed on ${holdTarget.company_name || 'customer'}.`);
+      toast.success(`Credit hold placed on ${holdTarget.company_name || 'customer'}.`);
       setHoldTarget(null);
       setHoldReason('');
     } catch (err) {
-      setError(String((err as Error).message || 'Could not place credit hold.'));
+      toast.error(String((err as Error).message || 'Could not place credit hold.'));
     } finally {
       setHoldSaving(false);
     }
   }
 
   async function liftCreditHold(customer: Customer) {
-    if (!customer.id) return;
-    setError('');
-    try {
+    if (!customer.id) return;    try {
       await sendWithAuth(`/api/customers/${customer.id}/hold`, 'DELETE');
       await customersQuery.refetch();
-      setNotice(`Credit hold lifted for ${customer.company_name || 'customer'}.`);
+      toast.success(`Credit hold lifted for ${customer.company_name || 'customer'}.`);
     } catch (err) {
-      setError(String((err as Error).message || 'Could not lift credit hold.'));
+      toast.error(String((err as Error).message || 'Could not lift credit hold.'));
     }
   }
 
@@ -236,6 +236,7 @@ export function CustomersPage() {
       );
     });
   }, [customers, search, statusFilter]);
+  const pagination = usePagination(filtered, pageSize);
 
   const summary = useMemo(() => ({
     total: customers.length,
@@ -247,19 +248,17 @@ export function CustomersPage() {
   const fetchError = customersQuery.error
     ? String((customersQuery.error as Error)?.message || 'Could not load customers')
     : '';
-  const displayError = error || fetchError;
 
   return (
     <div className="space-y-5">
-      {customersQuery.isPending ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading customers...</div> : null}
-      {displayError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{displayError}</div> : null}
-      {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
+      {customersQuery.isPending ? <PageSkeleton /> : null}
+      {fetchError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{fetchError}</div> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard label="Total" value={summary.total.toLocaleString()} />
-        <SummaryCard label="Active" value={summary.active.toLocaleString()} />
-        <SummaryCard label="Credit Hold" value={summary.hold.toLocaleString()} />
-        <SummaryCard label="Inactive" value={summary.inactive.toLocaleString()} />
+        <StatCard label="Total" value={summary.total.toLocaleString()} />
+        <StatCard label="Active" value={summary.active.toLocaleString()} />
+        <StatCard label="Credit Hold" value={summary.hold.toLocaleString()} />
+        <StatCard label="Inactive" value={summary.inactive.toLocaleString()} />
       </div>
 
       <Card>
@@ -275,12 +274,12 @@ export function CustomersPage() {
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)}>
                 <option value="all">All</option>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
                 <option value="credit-hold">Credit Hold</option>
-              </select>
+              </SelectInput>
             </label>
             <Button variant="outline" onClick={() => setShowCreateForm((current) => !current)}>
               {showCreateForm ? 'Close' : 'Add Customer'}
@@ -359,7 +358,7 @@ export function CustomersPage() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {filtered.length ? filtered.map((c) => (
+              {filtered.length ? pagination.pageItems.map((c) => (
                 <TableRow key={String(c.id || c.customer_number)}>
                   <TableCell className="font-medium">{c.customer_number || '-'}</TableCell>
                   <TableCell>{c.company_name || '-'}</TableCell>
@@ -418,98 +417,109 @@ export function CustomersPage() {
                   </TableCell>
                 </TableRow>
               )) : (
-                <TableRow><TableCell colSpan={8} className="text-muted-foreground">No customers found.</TableCell></TableRow>
+                <TableRow>
+                  <TableCell colSpan={8}>
+                    <div className="space-y-2 py-6 text-center">
+                      <div className="font-medium text-foreground">No customers found.</div>
+                      <div className="text-sm text-muted-foreground">Create a customer profile to start adding delivery, billing, and credit details.</div>
+                      <Button size="sm" onClick={() => setShowCreateForm(true)}>+ Add Customer</Button>
+                    </div>
+                  </TableCell>
+                </TableRow>
               )}
             </TableBody>
           </Table>
+          {filtered.length ? (
+            <PaginationControls
+              page={pagination.page}
+              pageCount={pagination.pageCount}
+              setPage={pagination.setPage}
+              itemCount={pagination.itemCount}
+              pageSize={pagination.pageSize}
+              onPageSizeChange={setPageSize}
+            />
+          ) : null}
         </CardContent>
       </Card>
 
       {/* ── Detail Slide-Over ── */}
       {holdTarget ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-          <div className="absolute inset-0 bg-black/30" onClick={() => !holdSaving && setHoldTarget(null)} />
-          <div role="dialog" aria-modal="true" aria-labelledby="customer-hold-title" className="relative z-10 w-full max-w-md rounded-xl bg-background p-6 shadow-xl">
-            <div className="space-y-1">
-              <h2 id="customer-hold-title" className="text-lg font-semibold">Place Credit Hold</h2>
-              <p className="text-sm text-muted-foreground">
-                Prevent new deliveries for {holdTarget.company_name || 'this customer'} until the hold is lifted.
-              </p>
-            </div>
-            <div className="mt-4 space-y-2">
-              <label className="space-y-1 text-sm">
-                <span className="font-medium text-foreground">Reason</span>
-                <Input
-                  placeholder="Overdue balance"
-                  value={holdReason}
-                  onChange={(e) => setHoldReason(e.target.value)}
-                  disabled={holdSaving}
-                />
-              </label>
-            </div>
-            <div className="mt-5 flex justify-end gap-2">
-              <Button variant="outline" onClick={() => setHoldTarget(null)} disabled={holdSaving}>
-                Cancel
-              </Button>
-              <Button onClick={() => void placeCreditHold()} disabled={holdSaving}>
-                {holdSaving ? 'Placing Hold...' : 'Place Hold'}
-              </Button>
-            </div>
+        <Modal
+          open
+          title="Place Credit Hold"
+          description={`Prevent new deliveries for ${holdTarget.company_name || 'this customer'} until the hold is lifted.`}
+          onClose={() => { if (!holdSaving) setHoldTarget(null); }}
+          widthClassName="max-w-md"
+        >
+          <div className="space-y-2">
+            <label className="space-y-1 text-sm">
+              <span className="font-medium text-foreground">Reason</span>
+              <Input
+                placeholder="Overdue balance"
+                value={holdReason}
+                onChange={(e) => setHoldReason(e.target.value)}
+                disabled={holdSaving}
+              />
+            </label>
           </div>
-        </div>
+          <div className="mt-5 flex justify-end gap-2">
+            <Button variant="outline" onClick={() => setHoldTarget(null)} disabled={holdSaving}>
+              Cancel
+            </Button>
+            <Button onClick={() => void placeCreditHold()} disabled={holdSaving}>
+              {holdSaving ? 'Placing Hold...' : 'Place Hold'}
+            </Button>
+          </div>
+        </Modal>
       ) : null}
 
       {selected ? (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <div className="absolute inset-0 bg-black/30" onClick={() => { setSelected(null); setConfirmDelete(false); }} />
-          <div ref={panelRef} className="relative z-10 flex h-full w-full max-w-xl flex-col overflow-y-auto bg-background shadow-xl">
-            <div className="flex items-center justify-between border-b px-6 py-4">
-              <div>
-                <h2 className="text-lg font-semibold">{selected.company_name}</h2>
-                <p className="text-sm text-muted-foreground">{selected.customer_number}</p>
-              </div>
-              <div className="flex gap-2">
-                {!editing && !confirmDelete ? (
-                  <>
-                    <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
-                    <Button size="sm" variant="outline" className="border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => setConfirmDelete(true)}>
-                      Delete
-                    </Button>
-                  </>
-                ) : confirmDelete ? (
-                  <>
-                    <span className="self-center text-sm text-destructive">Delete?</span>
-                    <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)} disabled={deleteCustomerMutation.isPending}>No</Button>
-                    <Button size="sm" disabled={deleteCustomerMutation.isPending} onClick={deleteCustomer}>
-                      {deleteCustomerMutation.isPending ? 'Deleting...' : 'Yes'}
-                    </Button>
-                  </>
-                ) : (
-                  <>
-                    <Button size="sm" variant="outline" onClick={() => { setEditing(false); setDraft({ ...selected }); setAddressLookupError(''); }}>Cancel</Button>
-                    <Button size="sm" disabled={saving} onClick={saveCustomer}>{saving ? 'Saving...' : 'Save'}</Button>
-                  </>
-                )}
-                <Button size="sm" variant="ghost" onClick={() => { setSelected(null); setConfirmDelete(false); }} aria-label="Close customer details">✕</Button>
-              </div>
-            </div>
+        <SlideOver
+          open
+          title={selected.company_name ?? ''}
+          description={selected.customer_number ?? ''}
+          onClose={() => { setSelected(null); setConfirmDelete(false); }}
+          widthClassName="max-w-xl"
+          actions={
+            !editing && !confirmDelete ? (
+              <>
+                <Button size="sm" onClick={() => setEditing(true)}>Edit</Button>
+                <Button size="sm" variant="outline" className="border-red-300 text-red-600 hover:bg-red-50 hover:text-red-700" onClick={() => setConfirmDelete(true)}>
+                  Delete
+                </Button>
+              </>
+            ) : confirmDelete ? (
+              <>
+                <span className="self-center text-sm text-destructive">Delete?</span>
+                <Button size="sm" variant="outline" onClick={() => setConfirmDelete(false)} disabled={deleteCustomerMutation.isPending}>No</Button>
+                <Button size="sm" disabled={deleteCustomerMutation.isPending} onClick={deleteCustomer}>
+                  {deleteCustomerMutation.isPending ? 'Deleting...' : 'Yes'}
+                </Button>
+              </>
+            ) : (
+              <>
+                <Button size="sm" variant="outline" onClick={() => { setEditing(false); setDraft({ ...selected }); setAddressLookupError(''); }}>Cancel</Button>
+                <Button size="sm" disabled={saving} onClick={saveCustomer}>{saving ? 'Saving...' : 'Save'}</Button>
+              </>
+            )
+          }
+        >
+          {/* Tabs */}
+          <div className="-mt-1 mb-3 flex gap-1 border-b">
+            {(['info', 'delivery', 'billing', 'invoices'] as DetailTab[]).map((tab) => (
+              <button
+                key={tab}
+                onClick={() => onTabChange(tab)}
+                className={`pb-2 px-3 text-sm capitalize border-b-2 transition-colors ${
+                  detailTab === tab ? 'border-primary font-semibold text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
+                }`}
+              >
+                {tab}
+              </button>
+            ))}
+          </div>
 
-            {/* Tabs */}
-            <div className="flex gap-1 border-b px-6 pt-3">
-              {(['info', 'delivery', 'billing', 'invoices'] as DetailTab[]).map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => onTabChange(tab)}
-                  className={`pb-2 px-3 text-sm capitalize border-b-2 transition-colors ${
-                    detailTab === tab ? 'border-primary font-semibold text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-
-            <div className="flex-1 space-y-4 p-6">
+          <div className="space-y-4">
               {/* Info Tab */}
               {detailTab === 'info' && (
                 <div className="space-y-3">
@@ -639,7 +649,7 @@ export function CustomersPage() {
               {detailTab === 'invoices' && (
                 <div className="space-y-3">
                   {invoicesQuery.isPending ? (
-                    <p className="text-sm text-muted-foreground">Loading invoices...</p>
+                    <LoadingSkeleton rows={3} label="Loading customer invoices" />
                   ) : invoices.length === 0 ? (
                     <p className="text-sm text-muted-foreground">No invoices found for this customer.</p>
                   ) : (
@@ -669,14 +679,15 @@ export function CustomersPage() {
                 </div>
               )}
             </div>
-          </div>
-        </div>
+        </SlideOver>
       ) : null}
     </div>
   );
 }
 
-function Field({ label, value, editing, onChange, multiline, placeholder }: {
+// Customer detail labels use a wider column (w-36) to stay aligned with the
+// panel's non-DetailField rows (Tax Enabled, SMS Notifications).
+function Field(props: {
   label: string;
   value?: string | null;
   editing: boolean;
@@ -684,37 +695,5 @@ function Field({ label, value, editing, onChange, multiline, placeholder }: {
   multiline?: boolean;
   placeholder?: string;
 }) {
-  const inputId = useId();
-  return (
-    <div className="flex items-start gap-3">
-      <label htmlFor={inputId} className="w-36 shrink-0 pt-1 text-sm text-muted-foreground">{label}</label>
-      {editing ? (
-        multiline ? (
-          <textarea
-            id={inputId}
-            className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm"
-            rows={3}
-            value={value || ''}
-            onChange={(e) => onChange(e.target.value)}
-            placeholder={placeholder}
-          />
-        ) : (
-          <Input id={inputId} className="flex-1" value={value || ''} onChange={(e) => onChange(e.target.value)} placeholder={placeholder} />
-        )
-      ) : (
-        <span className="text-sm">{value || '-'}</span>
-      )}
-    </div>
-  );
-}
-
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card>
-      <CardHeader className="space-y-1">
-        <CardDescription>{label}</CardDescription>
-        <CardTitle className="text-2xl">{value}</CardTitle>
-      </CardHeader>
-    </Card>
-  );
+  return <DetailField {...props} labelClassName="w-36" />;
 }

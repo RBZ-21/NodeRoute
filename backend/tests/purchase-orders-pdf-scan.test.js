@@ -143,3 +143,111 @@ test('purchase order scan accepts PDF uploads and preserves application/pdf for 
     fs.rmSync(backupPath, { recursive: true, force: true });
   }
 });
+
+test('purchase order scan accepts multiple image pages for one PO scan', async () => {
+  const previousBackupPath = process.env.NODEROUTE_BACKUP_PATH;
+  const previousForceDemoMode = process.env.NODEROUTE_FORCE_DEMO_MODE;
+  const backupPath = fs.mkdtempSync(path.join(os.tmpdir(), 'noderoute-po-multipage-scan-'));
+  process.env.NODEROUTE_BACKUP_PATH = backupPath;
+  process.env.NODEROUTE_FORCE_DEMO_MODE = 'true';
+
+  clearBackendModuleCache();
+  const aiCalls = [];
+  const workflowCalls = [];
+  const parsedResult = {
+    vendor: 'Dockside Produce',
+    vendor_details: { name: 'Dockside Produce' },
+    po_number: 'MULTI-1001',
+    date: '2026-06-30',
+    total_cost: 64,
+    items: [
+      {
+        description: 'Mango Case',
+        quantity: 4,
+        unit_price: 16,
+        total: 64,
+        unit: 'case',
+        category: 'Produce',
+        item_type: 'count',
+      },
+    ],
+  };
+
+  require.cache[aiServicePath] = {
+    exports: {
+      parsePurchaseOrderImage: async (pages) => {
+        aiCalls.push({ pages });
+        return parsedResult;
+      },
+    },
+  };
+  require.cache[poWorkflowPath] = {
+    exports: {
+      attachLotsToPurchaseOrder: async () => {},
+      findVendorByName: async () => null,
+      linkScanToPurchaseOrder: async () => {},
+      recordPoInvoiceScan: async (payload) => {
+        workflowCalls.push(payload);
+        return { id: 'po-scan-multipage-001' };
+      },
+    },
+  };
+
+  let server;
+  try {
+    const config = require('../lib/config');
+    const { supabase } = require('../services/supabase');
+    await supabase.from('users').insert({
+      id: 'po-multipage-manager',
+      name: 'PO Multipage Manager',
+      email: 'po-multipage-manager@noderoute.test',
+      role: 'manager',
+      status: 'active',
+      company_id: 'company-po-multipage',
+      location_id: 'loc-po-multipage',
+      accessible_company_ids: ['company-po-multipage'],
+      accessible_location_ids: ['loc-po-multipage'],
+    });
+
+    const app = express();
+    app.use(express.json());
+    app.use('/api/purchase-orders', require(routePath));
+    app.use((err, req, res, next) => {
+      res.status(err?.status || 500).json({ error: err?.message || 'Internal server error' });
+    });
+    server = await listen(app);
+
+    const token = jwt.sign({ userId: 'po-multipage-manager' }, config.JWT_SECRET, { expiresIn: '1h' });
+    const form = new FormData();
+    form.append('image', new Blob([Buffer.from('page-one')], { type: 'image/png' }), 'page-1.png');
+    form.append('image', new Blob([Buffer.from('page-two')], { type: 'image/jpeg' }), 'page-2.jpg');
+
+    const response = await fetch(`http://127.0.0.1:${server.address().port}/api/purchase-orders/scan`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: form,
+    });
+    const body = await response.json();
+
+    assert.equal(response.status, 200);
+    assert.equal(aiCalls.length, 1);
+    assert.equal(aiCalls[0].pages.length, 2);
+    assert.equal(aiCalls[0].pages[0].mimeType, 'image/png');
+    assert.equal(aiCalls[0].pages[1].mimeType, 'image/jpeg');
+    assert.equal(workflowCalls.length, 1);
+    assert.equal(workflowCalls[0].fileName, 'page-1.png, page-2.jpg');
+    assert.equal(workflowCalls[0].mimeType, 'image/png');
+    assert.equal(workflowCalls[0].source, 'purchase-orders-scan');
+    assert.equal(body.vendor, 'Dockside Produce');
+    assert.equal(body.po_number, 'MULTI-1001');
+    assert.equal(body.scan_id, 'po-scan-multipage-001');
+  } finally {
+    if (server) await new Promise((resolve) => server.close(resolve));
+    if (previousBackupPath === undefined) delete process.env.NODEROUTE_BACKUP_PATH;
+    else process.env.NODEROUTE_BACKUP_PATH = previousBackupPath;
+    if (previousForceDemoMode === undefined) delete process.env.NODEROUTE_FORCE_DEMO_MODE;
+    else process.env.NODEROUTE_FORCE_DEMO_MODE = previousForceDemoMode;
+    clearBackendModuleCache();
+    fs.rmSync(backupPath, { recursive: true, force: true });
+  }
+});

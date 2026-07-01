@@ -45,6 +45,12 @@ export type DriveTime = {
   cached?: boolean;
 };
 
+export type DriveTimePair = {
+  key: string;
+  from: string | null | undefined;
+  to: string | number | null | undefined;
+};
+
 export type RoutePolylineStop = {
   stop_id: string;
   sequence: number;
@@ -103,6 +109,60 @@ export function useDriveTime(
       fetchWithAuth<DriveTime>(
         `/api/maps/drive-time?from=${encodeURIComponent(from || '')}&to=${encodeURIComponent(toId)}&mode=${encodeURIComponent(mode)}`,
       ),
+    staleTime: 60_000,
+  });
+}
+
+function normalizedDriveTimePair(pair: DriveTimePair, mode: string) {
+  const from = pair.from || '';
+  const to = pair.to == null ? '' : String(pair.to);
+  return {
+    key: pair.key,
+    from,
+    to,
+    requestKey: `${from}\u0000${to}\u0000${mode}`,
+  };
+}
+
+export function useDriveTimes(pairs: DriveTimePair[], mode = 'driving') {
+  const normalizedPairs = pairs.map((pair) => normalizedDriveTimePair(pair, mode));
+  const validPairs = normalizedPairs.filter((pair) => pair.from && pair.to);
+  const lookupKey = normalizedPairs
+    .map((pair) => `${pair.key}:${pair.from}:${pair.to}`)
+    .join('|');
+
+  return useQuery({
+    queryKey: ['drive-times', mode, lookupKey],
+    enabled: validPairs.length > 0,
+    queryFn: async () => {
+      const result: Record<string, DriveTime | null> = Object.fromEntries(
+        normalizedPairs.map((pair) => [pair.key, null]),
+      );
+      const requests = new Map<string, Promise<DriveTime | null>>();
+
+      for (const pair of validPairs) {
+        if (requests.has(pair.requestKey)) continue;
+        requests.set(
+          pair.requestKey,
+          fetchWithAuth<DriveTime>(
+            `/api/maps/drive-time?from=${encodeURIComponent(pair.from)}&to=${encodeURIComponent(pair.to)}&mode=${encodeURIComponent(mode)}`,
+          ).catch(() => null),
+        );
+      }
+
+      const resolved = new Map<string, DriveTime | null>();
+      await Promise.all(
+        [...requests.entries()].map(async ([key, request]) => {
+          resolved.set(key, await request);
+        }),
+      );
+
+      for (const pair of validPairs) {
+        result[pair.key] = resolved.get(pair.requestKey) ?? null;
+      }
+
+      return result;
+    },
     staleTime: 60_000,
   });
 }

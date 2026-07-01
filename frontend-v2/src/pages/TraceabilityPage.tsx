@@ -3,6 +3,7 @@ import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
+import { LoadingSkeleton, TableEmptyState } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { sendWithAuth } from '../lib/api';
 import {
@@ -329,9 +330,7 @@ export function TraceabilityPage() {
             <Button onClick={() => runReport(1)} aria-busy={reportLoading}>
               Run Report
             </Button>
-            {reportLoading ? (
-              <span className="inline-flex items-center text-sm text-muted-foreground">Loading…</span>
-            ) : null}
+            {reportLoading ? <LoadingSkeleton rows={1} label="Loading traceability report" className="w-36 border-0 bg-transparent p-0" /> : null}
             {report && report.rows.length > 0 && (
               <Button variant="outline" onClick={() => exportCsv(report.rows, 'lot-movements.csv')}>
                 Export CSV ({report.rows.length} rows)
@@ -372,7 +371,13 @@ export function TraceabilityPage() {
                         </TableRow>
                       ))
                     ) : (
-                      <TableRow><TableCell colSpan={8} className="text-muted-foreground">No lots match the current filters.</TableCell></TableRow>
+                      <TableEmptyState
+                        colSpan={8}
+                        title="No lots match the current filters."
+                        description="Run the report again with broader filters to review lot movement history."
+                        actionLabel="Run Report"
+                        onAction={() => runReport(1)}
+                      />
                     )}
                   </TableBody>
                 </Table>

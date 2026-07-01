@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { Button } from '../components/ui/button';
+import { SelectInput } from '../components/ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
 import type { InventoryItem } from '../types/inventory.types';
@@ -129,13 +130,13 @@ export function InventoryActionsCard({
           </div>
         )}
         <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Item</span>
-          <select
-            className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+          <SelectInput
+            className="w-full"
             value={selectedItemId}
             onChange={(e) => { setSelectedItemId(e.target.value); clearActionFeedback(); }}
           >
             <option value="">Select item...</option>{items.map((i) => <option key={i.id} value={i.id}>{inventoryActionLabel(i)}</option>)}
-          </select>
+          </SelectInput>
         </label>
         <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Restock Qty</span><Input type="number" min="0" step="0.01" value={restockQty} onChange={(e) => setRestockQty(e.target.value)} placeholder="e.g. 25" /></label>
         <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Adjustment Delta</span><Input type="number" step="0.01" value={adjustDelta} onChange={(e) => setAdjustDelta(e.target.value)} placeholder="e.g. -2.5" /></label>

@@ -1,6 +1,11 @@
 import { useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
+import { SelectInput } from '../components/ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { StatCard } from '../components/ui/stat-card';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
+import { TableEmptyState } from '../components/ui/data-state';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { parseRows, parseSummary, useForecasting } from '../hooks/useForecasting';
@@ -12,6 +17,7 @@ function asMoney(value: number): string {
 }
 
 export function ForecastingPage() {
+  const navigate = useNavigate();
   const { data, isLoading, isError, error, refetch } = useForecasting();
 
   const rows = useMemo(() => (data ? parseRows(data.data) : []), [data]);
@@ -43,14 +49,14 @@ export function ForecastingPage() {
 
   return (
     <div className="space-y-5">
-      {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading forecasting data...</div> : null}
+      {isLoading ? <PageSkeleton /> : null}
       {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load forecast data')}</div> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard label="Projected Revenue (Next 30 Days)" value={asMoney(summary.projectedRevenue30d)} />
-        <SummaryCard label="Projected Orders" value={summary.projectedOrders.toLocaleString()} />
-        <SummaryCard label="Top Forecasted Product" value={summary.topForecastedProduct || '-'} />
-        <SummaryCard label="Inventory Risk Items" value={summary.inventoryRiskItems.toLocaleString()} />
+        <StatCard label="Projected Revenue (Next 30 Days)" value={asMoney(summary.projectedRevenue30d)} />
+        <StatCard label="Projected Orders" value={summary.projectedOrders.toLocaleString()} />
+        <StatCard label="Top Forecasted Product" value={summary.topForecastedProduct || '-'} />
+        <StatCard label="Inventory Risk Items" value={summary.inventoryRiskItems.toLocaleString()} />
       </div>
 
       <Card>
@@ -62,17 +68,17 @@ export function ForecastingPage() {
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Category</span>
-              <select value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
                 <option value="all">All Categories</option>
                 {categoryOptions.map((c) => <option key={c} value={c}>{c}</option>)}
-              </select>
+              </SelectInput>
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Location</span>
-              <select value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={locationFilter} onChange={(e) => setLocationFilter(e.target.value)}>
                 <option value="all">All Locations</option>
                 {locationOptions.map((l) => <option key={l} value={l}>{l}</option>)}
-              </select>
+              </SelectInput>
             </label>
             <Button variant="outline" onClick={() => refetch()}>Refresh</Button>
           </div>
@@ -110,18 +116,18 @@ export function ForecastingPage() {
                   </TableCell>
                 </TableRow>
               )) : (
-                <TableRow><TableCell colSpan={5} className="text-muted-foreground">No forecast rows found for the selected filters.</TableCell></TableRow>
+                <TableEmptyState
+                  colSpan={5}
+                  title="No forecast rows found for the selected filters."
+                  description="Open purchasing to create replenishment work, or adjust the forecast filters."
+                  actionLabel="Open Purchasing"
+                  onAction={() => navigate('/purchasing')}
+                />
               )}
             </TableBody>
           </Table>
         </CardContent>
       </Card>
     </div>
-  );
-}
-
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className="text-2xl">{value}</CardTitle></CardHeader></Card>
   );
 }

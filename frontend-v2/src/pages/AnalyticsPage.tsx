@@ -2,6 +2,8 @@ import { useMemo, useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
+import { TableEmptyState } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { type RollupRow, useAnalyticsRollups } from '../hooks/useAnalytics';
 
@@ -122,7 +124,7 @@ export function AnalyticsPage() {
 
   return (
     <div className="space-y-5">
-      {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading analytics...</div> : null}
+      {isLoading ? <PageSkeleton /> : null}
       {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load analytics')}</div> : null}
 
       <Card>
@@ -187,7 +189,7 @@ export function AnalyticsPage() {
           <CardDescription>Based on current reporting rollups.</CardDescription>
         </CardHeader>
         <CardContent className="rounded-lg border border-border bg-card p-2">
-          <RollupTable rows={rollups?.customer || []} />
+          <RollupTable rows={rollups?.customer || []} onRefresh={() => void refetch()} />
         </CardContent>
       </Card>
 
@@ -195,13 +197,13 @@ export function AnalyticsPage() {
         <Card>
           <CardHeader><CardTitle>Top Routes</CardTitle></CardHeader>
           <CardContent className="rounded-lg border border-border bg-card p-2">
-            <RollupTable rows={rollups?.route || []} compact />
+            <RollupTable rows={rollups?.route || []} compact onRefresh={() => void refetch()} />
           </CardContent>
         </Card>
         <Card>
           <CardHeader><CardTitle>Top Drivers</CardTitle></CardHeader>
           <CardContent className="rounded-lg border border-border bg-card p-2">
-            <RollupTable rows={rollups?.driver || []} compact />
+            <RollupTable rows={rollups?.driver || []} compact onRefresh={() => void refetch()} />
           </CardContent>
         </Card>
       </div>
@@ -232,7 +234,7 @@ function MiniBarChart({ rows }: { rows: { label?: string; value: number }[] }) {
   );
 }
 
-function RollupTable({ rows, compact }: { rows: RollupRow[]; compact?: boolean }) {
+function RollupTable({ rows, compact, onRefresh }: { rows: RollupRow[]; compact?: boolean; onRefresh: () => void }) {
   return (
     <Table>
       <TableHeader>
@@ -256,7 +258,13 @@ function RollupTable({ rows, compact }: { rows: RollupRow[]; compact?: boolean }
             {!compact ? <TableCell>{asNumber(row.order_count).toLocaleString()}</TableCell> : null}
           </TableRow>
         )) : (
-          <TableRow><TableCell className="text-muted-foreground" colSpan={compact ? 5 : 6}>No rollup rows available.</TableCell></TableRow>
+          <TableEmptyState
+            colSpan={compact ? 5 : 6}
+            title="No rollup rows available."
+            description="Refresh analytics after broadening the report window to load rollup rows."
+            actionLabel="Refresh Analytics"
+            onAction={onRefresh}
+          />
         )}
       </TableBody>
     </Table>

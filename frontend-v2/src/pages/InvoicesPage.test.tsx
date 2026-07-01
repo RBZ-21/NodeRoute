@@ -110,6 +110,39 @@ describe('InvoicesPage', () => {
     expect(screen.getByText('Blue Fin', { selector: 'p' })).toBeInTheDocument();
   });
 
+  it('paginates active invoices after filtering', async () => {
+    const manyInvoices = Array.from({ length: 26 }, (_, index) => ({
+      id: `inv-${index + 1}`,
+      invoice_number: `INV-${String(index + 1).padStart(3, '0')}`,
+      customer_name: `Customer ${index + 1}`,
+      customer_id: `cust-${index + 1}`,
+      order_number: `ORD-${String(index + 1).padStart(3, '0')}`,
+      issue_date: todayKey,
+      created_at: `${todayKey}T09:00:00.000Z`,
+      due_date: '2026-06-12',
+      amount: 100 + index,
+      status: 'pending',
+    }));
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url === '/api/ai/late-payment-risk') return { risks: [] };
+      if (url.startsWith('/api/invoices')) return manyInvoices;
+      return [];
+    });
+
+    renderInvoicesPage();
+
+    expect(await screen.findByText('INV-001')).toBeInTheDocument();
+    expect(screen.queryByText('INV-026')).not.toBeInTheDocument();
+    expect(screen.getByText('Page 1 of 2')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Next page' }));
+    expect(await screen.findByText('INV-026')).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('Invoice #, customer, lot #...'), { target: { value: 'INV-026' } });
+    expect(await screen.findByText('Page 1 of 1')).toBeInTheDocument();
+    expect(screen.getByText('INV-026')).toBeInTheDocument();
+  });
+
   it('supports editing and deleting an invoice', async () => {
     sendWithAuthMock
       .mockResolvedValueOnce({})

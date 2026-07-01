@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
-import { Card, CardHeader, CardDescription } from '../components/ui/card';
+import { StatCard } from '../components/ui/stat-card';
+import { useToast } from '../components/ui/toast';
 import { fetchWithAuth } from '../lib/api';
 import { InventoryTab } from '../components/warehouse/InventoryTab';
 import { ScansTab } from '../components/warehouse/ScansTab';
@@ -10,17 +11,6 @@ import { ReturnsTab } from '../components/warehouse/ReturnsTab';
 import type { WarehouseSummary } from '../components/warehouse/WarehouseTypes';
 
 type Tab = 'inventory' | 'scans' | 'locations' | 'returns';
-
-function SummaryCard({ label, value }: { label: string; value: string | number }) {
-  return (
-    <Card>
-      <CardHeader className="space-y-1">
-        <CardDescription>{label}</CardDescription>
-        <p className="text-2xl font-bold">{value}</p>
-      </CardHeader>
-    </Card>
-  );
-}
 
 function ErrorBanner({ msg }: { msg: string }) {
   return <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{msg}</div>;
@@ -35,12 +25,11 @@ export function WarehousePage() {
   const [activeTab, setActiveTab] = useState<Tab>('inventory');
   const [summary, setSummary] = useState<WarehouseSummary | null>(null);
   const [summaryLoading, setSummaryLoading] = useState(true);
+  const toast = useToast();
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
 
   function flash(msg: string) {
-    setNotice(msg);
-    setTimeout(() => setNotice(''), 3500);
+    toast.success(msg);
   }
 
   async function loadSummary() {
@@ -67,15 +56,14 @@ export function WarehousePage() {
   return (
     <div className="space-y-5">
       {error ? <ErrorBanner msg={error} /> : null}
-      {notice ? <NoticeBanner msg={notice} /> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-6">
-        <SummaryCard label="Total SKUs" value={summaryLoading ? '—' : (summary?.inventory?.length ?? 0)} />
-        <SummaryCard label="Pending Inbound" value={summaryLoading ? '—' : (summary?.pendingInbound ?? '—')} />
-        <SummaryCard label="Today's Stops" value={summaryLoading ? '—' : (summary?.todayStops ?? '—')} />
-        <SummaryCard label="Stops Completed" value={summaryLoading ? '—' : (summary?.todayStopsCompleted ?? '—')} />
-        <SummaryCard label="Today's Scans" value={summaryLoading ? '—' : (summary?.todayScans ?? '—')} />
-        <SummaryCard label="Open Returns" value={summaryLoading ? '—' : (summary?.openReturns ?? '—')} />
+        <StatCard label="Total SKUs" value={summaryLoading ? '—' : (summary?.inventory?.length ?? 0)} />
+        <StatCard label="Pending Inbound" value={summaryLoading ? '—' : (summary?.pendingInbound ?? '—')} />
+        <StatCard label="Today's Stops" value={summaryLoading ? '—' : (summary?.todayStops ?? '—')} />
+        <StatCard label="Stops Completed" value={summaryLoading ? '—' : (summary?.todayStopsCompleted ?? '—')} />
+        <StatCard label="Today's Scans" value={summaryLoading ? '—' : (summary?.todayScans ?? '—')} />
+        <StatCard label="Open Returns" value={summaryLoading ? '—' : (summary?.openReturns ?? '—')} />
       </div>
 
       <div className="flex flex-wrap gap-2">

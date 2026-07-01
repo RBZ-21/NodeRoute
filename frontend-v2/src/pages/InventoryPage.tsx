@@ -1,11 +1,18 @@
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useCompanyConfig } from '../hooks/useCompanyConfig';
+import { useCompanySettings } from '../hooks/useSettings';
 import { useQueryClient } from '@tanstack/react-query';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { StatCard } from '../components/ui/stat-card';
+import { useToast } from '../components/ui/toast';
 import { Input } from '../components/ui/input';
+import { SelectInput } from '../components/ui/select-input';
+import { PaginationControls } from '../components/ui/pagination';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
+import { TableEmptyState } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { getUserRole, hasRole } from '../lib/api';
 import type { CountSheetRow, InventoryItem, InventoryLotSummary, LedgerEntry, LedgerSummary } from '../types/inventory.types';
@@ -23,6 +30,7 @@ import {
   useSpoilageMutation,
   useTransferMutation,
 } from '../hooks/useInventory';
+import { usePagination } from '../hooks/usePagination';
 import { SmartReorderAlertsCard } from './SmartReorderAlertsCard';
 import { InventoryAiHealthCard } from './InventoryAiHealthCard';
 import { InventoryMarkdownRecsCard } from './InventoryMarkdownRecsCard';
@@ -45,14 +53,19 @@ function downloadCsv(filename: string, rows: string[][]) {
   const a = document.createElement('a'); a.href = href; a.download = filename; a.click(); URL.revokeObjectURL(href);
 }
 function sanitizeHtml(v: string) { return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
+function storedCompanyName() {
+  try {
+    const user = JSON.parse(localStorage.getItem('nr_user') || '{}');
+    return String(user.companyName || user.company_name || '').trim();
+  } catch {
+    return '';
+  }
+}
 function formatInventoryLotDate(value: unknown) {
   if (!value) return '';
   const parsed = new Date(String(value));
   if (Number.isNaN(parsed.getTime())) return String(value);
   return parsed.toLocaleDateString();
-}
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className="text-2xl">{value}</CardTitle></CardHeader></Card>;
 }
 function itemCategoryCompare(a: CountSheetRow, b: CountSheetRow) { return a.category.localeCompare(b.category); }
 function countSheetEmptyMessage({
@@ -98,61 +111,26 @@ function InventoryLotsCell({ lots, isFtlProduct }: { lots: InventoryLotSummary[]
   );
 }
 
-type InventoryWorkflowTab = 'overview' | 'costs' | 'cycle-counts' | 'kits' | 'availability' | 'returns';
+type InventoryWorkflowTab = 'overview' | 'kits';
+type InventoryTaskTab = 'counts' | 'transfer' | 'spoilage';
 
 const INVENTORY_WORKFLOW_TABS: { id: InventoryWorkflowTab; label: string }[] = [
   { id: 'overview', label: 'Overview' },
-  { id: 'costs', label: 'Costs' },
-  { id: 'cycle-counts', label: 'Cycle Counts' },
   { id: 'kits', label: 'Kits' },
-  { id: 'availability', label: 'Availability' },
-  { id: 'returns', label: 'Returns' },
 ];
 
-function InventoryWorkflowPanel({ tab, onOpenKits }: { tab: InventoryWorkflowTab; onOpenKits: () => void }) {
-  if (tab === 'overview') return null;
-  const content: Record<Exclude<InventoryWorkflowTab, 'overview'>, { title: string; description: string; action?: JSX.Element }> = {
-    costs: {
-      title: 'Costs',
-      description: 'Base, landed, lot, market, and real cost fields are available on item edit and lot workflows.',
-    },
-    'cycle-counts': {
-      title: 'Cycle Counts',
-      description: 'Cycle count APIs are ready for count creation, variance submission, and ledger-backed commit.',
-    },
-    kits: {
-      title: 'Kits',
-      description: 'Run in-house kit recipes and review processing runs from the Kits workspace.',
-      action: <Button variant="outline" onClick={onOpenKits}>Open Kits</Button>,
-    },
-    availability: {
-      title: 'Availability',
-      description: '30-day projection data is available through the inventory projection endpoint.',
-    },
-    returns: {
-      title: 'Returns',
-      description: 'Inventory returns can be recorded and optionally restocked through the returns workflow.',
-    },
-  };
-  const selected = content[tab];
-  return (
-    <Card>
-      <CardHeader className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-        <div>
-          <CardTitle>{selected.title}</CardTitle>
-          <CardDescription>{selected.description}</CardDescription>
-        </div>
-        {selected.action}
-      </CardHeader>
-    </Card>
-  );
-}
+const INVENTORY_TASK_TABS: { id: InventoryTaskTab; label: string; description: string }[] = [
+  { id: 'counts', label: 'Count Reports', description: 'Print or export count sheets grouped by class name.' },
+  { id: 'transfer', label: 'Transfer', description: 'Move stock between inventory SKUs.' },
+  { id: 'spoilage', label: 'Spoilage', description: 'Post waste or spoilage movements with reason and notes.' },
+];
 
 export function InventoryPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const { features } = useCompanyConfig();
+  const { data: companySettings } = useCompanySettings();
 
   // "Fix" requests jump into the Inventory Actions adjustment flow pre-filled
   // with the SKU. Also honoured via /inventory?fix=<item_number> deep links.
@@ -214,8 +192,7 @@ export function InventoryPage() {
   const [editItemError, setEditItemError] = useState('');
   const canEditCosts = hasRole(getUserRole(), 'manager');
 
-  const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const toast = useToast();
   const [transferFromId, setTransferFromId] = useState('');
   const [transferToId, setTransferToId] = useState('');
   const [transferQty, setTransferQty] = useState('');
@@ -229,6 +206,8 @@ export function InventoryPage() {
   const [showInactive, setShowInactive] = useState(false);
   const [countCategoryFilter, setCountCategoryFilter] = useState('all');
   const [includeZeroStockInCounts, setIncludeZeroStockInCounts] = useState(true);
+  const [activeInventoryTask, setActiveInventoryTask] = useState<InventoryTaskTab>('counts');
+  const [inventoryPageSize, setInventoryPageSize] = useState(25);
 
   const [ledgerItemFilter, setLedgerItemFilter] = useState('');
   const [ledgerTypeFilter, setLedgerTypeFilter] = useState('');
@@ -274,7 +253,7 @@ export function InventoryPage() {
       });
       setAddForm({ item_number: '', description: '', category: '', unit: 'lb', cost: '', on_hand_qty: '0', reorder_point: '', barcode: '' });
       setAddItemOpen(false);
-      setNotice('Item added successfully.');
+      toast.success('Item added successfully.');
     } catch (err) {
       setAddItemError((err as Error).message || 'Failed to add item.');
     }
@@ -330,7 +309,7 @@ export function InventoryPage() {
         },
       });
       setEditingItemNumber(null);
-      setNotice('Item updated.');
+      toast.success('Item updated.');
     } catch (err) {
       setEditItemError((err as Error).message || 'Failed to update item.');
     }
@@ -351,40 +330,40 @@ export function InventoryPage() {
     const qty = asNumber(transferQty);
     const fromItem = items.find((item) => item.id === transferFromId) ?? null;
     const toItem = items.find((item) => item.id === transferToId) ?? null;
-    if (!fromItem || !toItem) { setError('Select both source and destination items.'); return; }
-    if (transferFromId === transferToId) { setError('Source and destination must be different.'); return; }
-    if (qty <= 0) { setError('Transfer quantity must be greater than 0.'); return; }
+    if (!fromItem || !toItem) { toast.error('Select both source and destination items.'); return; }
+    if (transferFromId === transferToId) { toast.error('Source and destination must be different.'); return; }
+    if (qty <= 0) { toast.error('Transfer quantity must be greater than 0.'); return; }
     const fromItemNumber = String(fromItem.item_number || '').trim();
     const toItemNumber = String(toItem.item_number || '').trim();
     if (!fromItemNumber || !toItemNumber) {
-      setError('Both transfer items must have item numbers before stock can be moved.');
+      toast.error('Both transfer items must have item numbers before stock can be moved.');
       return;
     }
-    setSubmitting(true); setError(''); setNotice('');
+    setSubmitting(true);
     try {
       const res = await transferMutation.mutateAsync({ fromItem: fromItemNumber, toItem: toItemNumber, qty, notes: transferNotes || undefined });
       setTransferQty(''); setTransferNotes('');
-      setNotice(`Transfer completed for ${inventoryActionLabel(fromItem)} -> ${inventoryActionLabel(toItem)} (${res.transfer_ref ?? 'ref unavailable'}).`);
-    } catch (err) { setError(String((err as Error).message || 'Transfer failed')); }
+      toast.success(`Transfer completed for ${inventoryActionLabel(fromItem)} -> ${inventoryActionLabel(toItem)} (${res.transfer_ref ?? 'ref unavailable'}).`);
+    } catch (err) { toast.error(String((err as Error).message || 'Transfer failed')); }
     finally { setSubmitting(false); }
   }
 
   async function submitSpoilage() {
     const qty = asNumber(spoilageQty);
     const spoilageItem = items.find((item) => item.id === spoilageItemId) ?? null;
-    if (!spoilageItem) { setError('Select an item for spoilage.'); return; }
-    if (qty <= 0) { setError('Spoilage quantity must be greater than 0.'); return; }
+    if (!spoilageItem) { toast.error('Select an item for spoilage.'); return; }
+    if (qty <= 0) { toast.error('Spoilage quantity must be greater than 0.'); return; }
     const itemNumber = String(spoilageItem.item_number || '').trim();
     if (!itemNumber) {
-      setError(`"${inventoryActionLabel(spoilageItem)}" is missing an item number, so spoilage cannot be posted yet.`);
+      toast.error(`"${inventoryActionLabel(spoilageItem)}" is missing an item number, so spoilage cannot be posted yet.`);
       return;
     }
-    setSubmitting(true); setError(''); setNotice('');
+    setSubmitting(true);
     try {
       await spoilageMutation.mutateAsync({ itemNumber, qty, reason: spoilageReason || undefined, notes: spoilageNotes || undefined });
       setSpoilageQty(''); setSpoilageReason(''); setSpoilageNotes('');
-      setNotice(`Spoilage recorded for ${inventoryActionLabel(spoilageItem)}.`);
-    } catch (err) { setError(String((err as Error).message || 'Could not record spoilage')); }
+      toast.success(`Spoilage recorded for ${inventoryActionLabel(spoilageItem)}.`);
+    } catch (err) { toast.error(String((err as Error).message || 'Could not record spoilage')); }
     finally { setSubmitting(false); }
   }
 
@@ -395,6 +374,7 @@ export function InventoryPage() {
       .filter((i) => showInactive || i.is_active !== false)
       .filter((i) => !n || [i.item_number, reportDescription(i), reportClassName(i)].filter(Boolean).some((p) => String(p).toLowerCase().includes(n)));
   }, [items, search, showInactive]);
+  const inventoryPagination = usePagination(filtered, inventoryPageSize);
   // Out Of Stock intentionally excludes inactive (seasonal/discontinued) SKUs —
   // they are not expected to have stock, so counting them inflates the KPI.
   const summary = useMemo(() => ({ totalSkus: items.length, lowStock: items.filter((i) => asNumber(reportOnHandQuantity(i)) > 0 && asNumber(reportOnHandQuantity(i)) <= 10).length, outOfStock: items.filter((i) => i.is_active !== false && asNumber(reportOnHandQuantity(i)) <= 0).length, inventoryValue: items.reduce((s, i) => s + (asNumber(i.value_at_cost) || asNumber(reportOnHandQuantity(i)) * asNumber(reportCostBase(i))), 0) }), [items]);
@@ -434,37 +414,61 @@ export function InventoryPage() {
   }
   function printCountSheet() {
     const popup = window.open('', '_blank', 'width=1100,height=800');
-    if (!popup) { setError('Could not open the print view. Please allow pop-ups and try again.'); return; }
+    if (!popup) { toast.error('Could not open the print view. Please allow pop-ups and try again.'); return; }
     const scopeLabel = countCategoryFilter === 'all' ? 'All Class Names' : countCategoryFilter;
+    const companyName = String(companySettings?.businessName || storedCompanyName() || 'NodeRoute Systems').trim() || 'NodeRoute Systems';
+    const escapedCompanyName = sanitizeHtml(companyName);
+    const printTitle = `${companyName} Inventory Count Sheet`;
+    const escapedPrintTitle = sanitizeHtml(printTitle);
     const sections = countSheetGroups.map((g) => `<section class="category-block"><h2>${sanitizeHtml(g.category)}</h2><table><thead><tr><th>Item Number</th><th>Description Line 1</th><th>On Hand Quantity</th><th>Unit</th><th>Physical Count</th></tr></thead><tbody>${g.rows.map((i) => `<tr><td>${sanitizeHtml(i.item_number||'-')}</td><td>${sanitizeHtml(i.description)}</td><td>${sanitizeHtml(i.on_hand_qty.toLocaleString())}</td><td>${sanitizeHtml(i.unit||'-')}</td><td class="blank-cell"></td></tr>`).join('')}</tbody></table></section>`).join('');
-    popup.document.write(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>Inventory Count Sheet</title><style>body{font-family:Arial,sans-serif;margin:24px;color:#111827}h1{margin:0 0 6px;font-size:24px}.meta{margin-bottom:18px;color:#4b5563;font-size:12px}.category-block{margin-bottom:28px;page-break-inside:avoid}h2{margin:0 0 10px;font-size:18px;border-bottom:1px solid #d1d5db;padding-bottom:4px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #d1d5db;padding:8px 10px;font-size:12px;text-align:left}th{background:#f3f4f6}.blank-cell{min-width:140px;height:28px}@media print{body{margin:12px}}</style></head><body><h1>Inventory Count Sheet</h1><div class="meta">Class Name scope: ${sanitizeHtml(scopeLabel)} · Generated ${sanitizeHtml(new Date().toLocaleString())}</div>${sections||'<p>No inventory rows match the selected filters.</p>'}</body></html>`);
+    popup.document.write(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>${escapedPrintTitle}</title><style>body{font-family:Arial,sans-serif;margin:24px;color:#111827}h1{margin:0 0 6px;font-size:24px}.meta{margin-bottom:18px;color:#4b5563;font-size:12px}.category-block{margin-bottom:28px;page-break-inside:avoid}h2{margin:0 0 10px;font-size:18px;border-bottom:1px solid #d1d5db;padding-bottom:4px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #d1d5db;padding:8px 10px;font-size:12px;text-align:left}th{background:#f3f4f6}.blank-cell{min-width:140px;height:28px}.print-footer{display:none}@media print{body{margin:12px 12px 36px}.print-footer{display:block;position:fixed;bottom:0;left:0;font-size:10px;color:#4b5563}}</style></head><body><h1>Inventory Count Sheet</h1><div class="meta">${escapedCompanyName} · Class Name scope: ${sanitizeHtml(scopeLabel)} · Generated ${sanitizeHtml(new Date().toLocaleString())}</div>${sections||'<p>No inventory rows match the selected filters.</p>'}<div class="print-footer">${escapedCompanyName}</div></body></html>`);
+    try {
+      const companySlug = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'company';
+      popup.history?.replaceState?.(null, printTitle, `/print/${companySlug}/inventory-count-sheet`);
+    } catch {}
     popup.document.close(); popup.focus(); popup.print();
   }
 
   const fetchError = inventoryQuery.error
     ? String((inventoryQuery.error as Error)?.message || 'Could not load inventory')
     : '';
-  const displayError = error || fetchError;
-  const tabParam = String(searchParams.get('tab') || 'overview') as InventoryWorkflowTab;
-  const inventoryWorkflowTab = INVENTORY_WORKFLOW_TABS.some((tab) => tab.id === tabParam) ? tabParam : 'overview';
+  const retryingInventory = Boolean(fetchError && inventoryQuery.isFetching);
+  const inventoryWorkflowTab: InventoryWorkflowTab = 'overview';
+  const inventoryColumnCount = 14 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0);
 
   function setInventoryWorkflowTab(tab: InventoryWorkflowTab) {
+    if (tab === 'kits') {
+      navigate('/kits');
+      return;
+    }
     const next = new URLSearchParams(searchParams);
-    if (tab === 'overview') next.delete('tab'); else next.set('tab', tab);
+    next.delete('tab');
     setSearchParams(next);
   }
 
   return (
     <div className="space-y-5">
-      {inventoryQuery.isPending && <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading inventory...</div>}
-      {displayError && <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{displayError}</div>}
-      {notice && <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div>}
+      {inventoryQuery.isPending && <PageSkeleton />}
+      {fetchError && (
+        <div className="flex flex-col gap-2 rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between">
+          <span>{fetchError}</span>
+          <Button
+            size="sm"
+            variant="outline"
+            className="self-start border-destructive/30 text-destructive hover:bg-destructive/10 sm:self-auto"
+            onClick={() => void inventoryQuery.refetch()}
+            disabled={retryingInventory}
+          >
+            {retryingInventory ? 'Retrying...' : 'Retry'}
+          </Button>
+        </div>
+      )}
       <AiInsightBanner types={['reorder']} />
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard label="SKUs" value={summary.totalSkus.toLocaleString()} />
-        <SummaryCard label="Low Stock" value={summary.lowStock.toLocaleString()} />
-        <SummaryCard label="Out Of Stock" value={summary.outOfStock.toLocaleString()} />
-        <SummaryCard label="Inventory Value" value={money(summary.inventoryValue)} />
+        <StatCard label="SKUs" value={summary.totalSkus.toLocaleString()} />
+        <StatCard label="Low Stock" value={summary.lowStock.toLocaleString()} />
+        <StatCard label="Out Of Stock" value={summary.outOfStock.toLocaleString()} />
+        <StatCard label="Inventory Value" value={money(summary.inventoryValue)} />
       </div>
 
       <div className="flex flex-wrap gap-1 border-b border-border">
@@ -483,8 +487,6 @@ export function InventoryPage() {
           </button>
         ))}
       </div>
-
-      <InventoryWorkflowPanel tab={inventoryWorkflowTab} onOpenKits={() => navigate('/kits')} />
 
       {/* ── Low-Stock Alert Banner ─────────────────────────────────────── */}
       {lowStockItems.length > 0 && (
@@ -534,23 +536,46 @@ export function InventoryPage() {
 
       {/* ── Inventory Actions ─────────────────────────────────────────────── */}
       <InventoryActionsCard items={items} fixRequest={fixRequest} />
-      <div className="grid gap-4 lg:grid-cols-2">
-        <Card>
-          <CardHeader><CardTitle>Inventory Count Reports</CardTitle><CardDescription>Print or export count sheets grouped by class name.</CardDescription></CardHeader>
-          <CardContent className="space-y-3">
+      <Card>
+        <CardHeader className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+          <div>
+            <CardTitle>Inventory Tasks</CardTitle>
+            <CardDescription>{INVENTORY_TASK_TABS.find((tab) => tab.id === activeInventoryTask)?.description}</CardDescription>
+          </div>
+          <div className="flex flex-wrap gap-1" role="tablist" aria-label="Inventory tasks">
+            {INVENTORY_TASK_TABS.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                role="tab"
+                aria-selected={activeInventoryTask === tab.id}
+                onClick={() => setActiveInventoryTask(tab.id)}
+                className={[
+                  'rounded-md px-3 py-1.5 text-sm font-medium transition-colors',
+                  activeInventoryTask === tab.id ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                ].join(' ')}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          {activeInventoryTask === 'counts' ? (
+            <>
             <div className="grid gap-3 md:grid-cols-3">
               <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Class Name Scope</span>
-                <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={countCategoryFilter} onChange={(e) => setCountCategoryFilter(e.target.value)}>
+                <SelectInput className="w-full" value={countCategoryFilter} onChange={(e) => setCountCategoryFilter(e.target.value)}>
                   <option value="all">All Class Names</option>{countCategories.map((c) => <option key={c} value={c}>{c}</option>)}
-                </select>
+                </SelectInput>
               </label>
               <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Recent Sales Filter</span>
-                <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={recentSalesExclusionWindow} onChange={(e) => setRecentSalesExclusionWindow(e.target.value)}>
+                <SelectInput className="w-full" value={recentSalesExclusionWindow} onChange={(e) => setRecentSalesExclusionWindow(e.target.value)}>
                   <option value="all">Include all items</option>
                   <option value="30">Exclude items not sold in 30 days</option>
                   <option value="60">Exclude items not sold in 60 days</option>
                   <option value="90">Exclude items not sold in 90 days</option>
-                </select>
+                </SelectInput>
               </label>
               <label className="flex items-end gap-2 rounded-md border border-border bg-muted/20 px-3 py-2 text-sm"><input type="checkbox" checked={includeZeroStockInCounts} onChange={(e) => setIncludeZeroStockInCounts(e.target.checked)} /><span>Include zero-stock items</span></label>
               <div className="rounded-md border border-border bg-muted/20 px-3 py-2 text-sm"><div className="font-semibold text-muted-foreground">Rows In Sheet</div><div className="mt-1 text-lg font-semibold">{countSheetRows.length.toLocaleString()}</div></div>
@@ -567,38 +592,37 @@ export function InventoryPage() {
               <Button onClick={printCountSheet} disabled={!countSheetRows.length || recentSoldQuery.isFetching}>Print Count Sheet</Button>
               <Button variant="outline" onClick={exportCountSheetCsv} disabled={!countSheetRows.length || recentSoldQuery.isFetching}>Export Count Sheet CSV</Button>
             </div>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle>Transfer Inventory</CardTitle><CardDescription>Move stock between inventory SKUs.</CardDescription></CardHeader>
-          <CardContent className="space-y-3">
+            </>
+          ) : null}
+          {activeInventoryTask === 'transfer' ? (
+            <>
             {([['From Item', transferFromId, setTransferFromId], ['To Item', transferToId, setTransferToId]] as const).map(([label, val, setter]) => (
               <label key={label} className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">{label}</span>
-                <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={val} onChange={(e) => setter(e.target.value)}>
+                <SelectInput className="w-full" value={val} onChange={(e) => setter(e.target.value)}>
                   <option value="">Select...</option>{items.map((i) => <option key={i.id} value={i.id}>{inventoryActionLabel(i)}</option>)}
-                </select>
+                </SelectInput>
               </label>
             ))}
             <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Quantity</span><Input type="number" min="0" step="0.01" value={transferQty} onChange={(e) => setTransferQty(e.target.value)} placeholder="e.g. 5" /></label>
             <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Notes</span><Input value={transferNotes} onChange={(e) => setTransferNotes(e.target.value)} placeholder="Optional transfer notes" /></label>
             <Button onClick={submitTransfer} disabled={submitting}>Transfer Stock</Button>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader><CardTitle>Record Spoilage</CardTitle><CardDescription>Post waste/spoilage movements with reason and notes.</CardDescription></CardHeader>
-          <CardContent className="space-y-3">
+            </>
+          ) : null}
+          {activeInventoryTask === 'spoilage' ? (
+            <>
             <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Item</span>
-              <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm" value={spoilageItemId} onChange={(e) => setSpoilageItemId(e.target.value)}>
+              <SelectInput className="w-full" value={spoilageItemId} onChange={(e) => setSpoilageItemId(e.target.value)}>
                 <option value="">Select item...</option>{items.map((i) => <option key={i.id} value={i.id}>{inventoryActionLabel(i)}</option>)}
-              </select>
+              </SelectInput>
             </label>
             <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Quantity</span><Input type="number" min="0" step="0.01" value={spoilageQty} onChange={(e) => setSpoilageQty(e.target.value)} placeholder="e.g. 2" /></label>
             <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Reason</span><Input value={spoilageReason} onChange={(e) => setSpoilageReason(e.target.value)} placeholder="Temperature excursion" /></label>
             <label className="space-y-1 text-sm"><span className="font-semibold text-muted-foreground">Notes</span><Input value={spoilageNotes} onChange={(e) => setSpoilageNotes(e.target.value)} placeholder="Optional spoilage notes" /></label>
             <Button variant="secondary" onClick={submitSpoilage} disabled={submitting}>Post Spoilage</Button>
-          </CardContent>
-        </Card>
-      </div>
+            </>
+          ) : null}
+        </CardContent>
+      </Card>
       <InventoryLedger
         ledgerLoading={ledgerQuery.isFetching}
         ledgerSummary={ledgerSummary}
@@ -664,10 +688,10 @@ export function InventoryPage() {
               </label>
               <label className="space-y-1 text-sm">
                 <span className="font-semibold">Unit</span>
-                <select
+                <SelectInput
                   value={addForm.unit}
                   onChange={(e) => setAddForm((f) => ({ ...f, unit: e.target.value }))}
-                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                  className="w-full"
                 >
                   <option value="each">each</option>
                   <option value="lb">lb</option>
@@ -675,7 +699,7 @@ export function InventoryPage() {
                   <option value="oz">oz</option>
                   <option value="case">case</option>
                   <option value="gal">gal</option>
-                </select>
+                </SelectInput>
               </label>
               <label className="space-y-1 text-sm">
                 <span className="font-semibold">Cost: Base ($)</span>
@@ -728,7 +752,7 @@ export function InventoryPage() {
               {features.catchWeight     && <TableHead title="Default price per pound">$/lb</TableHead>}
             </TableRow></TableHeader>
             <TableBody>
-              {filtered.length ? filtered.map((item) => {
+              {filtered.length ? inventoryPagination.pageItems.map((item) => {
                 const qty = asNumber(reportOnHandQuantity(item));
                 const itemLots = activeLotsByProduct.get(String(item.item_number || '').trim()) ?? [];
                 const isInactive = item.is_active === false;
@@ -766,7 +790,7 @@ export function InventoryPage() {
                   </TableRow>
                   {editingItemNumber === item.item_number && (
                     <TableRow>
-                      <TableCell colSpan={14 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0)} className="bg-muted/30 p-0">
+                      <TableCell colSpan={inventoryColumnCount} className="bg-muted/30 p-0">
                         <form onSubmit={(e) => { void handleEditItem(e); }} className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4 px-4 py-4">
                           <label className="space-y-1 text-sm">
                             <span className="font-semibold">Item Number <span className="text-destructive">*</span></span>
@@ -782,14 +806,14 @@ export function InventoryPage() {
                           </label>
                           <label className="space-y-1 text-sm">
                             <span className="font-semibold">Unit</span>
-                            <select value={editForm.unit} onChange={(e) => setEditForm((f) => ({ ...f, unit: e.target.value }))} className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
+                            <SelectInput value={editForm.unit} onChange={(e) => setEditForm((f) => ({ ...f, unit: e.target.value }))} className="w-full">
                               <option value="each">each</option>
                               <option value="lb">lb</option>
                               <option value="kg">kg</option>
                               <option value="oz">oz</option>
                               <option value="case">case</option>
                               <option value="gal">gal</option>
-                            </select>
+                            </SelectInput>
                           </label>
                           <label className="space-y-1 text-sm">
                             <span className="font-semibold">Cost: Base ($)</span>
@@ -844,9 +868,27 @@ export function InventoryPage() {
                   )}
                   </Fragment>
                 );
-              }) : <TableRow><TableCell colSpan={14 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0)} className="text-muted-foreground">No inventory rows available.</TableCell></TableRow>}
+              }) : (
+                <TableEmptyState
+                  colSpan={inventoryColumnCount}
+                  title="No inventory rows available."
+                  description="Add an inventory item to start tracking stock, costs, and lot details."
+                  actionLabel="+ Add Item"
+                  onAction={() => { setAddItemOpen(true); setAddItemError(''); }}
+                />
+              )}
             </TableBody>
           </Table>
+          {filtered.length ? (
+            <PaginationControls
+              page={inventoryPagination.page}
+              pageCount={inventoryPagination.pageCount}
+              setPage={inventoryPagination.setPage}
+              itemCount={inventoryPagination.itemCount}
+              pageSize={inventoryPagination.pageSize}
+              onPageSizeChange={setInventoryPageSize}
+            />
+          ) : null}
           </div>
         </CardContent>
       </Card>

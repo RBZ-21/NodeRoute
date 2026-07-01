@@ -1,10 +1,12 @@
 import { useCallback, useEffect, useState } from 'react';
-import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Input } from '../components/ui/input';
+import { SelectInput } from '../components/ui/select-input';
+import { LoadingSkeleton } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { useToast } from '../components/ui/toast';
 
 type Row = Record<string, unknown> & { id?: string };
 type TabKey = 'levels' | 'specials' | 'quotes' | 'promotions' | 'rebates' | 'minimum';
@@ -66,7 +68,7 @@ export function PricingPage() {
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
+  const toast = useToast();
 
   const [levels, setLevels] = useState<Row[]>([]);
   const [specials, setSpecials] = useState<Row[]>([]);
@@ -126,17 +128,16 @@ export function PricingPage() {
 
   async function saveLevel() {
     setSaving(true);
-    setError('');
     try {
       const method = editingLevelId ? 'PATCH' : 'POST';
       const url = editingLevelId ? `/api/pricing/levels/${encodeURIComponent(editingLevelId)}` : '/api/pricing/levels';
       await sendWithAuth(url, method, levelForm);
       setLevelForm({ name: '', description: '' });
       setEditingLevelId('');
-      setNotice('Price level saved.');
+      toast.success('Price level saved.');
       await loadData();
     } catch (err) {
-      setError(String((err as Error)?.message || 'Could not save price level'));
+      toast.error(String((err as Error)?.message || 'Could not save price level'));
     } finally {
       setSaving(false);
     }
@@ -144,17 +145,16 @@ export function PricingPage() {
 
   async function saveSpecial() {
     setSaving(true);
-    setError('');
     try {
       await sendWithAuth('/api/pricing/special', 'POST', {
         ...specialForm,
         special_price: Number(specialForm.special_price || 0),
         expiry_date: specialForm.expiry_date || null,
       });
-      setNotice('Customer special saved.');
+      toast.success('Customer special saved.');
       await loadSpecials(specialForm.customer_id);
     } catch (err) {
-      setError(String((err as Error)?.message || 'Could not save customer special'));
+      toast.error(String((err as Error)?.message || 'Could not save customer special'));
     } finally {
       setSaving(false);
     }
@@ -162,7 +162,6 @@ export function PricingPage() {
 
   async function saveQuote() {
     setSaving(true);
-    setError('');
     try {
       if (editingQuoteId) {
         await sendWithAuth(`/api/pricing/quotes/${encodeURIComponent(editingQuoteId)}`, 'PATCH', {
@@ -188,10 +187,10 @@ export function PricingPage() {
       }
       setEditingQuoteId('');
       setQuoteForm({ customer_id: '', status: 'draft', valid_from: '', valid_until: '', notes: '', product_id: '', quoted_price: '', min_qty: '', uom: '' });
-      setNotice('Quote saved.');
+      toast.success('Quote saved.');
       await loadData();
     } catch (err) {
-      setError(String((err as Error)?.message || 'Could not save quote'));
+      toast.error(String((err as Error)?.message || 'Could not save quote'));
     } finally {
       setSaving(false);
     }
@@ -199,7 +198,6 @@ export function PricingPage() {
 
   async function savePromotion() {
     setSaving(true);
-    setError('');
     try {
       if (editingPromotionId) {
         await sendWithAuth(`/api/promotions/${encodeURIComponent(editingPromotionId)}`, 'PATCH', {
@@ -225,10 +223,10 @@ export function PricingPage() {
       }
       setEditingPromotionId('');
       setPromotionForm({ name: '', promo_type: 'sale_price', status: 'draft', start_date: '', end_date: '', product_id: '', category_id: '', value: '' });
-      setNotice('Promotion saved.');
+      toast.success('Promotion saved.');
       await loadData();
     } catch (err) {
-      setError(String((err as Error)?.message || 'Could not save promotion'));
+      toast.error(String((err as Error)?.message || 'Could not save promotion'));
     } finally {
       setSaving(false);
     }
@@ -236,7 +234,6 @@ export function PricingPage() {
 
   async function saveRebate() {
     setSaving(true);
-    setError('');
     try {
       const method = editingRebateId ? 'PATCH' : 'POST';
       const url = editingRebateId ? `/api/pricing/rebates/${encodeURIComponent(editingRebateId)}` : '/api/pricing/rebates';
@@ -248,10 +245,10 @@ export function PricingPage() {
       });
       setEditingRebateId('');
       setRebateForm({ vendor_id: '', customer_id: '', name: '', rebate_type: 'percent', value: '', period_start: '', period_end: '' });
-      setNotice('Rebate saved.');
+      toast.success('Rebate saved.');
       await loadData();
     } catch (err) {
-      setError(String((err as Error)?.message || 'Could not save rebate'));
+      toast.error(String((err as Error)?.message || 'Could not save rebate'));
     } finally {
       setSaving(false);
     }
@@ -259,7 +256,6 @@ export function PricingPage() {
 
   async function saveMinimumRule() {
     setSaving(true);
-    setError('');
     try {
       const method = editingMinimumId ? 'PATCH' : 'POST';
       const url = editingMinimumId ? `/api/pricing/minimum-sell-rules/${encodeURIComponent(editingMinimumId)}` : '/api/pricing/minimum-sell-rules';
@@ -271,10 +267,10 @@ export function PricingPage() {
       });
       setEditingMinimumId('');
       setMinimumForm({ product_id: '', category_id: '', min_margin_pct: '', min_price: '' });
-      setNotice('Minimum sell rule saved.');
+      toast.success('Minimum sell rule saved.');
       await loadData();
     } catch (err) {
-      setError(String((err as Error)?.message || 'Could not save minimum sell rule'));
+      toast.error(String((err as Error)?.message || 'Could not save minimum sell rule'));
     } finally {
       setSaving(false);
     }
@@ -309,7 +305,6 @@ export function PricingPage() {
       </div>
 
       {error && <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">{error}</div>}
-      {notice && <div className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-700">{notice}</div>}
 
       {activeTab === 'levels' && (
         <Card>
@@ -366,9 +361,9 @@ export function PricingPage() {
           <CardContent className="space-y-4">
             <div className="grid gap-3 md:grid-cols-4">
               <Input value={quoteForm.customer_id} disabled={!!editingQuoteId} onChange={(e) => setQuoteForm((f) => ({ ...f, customer_id: e.target.value }))} placeholder="Customer ID" aria-label="Customer ID" />
-              <select value={quoteForm.status} onChange={(e) => setQuoteForm((f) => ({ ...f, status: e.target.value }))} aria-label="Quote status" className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={quoteForm.status} onChange={(e) => setQuoteForm((f) => ({ ...f, status: e.target.value }))} aria-label="Quote status">
                 {['draft', 'active', 'expired', 'cancelled'].map((status) => <option key={status} value={status}>{status}</option>)}
-              </select>
+              </SelectInput>
               <Input value={quoteForm.valid_from} onChange={(e) => setQuoteForm((f) => ({ ...f, valid_from: e.target.value }))} placeholder="Valid from" aria-label="Valid from" />
               <Input value={quoteForm.valid_until} onChange={(e) => setQuoteForm((f) => ({ ...f, valid_until: e.target.value }))} placeholder="Valid until" aria-label="Valid until" />
               {!editingQuoteId && <Input value={quoteForm.product_id} onChange={(e) => setQuoteForm((f) => ({ ...f, product_id: e.target.value }))} placeholder="Product ID" aria-label="Product ID" />}
@@ -398,12 +393,12 @@ export function PricingPage() {
           <CardContent className="space-y-4">
             <div className="grid gap-3 md:grid-cols-4">
               <Input value={promotionForm.name} onChange={(e) => setPromotionForm((f) => ({ ...f, name: e.target.value }))} placeholder="Promotion name" aria-label="Promotion name" />
-              <select value={promotionForm.promo_type} onChange={(e) => setPromotionForm((f) => ({ ...f, promo_type: e.target.value }))} aria-label="Promotion type" className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={promotionForm.promo_type} onChange={(e) => setPromotionForm((f) => ({ ...f, promo_type: e.target.value }))} aria-label="Promotion type">
                 {['sale_price', 'percent_off', 'dollar_off', 'buy_x_get_y'].map((type) => <option key={type} value={type}>{type}</option>)}
-              </select>
-              <select value={promotionForm.status} onChange={(e) => setPromotionForm((f) => ({ ...f, status: e.target.value }))} aria-label="Promotion status" className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              </SelectInput>
+              <SelectInput value={promotionForm.status} onChange={(e) => setPromotionForm((f) => ({ ...f, status: e.target.value }))} aria-label="Promotion status">
                 {['draft', 'active', 'paused', 'expired'].map((status) => <option key={status} value={status}>{status}</option>)}
-              </select>
+              </SelectInput>
               <Input value={promotionForm.start_date} onChange={(e) => setPromotionForm((f) => ({ ...f, start_date: e.target.value }))} placeholder="Start date" aria-label="Start date" />
               <Input value={promotionForm.end_date} onChange={(e) => setPromotionForm((f) => ({ ...f, end_date: e.target.value }))} placeholder="End date" aria-label="End date" />
               {!editingPromotionId && <Input value={promotionForm.product_id} onChange={(e) => setPromotionForm((f) => ({ ...f, product_id: e.target.value }))} placeholder="Product ID" aria-label="Product ID" />}
@@ -434,9 +429,9 @@ export function PricingPage() {
               <Input value={rebateForm.name} onChange={(e) => setRebateForm((f) => ({ ...f, name: e.target.value }))} placeholder="Rebate name" aria-label="Rebate name" />
               <Input value={rebateForm.vendor_id} onChange={(e) => setRebateForm((f) => ({ ...f, vendor_id: e.target.value }))} placeholder="Vendor ID" aria-label="Vendor ID" />
               <Input value={rebateForm.customer_id} onChange={(e) => setRebateForm((f) => ({ ...f, customer_id: e.target.value }))} placeholder="Customer ID" aria-label="Customer ID" />
-              <select value={rebateForm.rebate_type} onChange={(e) => setRebateForm((f) => ({ ...f, rebate_type: e.target.value }))} aria-label="Rebate type" className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={rebateForm.rebate_type} onChange={(e) => setRebateForm((f) => ({ ...f, rebate_type: e.target.value }))} aria-label="Rebate type">
                 {['percent', 'dollar', 'per_unit'].map((type) => <option key={type} value={type}>{type}</option>)}
-              </select>
+              </SelectInput>
               <Input type="number" value={rebateForm.value} onChange={(e) => setRebateForm((f) => ({ ...f, value: e.target.value }))} placeholder="Value" aria-label="Rebate value" />
               <Input value={rebateForm.period_start} onChange={(e) => setRebateForm((f) => ({ ...f, period_start: e.target.value }))} placeholder="Period start" aria-label="Period start" />
               <Input value={rebateForm.period_end} onChange={(e) => setRebateForm((f) => ({ ...f, period_end: e.target.value }))} placeholder="Period end" aria-label="Period end" />
@@ -481,7 +476,7 @@ export function PricingPage() {
         </Card>
       )}
 
-      {loading && <Badge variant="secondary">Loading pricing data</Badge>}
+      {loading && <LoadingSkeleton rows={2} label="Loading pricing data" />}
     </div>
   );
 }

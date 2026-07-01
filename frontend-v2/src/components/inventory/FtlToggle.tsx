@@ -20,8 +20,8 @@ export function FtlToggle({ item, onToggled }: { item: InventoryItem; onToggled:
 
   return (
     <button onClick={toggle} disabled={saving}
+      aria-label={item.is_ftl_product ? 'Remove FDA Traceability List flag' : 'Flag as FDA Traceability List item'}
       title={item.is_ftl_product ? 'On FDA Traceability List — click to remove' : 'Not on FDA Traceability List — click to flag'}
-      aria-label={item.is_ftl_product ? 'Remove FDA traceability flag' : 'Flag as FDA traceability product'}
       className={['inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-offset-1', item.is_ftl_product ? 'bg-blue-600 focus:ring-blue-500' : 'bg-gray-200 focus:ring-gray-400', saving ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'].join(' ')}>
       <span className={['inline-block h-4 w-4 rounded-full bg-white shadow transition-transform', item.is_ftl_product ? 'translate-x-6' : 'translate-x-1'].join(' ')} />
       <span className="sr-only">{item.is_ftl_product ? 'FDA traceability on' : 'FDA traceability off'}</span>

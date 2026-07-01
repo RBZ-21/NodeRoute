@@ -3,8 +3,11 @@ import { AlertTriangle, CheckCircle2, CreditCard, ShoppingCart, XCircle } from '
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { StatCard } from '../components/ui/stat-card';
 import { Input } from '../components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '../components/ui/select';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
+import { useToast } from '../components/ui/toast';
 import { getUserRole, type Role } from '../lib/api';
 import {
   useChangePassword,
@@ -77,8 +80,7 @@ export function SettingsPage() {
   const saveCompany = useSaveCompanySettings();
   const startBillingCheckout = useStartBillingCheckout();
 
-  const [notice, setNotice] = useState('');
-  const [error, setError] = useState('');
+  const toast = useToast();
   const [billingReturn] = useState(readBillingReturn);
   const [displayName, setDisplayName] = useState('');
   const [currentPassword, setCurrentPassword] = useState('');
@@ -110,32 +112,26 @@ export function SettingsPage() {
 
   async function handleSaveProfile() {
     const name = effectiveDisplayName.trim();
-    if (!name) { setError('Display name is required.'); return; }
-    if (!user.id) { setError('Could not determine current user id.'); return; }
-    setError(''); setNotice('');
-    try {
+    if (!name) { toast.error('Display name is required.'); return; }
+    if (!user.id) { toast.error('Could not determine current user id.'); return; }    try {
       await saveProfile.mutateAsync({ userId: user.id, name });
       updateLocalUserName(name);
-      setNotice('Profile updated.');
-    } catch (err) { setError(String((err as Error)?.message || 'Failed to update profile')); }
+      toast.success('Profile updated.');
+    } catch (err) { toast.error(String((err as Error)?.message || 'Failed to update profile')); }
   }
 
   async function handleSavePassword() {
-    if (!currentPassword || !newPassword || !confirmPassword) { setError('Please complete all password fields.'); return; }
-    if (newPassword.length < 8) { setError('New password must be at least 8 characters.'); return; }
-    if (newPassword !== confirmPassword) { setError('New password and confirmation do not match.'); return; }
-    setError(''); setNotice('');
-    try {
+    if (!currentPassword || !newPassword || !confirmPassword) { toast.error('Please complete all password fields.'); return; }
+    if (newPassword.length < 8) { toast.error('New password must be at least 8 characters.'); return; }
+    if (newPassword !== confirmPassword) { toast.error('New password and confirmation do not match.'); return; }    try {
       const res = await changePassword.mutateAsync({ currentPassword, newPassword });
       setCurrentPassword(''); setNewPassword(''); setConfirmPassword('');
-      setNotice(res.message || 'Password updated.');
-    } catch (err) { setError(String((err as Error)?.message || 'Failed to update password')); }
+      toast.success(res.message || 'Password updated.');
+    } catch (err) { toast.error(String((err as Error)?.message || 'Failed to update password')); }
   }
 
   async function handleSaveCompany() {
-    if (!canManageCompanySettings) { setError('Only admin and manager roles can update company settings.'); return; }
-    setError(''); setNotice('');
-    try {
+    if (!canManageCompanySettings) { toast.error('Only admin and manager roles can update company settings.'); return; }    try {
       await saveCompany.mutateAsync({
         forceDriverSignature: sig,
         forceDriverProofOfDelivery: pod,
@@ -148,19 +144,17 @@ export function SettingsPage() {
       setForceDriverSignature(null); setForceDriverProofOfDelivery(null);
       setBusinessName(null); setInvoiceLogoDataUrl(undefined);
       setOrderCutoffHour(null); setOrderCutoffDay(null);
-      setNotice('Company settings saved.');
-    } catch (err) { setError(String((err as Error)?.message || 'Failed to save company settings')); }
+      toast.success('Company settings saved.');
+    } catch (err) { toast.error(String((err as Error)?.message || 'Failed to save company settings')); }
   }
 
   async function handleStartBillingCheckout() {
-    setError('');
-    setNotice('');
     try {
       const payload = await startBillingCheckout.mutateAsync({ idempotency_key: checkoutIdempotencyKey() });
       if (!payload.checkout_url) throw new Error('No checkout link was returned.');
       window.location.href = payload.checkout_url;
     } catch (err) {
-      setError(String((err as Error)?.message || 'Could not start NodeRoute billing checkout.'));
+      toast.error(String((err as Error)?.message || 'Could not start NodeRoute billing checkout.'));
     }
   }
 
@@ -168,12 +162,10 @@ export function SettingsPage() {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
-    if (!['image/png', 'image/jpeg'].includes(file.type)) { setError('Invoice logo must be a PNG or JPG image.'); return; }
-    if (file.size > 1_000_000) { setError('Invoice logo must be under 1 MB.'); return; }
-    setError('');
-    const reader = new FileReader();
+    if (!['image/png', 'image/jpeg'].includes(file.type)) { toast.error('Invoice logo must be a PNG or JPG image.'); return; }
+    if (file.size > 1_000_000) { toast.error('Invoice logo must be under 1 MB.'); return; }    const reader = new FileReader();
     reader.onload = () => setInvoiceLogoDataUrl(typeof reader.result === 'string' ? reader.result : null);
-    reader.onerror = () => setError('Could not read the selected logo file.');
+    reader.onerror = () => toast.error('Could not read the selected logo file.');
     reader.readAsDataURL(file);
   }
 
@@ -182,15 +174,13 @@ export function SettingsPage() {
 
   return (
     <div className="space-y-5">
-      {loading && <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading settings...</div>}
-      {error && <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div>}
-      {notice && <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div>}
+      {loading && <PageSkeleton />}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard label="Signed In As" value={String(user.name || '—')} />
-        <SummaryCard label="Email" value={String(user.email || '—')} compact />
+        <StatCard label="Signed In As" value={String(user.name || '—')} />
+        <StatCard label="Email" value={String(user.email || '—')} valueClassName="text-base" />
         <SummaryBadgeCard label="Role" role={userRole} />
-        <SummaryCard label="Company" value={String(user.companyName || '—')} compact />
+        <StatCard label="Company" value={String(user.companyName || '—')} valueClassName="text-base" />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-2">
@@ -456,12 +446,6 @@ function NodeRouteBillingCard({
         </div>
       </CardContent>
     </Card>
-  );
-}
-
-function SummaryCard({ label, value, compact }: { label: string; value: string; compact?: boolean }) {
-  return (
-    <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className={compact ? 'text-base' : 'text-2xl'}>{value}</CardTitle></CardHeader></Card>
   );
 }
 function SummaryBadgeCard({ label, role }: { label: string; role: Role }) {

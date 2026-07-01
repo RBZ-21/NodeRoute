@@ -295,7 +295,8 @@ describe('RoutesPage', () => {
     renderRoutesPage();
 
     expect(await screen.findByText('Dock Run')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Dispatch Route' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Dispatch Route' }));
     const dialog = await screen.findByRole('dialog');
     expect(within(dialog).getByText('Dock Run')).toBeTruthy();
     expect(within(dialog).getByText('Jamie Driver')).toBeTruthy();
@@ -320,7 +321,8 @@ describe('RoutesPage', () => {
     renderRoutesPage();
 
     expect(await screen.findByText('Unassigned Run')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Dispatch Route' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Dispatch Route' }));
 
     expect(await screen.findByText(/Assign a driver before dispatching "Unassigned Run"/i)).toBeTruthy();
     expect(sendWithAuthMock).not.toHaveBeenCalledWith('/api/routes/route-5', 'PATCH', expect.anything());
@@ -346,7 +348,8 @@ describe('RoutesPage', () => {
     renderRoutesPage();
 
     expect(await screen.findByText('Lunch Run')).toBeTruthy();
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel Dispatch' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Actions' }));
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Cancel Dispatch' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/routes/route-4', 'PATCH', {

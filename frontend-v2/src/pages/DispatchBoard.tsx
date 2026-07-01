@@ -1,8 +1,11 @@
 /// <reference types="vite/client" />
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Button } from '../components/ui/button';
+import { SelectInput } from '../components/ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Badge } from '../components/ui/badge';
+import { LoadingSkeleton } from '../components/ui/data-state';
+import { useToast } from '../components/ui/toast';
 import {
   type RouteRecord,
   type StopRecord,
@@ -54,8 +57,7 @@ export function DispatchBoard() {
   const updateRoute = useUpdateRoute();
   const optimizeRoute = useOptimizeRoute();
 
-  const [notice, setNotice] = useState('');
-  const [error, setError] = useState('');
+  const toast = useToast();
   const [dragStopId, setDragStopId] = useState<string | null>(null);
   const [dragFromRouteId, setDragFromRouteId] = useState<string | null>(null);
   const [selectedStopId, setSelectedStopId] = useState<string | null>(null);
@@ -83,16 +85,14 @@ export function DispatchBoard() {
   }
 
   // Reassign a stop onto a target route (and remove from its source route if any).
-  async function assignStopToRoute(stopId: string, targetRoute: RouteRecord, fromRouteId: string | null) {
-    setError(''); setNotice('');
-    try {
+  async function assignStopToRoute(stopId: string, targetRoute: RouteRecord, fromRouteId: string | null) {    try {
       // Dispatch rule: confirm before modifying a dispatched route.
       if (isDispatched(targetRoute) && !confirm(`"${targetRoute.name || targetRoute.id.slice(0, 8)}" is already dispatched. Add this stop anyway?`)) return;
       const fromRoute = fromRouteId ? routes.find((r) => r.id === fromRouteId) : null;
       if (fromRoute && isDispatched(fromRoute) && !confirm(`"${fromRoute.name || fromRoute.id.slice(0, 8)}" is dispatched. Move this stop off it anyway?`)) return;
 
       if (routeStopIds(targetRoute).map(String).includes(String(stopId))) {
-        setNotice('Stop is already on that route.');
+        toast.success('Stop is already on that route.');
         return;
       }
       if (fromRoute) {
@@ -100,39 +100,35 @@ export function DispatchBoard() {
       }
       await patchRouteStops(targetRoute, [...routeStopIds(targetRoute), stopId]);
       const stop = stopById.get(String(stopId));
-      setNotice(`Moved "${stop?.name || stopId}" to ${targetRoute.name || targetRoute.id.slice(0, 8)}.`);
+      toast.success(`Moved "${stop?.name || stopId}" to ${targetRoute.name || targetRoute.id.slice(0, 8)}.`);
     } catch (err) {
-      setError(String((err as Error).message || 'Could not reassign stop.'));
+      toast.error(String((err as Error).message || 'Could not reassign stop.'));
     }
   }
 
-  async function removeStopFromRoute(stopId: string, route: RouteRecord) {
-    setError(''); setNotice('');
-    try {
+  async function removeStopFromRoute(stopId: string, route: RouteRecord) {    try {
       if (isDispatched(route) && !confirm(`"${route.name || route.id.slice(0, 8)}" is dispatched. Remove this stop anyway?`)) return;
       const stop = stopById.get(String(stopId));
       if (!confirm(`Remove "${stop?.name || stopId}" from ${route.name || route.id.slice(0, 8)}?`)) return;
       await patchRouteStops(route, routeStopIds(route).filter((id) => String(id) !== String(stopId)));
-      setNotice('Stop returned to the unassigned list.');
+      toast.success('Stop returned to the unassigned list.');
     } catch (err) {
-      setError(String((err as Error).message || 'Could not remove stop.'));
+      toast.error(String((err as Error).message || 'Could not remove stop.'));
     }
   }
 
   function handleOptimize(route: RouteRecord) {
-    setOptimizingId(route.id);
-    setError(''); setNotice('');
-    optimizeRoute.mutate(route.id, {
+    setOptimizingId(route.id);    optimizeRoute.mutate(route.id, {
       onSuccess: (result) => {
         updateRoute.mutate(
           { id: route.id, patch: { stopIds: result.optimized_stop_ids, activeStopIds: result.optimized_stop_ids } },
           {
-            onSuccess: () => { setNotice(`Optimized stop order for ${route.name || route.id.slice(0, 8)}.`); setOptimizingId(null); void refetchStops(); },
-            onError: (err) => { setError(String((err as Error).message || 'Could not apply optimization.')); setOptimizingId(null); },
+            onSuccess: () => { toast.success(`Optimized stop order for ${route.name || route.id.slice(0, 8)}.`); setOptimizingId(null); void refetchStops(); },
+            onError: (err) => { toast.error(String((err as Error).message || 'Could not apply optimization.')); setOptimizingId(null); },
           },
         );
       },
-      onError: (err) => { setError(String((err as Error).message || 'Optimization failed.')); setOptimizingId(null); },
+      onError: (err) => { toast.error(String((err as Error).message || 'Optimization failed.')); setOptimizingId(null); },
     });
   }
 
@@ -202,8 +198,6 @@ export function DispatchBoard() {
 
   return (
     <div className="space-y-3">
-      {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div> : null}
-      {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
       <div className="grid gap-3 lg:grid-cols-[320px_1fr]">
         {/* Left: unassigned stops */}
@@ -224,7 +218,7 @@ export function DispatchBoard() {
               setDragStopId(null); setDragFromRouteId(null);
             }}
           >
-            {isLoading ? <div className="text-sm text-muted-foreground">Loading…</div> : null}
+            {isLoading ? <LoadingSkeleton rows={2} label="Loading unassigned stops" /> : null}
             {unassignedStops.map((stop) => (
               <div
                 key={stop.id}
@@ -262,8 +256,8 @@ export function DispatchBoard() {
                   <span className="ml-2 text-xs text-muted-foreground">{selectedStopRoute ? `On ${selectedStopRoute.name || selectedStopRoute.id.slice(0, 8)}` : 'Unassigned'}</span>
                 </div>
                 {/* Touch fallback: assign via dropdown */}
-                <select
-                  className="h-9 rounded-md border border-input bg-background px-2 text-sm"
+                <SelectInput
+                  className="h-9 px-2"
                   value={selectedStopRoute?.id || ''}
                   onChange={(e) => {
                     const target = routes.find((r) => r.id === e.target.value);
@@ -272,7 +266,7 @@ export function DispatchBoard() {
                 >
                   <option value="">Assign to route…</option>
                   {routes.map((r) => <option key={r.id} value={r.id}>{r.name || r.id.slice(0, 8)}</option>)}
-                </select>
+                </SelectInput>
                 <Button size="sm" variant="ghost" onClick={() => setSelectedStopId(null)}>Close</Button>
               </CardContent>
             </Card>

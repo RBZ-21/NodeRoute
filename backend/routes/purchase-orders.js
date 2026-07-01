@@ -49,6 +49,7 @@ async function generateUniquePurchaseOrderNumber(maxAttempts = 5) {
 }
 
 const router = express.Router();
+const MAX_SCAN_PAGES = 5;
 const upload = multer({
   storage: multer.memoryStorage(),
   limits: { fileSize: 15 * 1024 * 1024 }, // 15 MB
@@ -58,6 +59,30 @@ const upload = multer({
     cb(null, true);
   },
 });
+
+function scanUpload(req, res, next) {
+  const middleware = upload.fields([
+    { name: 'image', maxCount: MAX_SCAN_PAGES },
+    { name: 'file', maxCount: MAX_SCAN_PAGES },
+  ]);
+  middleware(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_UNEXPECTED_FILE' || err.code === 'LIMIT_FILE_COUNT') {
+      return res.status(400).json({ error: `Too many pages. Upload at most ${MAX_SCAN_PAGES} images per scan.` });
+    }
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      return res.status(400).json({ error: 'Each image must be 15MB or smaller.' });
+    }
+    if (err.message === 'Only image or PDF files are accepted') {
+      return res.status(400).json({ error: 'Unsupported file type. Upload an image or PDF.' });
+    }
+    return next(err);
+  });
+}
+
+function scanFilesFromRequest(req) {
+  return [...(req.files?.image || []), ...(req.files?.file || [])];
+}
 
 const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
 const purchaseOrderConfirmSchema = z.object({
@@ -171,15 +196,22 @@ async function loadEditablePurchaseOrder(id, context) {
 
 // ── POST /api/purchase-orders/scan ─────────────────────────────────────────
 router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
-  upload.single('image'),
+  scanUpload,
   async (req, res) => {
-    if (!req.file) return res.status(400).json({ error: 'No file uploaded' });
-
-    const base64   = req.file.buffer.toString('base64');
-    const mimeType = req.file.mimetype || 'image/jpeg';
+    const uploadedFiles = scanFilesFromRequest(req);
+    if (!uploadedFiles.length) return res.status(400).json({ error: 'No file uploaded' });
+    if (uploadedFiles.length > MAX_SCAN_PAGES) {
+      return res.status(400).json({ error: `Too many pages. Upload at most ${MAX_SCAN_PAGES} images per scan.` });
+    }
 
     try {
-      const parsed = await parsePurchaseOrderImage(base64, mimeType);
+      const pages = uploadedFiles.map((file) => ({
+        base64: file.buffer.toString('base64'),
+        mimeType: file.mimetype || 'image/jpeg',
+      }));
+      const parsed = pages.length === 1
+        ? await parsePurchaseOrderImage(pages[0].base64, pages[0].mimeType)
+        : await parsePurchaseOrderImage(pages);
       if (!Array.isArray(parsed.items)) parsed.items = [];
       parsed.items = parsed.items.map(item => {
         const desc = String(item.description || '').toLowerCase();
@@ -205,8 +237,8 @@ router.post('/scan', authenticateToken, requireRole('admin', 'manager'),
       const scanRecord = await recordPoInvoiceScan({
         context: req.context || {},
         createdBy: req.user?.name || req.user?.email || 'system',
-        fileName: req.file.originalname || null,
-        mimeType: req.file.mimetype || null,
+        fileName: uploadedFiles.map((file) => file.originalname).filter(Boolean).join(', ') || null,
+        mimeType: uploadedFiles[0]?.mimetype || null,
         parsed,
         source: 'purchase-orders-scan',
       });

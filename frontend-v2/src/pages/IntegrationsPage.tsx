@@ -1,7 +1,9 @@
-import { useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
 import { StatusBadge } from '../components/ui/status-badge';
+import { useToast } from '../components/ui/toast';
 import { type IntegrationCard, useIntegrationAction, useIntegrationLogs, useIntegrations } from '../hooks/useIntegrations';
 
 const knownIntegrations = ['Stripe', 'QuickBooks', 'Supabase', 'Email (SMTP)', 'PDF Service'];
@@ -21,8 +23,7 @@ export function IntegrationsPage() {
   const runAction = useIntegrationAction(endpoint);
   const viewLogsM = useIntegrationLogs(endpoint);
 
-  const [notice, setNotice] = useState('');
-  const [error, setError] = useState('');
+  const toast = useToast();
 
   const mergedCards = useMemo(() => {
     const byName = new Map<string, IntegrationCard>();
@@ -34,30 +35,26 @@ export function IntegrationsPage() {
   }, [cards]);
 
   async function handleAction(card: IntegrationCard, action: 'connect' | 'disconnect' | 'sync') {
-    setError(''); setNotice('');
-    if (!endpoint || endpointUnavailable) { setNotice(`Integration API is not available yet for ${card.name}.`); return; }
+    if (!endpoint || endpointUnavailable) { toast.success(`Integration API is not available yet for ${card.name}.`); return; }
     try {
       await runAction.mutateAsync({ id: card.id, action });
-      setNotice(`${card.name}: ${action} completed.`);
-    } catch (err) { setError(String((err as Error)?.message || `Could not ${action} integration`)); }
+      toast.success(`${card.name}: ${action} completed.`);
+    } catch (err) { toast.error(String((err as Error)?.message || `Could not ${action} integration`)); }
   }
 
   async function handleLogs(card: IntegrationCard) {
-    setError(''); setNotice('');
-    if (!endpoint || endpointUnavailable) { setNotice(`Integration logs are unavailable until API endpoints are enabled for ${card.name}.`); return; }
+    if (!endpoint || endpointUnavailable) { toast.success(`Integration logs are unavailable until API endpoints are enabled for ${card.name}.`); return; }
     try {
       const response = await viewLogsM.mutateAsync(card.id);
       const url = String(response.url || response.logUrl || response.log_url || '').trim();
-      if (url) { window.open(url, '_blank', 'noopener,noreferrer'); setNotice(`Opened logs for ${card.name}.`); }
-      else setNotice(`No log URL returned for ${card.name}.`);
-    } catch (err) { setError(String((err as Error)?.message || 'Could not load integration logs')); }
+      if (url) { window.open(url, '_blank', 'noopener,noreferrer'); toast.success(`Opened logs for ${card.name}.`); }
+      else toast.success(`No log URL returned for ${card.name}.`);
+    } catch (err) { toast.error(String((err as Error)?.message || 'Could not load integration logs')); }
   }
 
   return (
     <div className="space-y-5">
-      {isLoading && <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading integrations...</div>}
-      {error && <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div>}
-      {notice && <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div>}
+      {isLoading && <PageSkeleton />}
 
       <Card>
         <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">

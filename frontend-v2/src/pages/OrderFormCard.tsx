@@ -3,9 +3,12 @@ import { Button } from '../components/ui/button';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Combobox } from '../components/ui/combobox';
+import { Modal } from '../components/ui/overlay-panel';
 import { Input } from '../components/ui/input';
+import { SelectInput } from '../components/ui/select-input';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { fetchWithAuth, getUserRole, sendWithAuth } from '../lib/api';
+import { cn } from '../lib/utils';
 import { useRoutes } from '../hooks/useRoutes';
 import { asMoney, asNumber, fmtDate, normalizeText, productSelectionKey } from './orders.types';
 import type { Customer, InventoryProduct, LotCode, OrderCharge, OrderLineDraft } from './orders.types';
@@ -146,6 +149,9 @@ export function OrderFormCard({
   const [workflowNotice, setWorkflowNotice] = useState('');
   const [barcodeValue, setBarcodeValue] = useState('');
   const [scanLoading, setScanLoading] = useState(false);
+  const [chargesOpen, setChargesOpen] = useState(false);
+  const pricingLinesRef = useRef(lines);
+  pricingLinesRef.current = lines;
 
   useEffect(() => () => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -258,6 +264,13 @@ export function OrderFormCard({
     return customers.find((customer) => normalizedCustomerName(customer.company_name || '') === normalized)?.id || '';
   }, [customerName, customers]);
 
+  const chargesSummary = [
+    `Tax ${taxEnabled ? `${(asNumber(taxRate) * 100).toLocaleString(undefined, { maximumFractionDigits: 2 })}%` : 'off'}`,
+    `Fuel ${asNumber(fuelPercent).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`,
+    `Service ${asNumber(servicePercent).toLocaleString(undefined, { maximumFractionDigits: 2 })}%`,
+    asNumber(minimumFlat) > 0 ? `Min ${asMoney(asNumber(minimumFlat))}` : 'No minimum',
+  ].join(' · ');
+
   function lineDraftFromProduct(product: InventoryProduct | undefined, guideItem: Partial<OrderGuideItem> = {}): OrderLineDraft {
     const qty = String(guideItem.default_qty ?? '1');
     const itemNumber = normalizeText(product?.item_number);
@@ -352,23 +365,23 @@ export function OrderFormCard({
 
   useEffect(() => {
     let cancelled = false;
+    const lookups = pricingLinesRef.current
+      .map((line, index) => ({ line, index }))
+      .filter(({ line }) => normalizeText(line.productId) || normalizeText(line.itemNumber));
+
+    if (!selectedCustomerId) {
+      setResolvedLinePrices({});
+      setPricingError('');
+      return () => { cancelled = true; };
+    }
+
+    if (!lookups.length) {
+      setResolvedLinePrices({});
+      setPricingError('');
+      return () => { cancelled = true; };
+    }
+
     async function loadResolvedPrices() {
-      if (!selectedCustomerId) {
-        setResolvedLinePrices({});
-        setPricingError('');
-        return;
-      }
-
-      const lookups = lines
-        .map((line, index) => ({ line, index }))
-        .filter(({ line }) => normalizeText(line.productId) || normalizeText(line.itemNumber));
-
-      if (!lookups.length) {
-        setResolvedLinePrices({});
-        setPricingError('');
-        return;
-      }
-
       try {
         const entries = await Promise.all(lookups.map(async ({ line, index }) => {
           const productId = normalizeText(line.productId) || `item:${normalizeText(line.itemNumber)}`;
@@ -395,9 +408,14 @@ export function OrderFormCard({
       }
     }
 
-    void loadResolvedPrices();
-    return () => { cancelled = true; };
-  }, [lines, pricingLookupKey, selectedCustomerId]);
+    const timeoutId = setTimeout(() => {
+      void loadResolvedPrices();
+    }, 350);
+    return () => {
+      cancelled = true;
+      clearTimeout(timeoutId);
+    };
+  }, [pricingLookupKey, selectedCustomerId]);
 
   const browsableProducts = useMemo(() => {
     const needle = normalizeText(browseSearch).toLowerCase();
@@ -496,22 +514,22 @@ export function OrderFormCard({
           </label>
           <label className="space-y-1 text-sm">
             <span className="font-semibold text-muted-foreground">Delivery Type</span>
-            <select
+            <SelectInput
               value={fulfillmentType}
               onChange={(e) => setFulfillmentType(e.target.value === 'pickup' ? 'pickup' : 'delivery')}
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+              className="w-full"
             >
               <option value="delivery">Delivery</option>
               <option value="pickup">Pickup</option>
-            </select>
+            </SelectInput>
           </label>
           {fulfillmentType === 'delivery' && (
             <label className="space-y-1 text-sm">
               <span className="font-semibold text-muted-foreground">Assign to Route</span>
-              <select
+              <SelectInput
                 value={routeId}
                 onChange={(e) => setRouteId(e.target.value)}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                className="w-full"
               >
                 <option value="">— No route —</option>
                 {routes.map((r) => (
@@ -519,7 +537,7 @@ export function OrderFormCard({
                     {r.name || r.id}{r.driver ? ` · ${r.driver}` : ''}
                   </option>
                 ))}
-              </select>
+              </SelectInput>
             </label>
           )}
           <label className="space-y-1 text-sm">
@@ -574,17 +592,17 @@ export function OrderFormCard({
           <div className="flex flex-wrap items-end gap-2 rounded-md border border-border bg-muted/20 p-3">
             <label className="min-w-56 flex-1 space-y-1 text-sm">
               <span className="font-semibold text-muted-foreground">Order Guide</span>
-              <select
+              <SelectInput
                 value={selectedGuideId}
                 onChange={(event) => setSelectedGuideId(event.target.value)}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                className="w-full"
                 disabled={!orderGuides.length}
               >
                 <option value="">{orderGuides.length ? 'Select guide' : 'No guide'}</option>
                 {orderGuides.map((guide) => (
                   <option key={guide.id} value={guide.id}>{guide.name}</option>
                 ))}
-              </select>
+              </SelectInput>
             </label>
             <Button type="button" variant="outline" onClick={applySelectedGuide} disabled={!selectedGuideId}>
               Apply
@@ -617,30 +635,43 @@ export function OrderFormCard({
           <Input value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Special handling or packing notes" />
         </label>
 
-        <div className="grid gap-3 md:grid-cols-4">
-          <label className="space-y-1 text-sm">
-            <span className="font-semibold text-muted-foreground">Tax Enabled</span>
-            <select value={taxEnabled ? 'yes' : 'no'} onChange={(e) => setTaxEnabled(e.target.value === 'yes')}
-              className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm">
-              <option value="no">No</option>
-              <option value="yes">Yes</option>
-            </select>
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="font-semibold text-muted-foreground">Tax Rate</span>
-            <Input value={taxRate} onChange={(e) => setTaxRate(e.target.value)} placeholder="0.09" />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="font-semibold text-muted-foreground">Fuel %</span>
-            <Input value={fuelPercent} onChange={(e) => setFuelPercent(e.target.value)} placeholder="0" />
-          </label>
-          <label className="space-y-1 text-sm">
-            <span className="font-semibold text-muted-foreground">Service % / Min $</span>
-            <div className="flex gap-2">
-              <Input value={servicePercent} onChange={(e) => setServicePercent(e.target.value)} placeholder="0" />
-              <Input value={minimumFlat}    onChange={(e) => setMinimumFlat(e.target.value)}    placeholder="0" />
+        <div className="rounded-md border border-border bg-muted/20">
+          <button
+            type="button"
+            className="flex w-full flex-col gap-1 px-3 py-2 text-left sm:flex-row sm:items-center sm:justify-between"
+            aria-expanded={chargesOpen}
+            onClick={() => setChargesOpen((open) => !open)}
+          >
+            <span className="text-sm font-semibold text-foreground">Pricing & Charges</span>
+            <span className="text-xs text-muted-foreground">{chargesSummary}</span>
+          </button>
+          {chargesOpen ? (
+            <div className="grid gap-3 border-t border-border p-3 md:grid-cols-4">
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold text-muted-foreground">Tax Enabled</span>
+                <SelectInput value={taxEnabled ? 'yes' : 'no'} onChange={(e) => setTaxEnabled(e.target.value === 'yes')}
+                  className="w-full">
+                  <option value="no">No</option>
+                  <option value="yes">Yes</option>
+                </SelectInput>
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold text-muted-foreground">Tax Rate</span>
+                <Input value={taxRate} onChange={(e) => setTaxRate(e.target.value)} placeholder="0.09" />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold text-muted-foreground">Fuel %</span>
+                <Input value={fuelPercent} onChange={(e) => setFuelPercent(e.target.value)} placeholder="0" />
+              </label>
+              <label className="space-y-1 text-sm">
+                <span className="font-semibold text-muted-foreground">Service % / Min $</span>
+                <div className="flex gap-2">
+                  <Input value={servicePercent} onChange={(e) => setServicePercent(e.target.value)} placeholder="0" />
+                  <Input value={minimumFlat}    onChange={(e) => setMinimumFlat(e.target.value)}    placeholder="0" />
+                </div>
+              </label>
             </div>
-          </label>
+          ) : null}
         </div>
 
         {validationErrors.items && (
@@ -720,11 +751,11 @@ export function OrderFormCard({
                       {isCw ? (
                         <span className="inline-flex h-10 items-center px-3 text-sm text-muted-foreground">lb</span>
                       ) : (
-                        <select className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm"
+                        <SelectInput className="w-full"
                           value={line.unit} onChange={(e) => updateLine(index, 'unit', e.target.value as 'lb' | 'each')}>
                           <option value="lb">lb</option>
                           <option value="each">each</option>
-                        </select>
+                        </SelectInput>
                       )}
                     </TableCell>
                     <TableCell>
@@ -832,21 +863,18 @@ export function OrderFormCard({
       </CardContent>
 
       {browseLineIndex !== null ? (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-          <div className="absolute inset-0 bg-black/35" onClick={() => { setBrowseLineIndex(null); setBrowseSearch(''); }} />
-          <div className="relative z-10 w-full max-w-5xl rounded-2xl border border-border bg-background shadow-2xl">
-            <div className="flex flex-col gap-3 border-b border-border px-5 py-4 md:flex-row md:items-center md:justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">Browse Inventory</h2>
-                <p className="text-sm text-muted-foreground">Choose a product for line {browseLineIndex + 1}. Out-of-stock items stay selectable so the order can be built before the truck arrives.</p>
-              </div>
-              <div className="flex gap-2">
-                <Input value={browseSearch} onChange={(e) => setBrowseSearch(e.target.value)} placeholder="Search item #, description, or unit" className="w-72" />
-                <Button type="button" variant="ghost" onClick={() => { setBrowseLineIndex(null); setBrowseSearch(''); }}>Close</Button>
-              </div>
-            </div>
-            <div className="max-h-[70vh] overflow-auto p-5">
-              <div className="rounded-lg border border-border">
+        <Modal
+          open
+          title="Browse Inventory"
+          description={`Choose a product for line ${browseLineIndex + 1}. Out-of-stock items stay selectable so the order can be built before the truck arrives.`}
+          onClose={() => { setBrowseLineIndex(null); setBrowseSearch(''); }}
+          widthClassName="max-w-5xl"
+          contentClassName="max-h-[70vh] overflow-auto px-5 py-4"
+          actions={
+            <Input value={browseSearch} onChange={(e) => setBrowseSearch(e.target.value)} placeholder="Search item #, description, or unit" className="w-72" />
+          }
+        >
+          <div className="rounded-lg border border-border">
                 <Table>
                   <TableHeader>
                     <TableRow>
@@ -893,9 +921,7 @@ export function OrderFormCard({
                   </TableBody>
                 </Table>
               </div>
-            </div>
-          </div>
-        </div>
+        </Modal>
       ) : null}
     </Card>
   );
@@ -909,10 +935,10 @@ function LotSelector({ lots, value, isFtl, onChange }: {
 }) {
   return (
     <div className="space-y-0.5">
-      <select
+      <SelectInput
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className={['h-10 w-full rounded-md border bg-background px-3 text-sm', isFtl && !value ? 'border-amber-400 ring-1 ring-amber-300' : 'border-input'].join(' ')}
+        className={cn('w-full', isFtl && !value && 'border-amber-400 ring-1 ring-amber-300')}
       >
         <option value="">{isFtl ? '— Select lot (required) —' : '— No lot —'}</option>
         {lots.map((lot) => {
@@ -927,7 +953,7 @@ function LotSelector({ lots, value, isFtl, onChange }: {
             </option>
           );
         })}
-      </select>
+      </SelectInput>
       {isFtl && !value && <p className="text-xs text-amber-600">Lot required for FTL product (FSMA 204)</p>}
       {isFtl && lots.length === 0 && <p className="text-xs text-muted-foreground">No active lots on file — receive a PO first</p>}
     </div>

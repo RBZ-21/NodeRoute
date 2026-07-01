@@ -1,8 +1,9 @@
 /// <reference types="vite/client" />
-import { Bell, BellOff, CheckCircle2, Clock, Loader2, MapPin, Navigation, Package, Truck } from 'lucide-react';
+import { Bell, BellOff, CheckCircle2, Clock, Loader2, MapPin, Navigation, Truck } from 'lucide-react';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
+import { LoadingSkeleton } from '../components/ui/data-state';
 import { useTrackingData } from '../hooks/useTrack';
 
 const ENV_MAP_KEY = (import.meta.env.VITE_GOOGLE_MAPS_KEY || import.meta.env.VITE_MAP_API_KEY) as string | undefined;
@@ -305,8 +306,8 @@ export function TrackPage() {
             <CardHeader className="pb-2"><CardTitle className="flex items-center gap-2 text-base"><Navigation className="h-4 w-4 text-primary" />Live Map</CardTitle></CardHeader>
             <CardContent className="p-0">
               <div ref={mapRef} className="h-64 w-full bg-muted/40">
-                <div className="flex h-full items-center justify-center text-sm text-muted-foreground">
-                  <Package className="mr-2 h-4 w-4" />Loading map…
+                <div className="flex h-full items-center justify-center p-6">
+                  <LoadingSkeleton rows={4} label="Loading map" className="w-full max-w-sm bg-background/70" />
                 </div>
               </div>
             </CardContent>

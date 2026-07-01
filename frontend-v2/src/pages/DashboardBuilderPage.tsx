@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Save } from 'lucide-react';
 import { Button } from '../components/ui/button';
+import { SelectInput } from '../components/ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { LoadingSkeleton } from '../components/ui/data-state';
 import { useDashboardLayout, useSaveDashboardLayout } from '../hooks/useUserPreferences';
 
 const VIEW_TYPES = ['inventory', 'customer', 'vendor', 'salesperson', 'brand', 'class'] as const;
@@ -66,20 +68,17 @@ export function DashboardBuilderPage() {
         <CardContent className="space-y-5">
           <label className="flex max-w-xs flex-col gap-1.5 text-sm">
             <span className="font-semibold text-muted-foreground">View</span>
-            <select
+            <SelectInput
               value={viewType}
               onChange={(event) => setViewType(event.target.value as ViewType)}
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
             >
               {VIEW_TYPES.map((view) => (
                 <option key={view} value={view}>{view}</option>
               ))}
-            </select>
+            </SelectInput>
           </label>
 
-          {layoutQuery.isLoading ? (
-            <div className="rounded-md border border-border bg-muted/50 px-4 py-3 text-sm text-muted-foreground">Loading layout...</div>
-          ) : null}
+          {layoutQuery.isLoading ? <LoadingSkeleton rows={2} label="Loading dashboard layout" /> : null}
 
           <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
             {WIDGETS.map((widget) => (

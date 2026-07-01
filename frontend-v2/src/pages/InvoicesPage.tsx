@@ -1,7 +1,17 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { StatCard } from '../components/ui/stat-card';
+import { DetailField } from '../components/ui/detail-field';
+import { SlideOver } from '../components/ui/overlay-panel';
+import { useToast } from '../components/ui/toast';
 import { Input } from '../components/ui/input';
+import { SelectInput } from '../components/ui/select-input';
+import { PaginationControls } from '../components/ui/pagination';
+import { ActionMenu } from '../components/ui/action-menu';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
+import { TableEmptyState } from '../components/ui/data-state';
 import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import {
@@ -15,10 +25,12 @@ import {
   useUpdateInvoice,
 } from '../hooks/useInvoices';
 import { type InvoiceFollowUpResult, useInvoiceFollowUp, useLatePaymentRisk } from '../hooks/useAI';
+import { usePagination } from '../hooks/usePagination';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { AiInsightBanner } from '../components/ui/ai-insight-banner';
 
 type InvoiceStatus = 'pending' | 'sent' | 'delivered' | 'paid' | 'overdue' | 'void' | 'other';
+type InvoiceBulkStatus = Exclude<InvoiceStatus, 'other'>;
 
 const statusColors = {
   pending: 'gray',
@@ -117,6 +129,7 @@ function toneLabel(tone: InvoiceFollowUpResult['tone'] | undefined): string {
 }
 
 export function InvoicesPage() {
+  const navigate = useNavigate();
   const { data: invoices = [], isLoading, isError, error, refetch } = useInvoices();
   const updateInvoice = useUpdateInvoice();
   const deleteInvoice = useDeleteInvoice();
@@ -126,8 +139,7 @@ export function InvoicesPage() {
   const latePaymentRisk = useLatePaymentRisk(true);
   const { isPending: invoiceFollowUpPending, mutate: mutateInvoiceFollowUp } = useInvoiceFollowUp();
 
-  const [actionError, setActionError] = useState('');
-  const [notice, setNotice] = useState('');
+  const toast = useToast();
   const [statusFilter, setStatusFilter] = useState<'all' | InvoiceStatus>('all');
   const [search, setSearch] = useState('');
   const [activeDate, setActiveDate] = useState(() => dateInputValue());
@@ -141,6 +153,11 @@ export function InvoicesPage() {
   const [followUpError, setFollowUpError] = useState('');
   const [markingPaidInvoiceId, setMarkingPaidInvoiceId] = useState<string | null>(null);
   const [markingDeliveredInvoiceId, setMarkingDeliveredInvoiceId] = useState<string | null>(null);
+  const [selectedInvoiceIds, setSelectedInvoiceIds] = useState<Set<string>>(() => new Set());
+  const [bulkInvoiceStatus, setBulkInvoiceStatus] = useState<InvoiceBulkStatus>('delivered');
+  const [bulkUpdatingInvoices, setBulkUpdatingInvoices] = useState(false);
+  const [activeInvoicePageSize, setActiveInvoicePageSize] = useState(25);
+  const [deliveredInvoicePageSize, setDeliveredInvoicePageSize] = useState(25);
   const [addonDraft, setAddonDraft] = useState({ product_id: '', qty: '1', uom: 'each', price: '', reason: '' });
   const [returnDraft, setReturnDraft] = useState({ amount: '', reason: '' });
 
@@ -183,8 +200,23 @@ export function InvoicesPage() {
     return filtered.filter((invoice) => normalizeStatus(invoice.status) === 'delivered');
   }, [filtered]);
 
+  const activeInvoicePagination = usePagination(activeInvoicesForDay, activeInvoicePageSize);
+  const deliveredInvoicePagination = usePagination(deliveredInvoices, deliveredInvoicePageSize);
+
+  const activeInvoiceIds = useMemo(
+    () => activeInvoicePagination.pageItems.map((invoice) => String(invoice.id || '')).filter(Boolean),
+    [activeInvoicePagination.pageItems],
+  );
+  const selectedVisibleInvoiceIds = activeInvoiceIds.filter((id) => selectedInvoiceIds.has(id));
+  const allVisibleInvoicesSelected = activeInvoiceIds.length > 0 && selectedVisibleInvoiceIds.length === activeInvoiceIds.length;
+
   const topRisks = useMemo(() => (latePaymentRisk.data?.risks || []).slice(0, 3), [latePaymentRisk.data]);
   const selectedRisk = selected ? riskByCustomer.get(customerName(selected).toLowerCase()) : undefined;
+
+  useEffect(() => {
+    const visibleIds = new Set(activeInvoiceIds);
+    setSelectedInvoiceIds((current) => new Set([...current].filter((id) => visibleIds.has(id))));
+  }, [activeInvoiceIds]);
 
   useEffect(() => {
     if (!selected) {
@@ -301,7 +333,7 @@ export function InvoicesPage() {
     if (!id) return;
     deleteInvoice.mutate(id, {
       onSuccess: () => {
-        setNotice(`Invoice ${invoiceId(selected!)} deleted.`);
+        toast.success(`Invoice ${invoiceId(selected!)} deleted.`);
         setSelected(null);
         setConfirmDelete(false);
       },
@@ -317,7 +349,7 @@ export function InvoicesPage() {
         onSuccess: () => {
           setSelected({ ...selected!, ...draft });
           setEditing(false);
-          setNotice(`Invoice ${invoiceId(selected!)} saved.`);
+          toast.success(`Invoice ${invoiceId(selected!)} saved.`);
         },
       }
     );
@@ -327,13 +359,9 @@ export function InvoicesPage() {
     const id = inv.id;
     if (!id) return;
     resendInvoiceEmail.mutate(id, {
-      onSuccess: () => {
-        setActionError('');
-        setNotice(`Invoice ${invoiceId(inv)} emailed.`);
+      onSuccess: () => {        toast.success(`Invoice ${invoiceId(inv)} emailed.`);
       },
-      onError: (mutationError) => {
-        setNotice('');
-        setActionError(String((mutationError as Error)?.message || 'Could not resend invoice email'));
+      onError: (mutationError) => {        toast.error(String((mutationError as Error)?.message || 'Could not resend invoice email'));
       },
     });
   }
@@ -341,9 +369,7 @@ export function InvoicesPage() {
   function markInvoicePaid(inv: Invoice) {
     const id = inv.id;
     if (!id || normalizeStatus(inv.status) === 'paid') return;
-    const idString = String(id);
-    setActionError('');
-    setMarkingPaidInvoiceId(idString);
+    const idString = String(id);    setMarkingPaidInvoiceId(idString);
     updateInvoice.mutate(
       { id, patch: { status: 'paid' } },
       {
@@ -353,10 +379,10 @@ export function InvoicesPage() {
             setSelected({ ...selected, ...paidInvoice });
             setDraft((current) => ({ ...current, ...paidInvoice }));
           }
-          setNotice(`Invoice ${invoiceId(inv)} marked paid.`);
+          toast.success(`Invoice ${invoiceId(inv)} marked paid.`);
         },
         onError: (mutationError) => {
-          setActionError(String((mutationError as Error)?.message || 'Could not mark invoice paid'));
+          toast.error(String((mutationError as Error)?.message || 'Could not mark invoice paid'));
         },
         onSettled: () => {
           setMarkingPaidInvoiceId(null);
@@ -369,9 +395,7 @@ export function InvoicesPage() {
     const id = inv.id;
     const status = normalizeStatus(inv.status);
     if (!id || status === 'delivered' || status === 'paid') return;
-    const idString = String(id);
-    setActionError('');
-    setMarkingDeliveredInvoiceId(idString);
+    const idString = String(id);    setMarkingDeliveredInvoiceId(idString);
     updateInvoice.mutate(
       { id, patch: { status: 'delivered' } },
       {
@@ -381,16 +405,55 @@ export function InvoicesPage() {
             setSelected({ ...selected, ...deliveredInvoice });
             setDraft((current) => ({ ...current, ...deliveredInvoice }));
           }
-          setNotice(`Invoice ${invoiceId(inv)} marked delivered.`);
+          toast.success(`Invoice ${invoiceId(inv)} marked delivered.`);
         },
         onError: (mutationError) => {
-          setActionError(String((mutationError as Error)?.message || 'Could not mark invoice delivered'));
+          toast.error(String((mutationError as Error)?.message || 'Could not mark invoice delivered'));
         },
         onSettled: () => {
           setMarkingDeliveredInvoiceId(null);
         },
       }
     );
+  }
+
+  function toggleInvoiceSelected(invoice: Invoice, checked: boolean) {
+    const id = String(invoice.id || '');
+    if (!id) return;
+    setSelectedInvoiceIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function toggleAllVisibleInvoices(checked: boolean) {
+    setSelectedInvoiceIds((current) => {
+      const next = new Set(current);
+      for (const id of activeInvoiceIds) {
+        if (checked) next.add(id);
+        else next.delete(id);
+      }
+      return next;
+    });
+  }
+
+  async function applyBulkInvoiceStatus() {
+    if (!selectedVisibleInvoiceIds.length) return;
+    const statusLabel = bulkInvoiceStatus.replace('_', ' ');
+    if (!confirm(`Mark ${selectedVisibleInvoiceIds.length} invoice${selectedVisibleInvoiceIds.length === 1 ? '' : 's'} as ${statusLabel}?`)) return;
+    setBulkUpdatingInvoices(true);
+    try {
+      await Promise.all(selectedVisibleInvoiceIds.map((id) => updateInvoice.mutateAsync({ id, patch: { status: bulkInvoiceStatus } })));
+      setSelectedInvoiceIds(new Set());
+      toast.success(`${selectedVisibleInvoiceIds.length} invoice${selectedVisibleInvoiceIds.length === 1 ? '' : 's'} marked ${statusLabel}.`);
+      await refetch();
+    } catch (mutationError) {
+      toast.error(String((mutationError as Error)?.message || 'Could not update selected invoices'));
+    } finally {
+      setBulkUpdatingInvoices(false);
+    }
   }
 
   function generateFollowUpForInvoice(inv: Invoice) {
@@ -418,20 +481,18 @@ export function InvoicesPage() {
     const content = `Subject: ${followUpDraft.subject}\n\n${followUpDraft.body}`;
     try {
       await navigator.clipboard.writeText(content);
-      setNotice(selected ? `AI follow-up copied for invoice ${invoiceId(selected)}.` : 'AI follow-up copied.');
+      toast.success(selected ? `AI follow-up copied for invoice ${invoiceId(selected)}.` : 'AI follow-up copied.');
     } catch {
-      setActionError('Could not copy follow-up to clipboard');
+      toast.error('Could not copy follow-up to clipboard');
     }
   }
 
   function submitAddon() {
     const id = selected?.id;
     if (!id || !addonDraft.product_id.trim()) {
-      setActionError('Product ID is required for an add-on.');
+      toast.error('Product ID is required for an add-on.');
       return;
-    }
-    setActionError('');
-    addInvoiceAddon.mutate(
+    }    addInvoiceAddon.mutate(
       {
         id,
         payload: {
@@ -449,10 +510,10 @@ export function InvoicesPage() {
             setDraft((current) => ({ ...current, ...result.invoice }));
           }
           setAddonDraft({ product_id: '', qty: '1', uom: 'each', price: '', reason: '' });
-          setNotice(`Add-on saved for invoice ${selected ? invoiceId(selected) : ''}.`);
+          toast.success(`Add-on saved for invoice ${selected ? invoiceId(selected) : ''}.`);
         },
         onError: (mutationError) => {
-          setActionError(String((mutationError as Error)?.message || 'Could not add invoice item'));
+          toast.error(String((mutationError as Error)?.message || 'Could not add invoice item'));
         },
       },
     );
@@ -461,11 +522,9 @@ export function InvoicesPage() {
   function submitReturnCredit() {
     const id = selected?.id;
     if (!id || !returnDraft.reason.trim()) {
-      setActionError('Return reason is required.');
+      toast.error('Return reason is required.');
       return;
-    }
-    setActionError('');
-    createInvoiceReturn.mutate(
+    }    createInvoiceReturn.mutate(
       {
         id,
         payload: {
@@ -476,23 +535,36 @@ export function InvoicesPage() {
       {
         onSuccess: () => {
           setReturnDraft({ amount: '', reason: '' });
-          setNotice(`Credit memo issued for invoice ${selected ? invoiceId(selected) : ''}.`);
+          toast.success(`Credit memo issued for invoice ${selected ? invoiceId(selected) : ''}.`);
         },
         onError: (mutationError) => {
-          setActionError(String((mutationError as Error)?.message || 'Could not create return credit'));
+          toast.error(String((mutationError as Error)?.message || 'Could not create return credit'));
         },
       },
     );
   }
 
-  function renderInvoiceRows(rows: Invoice[], emptyMessage: string) {
+  function renderInvoiceRows(rows: Invoice[], emptyMessage: string, selectable = false) {
     return rows.length ? rows.map((inv) => {
       const status = normalizeStatus(inv.status);
       const isDelivered = status === 'delivered';
       const isPaid = status === 'paid';
       const risk = riskByCustomer.get(customerName(inv).toLowerCase());
+      const selectableId = String(inv.id || '');
       return (
         <TableRow key={invoiceId(inv)}>
+          {selectable ? (
+            <TableCell>
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={Boolean(selectableId && selectedInvoiceIds.has(selectableId))}
+                onChange={(event) => toggleInvoiceSelected(inv, event.target.checked)}
+                aria-label={`Select invoice ${invoiceId(inv)}`}
+                disabled={!selectableId || bulkUpdatingInvoices}
+              />
+            </TableCell>
+          ) : null}
           <TableCell className="font-medium whitespace-nowrap">{invoiceId(inv)}</TableCell>
           <TableCell className="max-w-[140px] truncate">{customerName(inv)}</TableCell>
           <TableCell className="hidden sm:table-cell">
@@ -513,61 +585,113 @@ export function InvoicesPage() {
           <TableCell className="hidden md:table-cell whitespace-nowrap">{formatDate(inv.dueDate || inv.due_date)}</TableCell>
           <TableCell className="hidden md:table-cell whitespace-nowrap">{formatDate(inv.paidDate || inv.paid_date)}</TableCell>
           <TableCell className="text-right">
-            <div className="flex justify-end gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                className={`whitespace-nowrap${isDelivered ? ' border-green-500 bg-green-50 text-green-700 hover:bg-green-100' : ''}`}
-                disabled={isDelivered || isPaid || (updateInvoice.isPending && markingDeliveredInvoiceId === String(inv.id || ''))}
-                onClick={() => markInvoiceDelivered(inv)}
-              >
-                {updateInvoice.isPending && markingDeliveredInvoiceId === String(inv.id || '') ? 'Saving...' : 'Delivered'}
-              </Button>
-              <Button
-                size="sm"
-                variant={isPaid ? 'outline' : 'default'}
-                className="whitespace-nowrap"
-                disabled={isPaid || (updateInvoice.isPending && markingPaidInvoiceId === String(inv.id || ''))}
-                onClick={() => markInvoicePaid(inv)}
-              >
-                {updateInvoice.isPending && markingPaidInvoiceId === String(inv.id || '') ? 'Saving...' : 'PAID'}
-              </Button>
-              <Button
-                size="sm"
-                variant="outline"
-                className="whitespace-nowrap"
-                disabled={resendInvoiceEmail.isPending}
-                onClick={() => resendInvoice(inv)}
-              >
-                {resendInvoiceEmail.isPending ? 'Sending...' : 'Resend Email'}
-              </Button>
-              {shouldSuggestFollowUp(inv) ? (
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="whitespace-nowrap"
-                  disabled={invoiceFollowUpPending && followUpInvoiceId === String(inv.id || '')}
-                  onClick={() => generateFollowUpForInvoice(inv)}
-                >
-                  {invoiceFollowUpPending && followUpInvoiceId === String(inv.id || '') ? 'Drafting...' : 'AI Follow-Up'}
-                </Button>
-              ) : null}
+            <div className="flex justify-end gap-1">
               <Button size="sm" className="whitespace-nowrap" onClick={() => openInvoice(inv)}>View / Edit</Button>
+              <ActionMenu
+                items={[
+                  {
+                    label: updateInvoice.isPending && markingDeliveredInvoiceId === String(inv.id || '') ? 'Saving...' : 'Delivered',
+                    onClick: () => markInvoiceDelivered(inv),
+                    disabled: isDelivered || isPaid || (updateInvoice.isPending && markingDeliveredInvoiceId === String(inv.id || '')),
+                  },
+                  {
+                    label: updateInvoice.isPending && markingPaidInvoiceId === String(inv.id || '') ? 'Saving...' : 'PAID',
+                    onClick: () => markInvoicePaid(inv),
+                    disabled: isPaid || (updateInvoice.isPending && markingPaidInvoiceId === String(inv.id || '')),
+                  },
+                  {
+                    label: resendInvoiceEmail.isPending ? 'Sending...' : 'Resend Email',
+                    onClick: () => resendInvoice(inv),
+                    disabled: resendInvoiceEmail.isPending,
+                  },
+                  {
+                    label: invoiceFollowUpPending && followUpInvoiceId === String(inv.id || '') ? 'Drafting...' : 'AI Follow-Up',
+                    onClick: () => generateFollowUpForInvoice(inv),
+                    disabled: invoiceFollowUpPending && followUpInvoiceId === String(inv.id || ''),
+                    hidden: !shouldSuggestFollowUp(inv),
+                  },
+                ]}
+              />
             </div>
           </TableCell>
         </TableRow>
       );
     }) : (
-      <TableRow><TableCell colSpan={11} className="text-muted-foreground">{emptyMessage}</TableCell></TableRow>
+      <TableEmptyState
+        colSpan={selectable ? 12 : 11}
+        title={emptyMessage}
+        description={selectable ? 'Create an order to generate invoices for the selected day.' : 'Delivered invoices appear here after fulfillment is marked complete.'}
+        actionLabel="Create Order"
+        onAction={() => navigate('/orders')}
+      />
     );
   }
 
-  function invoiceTable(rows: Invoice[], emptyMessage: string) {
+  function invoiceTable(
+    rows: Invoice[],
+    emptyMessage: string,
+    selectable = false,
+    pagination?: {
+      page: number;
+      pageCount: number;
+      setPage: (page: number) => void;
+      itemCount: number;
+      pageSize: number;
+    },
+    onPageSizeChange?: (pageSize: number) => void,
+  ) {
     return (
       <div className="overflow-x-auto rounded-lg border border-border">
-        <Table className="min-w-[860px]">
+        {selectable ? (
+          <div className="flex flex-col gap-2 border-b border-border bg-muted/20 p-2 text-sm sm:flex-row sm:items-center sm:justify-between">
+            <label className="flex items-center gap-2 font-medium">
+              <input
+                type="checkbox"
+                className="h-4 w-4"
+                checked={allVisibleInvoicesSelected}
+                onChange={(event) => toggleAllVisibleInvoices(event.target.checked)}
+                aria-label="Select all visible invoices"
+                disabled={!activeInvoiceIds.length || bulkUpdatingInvoices}
+              />
+              Select All
+              <span className="text-xs font-normal text-muted-foreground">
+                {selectedVisibleInvoiceIds.length} selected
+              </span>
+            </label>
+            <div className="flex flex-wrap items-center gap-2">
+              <SelectInput
+                value={bulkInvoiceStatus}
+                onChange={(event) => setBulkInvoiceStatus(event.target.value as InvoiceBulkStatus)}
+                className="h-9 px-2"
+                aria-label="Bulk invoice status"
+                disabled={!selectedVisibleInvoiceIds.length || bulkUpdatingInvoices}
+              >
+                <option value="pending">Pending</option>
+                <option value="sent">Sent</option>
+                <option value="delivered">Delivered</option>
+                <option value="paid">Paid</option>
+                <option value="overdue">Overdue</option>
+                <option value="void">Voided</option>
+              </SelectInput>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => void applyBulkInvoiceStatus()}
+                disabled={!selectedVisibleInvoiceIds.length || bulkUpdatingInvoices}
+              >
+                {bulkUpdatingInvoices ? 'Updating...' : 'Apply Bulk Status'}
+              </Button>
+            </div>
+          </div>
+        ) : null}
+        <Table className="min-w-[900px]">
           <TableHeader>
             <TableRow>
+              {selectable ? (
+                <TableHead className="w-10">
+                  <span className="sr-only">Select</span>
+                </TableHead>
+              ) : null}
               <TableHead>Invoice #</TableHead>
               <TableHead>Customer</TableHead>
               <TableHead className="hidden sm:table-cell">AI Risk</TableHead>
@@ -581,8 +705,18 @@ export function InvoicesPage() {
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>{renderInvoiceRows(rows, emptyMessage)}</TableBody>
+          <TableBody>{renderInvoiceRows(rows, emptyMessage, selectable)}</TableBody>
         </Table>
+        {pagination && pagination.itemCount ? (
+          <PaginationControls
+            page={pagination.page}
+            pageCount={pagination.pageCount}
+            setPage={pagination.setPage}
+            itemCount={pagination.itemCount}
+            pageSize={pagination.pageSize}
+            onPageSizeChange={onPageSizeChange}
+          />
+        ) : null}
       </div>
     );
   }
@@ -590,16 +724,14 @@ export function InvoicesPage() {
   return (
     <div className="space-y-5">
       <AiInsightBanner types={['collections']} />
-      {isLoading ? <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading invoices...</div> : null}
+      {isLoading ? <PageSkeleton /> : null}
       {isError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{String((error as Error)?.message || 'Could not load invoices')}</div> : null}
-      {actionError ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{actionError}</div> : null}
-      {notice ? <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{notice}</div> : null}
 
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <SummaryCard label="Total" value={summary.total.toLocaleString()} />
-        <SummaryCard label="Paid" value={summary.paid.toLocaleString()} />
-        <SummaryCard label="Overdue" value={summary.overdue.toLocaleString()} />
-        <SummaryCard label="Outstanding" value={summary.outstanding.toLocaleString()} />
+        <StatCard label="Total" value={summary.total.toLocaleString()} />
+        <StatCard label="Paid" value={summary.paid.toLocaleString()} />
+        <StatCard label="Overdue" value={summary.overdue.toLocaleString()} />
+        <StatCard label="Outstanding" value={summary.outstanding.toLocaleString()} />
       </div>
 
       <Card className="border-amber-200 bg-gradient-to-br from-amber-50 via-background to-red-50">
@@ -667,7 +799,7 @@ export function InvoicesPage() {
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
-              <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | InvoiceStatus)} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <SelectInput value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | InvoiceStatus)}>
                 <option value="all">All</option>
                 <option value="pending">Pending</option>
                 <option value="sent">Sent</option>
@@ -675,7 +807,7 @@ export function InvoicesPage() {
                 <option value="paid">Paid</option>
                 <option value="overdue">Overdue</option>
                 <option value="void">Voided</option>
-              </select>
+              </SelectInput>
             </label>
             <label className="space-y-1 text-sm">
               <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Search</span>
@@ -685,7 +817,7 @@ export function InvoicesPage() {
           </div>
         </CardHeader>
         <CardContent className="p-0 sm:p-2">
-          {invoiceTable(activeInvoicesForDay, 'No active invoices found for this day.')}
+          {invoiceTable(activeInvoicePagination.pageItems, 'No active invoices found for this day.', true, activeInvoicePagination, setActiveInvoicePageSize)}
         </CardContent>
       </Card>
 
@@ -702,7 +834,7 @@ export function InvoicesPage() {
         </CardHeader>
         {deliveredOpen ? (
           <CardContent className="p-0 sm:p-2">
-            {invoiceTable(deliveredInvoices, 'No delivered invoices match the current filters.')}
+            {invoiceTable(deliveredInvoicePagination.pageItems, 'No delivered invoices match the current filters.', false, deliveredInvoicePagination, setDeliveredInvoicePageSize)}
           </CardContent>
         ) : null}
       </Card>
@@ -712,15 +844,14 @@ export function InvoicesPage() {
         const selDelivered = selStatus === 'delivered';
         const selPaid = selStatus === 'paid';
         return (
-          <div className="fixed inset-0 z-50 flex justify-end">
-            <div className="absolute inset-0 bg-black/30" onClick={() => setSelected(null)} />
-            <div className="relative z-10 flex h-full w-full max-w-2xl flex-col overflow-y-auto bg-background shadow-xl">
-              <div className="flex items-center justify-between border-b px-6 py-4">
-                <div>
-                  <h2 className="text-lg font-semibold">{invoiceId(selected)}</h2>
-                  <p className="text-sm text-muted-foreground">{customerName(selected)}</p>
-                </div>
-                <div className="flex flex-wrap gap-2">
+          <SlideOver
+            open
+            title={invoiceId(selected)}
+            description={customerName(selected)}
+            onClose={() => { setSelected(null); setConfirmDelete(false); }}
+            widthClassName="max-w-2xl"
+            actions={
+              <div className="flex flex-wrap items-center justify-end gap-2">
                   {!confirmDelete && (
                     <Button
                       size="sm"
@@ -749,7 +880,7 @@ export function InvoicesPage() {
                       disabled={invoicePrintBlocked(selected)}
                       onClick={() => {
                         if (invoicePrintBlocked(selected)) {
-                          setNotice(`Invoice ${invoiceId(selected)} cannot be printed until final weights are entered.`);
+                          toast.success(`Invoice ${invoiceId(selected)} cannot be printed until final weights are entered.`);
                           return;
                         }
                         printInvoiceSummary(selected);
@@ -797,10 +928,10 @@ export function InvoicesPage() {
                       <Button size="sm" disabled={deleteInvoice.isPending} onClick={handleDelete}>{deleteInvoice.isPending ? 'Deleting...' : 'Yes'}</Button>
                     </>
                   )}
-                  <Button size="sm" variant="ghost" onClick={() => { setSelected(null); setConfirmDelete(false); }} aria-label="Close invoice details">X</Button>
-                </div>
               </div>
-              <div className="flex-1 space-y-4 p-6">
+            }
+          >
+            <div className="space-y-4">
                 <div className="grid gap-3 lg:grid-cols-3">
                   <div className="rounded-lg border border-border bg-muted/20 px-4 py-3">
                     <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Invoice Summary</div>
@@ -965,30 +1096,30 @@ export function InvoicesPage() {
                   </Card>
                 ) : null}
 
-                <InvoiceField label="Invoice #" value={draft.invoiceNumber || draft.invoice_number} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, invoiceNumber: v }))} />
-                <InvoiceField label="Customer" value={draft.customerName || draft.customer_name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, customerName: v }))} />
+                <DetailField label="Invoice #" value={draft.invoiceNumber || draft.invoice_number} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, invoiceNumber: v }))} />
+                <DetailField label="Customer" value={draft.customerName || draft.customer_name} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, customerName: v }))} />
                 <div className="flex items-start gap-3">
                   <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Order Date</span>
                   <span className="text-sm">{formatDate(selected.created_at || selected.issuedDate || selected.issued_date)}</span>
                 </div>
-                <InvoiceField label="Amount" value={String(draft.amount ?? '')} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, amount: v }))} />
+                <DetailField label="Amount" value={String(draft.amount ?? '')} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, amount: v }))} />
                 <div className="flex items-start gap-3">
                   <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Status</span>
                   {editing ? (
-                    <select value={draft.status || ''} onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value }))} className="h-10 flex-1 rounded-md border border-input bg-background px-3 text-sm">
+                    <SelectInput value={draft.status || ''} onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value }))} className="flex-1">
                       <option value="pending">Pending</option>
                       <option value="sent">Sent</option>
                       <option value="delivered">Delivered</option>
                       <option value="paid">Paid</option>
                       <option value="overdue">Overdue</option>
                       <option value="void">Voided</option>
-                    </select>
+                    </SelectInput>
                   ) : (
                     <span className="text-sm capitalize">{selected.status || '-'}</span>
                   )}
                 </div>
-                <InvoiceField label="Due Date" value={draft.dueDate || draft.due_date} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, dueDate: v }))} />
-                <InvoiceField label="Notes" value={draft.notes} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} multiline />
+                <DetailField label="Due Date" value={draft.dueDate || draft.due_date} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, dueDate: v }))} />
+                <DetailField label="Notes" value={draft.notes} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, notes: v }))} multiline />
 
                 {(selected.lot_numbers && selected.lot_numbers.length > 0) && (
                   <div className="space-y-2">
@@ -1020,33 +1151,9 @@ export function InvoicesPage() {
                   </div>
                 )}
               </div>
-            </div>
-          </div>
+          </SlideOver>
         );
       })()}
     </div>
-  );
-}
-
-function InvoiceField({ label, value, editing, onChange, multiline }: { label: string; value?: string | null; editing: boolean; onChange: (v: string) => void; multiline?: boolean }) {
-  return (
-    <div className="flex items-start gap-3">
-      <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">{label}</span>
-      {editing ? (
-        multiline ? (
-          <textarea className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm" rows={3} value={value || ''} onChange={(e) => onChange(e.target.value)} />
-        ) : (
-          <Input className="flex-1" value={value || ''} onChange={(e) => onChange(e.target.value)} />
-        )
-      ) : (
-        <span className="text-sm">{value || '-'}</span>
-      )}
-    </div>
-  );
-}
-
-function SummaryCard({ label, value }: { label: string; value: string }) {
-  return (
-    <Card><CardHeader className="space-y-1"><CardDescription>{label}</CardDescription><CardTitle className="text-2xl">{value}</CardTitle></CardHeader></Card>
   );
 }

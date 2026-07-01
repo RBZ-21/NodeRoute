@@ -1,7 +1,13 @@
 import { useEffect, useState } from 'react';
 import { Button } from '../components/ui/button';
+import { SelectInput } from '../components/ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { StatCard } from '../components/ui/stat-card';
+import { useToast } from '../components/ui/toast';
+import { Modal } from '../components/ui/overlay-panel';
 import { Input } from '../components/ui/input';
+import { PageSkeleton } from '../components/layout/PageSkeleton';
+import { TableEmptyState } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
 
@@ -84,6 +90,7 @@ export function CompaniesPage() {
   const [analytics, setAnalytics]     = useState<VerticalAnalytics | null>(null);
   const [loading, setLoading]         = useState(true);
   const [error, setError]             = useState('');
+  const toast = useToast();
   const [search, setSearch]           = useState('');
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'trial' | 'suspended'>('all');
   const [impersonating, setImpersonating] = useState<string | null>(null);
@@ -139,7 +146,7 @@ export function CompaniesPage() {
       localStorage.setItem('nr_user', JSON.stringify(res.user));
       window.location.href = '/dashboard';
     } catch (err) {
-      alert(`Could not switch to ${company.name}: ${(err as Error).message}`);
+      toast.error(`Could not switch to ${company.name}: ${(err as Error).message}`);
     } finally {
       setImpersonating(null);
     }
@@ -152,7 +159,7 @@ export function CompaniesPage() {
       await sendWithAuth(`/api/superadmin/companies/${company.id}/status?status=${next}`, 'POST');
       await load();
     } catch (err) {
-      alert(String((err as Error).message));
+      toast.error(String((err as Error).message));
     }
   }
 
@@ -164,7 +171,7 @@ export function CompaniesPage() {
       await sendWithAuth(`/api/superadmin/companies/${company.id}`, 'PATCH', { portal_ordering_enabled: next });
       await load();
     } catch (err) {
-      alert(String((err as Error).message));
+      toast.error(String((err as Error).message));
     }
   }
 
@@ -176,15 +183,15 @@ export function CompaniesPage() {
         Use <strong>Inspect</strong> to temporarily switch into a company's context for troubleshooting.
       </div>
 
-      {loading && <div className="rounded-md border border-border bg-muted/50 px-4 py-2 text-sm">Loading companies…</div>}
+      {loading && <PageSkeleton />}
       {error   && <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{error}</div>}
 
       {/* Stats */}
       <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-        <StatCard label="Total Companies" value={stats.total.toLocaleString()} color="" />
-        <StatCard label="Active"          value={stats.active.toLocaleString()} color="text-emerald-600" />
-        <StatCard label="Trial"           value={stats.trial.toLocaleString()} color="text-amber-600" />
-        <StatCard label="Suspended"       value={stats.suspended.toLocaleString()} color="text-red-600" />
+        <StatCard label="Total Companies" value={stats.total.toLocaleString()} valueClassName="" />
+        <StatCard label="Active"          value={stats.active.toLocaleString()} valueClassName="text-emerald-600" />
+        <StatCard label="Trial"           value={stats.trial.toLocaleString()} valueClassName="text-amber-600" />
+        <StatCard label="Suspended"       value={stats.suspended.toLocaleString()} valueClassName="text-red-600" />
       </div>
 
       {/* Vertical analytics toggle */}
@@ -214,17 +221,16 @@ export function CompaniesPage() {
               aria-label="Search companies"
               className="w-56"
             />
-            <select
+            <SelectInput
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
               aria-label="Filter by status"
-              className="h-10 rounded-md border border-input bg-background px-3 text-sm"
             >
               <option value="all">All Statuses</option>
               <option value="active">Active</option>
               <option value="trial">Trial</option>
               <option value="suspended">Suspended</option>
-            </select>
+            </SelectInput>
             <Button variant="outline" onClick={load}>Refresh</Button>
           </div>
         </CardHeader>
@@ -318,11 +324,13 @@ export function CompaniesPage() {
                     </TableCell>
                   </TableRow>
                 )) : (
-                  <TableRow>
-                    <TableCell colSpan={9} className="text-muted-foreground">
-                      No companies match the current filters.
-                    </TableCell>
-                  </TableRow>
+                  <TableEmptyState
+                    colSpan={9}
+                    title="No companies match the current filters."
+                    description="Clear the filters or refresh the tenant list to check for newly onboarded companies."
+                    actionLabel="Refresh"
+                    onAction={() => void load()}
+                  />
                 )}
               </TableBody>
             </Table>
@@ -451,16 +459,21 @@ function ConfigOverrideDrawer({
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/40 p-4" onClick={onClose}>
-      <div
-        className="w-full max-w-md rounded-xl border border-border bg-card p-6 shadow-xl space-y-4"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div>
-          <h3 className="font-semibold">{company.name}</h3>
-          <p className="text-xs text-muted-foreground">Override company_config feature flags (superadmin only)</p>
-        </div>
-
+    <Modal
+      open
+      align="bottom"
+      title={company.name}
+      description="Override company_config feature flags (superadmin only)"
+      onClose={onClose}
+      widthClassName="max-w-md"
+      actions={
+        <>
+          <Button variant="ghost" onClick={onClose}>Cancel</Button>
+          <Button disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save Overrides'}</Button>
+        </>
+      }
+    >
+      <div className="space-y-4">
         <div className="space-y-3">
           {FEATURE_FLAG_OVERRIDES.map(({ key, label }) => (
             <div key={key} className="flex items-center justify-between">
@@ -479,25 +492,7 @@ function ConfigOverrideDrawer({
         </div>
 
         {error && <p className="text-sm text-destructive">{error}</p>}
-
-        <div className="flex gap-2 justify-end">
-          <Button variant="ghost" onClick={onClose}>Cancel</Button>
-          <Button disabled={saving} onClick={save}>{saving ? 'Saving…' : 'Save Overrides'}</Button>
-        </div>
       </div>
-    </div>
-  );
-}
-
-// ── Stat card ─────────────────────────────────────────────────────────────────
-
-function StatCard({ label, value, color }: { label: string; value: string; color: string }) {
-  return (
-    <Card>
-      <CardHeader className="space-y-1">
-        <CardDescription>{label}</CardDescription>
-        <CardTitle className={`text-2xl ${color}`}>{value}</CardTitle>
-      </CardHeader>
-    </Card>
+    </Modal>
   );
 }
