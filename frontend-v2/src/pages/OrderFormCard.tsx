@@ -763,9 +763,11 @@ export function OrderFormCard({
                         type="button"
                         onClick={() => toggleLineCatchWeight(index)}
                         title={line.isCatchWeight ? 'Catch weight ON — click to disable' : 'Enable catch weight for this line'}
+                        aria-label={line.isCatchWeight ? 'Disable catch weight for this line' : 'Enable catch weight for this line'}
                         className={['inline-flex h-6 w-11 items-center rounded-full transition-colors', line.isCatchWeight ? 'bg-orange-500' : 'bg-gray-200'].join(' ')}
                       >
                         <span className={['inline-block h-4 w-4 rounded-full bg-white shadow transition-transform', line.isCatchWeight ? 'translate-x-6' : 'translate-x-1'].join(' ')} />
+                        <span className="sr-only">{line.isCatchWeight ? 'Catch weight on' : 'Catch weight off'}</span>
                       </button>
                     </TableCell>
                     <TableCell>

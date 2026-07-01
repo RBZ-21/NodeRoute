@@ -111,12 +111,13 @@ export function OrdersWorkbench({
         </div>
         <div className="flex flex-wrap items-end gap-2">
           <div className="space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Search</span>
-            <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Order # or customer" />
+            <label htmlFor="workbench-search" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Search</label>
+            <Input id="workbench-search" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Order # or customer" />
           </div>
           <div className="space-y-1">
-            <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
+            <label htmlFor="workbench-status" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</label>
             <SelectInput
+              id="workbench-status"
               value={status}
               onChange={(e) => setStatus(e.target.value as OrderStatus | 'all')}
               className="flex"

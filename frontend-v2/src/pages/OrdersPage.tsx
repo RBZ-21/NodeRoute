@@ -602,6 +602,7 @@ export function OrdersPage() {
                   className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
                   rows={7}
                   placeholder={"e.g. Hi, can I get 10 lbs of salmon, 2 cases of shrimp, and 5 lbs of tuna? – Joe's Seafood"}
+                  aria-label="Customer message to parse into an order"
                   value={intakeText}
                   onChange={(e) => setIntakeText(e.target.value)}
                   disabled={intakeParsing}

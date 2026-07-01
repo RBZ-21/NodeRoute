@@ -45,6 +45,7 @@ export function ActiveToggle({
           isActive ? 'translate-x-6' : 'translate-x-1',
         ].join(' ')}
       />
+      <span className="sr-only">{isActive ? 'Active' : 'Inactive'}</span>
     </button>
   );
 }

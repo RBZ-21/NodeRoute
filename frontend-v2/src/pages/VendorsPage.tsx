@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -126,6 +126,8 @@ export function VendorsPage() {
   const [addingNew, setAddingNew] = useState(false);
   const [newDraft, setNewDraft] = useState<Vendor>({});
   const [newSaving, setNewSaving] = useState(false);
+  const newVendorStatusId = useId();
+  const editVendorStatusId = useId();
 
   type VendorScore = { overall_grade: string; on_time_score: number; quality_score: number; price_consistency_score: number; summary: string; strengths: string[]; concerns: string[] };
   const [vendorScores, setVendorScores] = useState<Record<string, VendorScore>>({});
@@ -238,8 +240,8 @@ export function VendorsPage() {
           </div>
           <div className="flex flex-wrap items-end gap-2">
             <label className="space-y-1 text-sm">
-              <span className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</span>
-              <SelectInput value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | VendorStatus)}>
+              <label htmlFor="vendor-status-filter" className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Status</label>
+              <SelectInput id="vendor-status-filter" value={statusFilter} onChange={(e) => setStatusFilter(e.target.value as 'all' | VendorStatus)}>
                 <option value="all">All</option>
                 <option value="active">Active</option>
                 <option value="inactive">Inactive</option>
@@ -309,7 +311,7 @@ export function VendorsPage() {
                           </Button>
                         ) : null}
                         {vendor.id && (
-                          <Button variant="ghost" size="sm" onClick={() => void scoreVendor(String(vendor.id))} disabled={scoreLoading[String(vendor.id)]} title="AI performance score">
+                          <Button variant="ghost" size="sm" onClick={() => void scoreVendor(String(vendor.id))} disabled={scoreLoading[String(vendor.id)]} title="AI performance score" aria-label="Score vendor performance" aria-busy={scoreLoading[String(vendor.id)] || undefined}>
                             {scoreLoading[String(vendor.id)] ? '…' : '✦ Score'}
                           </Button>
                         )}
@@ -371,8 +373,8 @@ export function VendorsPage() {
                 onChange={(patch) => setNewDraft((d) => ({ ...d, ...patch }))}
               />
               <div className="flex items-start gap-3">
-                <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Status</span>
-                <SelectInput value={newDraft.status || 'active'} onChange={(e) => setNewDraft((d) => ({ ...d, status: e.target.value }))} className="flex-1">
+                <label htmlFor={newVendorStatusId} className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Status</label>
+                <SelectInput id={newVendorStatusId} value={newDraft.status || 'active'} onChange={(e) => setNewDraft((d) => ({ ...d, status: e.target.value }))} className="flex-1">
                   <option value="active">Active</option>
                   <option value="inactive">Inactive</option>
                   <option value="on-hold">On Hold</option>
@@ -430,9 +432,9 @@ export function VendorsPage() {
                 </div>
               ) : null}
               <div className="flex items-start gap-3">
-                <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Status</span>
+                <label htmlFor={editVendorStatusId} className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">Status</label>
                 {editing ? (
-                  <SelectInput value={draft.status || ''} onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value }))} className="flex-1">
+                  <SelectInput id={editVendorStatusId} value={draft.status || ''} onChange={(e) => setDraft((d) => ({ ...d, status: e.target.value }))} className="flex-1">
                     <option value="active">Active</option>
                     <option value="inactive">Inactive</option>
                     <option value="on-hold">On Hold</option>
@@ -450,14 +452,15 @@ export function VendorsPage() {
 }
 
 function VendorField({ label, value, editing, onChange, multiline }: { label: string; value?: string | null; editing: boolean; onChange: (v: string) => void; multiline?: boolean }) {
+  const inputId = useId();
   return (
     <div className="flex items-start gap-3">
-      <span className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">{label}</span>
+      <label htmlFor={inputId} className="w-32 shrink-0 pt-1 text-sm text-muted-foreground">{label}</label>
       {editing ? (
         multiline ? (
-          <textarea className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm" rows={3} value={value || ''} onChange={(e) => onChange(e.target.value)} />
+          <textarea id={inputId} className="flex-1 rounded-md border border-input bg-background px-3 py-2 text-sm" rows={3} value={value || ''} onChange={(e) => onChange(e.target.value)} />
         ) : (
-          <Input className="flex-1" value={value || ''} onChange={(e) => onChange(e.target.value)} />
+          <Input id={inputId} className="flex-1" value={value || ''} onChange={(e) => onChange(e.target.value)} />
         )
       ) : (
         <span className="text-sm">{value || '-'}</span>

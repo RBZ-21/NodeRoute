@@ -156,7 +156,7 @@ export function PortalOrderingTab({ pastOrders, onSubmitted }: { pastOrders: Por
             <CardTitle className="text-base">Catalog</CardTitle>
             <CardDescription>In-stock items from your distributor. Out-of-stock items cannot be added.</CardDescription>
           </div>
-          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search items…" className="w-full md:w-64" />
+          <Input value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search items…" aria-label="Search catalog items" className="w-full md:w-64" />
         </CardHeader>
         <CardContent className="space-y-2">
           {filtered.length === 0 ? (

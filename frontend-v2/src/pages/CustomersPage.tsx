@@ -1,7 +1,7 @@
 // NOTE: This file retains all existing logic. The only addition is an
 // "Invoices" tab inside the customer detail slide-over panel.
 // The tab fetches /api/invoices?customer_id=<id> and renders a small table.
-import { useMemo, useState } from 'react';
+import { useId, useMemo, useState } from 'react';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { SelectInput } from '../components/ui/select-input';
@@ -90,6 +90,8 @@ export function CustomersPage() {
     }
   }
 
+  const deliveryAddressId = useId();
+  const billingAddressId = useId();
 
   async function lookupAddress(targetField: 'address' | 'billing_address') {
     const name = draft.company_name?.trim();
@@ -400,6 +402,8 @@ export function CustomersPage() {
                           onClick={() => void scoreRisk(String(c.id))}
                           disabled={riskLoading[String(c.id)]}
                           title="AI risk score"
+                          aria-label="Score customer risk"
+                          aria-busy={riskLoading[String(c.id)] || undefined}
                         >
                           {riskLoading[String(c.id)] ? '…' : '✦ Risk'}
                         </Button>
@@ -529,7 +533,10 @@ export function CustomersPage() {
                   <div className="flex items-center gap-3">
                     <span className="w-36 shrink-0 text-sm text-muted-foreground">Tax Enabled</span>
                     {editing ? (
-                      <input type="checkbox" checked={!!draft.tax_enabled} onChange={(e) => setDraft((d) => ({ ...d, tax_enabled: e.target.checked }))} />
+                      <label className="flex items-center gap-2 text-sm">
+                        <input type="checkbox" checked={!!draft.tax_enabled} onChange={(e) => setDraft((d) => ({ ...d, tax_enabled: e.target.checked }))} />
+                        <span className="text-muted-foreground">Charge sales tax</span>
+                      </label>
                     ) : (
                       <span className="text-sm">{selected.tax_enabled ? 'Yes' : 'No'}</span>
                     )}
@@ -557,11 +564,12 @@ export function CustomersPage() {
               {detailTab === 'delivery' && (
                 <div className="space-y-3">
                   <div className="flex items-start gap-3">
-                    <span className="w-36 shrink-0 pt-1 text-sm text-muted-foreground">Address</span>
+                    <label htmlFor={deliveryAddressId} className="w-36 shrink-0 pt-1 text-sm text-muted-foreground">Address</label>
                     {editing ? (
                       <div className="flex flex-1 flex-col gap-1">
                         <div className="flex gap-2">
                           <Input
+                            id={deliveryAddressId}
                             className="flex-1"
                             value={draft.address || ''}
                             onChange={(e) => setDraft((d) => ({ ...d, address: e.target.value }))}
@@ -573,8 +581,9 @@ export function CustomersPage() {
                             size="sm"
                             disabled={lookingUpAddress}
                             onClick={() => lookupAddress('address')}
-                            aria-label="Look up address"
                             title={`Look up address for ${draft.company_name || 'this business'}`}
+                            aria-label="Look up delivery address"
+                            aria-busy={lookingUpAddress || undefined}
                           >
                             {lookingUpAddress ? '...' : '🔍'}
                           </Button>
@@ -601,11 +610,12 @@ export function CustomersPage() {
                   <Field label="Billing Email" value={draft.billing_email} editing={editing} onChange={(v) => setDraft((d) => ({ ...d, billing_email: v }))} />
                   <Field label="Billing Phone" value={draft.billing_phone} editing={editing} placeholder="(555) 010-0103" onChange={(v) => setDraft((d) => ({ ...d, billing_phone: v }))} />
                   <div className="flex items-start gap-3">
-                    <span className="w-36 shrink-0 pt-1 text-sm text-muted-foreground">Billing Address</span>
+                    <label htmlFor={billingAddressId} className="w-36 shrink-0 pt-1 text-sm text-muted-foreground">Billing Address</label>
                     {editing ? (
                       <div className="flex flex-1 flex-col gap-1">
                         <div className="flex gap-2">
                           <Input
+                            id={billingAddressId}
                             className="flex-1"
                             value={draft.billing_address || ''}
                             onChange={(e) => setDraft((d) => ({ ...d, billing_address: e.target.value }))}
@@ -617,8 +627,9 @@ export function CustomersPage() {
                             size="sm"
                             disabled={lookingUpAddress}
                             onClick={() => lookupAddress('billing_address')}
-                            aria-label="Look up address"
                             title={`Look up address for ${draft.company_name || 'this business'}`}
+                            aria-label="Look up billing address"
+                            aria-busy={lookingUpAddress || undefined}
                           >
                             {lookingUpAddress ? '...' : '🔍'}
                           </Button>
