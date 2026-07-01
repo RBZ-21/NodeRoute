@@ -166,6 +166,7 @@ export function TraceabilityPage() {
               value={traceInput}
               onChange={(e) => setTraceInput(e.target.value)}
               placeholder="e.g. SALMON-2026-001"
+              aria-label="Lot number"
               onKeyDown={(e) => e.key === 'Enter' && runTrace()}
               className="max-w-sm"
             />

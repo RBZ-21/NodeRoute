@@ -158,10 +158,10 @@ export function UsersPage() {
           <CardHeader className="space-y-2"><CardTitle>Add User</CardTitle><CardDescription>Create an active account immediately with a set password.</CardDescription></CardHeader>
           <CardContent className="space-y-3">
             <div className="grid gap-3 md:grid-cols-5">
-              <Input placeholder="Full name" value={addName} onChange={(e) => setAddName(e.target.value)} disabled={addUser.isPending} />
-              <Input type="email" placeholder="email@company.com" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} disabled={addUser.isPending} />
-              <Input type="password" placeholder="Password (min 8 chars)" value={addPassword} onChange={(e) => setAddPassword(e.target.value)} disabled={addUser.isPending} />
-              <select value={addRole} onChange={(e) => setAddRole(e.target.value as Role)} disabled={addUser.isPending} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <Input placeholder="Full name" aria-label="Full name" value={addName} onChange={(e) => setAddName(e.target.value)} disabled={addUser.isPending} />
+              <Input type="email" placeholder="email@company.com" aria-label="Email" value={addEmail} onChange={(e) => setAddEmail(e.target.value)} disabled={addUser.isPending} />
+              <Input type="password" placeholder="Password (min 8 chars)" aria-label="Password" value={addPassword} onChange={(e) => setAddPassword(e.target.value)} disabled={addUser.isPending} />
+              <select value={addRole} onChange={(e) => setAddRole(e.target.value as Role)} disabled={addUser.isPending} aria-label="Role" className="h-10 rounded-md border border-input bg-background px-3 text-sm">
                 {inviteRoleOptions.map((o) => <option key={o} value={o}>{o.charAt(0).toUpperCase() + o.slice(1)}</option>)}
               </select>
               <Button onClick={submitAddUser} disabled={addUser.isPending}>{addUser.isPending ? 'Creating...' : 'Add User'}</Button>
@@ -174,9 +174,9 @@ export function UsersPage() {
         <CardHeader className="space-y-2"><CardTitle>Invite Team Member</CardTitle><CardDescription>Create secure invite links and assign a role before first sign-in.</CardDescription></CardHeader>
         <CardContent className="space-y-3">
           <div className="grid gap-3 md:grid-cols-4">
-            <Input placeholder="Full name" value={inviteName} onChange={(e) => setInviteName(e.target.value)} disabled={!canInvite || inviteUser.isPending} />
-            <Input type="email" placeholder="work@email.com" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} disabled={!canInvite || inviteUser.isPending} />
-            <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as Role)} disabled={!canInvite || inviteUser.isPending} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+            <Input placeholder="Full name" aria-label="Full name" value={inviteName} onChange={(e) => setInviteName(e.target.value)} disabled={!canInvite || inviteUser.isPending} />
+            <Input type="email" placeholder="work@email.com" aria-label="Email" value={inviteEmail} onChange={(e) => setInviteEmail(e.target.value)} disabled={!canInvite || inviteUser.isPending} />
+            <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as Role)} disabled={!canInvite || inviteUser.isPending} aria-label="Role" className="h-10 rounded-md border border-input bg-background px-3 text-sm">
               {inviteRoleOptions.map((o) => <option key={o} value={o}>{o.charAt(0).toUpperCase() + o.slice(1)}</option>)}
             </select>
             <Button onClick={submitInvite} disabled={!canInvite || inviteUser.isPending}>{inviteUser.isPending ? 'Sending Invite...' : 'Send Invite'}</Button>

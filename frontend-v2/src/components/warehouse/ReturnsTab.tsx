@@ -142,7 +142,7 @@ export function ReturnsTab({
         <CardHeader className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
           <div className="space-y-1"><CardTitle>Returns Tracking</CardTitle><CardDescription>Log and resolve customer product returns.</CardDescription></div>
           <div className="flex flex-wrap gap-2">
-            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} className="rounded border border-input bg-background px-2 py-1.5 text-sm">
+            <select value={statusFilter} onChange={(e) => setStatusFilter(e.target.value)} aria-label="Filter by status" className="rounded border border-input bg-background px-2 py-1.5 text-sm">
               <option value="">All Statuses</option>
               {['open', 'resolved', 'restocked', 'discarded'].map((s) => <option key={s} value={s}>{s}</option>)}
             </select>

@@ -211,11 +211,13 @@ export function CompaniesPage() {
               placeholder="Search name, email, slug…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
+              aria-label="Search companies"
               className="w-56"
             />
             <select
               value={statusFilter}
               onChange={(e) => setStatusFilter(e.target.value as typeof statusFilter)}
+              aria-label="Filter by status"
               className="h-10 rounded-md border border-input bg-background px-3 text-sm"
             >
               <option value="all">All Statuses</option>

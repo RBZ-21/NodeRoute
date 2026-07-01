@@ -72,7 +72,7 @@ export function AppShell() {
         <header className="flex items-center justify-between border-b border-border bg-card px-4 py-3 shadow-sm">
           <div className="flex items-center gap-3">
             <button
-              className="rounded-md p-1.5 text-muted-foreground hover:bg-muted/60 md:hidden"
+              className="flex min-h-11 min-w-11 items-center justify-center rounded-md p-1.5 text-muted-foreground hover:bg-muted/60 md:hidden"
               onClick={() => setMobileNavOpen(true)}
               aria-label="Open menu"
             >
@@ -96,6 +96,7 @@ export function AppShell() {
               variant="ghost" size="sm"
               onClick={() => setDark((d) => !d)}
               aria-label={dark ? 'Switch to light mode' : 'Switch to dark mode'}
+              className="min-h-11 min-w-11 md:min-h-0 md:min-w-0"
             >
               {dark ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
             </Button>
@@ -105,7 +106,7 @@ export function AppShell() {
               {role.toUpperCase()}
             </span>
 
-            <Button size="sm" variant="outline" onClick={handleLogout} aria-label="Logout">
+            <Button size="sm" variant="outline" onClick={handleLogout} aria-label="Logout" className="min-h-11 md:min-h-0">
               <LogOut className="h-4 w-4" />
               <span className="hidden sm:inline ml-2">Logout</span>
             </Button>

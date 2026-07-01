@@ -891,7 +891,7 @@ export function RoutesPage() {
                           </Button>
                         )}
                         <Button variant="ghost" size="sm" onClick={() => switchTab('stops', { routeId: route.id })}>Stops</Button>
-                        <Button variant="ghost" size="sm" onClick={() => handleRunOptimize(route.id)} disabled={optimizeRoute.isPending && optimizeRouteId === route.id} title="AI optimize stop order">
+                        <Button variant="ghost" size="sm" onClick={() => handleRunOptimize(route.id)} disabled={optimizeRoute.isPending && optimizeRouteId === route.id} title="AI optimize stop order" aria-label="Optimize stop order" aria-busy={(optimizeRoute.isPending && optimizeRouteId === route.id) || undefined}>
                           {optimizeRoute.isPending && optimizeRouteId === route.id ? '…' : '❆ Optimize'}
                         </Button>
                         {!isDispatched && canChangeDispatch && (

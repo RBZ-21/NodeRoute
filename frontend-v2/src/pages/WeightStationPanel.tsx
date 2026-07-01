@@ -142,6 +142,7 @@ export function WeightStationPanel({
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Filter by customer or order #…"
+          aria-label="Filter orders by customer or order number"
           className="h-8 w-64 rounded border border-input bg-background px-3 text-sm focus:outline-none focus:ring-1 focus:ring-ring"
         />
         <span className="ml-auto text-xs text-muted-foreground">
@@ -414,6 +415,7 @@ export function WeightStationPanel({
                       <button
                         key={idx}
                         title={item.name || item.description || `Item ${idx + 1}`}
+                        aria-label={`Go to item ${idx + 1}: ${item.name || item.description || 'Unnamed item'}${captured ? ', weight captured' : ''}${isActive ? ', current item' : ''}`}
                         onClick={() => setActiveItemIdx(idx)}
                         className={[
                           'h-3 w-3 rounded-full border transition-colors',
