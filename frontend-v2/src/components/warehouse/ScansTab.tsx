@@ -118,11 +118,11 @@ export function ScansTab({ onNotice, onError }: { onNotice: (m: string) => void;
             <CardDescription>Receive, pick, adjust, scan, and transfer events.</CardDescription>
           </div>
           <div className="flex flex-wrap gap-2">
-            <select value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} className="rounded border border-input bg-background px-2 py-1.5 text-sm">
+            <select value={actionFilter} onChange={(e) => setActionFilter(e.target.value)} aria-label="Filter by action" className="rounded border border-input bg-background px-2 py-1.5 text-sm">
               <option value="">All Actions</option>
               {['scan', 'receive', 'pick', 'adjust', 'transfer'].map((a) => <option key={a} value={a}>{a}</option>)}
             </select>
-            <input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} className="rounded border border-input bg-background px-2 py-1.5 text-sm" />
+            <input type="date" value={dateFilter} onChange={(e) => setDateFilter(e.target.value)} aria-label="Filter by date" className="rounded border border-input bg-background px-2 py-1.5 text-sm" />
             <Button variant="outline" size="sm" onClick={exportCsv}>Export CSV</Button>
             <Button variant="outline" size="sm" onClick={load} disabled={loading}>{loading ? 'Loading...' : 'Refresh'}</Button>
             <Button size="sm" onClick={() => setShowForm((v) => !v)}>+ Log Event</Button>

@@ -129,11 +129,13 @@ export function InventoryTab({
             placeholder="Search item..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
+            aria-label="Search inventory items"
             className="rounded border border-input bg-background px-3 py-1.5 text-sm w-40"
           />
           <select
             value={categoryFilter}
             onChange={(e) => setCategoryFilter(e.target.value)}
+            aria-label="Filter by class name"
             className="rounded border border-input bg-background px-2 py-1.5 text-sm"
           >
             <option value="">All Class Names</option>
@@ -178,6 +180,7 @@ export function InventoryTab({
                       className="w-20 rounded border border-input bg-background px-2 py-1 text-sm"
                       value={editQty}
                       onChange={(e) => setEditQty(e.target.value)}
+                      aria-label={`Adjust on-hand quantity for ${reportDescription(item) || item.item_number || 'item'}`}
                       autoFocus
                     />
                   ) : (

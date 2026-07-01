@@ -144,7 +144,7 @@ export function Sidebar({ role, mobileOpen, onMobileClose }: SidebarProps) {
         <button
           onClick={onMobileClose}
           aria-label="Close menu"
-          className="rounded-md p-1 text-muted-foreground hover:bg-muted/60"
+          className="flex min-h-11 min-w-11 items-center justify-center rounded-md p-1 text-muted-foreground hover:bg-muted/60"
         >
           <X className="h-4 w-4" />
         </button>

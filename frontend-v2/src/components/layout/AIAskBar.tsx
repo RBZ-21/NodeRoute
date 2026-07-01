@@ -108,6 +108,7 @@ export function AIAskBar() {
                   }
                 }}
                 placeholder="Ask a question…"
+                aria-label="Ask a question"
                 disabled={chat.isPending}
                 className="flex-1 rounded-md border border-input bg-background px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
               />

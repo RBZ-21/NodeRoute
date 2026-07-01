@@ -316,8 +316,8 @@ export function PricingPage() {
           <CardHeader><CardTitle>Price Levels</CardTitle><CardDescription>Named customer pricing tiers.</CardDescription></CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3 md:grid-cols-[1fr_2fr_auto]">
-              <Input value={levelForm.name} onChange={(e) => setLevelForm((f) => ({ ...f, name: e.target.value }))} placeholder="Level A" />
-              <Input value={levelForm.description} onChange={(e) => setLevelForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description" />
+              <Input value={levelForm.name} onChange={(e) => setLevelForm((f) => ({ ...f, name: e.target.value }))} placeholder="Level A" aria-label="Level name" />
+              <Input value={levelForm.description} onChange={(e) => setLevelForm((f) => ({ ...f, description: e.target.value }))} placeholder="Description" aria-label="Level description" />
               <Button onClick={() => void saveLevel()} disabled={saving}>{editingLevelId ? 'Update' : 'Create'}</Button>
             </div>
             <DataTable rows={levels} columns={[{ key: 'name', label: 'Name' }, { key: 'description', label: 'Description' }]} onEdit={(row) => {
@@ -333,11 +333,11 @@ export function PricingPage() {
           <CardHeader><CardTitle>Customer Specials</CardTitle><CardDescription>Customer and product-specific override prices.</CardDescription></CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3 md:grid-cols-6">
-              <Input value={specialForm.customer_id} onChange={(e) => setSpecialForm((f) => ({ ...f, customer_id: e.target.value }))} placeholder="Customer ID" />
-              <Input value={specialForm.product_id} onChange={(e) => setSpecialForm((f) => ({ ...f, product_id: e.target.value }))} placeholder="Product ID" />
-              <Input type="number" value={specialForm.special_price} onChange={(e) => setSpecialForm((f) => ({ ...f, special_price: e.target.value }))} placeholder="Price" />
-              <Input value={specialForm.effective_date} onChange={(e) => setSpecialForm((f) => ({ ...f, effective_date: e.target.value }))} placeholder="Effective date" />
-              <Input value={specialForm.expiry_date} onChange={(e) => setSpecialForm((f) => ({ ...f, expiry_date: e.target.value }))} placeholder="Expiry date" />
+              <Input value={specialForm.customer_id} onChange={(e) => setSpecialForm((f) => ({ ...f, customer_id: e.target.value }))} placeholder="Customer ID" aria-label="Customer ID" />
+              <Input value={specialForm.product_id} onChange={(e) => setSpecialForm((f) => ({ ...f, product_id: e.target.value }))} placeholder="Product ID" aria-label="Product ID" />
+              <Input type="number" value={specialForm.special_price} onChange={(e) => setSpecialForm((f) => ({ ...f, special_price: e.target.value }))} placeholder="Price" aria-label="Special price" />
+              <Input value={specialForm.effective_date} onChange={(e) => setSpecialForm((f) => ({ ...f, effective_date: e.target.value }))} placeholder="Effective date" aria-label="Effective date" />
+              <Input value={specialForm.expiry_date} onChange={(e) => setSpecialForm((f) => ({ ...f, expiry_date: e.target.value }))} placeholder="Expiry date" aria-label="Expiry date" />
               <div className="flex gap-2">
                 <Button onClick={() => void saveSpecial()} disabled={saving}>Save</Button>
                 <Button variant="outline" onClick={() => void loadSpecials(specialForm.customer_id)}>Load</Button>
@@ -365,17 +365,17 @@ export function PricingPage() {
           <CardHeader><CardTitle>Quotes</CardTitle><CardDescription>Bid pricing with active date windows.</CardDescription></CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3 md:grid-cols-4">
-              <Input value={quoteForm.customer_id} disabled={!!editingQuoteId} onChange={(e) => setQuoteForm((f) => ({ ...f, customer_id: e.target.value }))} placeholder="Customer ID" />
-              <select value={quoteForm.status} onChange={(e) => setQuoteForm((f) => ({ ...f, status: e.target.value }))} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <Input value={quoteForm.customer_id} disabled={!!editingQuoteId} onChange={(e) => setQuoteForm((f) => ({ ...f, customer_id: e.target.value }))} placeholder="Customer ID" aria-label="Customer ID" />
+              <select value={quoteForm.status} onChange={(e) => setQuoteForm((f) => ({ ...f, status: e.target.value }))} aria-label="Quote status" className="h-10 rounded-md border border-input bg-background px-3 text-sm">
                 {['draft', 'active', 'expired', 'cancelled'].map((status) => <option key={status} value={status}>{status}</option>)}
               </select>
-              <Input value={quoteForm.valid_from} onChange={(e) => setQuoteForm((f) => ({ ...f, valid_from: e.target.value }))} placeholder="Valid from" />
-              <Input value={quoteForm.valid_until} onChange={(e) => setQuoteForm((f) => ({ ...f, valid_until: e.target.value }))} placeholder="Valid until" />
-              {!editingQuoteId && <Input value={quoteForm.product_id} onChange={(e) => setQuoteForm((f) => ({ ...f, product_id: e.target.value }))} placeholder="Product ID" />}
-              {!editingQuoteId && <Input type="number" value={quoteForm.quoted_price} onChange={(e) => setQuoteForm((f) => ({ ...f, quoted_price: e.target.value }))} placeholder="Quoted price" />}
-              {!editingQuoteId && <Input type="number" value={quoteForm.min_qty} onChange={(e) => setQuoteForm((f) => ({ ...f, min_qty: e.target.value }))} placeholder="Min qty" />}
-              {!editingQuoteId && <Input value={quoteForm.uom} onChange={(e) => setQuoteForm((f) => ({ ...f, uom: e.target.value }))} placeholder="UOM" />}
-              <Input value={quoteForm.notes} onChange={(e) => setQuoteForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Notes" className="md:col-span-3" />
+              <Input value={quoteForm.valid_from} onChange={(e) => setQuoteForm((f) => ({ ...f, valid_from: e.target.value }))} placeholder="Valid from" aria-label="Valid from" />
+              <Input value={quoteForm.valid_until} onChange={(e) => setQuoteForm((f) => ({ ...f, valid_until: e.target.value }))} placeholder="Valid until" aria-label="Valid until" />
+              {!editingQuoteId && <Input value={quoteForm.product_id} onChange={(e) => setQuoteForm((f) => ({ ...f, product_id: e.target.value }))} placeholder="Product ID" aria-label="Product ID" />}
+              {!editingQuoteId && <Input type="number" value={quoteForm.quoted_price} onChange={(e) => setQuoteForm((f) => ({ ...f, quoted_price: e.target.value }))} placeholder="Quoted price" aria-label="Quoted price" />}
+              {!editingQuoteId && <Input type="number" value={quoteForm.min_qty} onChange={(e) => setQuoteForm((f) => ({ ...f, min_qty: e.target.value }))} placeholder="Min qty" aria-label="Minimum quantity" />}
+              {!editingQuoteId && <Input value={quoteForm.uom} onChange={(e) => setQuoteForm((f) => ({ ...f, uom: e.target.value }))} placeholder="UOM" aria-label="Unit of measure" />}
+              <Input value={quoteForm.notes} onChange={(e) => setQuoteForm((f) => ({ ...f, notes: e.target.value }))} placeholder="Notes" aria-label="Notes" className="md:col-span-3" />
               <Button onClick={() => void saveQuote()} disabled={saving}>{editingQuoteId ? 'Update' : 'Create'}</Button>
             </div>
             <DataTable rows={quotes} columns={[
@@ -397,18 +397,18 @@ export function PricingPage() {
           <CardHeader><CardTitle>Promotions</CardTitle><CardDescription>Sale prices and discounts. Lowest active promotion price wins.</CardDescription></CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3 md:grid-cols-4">
-              <Input value={promotionForm.name} onChange={(e) => setPromotionForm((f) => ({ ...f, name: e.target.value }))} placeholder="Promotion name" />
-              <select value={promotionForm.promo_type} onChange={(e) => setPromotionForm((f) => ({ ...f, promo_type: e.target.value }))} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <Input value={promotionForm.name} onChange={(e) => setPromotionForm((f) => ({ ...f, name: e.target.value }))} placeholder="Promotion name" aria-label="Promotion name" />
+              <select value={promotionForm.promo_type} onChange={(e) => setPromotionForm((f) => ({ ...f, promo_type: e.target.value }))} aria-label="Promotion type" className="h-10 rounded-md border border-input bg-background px-3 text-sm">
                 {['sale_price', 'percent_off', 'dollar_off', 'buy_x_get_y'].map((type) => <option key={type} value={type}>{type}</option>)}
               </select>
-              <select value={promotionForm.status} onChange={(e) => setPromotionForm((f) => ({ ...f, status: e.target.value }))} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <select value={promotionForm.status} onChange={(e) => setPromotionForm((f) => ({ ...f, status: e.target.value }))} aria-label="Promotion status" className="h-10 rounded-md border border-input bg-background px-3 text-sm">
                 {['draft', 'active', 'paused', 'expired'].map((status) => <option key={status} value={status}>{status}</option>)}
               </select>
-              <Input value={promotionForm.start_date} onChange={(e) => setPromotionForm((f) => ({ ...f, start_date: e.target.value }))} placeholder="Start date" />
-              <Input value={promotionForm.end_date} onChange={(e) => setPromotionForm((f) => ({ ...f, end_date: e.target.value }))} placeholder="End date" />
-              {!editingPromotionId && <Input value={promotionForm.product_id} onChange={(e) => setPromotionForm((f) => ({ ...f, product_id: e.target.value }))} placeholder="Product ID" />}
-              {!editingPromotionId && <Input value={promotionForm.category_id} onChange={(e) => setPromotionForm((f) => ({ ...f, category_id: e.target.value }))} placeholder="Category ID" />}
-              {!editingPromotionId && <Input type="number" value={promotionForm.value} onChange={(e) => setPromotionForm((f) => ({ ...f, value: e.target.value }))} placeholder="Value" />}
+              <Input value={promotionForm.start_date} onChange={(e) => setPromotionForm((f) => ({ ...f, start_date: e.target.value }))} placeholder="Start date" aria-label="Start date" />
+              <Input value={promotionForm.end_date} onChange={(e) => setPromotionForm((f) => ({ ...f, end_date: e.target.value }))} placeholder="End date" aria-label="End date" />
+              {!editingPromotionId && <Input value={promotionForm.product_id} onChange={(e) => setPromotionForm((f) => ({ ...f, product_id: e.target.value }))} placeholder="Product ID" aria-label="Product ID" />}
+              {!editingPromotionId && <Input value={promotionForm.category_id} onChange={(e) => setPromotionForm((f) => ({ ...f, category_id: e.target.value }))} placeholder="Category ID" aria-label="Category ID" />}
+              {!editingPromotionId && <Input type="number" value={promotionForm.value} onChange={(e) => setPromotionForm((f) => ({ ...f, value: e.target.value }))} placeholder="Value" aria-label="Promotion value" />}
               <Button onClick={() => void savePromotion()} disabled={saving}>{editingPromotionId ? 'Update' : 'Create'}</Button>
             </div>
             <DataTable rows={promotions} columns={[
@@ -431,15 +431,15 @@ export function PricingPage() {
           <CardHeader><CardTitle>Rebates</CardTitle><CardDescription>Vendor and customer rebate accrual rules.</CardDescription></CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3 md:grid-cols-4">
-              <Input value={rebateForm.name} onChange={(e) => setRebateForm((f) => ({ ...f, name: e.target.value }))} placeholder="Rebate name" />
-              <Input value={rebateForm.vendor_id} onChange={(e) => setRebateForm((f) => ({ ...f, vendor_id: e.target.value }))} placeholder="Vendor ID" />
-              <Input value={rebateForm.customer_id} onChange={(e) => setRebateForm((f) => ({ ...f, customer_id: e.target.value }))} placeholder="Customer ID" />
-              <select value={rebateForm.rebate_type} onChange={(e) => setRebateForm((f) => ({ ...f, rebate_type: e.target.value }))} className="h-10 rounded-md border border-input bg-background px-3 text-sm">
+              <Input value={rebateForm.name} onChange={(e) => setRebateForm((f) => ({ ...f, name: e.target.value }))} placeholder="Rebate name" aria-label="Rebate name" />
+              <Input value={rebateForm.vendor_id} onChange={(e) => setRebateForm((f) => ({ ...f, vendor_id: e.target.value }))} placeholder="Vendor ID" aria-label="Vendor ID" />
+              <Input value={rebateForm.customer_id} onChange={(e) => setRebateForm((f) => ({ ...f, customer_id: e.target.value }))} placeholder="Customer ID" aria-label="Customer ID" />
+              <select value={rebateForm.rebate_type} onChange={(e) => setRebateForm((f) => ({ ...f, rebate_type: e.target.value }))} aria-label="Rebate type" className="h-10 rounded-md border border-input bg-background px-3 text-sm">
                 {['percent', 'dollar', 'per_unit'].map((type) => <option key={type} value={type}>{type}</option>)}
               </select>
-              <Input type="number" value={rebateForm.value} onChange={(e) => setRebateForm((f) => ({ ...f, value: e.target.value }))} placeholder="Value" />
-              <Input value={rebateForm.period_start} onChange={(e) => setRebateForm((f) => ({ ...f, period_start: e.target.value }))} placeholder="Period start" />
-              <Input value={rebateForm.period_end} onChange={(e) => setRebateForm((f) => ({ ...f, period_end: e.target.value }))} placeholder="Period end" />
+              <Input type="number" value={rebateForm.value} onChange={(e) => setRebateForm((f) => ({ ...f, value: e.target.value }))} placeholder="Value" aria-label="Rebate value" />
+              <Input value={rebateForm.period_start} onChange={(e) => setRebateForm((f) => ({ ...f, period_start: e.target.value }))} placeholder="Period start" aria-label="Period start" />
+              <Input value={rebateForm.period_end} onChange={(e) => setRebateForm((f) => ({ ...f, period_end: e.target.value }))} placeholder="Period end" aria-label="Period end" />
               <Button onClick={() => void saveRebate()} disabled={saving}>{editingRebateId ? 'Update' : 'Create'}</Button>
             </div>
             <DataTable rows={rebates} columns={[
@@ -461,10 +461,10 @@ export function PricingPage() {
           <CardHeader><CardTitle>Minimum Sell Rules</CardTitle><CardDescription>Floor pricing from margin and explicit price rules.</CardDescription></CardHeader>
           <CardContent className="space-y-4">
             <div className="grid gap-3 md:grid-cols-5">
-              <Input value={minimumForm.product_id} onChange={(e) => setMinimumForm((f) => ({ ...f, product_id: e.target.value }))} placeholder="Product ID" />
-              <Input value={minimumForm.category_id} onChange={(e) => setMinimumForm((f) => ({ ...f, category_id: e.target.value }))} placeholder="Category ID" />
-              <Input type="number" value={minimumForm.min_margin_pct} onChange={(e) => setMinimumForm((f) => ({ ...f, min_margin_pct: e.target.value }))} placeholder="Min margin %" />
-              <Input type="number" value={minimumForm.min_price} onChange={(e) => setMinimumForm((f) => ({ ...f, min_price: e.target.value }))} placeholder="Min price" />
+              <Input value={minimumForm.product_id} onChange={(e) => setMinimumForm((f) => ({ ...f, product_id: e.target.value }))} placeholder="Product ID" aria-label="Product ID" />
+              <Input value={minimumForm.category_id} onChange={(e) => setMinimumForm((f) => ({ ...f, category_id: e.target.value }))} placeholder="Category ID" aria-label="Category ID" />
+              <Input type="number" value={minimumForm.min_margin_pct} onChange={(e) => setMinimumForm((f) => ({ ...f, min_margin_pct: e.target.value }))} placeholder="Min margin %" aria-label="Minimum margin percent" />
+              <Input type="number" value={minimumForm.min_price} onChange={(e) => setMinimumForm((f) => ({ ...f, min_price: e.target.value }))} placeholder="Min price" aria-label="Minimum price" />
               <Button onClick={() => void saveMinimumRule()} disabled={saving}>{editingMinimumId ? 'Update' : 'Create'}</Button>
             </div>
             <DataTable rows={minimumRules} columns={[

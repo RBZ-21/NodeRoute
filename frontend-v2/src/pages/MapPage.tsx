@@ -307,7 +307,7 @@ export function MapPage() {
           <Card>
             <CardHeader className="py-3 px-4 flex flex-row items-center justify-between">
               <CardTitle className="text-sm">Driver Detail</CardTitle>
-              <button onClick={() => setSelectedDriver(null)} className="text-muted-foreground hover:text-foreground text-lg leading-none">×</button>
+              <button onClick={() => setSelectedDriver(null)} className="text-muted-foreground hover:text-foreground text-lg leading-none" aria-label="Close driver detail">×</button>
             </CardHeader>
             <CardContent className="pt-0 px-4 pb-4 space-y-2 text-sm">
               <p className="font-semibold">{driverName(selectedDriver)}</p>

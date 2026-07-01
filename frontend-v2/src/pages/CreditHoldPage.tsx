@@ -438,6 +438,7 @@ export function CreditHoldPage() {
             value={lookupId}
             onChange={(e) => setLookupId(e.target.value)}
             onKeyDown={(e) => e.key === 'Enter' && lookupCustomer()}
+            aria-label="Customer ID"
             className="border rounded px-3 py-2 text-sm w-40 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
           <button
@@ -611,7 +612,7 @@ export function CreditHoldPage() {
           <div className="relative z-50 w-full max-w-lg bg-white shadow-xl flex flex-col h-full">
             <div className="flex items-center justify-between px-5 py-4 border-b">
               <h2 className="font-semibold text-gray-900">Credit History — {customer?.company_name}</h2>
-              <button onClick={() => setHistoryOpen(false)} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+              <button onClick={() => setHistoryOpen(false)} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close credit history">✕</button>
             </div>
             <div className="overflow-y-auto flex-1 p-5 space-y-3">
               {historyLoading && <p className="text-sm text-gray-400">Loading…</p>}
@@ -642,7 +643,7 @@ function Modal({ title, onClose, children }: { title: string; onClose: () => voi
       <div className="relative z-50 bg-white rounded-lg shadow-xl w-full max-w-md mx-4 p-6">
         <div className="flex items-center justify-between mb-4">
           <h3 className="text-base font-semibold text-gray-900">{title}</h3>
-          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">✕</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl" aria-label="Close dialog">✕</button>
         </div>
         {children}
       </div>

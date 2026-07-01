@@ -29,9 +29,9 @@ export function CatchWeightPriceInput({ item, onSaved }: { item: InventoryItem; 
 
   return (
     <div className="flex items-center gap-1">
-      <input type="number" min="0" step="0.0001" value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }} className="h-7 w-20 rounded border border-input bg-background px-2 text-xs" autoFocus />
+      <input type="number" min="0" step="0.0001" value={value} onChange={(e) => setValue(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') save(); if (e.key === 'Escape') setEditing(false); }} className="h-7 w-20 rounded border border-input bg-background px-2 text-xs" autoFocus aria-label="Price per lb" />
       <button onClick={save} disabled={saving} className="rounded bg-orange-500 px-2 py-0.5 text-xs font-medium text-white hover:bg-orange-600 disabled:opacity-50">{saving ? '…' : 'Save'}</button>
-      <button onClick={() => setEditing(false)} className="text-xs text-muted-foreground hover:text-foreground">✕</button>
+      <button onClick={() => setEditing(false)} className="text-xs text-muted-foreground hover:text-foreground" aria-label="Cancel price edit">✕</button>
     </div>
   );
 }

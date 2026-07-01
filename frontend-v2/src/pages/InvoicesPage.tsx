@@ -797,7 +797,7 @@ export function InvoicesPage() {
                       <Button size="sm" disabled={deleteInvoice.isPending} onClick={handleDelete}>{deleteInvoice.isPending ? 'Deleting...' : 'Yes'}</Button>
                     </>
                   )}
-                  <Button size="sm" variant="ghost" onClick={() => { setSelected(null); setConfirmDelete(false); }}>X</Button>
+                  <Button size="sm" variant="ghost" onClick={() => { setSelected(null); setConfirmDelete(false); }} aria-label="Close invoice details">X</Button>
                 </div>
               </div>
               <div className="flex-1 space-y-4 p-6">
