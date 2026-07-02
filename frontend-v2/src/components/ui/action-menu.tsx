@@ -111,6 +111,7 @@ export function ActionMenu({ items, ariaLabel = 'Actions' }: ActionMenuProps) {
         ref={triggerRef}
         variant="ghost"
         size="sm"
+        className="min-h-11 min-w-11 md:h-9 md:min-h-0 md:w-auto md:min-w-0"
         aria-label={ariaLabel}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -144,7 +145,7 @@ export function ActionMenu({ items, ariaLabel = 'Actions' }: ActionMenuProps) {
                 setOpen(false);
               }}
               className={[
-                'flex w-full items-center px-3 py-2 text-left text-sm transition-colors',
+                'flex w-full min-h-11 items-center px-3 py-2 text-left text-sm transition-colors md:min-h-0',
                 index === highlighted ? 'bg-accent text-accent-foreground' : 'hover:bg-accent hover:text-accent-foreground',
                 item.destructive ? 'text-destructive' : '',
                 item.disabled ? 'cursor-not-allowed opacity-50' : '',
