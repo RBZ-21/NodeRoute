@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { Building2, Users, TrendingUp, DollarSign, AlertTriangle, CheckCircle2, Clock, XCircle, RefreshCw, ArrowRight } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
+import { StatusBadge } from '../components/ui/status-badge';
 import { fetchWithAuth } from '../lib/api';
 import { SuperadminGuard } from '../components/SuperadminGuard';
 
@@ -51,12 +52,12 @@ const TIER_PRICE: Record<string, number> = {
   free: 0, starter: 99, pro: 249, enterprise: 499,
 };
 
-const TIER_COLOR: Record<string, string> = {
-  free:       'bg-gray-100 text-gray-700 border-gray-200',
-  starter:    'bg-blue-100 text-blue-700 border-blue-200',
-  pro:        'bg-violet-100 text-violet-700 border-violet-200',
-  enterprise: 'bg-amber-100 text-amber-700 border-amber-200',
-};
+const tierColors = {
+  free:       'gray',
+  starter:    'blue',
+  pro:        'purple',
+  enterprise: 'yellow',
+} as const;
 
 const STATUS_ICON: Record<string, React.ReactNode> = {
   active:    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-500" />,
@@ -205,7 +206,7 @@ function SuperadminDashboard() {
                   const total = summary?.total_companies ?? 1;
                   return (
                     <div key={tier} className="flex items-center gap-3">
-                      <span className={`w-20 shrink-0 text-center text-xs rounded-full border px-2 py-0.5 font-semibold capitalize ${TIER_COLOR[tier] ?? ''}`}>{tier}</span>
+                      <StatusBadge status={tier} colorMap={tierColors} className="w-20 shrink-0 justify-center" />
                       <div className="flex-1 h-2 rounded-full bg-muted overflow-hidden">
                         <div className="h-full rounded-full bg-primary transition-all" style={{ width: total > 0 ? `${Math.round((count / total) * 100)}%` : '0%' }} />
                       </div>
@@ -281,7 +282,7 @@ function SuperadminDashboard() {
                     <div className="text-xs text-muted-foreground truncate">{c.admin_email}</div>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
-                    <span className={`text-xs rounded-full border px-2 py-0.5 font-semibold capitalize ${TIER_COLOR[c.plan] ?? 'bg-muted text-muted-foreground border-border'}`}>{c.plan}</span>
+                    <StatusBadge status={c.plan} colorMap={tierColors} />
                     <span className="flex items-center gap-1 text-xs text-muted-foreground">{STATUS_ICON[c.status] ?? null}{c.status}</span>
                     <span className="text-xs text-muted-foreground">{timeAgo(c.created_at)}</span>
                   </div>

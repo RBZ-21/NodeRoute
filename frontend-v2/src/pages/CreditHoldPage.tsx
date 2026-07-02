@@ -18,6 +18,7 @@ import { useEffect, useState, useCallback, useMemo } from 'react';
 import { LoadingSkeleton } from '../components/ui/data-state';
 import { Modal } from '../components/ui/overlay-panel';
 import { SelectInput } from '../components/ui/select-input';
+import { StatusBadge } from '../components/ui/status-badge';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
@@ -124,20 +125,17 @@ const fmt = (n: number | null | undefined) =>
 const fmtDate = (s: string | null | undefined) =>
   s ? new Date(s).toLocaleDateString() : '—';
 
+const holdReasonColors = {
+  'over-limit': 'red',
+  'past-due': 'orange',
+  manual: 'gray',
+  'new-account': 'blue',
+  'bounced-check': 'purple',
+  'disputed-invoice': 'yellow',
+} as const;
+
 function badge(reason: string) {
-  const map: Record<string, string> = {
-    over_limit: 'bg-red-100 text-red-700',
-    past_due: 'bg-orange-100 text-orange-700',
-    manual: 'bg-gray-100 text-gray-700',
-    new_account: 'bg-blue-100 text-blue-700',
-    bounced_check: 'bg-purple-100 text-purple-700',
-    disputed_invoice: 'bg-yellow-100 text-yellow-700',
-  };
-  return (
-    <span className={`px-2 py-0.5 rounded text-xs font-medium ${map[reason] ?? 'bg-gray-100 text-gray-600'}`}>
-      {reason.replace(/_/g, ' ')}
-    </span>
-  );
+  return <StatusBadge status={reason} colorMap={holdReasonColors} />;
 }
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
