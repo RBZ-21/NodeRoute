@@ -38,6 +38,7 @@ import { InventoryActionsCard } from './InventoryActionsCard';
 import { NegativeStockQty } from '../components/inventory/NegativeStock';
 import { AiInsightBanner } from '../components/ui/ai-insight-banner';
 import { asNumber, inventoryActionLabel } from './inventory.helpers';
+import { printInventoryCountSheet } from '../lib/inventoryPrint';
 
 function money(v: number) { return v.toLocaleString('en-US', { style: 'currency', currency: 'USD' }); }
 function reportNumber(v: unknown) { return asNumber(v).toLocaleString(undefined, { maximumFractionDigits: 2 }); }
@@ -52,7 +53,6 @@ function downloadCsv(filename: string, rows: string[][]) {
   const href = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   const a = document.createElement('a'); a.href = href; a.download = filename; a.click(); URL.revokeObjectURL(href);
 }
-function sanitizeHtml(v: string) { return String(v).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#39;'); }
 function storedCompanyName() {
   try {
     const user = JSON.parse(localStorage.getItem('nr_user') || '{}');
@@ -204,6 +204,7 @@ export function InventoryPage() {
   const [submitting, setSubmitting] = useState(false);
   const [search, setSearch] = useState('');
   const [showInactive, setShowInactive] = useState(false);
+  const [showCostColumns, setShowCostColumns] = useState(true);
   const [countCategoryFilter, setCountCategoryFilter] = useState('all');
   const [includeZeroStockInCounts, setIncludeZeroStockInCounts] = useState(true);
   const [activeInventoryTask, setActiveInventoryTask] = useState<InventoryTaskTab>('counts');
@@ -413,20 +414,12 @@ export function InventoryPage() {
     downloadCsv(`inventory-count-sheet-${scope}.csv`, [['Class Name','Item Number','Description Line 1','On Hand Quantity','Unit','Physical Count'], ...countSheetRows.map((i) => [i.category, i.item_number, i.description, i.on_hand_qty.toLocaleString(), i.unit, ''])]);
   }
   function printCountSheet() {
-    const popup = window.open('', '_blank', 'width=1100,height=800');
-    if (!popup) { toast.error('Could not open the print view. Please allow pop-ups and try again.'); return; }
-    const scopeLabel = countCategoryFilter === 'all' ? 'All Class Names' : countCategoryFilter;
-    const companyName = String(companySettings?.businessName || storedCompanyName() || 'NodeRoute Systems').trim() || 'NodeRoute Systems';
-    const escapedCompanyName = sanitizeHtml(companyName);
-    const printTitle = `${companyName} Inventory Count Sheet`;
-    const escapedPrintTitle = sanitizeHtml(printTitle);
-    const sections = countSheetGroups.map((g) => `<section class="category-block"><h2>${sanitizeHtml(g.category)}</h2><table><thead><tr><th>Item Number</th><th>Description Line 1</th><th>On Hand Quantity</th><th>Unit</th><th>Physical Count</th></tr></thead><tbody>${g.rows.map((i) => `<tr><td>${sanitizeHtml(i.item_number||'-')}</td><td>${sanitizeHtml(i.description)}</td><td>${sanitizeHtml(i.on_hand_qty.toLocaleString())}</td><td>${sanitizeHtml(i.unit||'-')}</td><td class="blank-cell"></td></tr>`).join('')}</tbody></table></section>`).join('');
-    popup.document.write(`<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"/><title>${escapedPrintTitle}</title><style>body{font-family:Arial,sans-serif;margin:24px;color:#111827}h1{margin:0 0 6px;font-size:24px}.meta{margin-bottom:18px;color:#4b5563;font-size:12px}.category-block{margin-bottom:28px;page-break-inside:avoid}h2{margin:0 0 10px;font-size:18px;border-bottom:1px solid #d1d5db;padding-bottom:4px}table{width:100%;border-collapse:collapse}th,td{border:1px solid #d1d5db;padding:8px 10px;font-size:12px;text-align:left}th{background:#f3f4f6}.blank-cell{min-width:140px;height:28px}.print-footer{display:none}@media print{body{margin:12px 12px 36px}.print-footer{display:block;position:fixed;bottom:0;left:0;font-size:10px;color:#4b5563}}</style></head><body><h1>Inventory Count Sheet</h1><div class="meta">${escapedCompanyName} · Class Name scope: ${sanitizeHtml(scopeLabel)} · Generated ${sanitizeHtml(new Date().toLocaleString())}</div>${sections||'<p>No inventory rows match the selected filters.</p>'}<div class="print-footer">${escapedCompanyName}</div></body></html>`);
-    try {
-      const companySlug = companyName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'company';
-      popup.history?.replaceState?.(null, printTitle, `/print/${companySlug}/inventory-count-sheet`);
-    } catch {}
-    popup.document.close(); popup.focus(); popup.print();
+    printInventoryCountSheet({
+      groups: countSheetGroups,
+      companyName: String(companySettings?.businessName || storedCompanyName() || 'NodeRoute Systems').trim() || 'NodeRoute Systems',
+      scopeLabel: countCategoryFilter === 'all' ? 'All Class Names' : countCategoryFilter,
+      onError: (message) => toast.error(message),
+    });
   }
 
   const fetchError = inventoryQuery.error
@@ -434,7 +427,7 @@ export function InventoryPage() {
     : '';
   const retryingInventory = Boolean(fetchError && inventoryQuery.isFetching);
   const inventoryWorkflowTab: InventoryWorkflowTab = 'overview';
-  const inventoryColumnCount = 14 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0);
+  const inventoryColumnCount = 14 + (features.fsmaLotTracking ? 2 : 0) + (features.catchWeight ? 2 : 0) - (showCostColumns ? 0 : 4);
 
   function setInventoryWorkflowTab(tab: InventoryWorkflowTab) {
     if (tab === 'kits') {
@@ -654,6 +647,13 @@ export function InventoryPage() {
               </span>
             )}
             <Button
+              variant={showCostColumns ? 'secondary' : 'outline'}
+              onClick={() => setShowCostColumns((v) => !v)}
+              title={showCostColumns ? 'Cost and value columns are shown — click to hide them for a leaner view' : 'Cost and value columns are hidden — click to show them'}
+            >
+              {showCostColumns ? '🙈 Hide Cost Columns' : '💲 Show Cost Columns'}
+            </Button>
+            <Button
               variant="outline"
               onClick={() => {
                 void inventoryQuery.refetch();
@@ -739,10 +739,10 @@ export function InventoryPage() {
               <TableHead>Allocated Quantity</TableHead>
               <TableHead>On Hand Weight</TableHead>
               <TableHead>On Hand Quantity</TableHead>
-              <TableHead>Cost: Base</TableHead>
-              <TableHead>Cost: Real</TableHead>
-              <TableHead>Value at Cost</TableHead>
-              <TableHead>Value at Level 1</TableHead>
+              {showCostColumns && <TableHead>Cost: Base</TableHead>}
+              {showCostColumns && <TableHead>Cost: Real</TableHead>}
+              {showCostColumns && <TableHead>Value at Cost</TableHead>}
+              {showCostColumns && <TableHead>Value at Level 1</TableHead>}
               <TableHead>Status</TableHead>
               <TableHead title="Stock level that triggers a reorder alert">Reorder Pt</TableHead>
               <TableHead title="Active items appear in orders and counts; inactive = seasonal/off-season">Active</TableHead>
@@ -774,10 +774,10 @@ export function InventoryPage() {
                         ? <NegativeStockQty qty={qty} unit={item.unit ?? ''} onFix={() => requestFix(item.id)} />
                         : <>{qty.toLocaleString()} {item.unit ?? ''}</>}
                     </TableCell>
-                    <TableCell>{money(asNumber(reportCostBase(item)))}</TableCell>
-                    <TableCell>{money(asNumber(reportCostReal(item)))}</TableCell>
-                    <TableCell>{money(asNumber(item.value_at_cost))}</TableCell>
-                    <TableCell>{money(asNumber(item.value_at_level_1))}</TableCell>
+                    {showCostColumns && <TableCell>{money(asNumber(reportCostBase(item)))}</TableCell>}
+                    {showCostColumns && <TableCell>{money(asNumber(reportCostReal(item)))}</TableCell>}
+                    {showCostColumns && <TableCell>{money(asNumber(item.value_at_cost))}</TableCell>}
+                    {showCostColumns && <TableCell>{money(asNumber(item.value_at_level_1))}</TableCell>}
                     <TableCell>{status}</TableCell>
                     <TableCell><ReorderPointCell item={item} onSaved={(val) => { setReorderPointMutation.mutate({ itemNumber: item.item_number ?? '', reorderPoint: val }); patchCachedItem({ ...item, reorder_point: val }); }} /></TableCell>
                     <TableCell><ActiveToggle item={item} onToggled={patchCachedItem} /></TableCell>
