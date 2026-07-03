@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
+import { StatusBadge } from '../components/ui/status-badge';
 import { SelectInput } from '../components/ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { useToast } from '../components/ui/toast';
@@ -35,12 +35,22 @@ function normalizeStatus(value: string | undefined): DeliveryViewStatus {
   return 'other';
 }
 
+const deliveryStatusColors = {
+  active: 'green',
+  pending: 'yellow',
+  completed: 'gray',
+  failed: 'red',
+} as const;
+
+const deliveryStatusLabels: Record<string, string> = {
+  active: 'Out for Delivery',
+  pending: 'Ready at Shop',
+  completed: 'Delivered',
+  failed: 'Failed',
+};
+
 function statusBadge(status: DeliveryViewStatus) {
-  if (status === 'active') return <Badge variant="success">Out for Delivery</Badge>;
-  if (status === 'pending') return <Badge variant="warning">Ready at Shop</Badge>;
-  if (status === 'completed') return <Badge variant="neutral">Delivered</Badge>;
-  if (status === 'failed') return <Badge variant="neutral" className="bg-red-100 text-red-700">Failed</Badge>;
-  return <Badge variant="secondary">Other</Badge>;
+  return <StatusBadge status={status} colorMap={deliveryStatusColors} labelMap={deliveryStatusLabels} fallbackLabel="Other" />;
 }
 
 export function DeliveriesPage() {

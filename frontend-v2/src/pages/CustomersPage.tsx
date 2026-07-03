@@ -8,6 +8,7 @@ import { SelectInput } from '../components/ui/select-input';
 import { PaginationControls } from '../components/ui/pagination';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { StatCard } from '../components/ui/stat-card';
+import { StatusBadge } from '../components/ui/status-badge';
 import { DetailField } from '../components/ui/detail-field';
 import { Modal, SlideOver } from '../components/ui/overlay-panel';
 import { useToast } from '../components/ui/toast';
@@ -27,6 +28,12 @@ import {
 import { usePagination } from '../hooks/usePagination';
 
 type DetailTab = 'info' | 'delivery' | 'billing' | 'invoices';
+
+const riskColors = {
+  high: 'red',
+  medium: 'yellow',
+  low: 'green',
+} as const;
 
 function phone(customer: Customer): string {
   return String(customer.phone_number || customer.phone || '-');
@@ -409,9 +416,12 @@ export function CustomersPage() {
                         </Button>
                       )}
                       {c.id && riskScores[String(c.id)] && (
-                        <span className={`rounded-full px-2 py-0.5 text-xs font-semibold ${riskScores[String(c.id)].risk_level === 'high' ? 'bg-red-100 text-red-700' : riskScores[String(c.id)].risk_level === 'medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                        <StatusBadge
+                          status={riskScores[String(c.id)].risk_level === 'high' || riskScores[String(c.id)].risk_level === 'medium' ? riskScores[String(c.id)].risk_level : 'low'}
+                          colorMap={riskColors}
+                        >
                           {riskScores[String(c.id)].risk_level} {riskScores[String(c.id)].risk_score}/100
-                        </span>
+                        </StatusBadge>
                       )}
                     </div>
                   </TableCell>

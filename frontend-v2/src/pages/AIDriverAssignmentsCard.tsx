@@ -1,8 +1,15 @@
 import { memo } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { StatusBadge } from '../components/ui/status-badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import type { AssignmentsResult } from '../hooks/useRoutes';
+
+const confidenceColors = {
+  high: 'green',
+  medium: 'yellow',
+  low: 'red',
+} as const;
 
 type Props = {
   result: AssignmentsResult | null;
@@ -51,9 +58,7 @@ function AIDriverAssignmentsCardImpl({ result, suggesting, applying, onSuggest, 
                       <TableCell className="font-medium">{a.route_name}</TableCell>
                       <TableCell>{a.recommended_driver_name}</TableCell>
                       <TableCell>
-                        <span className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${a.confidence === 'high' ? 'bg-emerald-100 text-emerald-700' : a.confidence === 'medium' ? 'bg-yellow-100 text-yellow-700' : 'bg-red-100 text-red-700'}`}>
-                          {a.confidence}
-                        </span>
+                        <StatusBadge status={a.confidence === 'high' || a.confidence === 'medium' ? a.confidence : 'low'} colorMap={confidenceColors} />
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">{a.reasoning}</TableCell>
                       <TableCell className="text-right">

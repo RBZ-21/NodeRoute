@@ -3,6 +3,7 @@ import { Button } from '../components/ui/button';
 import { SelectInput } from '../components/ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { StatCard } from '../components/ui/stat-card';
+import { StatusBadge } from '../components/ui/status-badge';
 import { useToast } from '../components/ui/toast';
 import { Modal } from '../components/ui/overlay-panel';
 import { Input } from '../components/ui/input';
@@ -70,11 +71,11 @@ const FEATURE_FLAG_OVERRIDES: { key: string; label: string }[] = [
   { key: 'feat_case_to_each',      label: 'Case-to-Each' },
 ];
 
-const STATUS_BADGE: Record<string, string> = {
-  active:    'bg-emerald-100 text-emerald-700 border-emerald-200',
-  trial:     'bg-amber-100 text-amber-700 border-amber-200',
-  suspended: 'bg-red-100 text-red-700 border-red-200',
-};
+const companyStatusColors = {
+  active:    'green',
+  trial:     'yellow',
+  suspended: 'red',
+} as const;
 
 const VERTICAL_COLORS: Record<string, string> = {
   seafood: 'bg-blue-100 text-blue-700',   meat: 'bg-red-100 text-red-700',
@@ -290,9 +291,7 @@ export function CompaniesPage() {
                     <TableCell>{company.admin_email || '—'}</TableCell>
                     <TableCell>{company.plan || '—'}</TableCell>
                     <TableCell>
-                      <span className={`inline-flex items-center rounded-full border px-2 py-0.5 text-xs font-semibold ${STATUS_BADGE[company.status ?? ''] ?? 'bg-muted text-muted-foreground border-border'}`}>
-                        {company.status ?? 'unknown'}
-                      </span>
+                      <StatusBadge status={company.status} colorMap={companyStatusColors} fallbackLabel="Unknown" />
                     </TableCell>
                     <TableCell>{company.user_count ?? '—'}</TableCell>
                     <TableCell>{company.created_at ? new Date(company.created_at).toLocaleDateString() : '—'}</TableCell>

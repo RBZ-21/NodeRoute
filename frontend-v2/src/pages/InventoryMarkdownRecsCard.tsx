@@ -1,7 +1,13 @@
 import { useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
+import { StatusBadge } from '../components/ui/status-badge';
 import { sendWithAuth } from '../lib/api';
+
+const urgencyColors = {
+  immediate: 'red',
+  soon: 'yellow',
+} as const;
 
 type MarkdownRec = {
   product_id: string;
@@ -63,7 +69,7 @@ export function InventoryMarkdownRecsCard() {
                 <div key={i} className={`rounded-lg border px-4 py-3 ${rec.urgency === 'immediate' ? 'border-red-200 bg-red-50' : rec.urgency === 'soon' ? 'border-yellow-200 bg-yellow-50' : 'border-border bg-muted/20'}`}>
                   <div className="flex flex-wrap items-start justify-between gap-2">
                     <div>
-                      <span className={`mr-2 rounded-full px-2 py-0.5 text-xs font-semibold ${rec.urgency === 'immediate' ? 'bg-red-100 text-red-700' : rec.urgency === 'soon' ? 'bg-yellow-100 text-yellow-700' : 'bg-muted text-muted-foreground'}`}>{rec.urgency}</span>
+                      <StatusBadge status={rec.urgency} colorMap={urgencyColors} className="mr-2" />
                       <span className="font-medium text-sm">{rec.product_name}</span>
                       {rec.lot_number && <span className="ml-2 text-xs text-muted-foreground">Lot: {rec.lot_number}</span>}
                       <div className="mt-1 text-xs text-muted-foreground">{rec.days_until_expiry}d left · {rec.current_stock} units on hand</div>

@@ -21,9 +21,10 @@ import {
   useSendOrderMutation,
   useSubmitOrderMutation,
 } from '../hooks/useOrders';
-import { SlideOver, Modal } from '../components/ui/overlay-panel';
+import { SlideOver } from '../components/ui/overlay-panel';
 import { RecurringOrdersTab } from './RecurringOrdersTab';
 import { OrderCsvImport } from './OrderCsvImport';
+import { OrderIntakeModal } from './OrderIntakeModal';
 import { OrderWeightsBoard } from './OrderWeightsBoard';
 import { OrderFormCard, type OrderFormValidationErrors } from './OrderFormCard';
 import { OrdersWorkbench } from './OrdersWorkbench';
@@ -37,75 +38,10 @@ import {
   normalizeText,
   orderHasCapturedWeights,
   orderHasPendingWeights,
-  orderItemQty,
 } from './orders.types';
 import type { Order, OrderLineDraft, OrderStatus } from './orders.types';
 import { usePricingAnomalies } from '../hooks/useAI';
-
-function escapeHtml(value: unknown): string {
-  return String(value ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-function openPrintWindow(): Window | null {
-  const popup = window.open('', '_blank', 'width=960,height=720');
-  if (popup) {
-    popup.document.write('<!DOCTYPE html><html><head><title>Preparing order...</title></head><body style="font-family:Arial,sans-serif;padding:24px">Preparing order for print...</body></html>');
-    popup.document.close();
-  }
-  return popup;
-}
-
-function printOrderSlip(order: Order, popup: Window | null) {
-  if (!popup) return;
-  const rows = (order.items || []).map((item) => {
-    const qty = orderItemQty(item);
-    const unit = item.is_catch_weight ? 'lb' : String(item.unit || '').toLowerCase() === 'lb' ? 'lb' : 'ea';
-    const price = item.is_catch_weight ? asNumber(item.price_per_lb) : asNumber(item.unit_price);
-    return `<tr>
-      <td>${escapeHtml(item.name || item.description || item.item_number || '—')}</td>
-      <td>${escapeHtml(item.notes || '')}</td>
-      <td>${escapeHtml(qty.toFixed(unit === 'lb' ? 2 : 0))} ${unit}</td>
-      <td>$${price.toFixed(2)}</td>
-    </tr>`;
-  }).join('');
-  const orderNumber = order.order_number || order.id.slice(0, 8);
-  popup.document.open();
-  popup.document.write(`<!DOCTYPE html>
-<html>
-<head>
-  <title>Order ${escapeHtml(orderNumber)}</title>
-  <style>
-    body{font-family:Arial,sans-serif;padding:24px;color:#111}
-    h1{font-size:20px;margin-bottom:4px}
-    .muted{color:#666;margin-bottom:16px}
-    table{width:100%;border-collapse:collapse}
-    th{background:#f5f5f5;padding:8px 12px;text-align:left;font-size:12px;text-transform:uppercase;color:#666}
-    td{padding:8px 12px;border-bottom:1px solid #e6e6e6;vertical-align:top}
-    .print-actions{display:flex;justify-content:flex-end;margin-bottom:16px}
-    .print-btn{background:#3dba7f;color:#fff;border:none;padding:10px 18px;border-radius:6px;cursor:pointer;font-size:14px}
-    @media print {.print-actions{display:none} body{padding:0.4in}}
-  </style>
-</head>
-<body>
-  <div class="print-actions"><button class="print-btn" onclick="window.print()">Print</button></div>
-  <h1>Order ${escapeHtml(orderNumber)}</h1>
-  <div class="muted">${escapeHtml(order.customer_name || 'No customer')} · ${escapeHtml(order.customer_address || '')}</div>
-  <div class="muted" style="font-size:12px;margin-top:2px">${escapeHtml(new Date().toLocaleString())}</div>
-  <table>
-    <thead><tr><th>Item</th><th>Notes</th><th>Quantity</th><th>Price</th></tr></thead>
-    <tbody>${rows || '<tr><td colspan="4" style="text-align:center">No line items</td></tr>'}</tbody>
-  </table>
-</body>
-</html>`);
-  popup.document.close();
-  popup.focus();
-  popup.setTimeout(() => popup.print(), 300);
-}
+import { openPrintWindow, printOrderSlip } from '../lib/orderPrint';
 
 export function OrdersPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -579,45 +515,17 @@ export function OrdersPage() {
         />
       )}
 
-      {/* ── AI Order Intake modal ── */}
-      {(role === 'admin' || role === 'manager' || role === 'superadmin') && (
-        <div>
-          <button
-            onClick={() => setIntakeOpen(true)}
-            className="rounded-md border border-dashed border-primary/40 bg-primary/5 px-4 py-2 text-sm font-medium text-primary hover:bg-primary/10 transition-colors"
-          >
-            ✦ Parse Customer Message → Order
-          </button>
-          {intakeOpen && (
-            <Modal
-              open
-              title="Parse Customer Message"
-              description="Paste a customer email, text, or fax. AI will extract line items and pre-fill the order form."
-              onClose={() => { setIntakeOpen(false); setIntakeText(''); setIntakeError(''); }}
-              widthClassName="max-w-lg"
-            >
-              <div className="space-y-3">
-                {intakeError && <div className="rounded border border-destructive/25 bg-destructive/5 px-3 py-2 text-xs text-destructive">{intakeError}</div>}
-                <textarea
-                  className="w-full rounded-md border border-border bg-background px-3 py-2 text-sm resize-none focus:outline-none focus:ring-2 focus:ring-ring"
-                  rows={7}
-                  placeholder={"e.g. Hi, can I get 10 lbs of salmon, 2 cases of shrimp, and 5 lbs of tuna? – Joe's Seafood"}
-                  aria-label="Customer message to parse into an order"
-                  value={intakeText}
-                  onChange={(e) => setIntakeText(e.target.value)}
-                  disabled={intakeParsing}
-                />
-              </div>
-              <div className="mt-4 flex justify-end gap-2 border-t border-border pt-3">
-                <button onClick={() => { setIntakeOpen(false); setIntakeText(''); setIntakeError(''); }} className="rounded-md border border-border px-3 py-1.5 text-sm hover:bg-muted" disabled={intakeParsing}>Cancel</button>
-                <button onClick={() => void runOrderIntake()} disabled={intakeParsing || !intakeText.trim()} className="rounded-md bg-primary px-4 py-1.5 text-sm font-medium text-primary-foreground hover:bg-primary/90 disabled:opacity-50">
-                  {intakeParsing ? 'Parsing...' : 'Parse & Fill'}
-                </button>
-              </div>
-            </Modal>
-          )}
-        </div>
-      )}
+      <OrderIntakeModal
+        visible={role === 'admin' || role === 'manager' || role === 'superadmin'}
+        open={intakeOpen}
+        text={intakeText}
+        setText={setIntakeText}
+        parsing={intakeParsing}
+        error={intakeError}
+        onOpen={() => setIntakeOpen(true)}
+        onClose={() => { setIntakeOpen(false); setIntakeText(''); setIntakeError(''); }}
+        onSubmit={() => void runOrderIntake()}
+      />
 
       <SlideOver
         open={formOpen}
