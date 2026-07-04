@@ -12,7 +12,7 @@
  */
 
 const { supabase } = require('./supabase');
-const { sendSms }  = require('./sms');
+const { maskPhone, sendSms }  = require('./sms');
 const logger       = require('./logger');
 const { loadCompanySettings, computeCutoffTimestamp } = require('./company-settings');
 
@@ -186,7 +186,7 @@ async function runDailyFishBlast(companyName = '', companyId = null, locationId 
 
   for (const customer of customers) {
     if (dryRun) {
-      logger.info({ phone: customer.phone, customerId: customer.id, dryRun: true }, 'Daily fish blast: DRY RUN — SMS not sent');
+      logger.info({ phone: maskPhone(customer.phone), customerId: customer.id, dryRun: true }, 'Daily fish blast: DRY RUN — SMS not sent');
       sent++;
     } else {
       const result = await sendSms(customer.phone, message);
@@ -194,7 +194,7 @@ async function runDailyFishBlast(companyName = '', companyId = null, locationId 
         sent++;
       } else {
         failed++;
-        logger.warn({ customerId: customer.id, phone: customer.phone, error: result.error }, 'Daily fish blast: SMS failed');
+        logger.warn({ customerId: customer.id, phone: maskPhone(customer.phone), error: result.error }, 'Daily fish blast: SMS failed');
       }
     }
   }

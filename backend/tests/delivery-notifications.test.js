@@ -10,7 +10,13 @@ function loadNotifications(sendSms) {
     id: smsPath,
     filename: smsPath,
     loaded: true,
-    exports: { sendSms },
+    exports: {
+      sendSms,
+      maskPhone(value) {
+        const digits = String(value || '').replace(/\D/g, '');
+        return digits ? `***${digits.slice(-4)}` : '[redacted]';
+      },
+    },
   };
   return require('../services/delivery-notifications');
 }

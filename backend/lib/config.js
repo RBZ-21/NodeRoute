@@ -40,6 +40,9 @@ const envSchema = z.object({
   GOOGLE_MAPS_API_KEY:        z.string().optional().default(''),
   GOOGLE_MAPS_KEY:            z.string().optional().default(''),
   SENTRY_DSN:                 z.string().optional().default(''),
+  STRIPE_SECRET_KEY:          z.string().optional().default(''),
+  STRIPE_PUBLISHABLE_KEY:     z.string().optional().default(''),
+  STRIPE_WEBHOOK_SECRET:      z.string().optional().default(''),
   CORS_ORIGINS:               z.string().optional().default(''),
   CORS_ORIGIN:                z.string().optional().default(''),
   ALLOWED_IMAGE_HOSTS:         z.string().optional().default(''),
@@ -87,6 +90,9 @@ const ADMIN_PASSWORD  = rawEnv.ADMIN_PASSWORD;
 const GOOGLE_MAPS_API_KEY = rawEnv.GOOGLE_MAPS_API_KEY || rawEnv.GOOGLE_MAPS_KEY;
 const GOOGLE_MAPS_KEY = GOOGLE_MAPS_API_KEY;
 const SENTRY_DSN      = rawEnv.SENTRY_DSN;
+const STRIPE_SECRET_KEY = rawEnv.STRIPE_SECRET_KEY;
+const STRIPE_PUBLISHABLE_KEY = rawEnv.STRIPE_PUBLISHABLE_KEY;
+const STRIPE_WEBHOOK_SECRET = rawEnv.STRIPE_WEBHOOK_SECRET;
 const _corsRaw        = rawEnv.CORS_ORIGINS || rawEnv.CORS_ORIGIN || '';
 const CORS_ORIGINS    = _corsRaw.split(',').map((s) => s.trim()).filter(Boolean);
 const ALLOWED_IMAGE_HOSTS = rawEnv.ALLOWED_IMAGE_HOSTS
@@ -123,12 +129,54 @@ function validate(logger) {
   const errors = [];
   const warns  = [];
 
+  function isPlaceholderSecret(value) {
+    const normalized = String(value || '').trim();
+    if (!normalized) return false;
+    const lower = normalized.toLowerCase();
+    return lower === 'changeme'
+      || lower === 'change-me'
+      || lower === 'change_me'
+      || lower === 'placeholder'
+      || lower === 'your-secret-here'
+      || lower === 'your-service-role-key'
+      || lower === 'your_api_key_here'
+      || lower === 'your_twilio_auth_token_here'
+      || lower.startsWith('your-')
+      || lower.includes('replace-me')
+      || lower.includes('replace_me')
+      || lower.includes('placeholder');
+  }
+
+  function rejectPlaceholderSecret(key, value) {
+    if (isProduction && isPlaceholderSecret(value)) {
+      fatal.push(`${key} is a placeholder or unsafe default`);
+    }
+  }
+
   if (!process.env.JWT_SECRET || JWT_SECRET === DEV_JWT_SECRET)
     fatal.push('JWT_SECRET is not set');
   if (!SUPABASE_URL) fatal.push('SUPABASE_URL is not set');
   if (!SUPABASE_SERVICE_ROLE_KEY) fatal.push('SUPABASE_SERVICE_ROLE_KEY is not set');
   if (!rawEnv.SESSION_SECRET && !rawEnv.CSRF_SECRET)
     warns.push('SESSION_SECRET or CSRF_SECRET is not set — deriving CSRF/session secret from JWT_SECRET. Set a separate secret for stronger key separation.');
+
+  for (const [key, value] of [
+    ['JWT_SECRET', JWT_SECRET],
+    ['PORTAL_JWT_SECRET', PORTAL_JWT_SECRET],
+    ['SESSION_SECRET', rawEnv.SESSION_SECRET],
+    ['CSRF_SECRET', rawEnv.CSRF_SECRET],
+    ['SUPABASE_SERVICE_ROLE_KEY', SUPABASE_SERVICE_ROLE_KEY],
+    ['RESEND_API_KEY', RESEND_API_KEY],
+    ['SMTP_PASS', rawEnv.SMTP_PASS],
+    ['OPENAI_API_KEY', OPENAI_API_KEY],
+    ['GOOGLE_MAPS_API_KEY', GOOGLE_MAPS_API_KEY],
+    ['TWILIO_AUTH_TOKEN', TWILIO_AUTH_TOKEN],
+    ['STRIPE_SECRET_KEY', STRIPE_SECRET_KEY],
+    ['STRIPE_WEBHOOK_SECRET', STRIPE_WEBHOOK_SECRET],
+    ['SENTRY_DSN', SENTRY_DSN],
+  ]) {
+    rejectPlaceholderSecret(key, value);
+  }
 
   if (!process.env.SUPERADMIN_EMAIL || SUPERADMIN_EMAIL === '__superadmin_unset__')
     warns.push('SUPERADMIN_EMAIL is not set — requireSuperadmin will reject ALL requests including legitimate ones. Set it to the superadmin account email.');
@@ -150,6 +198,15 @@ function validate(logger) {
 
     if (!BASE_URL)
       errors.push('BASE_URL is not set — invite links and Stripe redirects will not work');
+
+    const stripePaymentsConfigured = PORTAL_PAYMENT_ENABLED && PORTAL_PAYMENT_PROVIDER === 'stripe';
+    const stripeBackendConfigured = !!(STRIPE_SECRET_KEY || STRIPE_WEBHOOK_SECRET);
+    if (stripePaymentsConfigured || stripeBackendConfigured) {
+      if (!STRIPE_SECRET_KEY)
+        fatal.push('STRIPE_SECRET_KEY is required when Stripe payments are enabled');
+      if (!STRIPE_WEBHOOK_SECRET)
+        fatal.push('STRIPE_WEBHOOK_SECRET is required when Stripe payments are enabled');
+    }
   } else {
     if (isWeakPassword(ADMIN_PASSWORD))
       warns.push(
@@ -228,6 +285,9 @@ module.exports = {
   GOOGLE_MAPS_API_KEY,
   GOOGLE_MAPS_KEY,
   SENTRY_DSN,
+  STRIPE_SECRET_KEY,
+  STRIPE_PUBLISHABLE_KEY,
+  STRIPE_WEBHOOK_SECRET,
   PORTAL_PAYMENT_ENABLED,
   PORTAL_PAYMENT_PROVIDER,
   CORS_ORIGINS,

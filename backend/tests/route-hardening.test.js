@@ -176,6 +176,91 @@ test('ai routes protect order-intake automation behind auth and manager/admin ch
   assert.ok(source.includes('Order intake message is required'), 'order-intake route should validate empty payload');
 });
 
+test('AI and auth-adjacent routes have explicit endpoint-specific rate limits', () => {
+  const ai = routeSource('ai');
+  const auth = routeSource('auth');
+  const forecast = routeSource('forecast');
+  const inventory = routeSource('inventory');
+  const portalAuth = fs.readFileSync(path.join(routeDir, 'portal', 'auth-routes.js'), 'utf8');
+
+  for (const [method, route, group] of [
+    ['post', '/walkthrough', 'walkthrough'],
+    ['post', '/order-intake', 'order-intake'],
+    ['post', '/chat', 'chat'],
+    ['post', '/inventory-analysis', 'inventory-analysis'],
+    ['post', '/scan-po', 'scan-po'],
+    ['post', '/optimize-route', 'optimize-route'],
+    ['post', '/customer-risk', 'customer-risk'],
+    ['post', '/anomalies', 'anomalies'],
+    ['post', '/vendor-score', 'vendor-score'],
+    ['post', '/driver-assignments', 'driver-assignments'],
+    ['post', '/markdown-recommendations', 'markdown-recommendations'],
+    ['post', '/invoice-followup', 'invoice-followup'],
+    ['get', '/reorder-alerts', 'reorder-alerts'],
+    ['get', '/late-payment-risk', 'late-payment-risk'],
+    ['post', '/pricing-anomalies', 'pricing-anomalies'],
+    ['get', '/vendor-performance', 'vendor-performance'],
+  ]) {
+    assert.match(
+      ai,
+      new RegExp(`router\\.${method}\\(\\s*['"]${route}['"][\\s\\S]*?aiRateLimit\\(['"]${group}['"]\\)`),
+      `${method.toUpperCase()} ${route} must use aiRateLimit('${group}')`
+    );
+  }
+
+  assert.match(auth, /router\.post\('\/forgot-password',\s*passwordResetLimiter/);
+  assert.match(auth, /router\.post\('\/reset-password',\s*passwordResetLimiter/);
+  assert.match(auth, /router\.post\('\/setup-password',\s*setupPasswordLimiter/);
+  assert.match(auth, /router\.post\('\/change-password',\s*authenticateToken,\s*changePasswordLimiter/);
+  assert.match(forecast, /router\.get\('\/inventory\/:itemNumber',\s*authenticateToken,\s*requireRole\('admin', 'manager'\),\s*aiLimiter/);
+  assert.match(forecast, /router\.get\('\/inventory',\s*authenticateToken,\s*requireRole\('admin', 'manager'\),\s*aiLimiter/);
+  assert.match(inventory, /router\.get\('\/ai-analysis',\s*authenticateToken,\s*requireRole\('admin', 'manager'\),\s*aiLimiter/);
+  assert.match(inventory, /router\.post\('\/:id\/reorder-alert',\s*authenticateToken,\s*requireRole\('admin', 'manager'\),\s*aiLimiter/);
+  assert.match(portalAuth, /router\.post\('\/auth',[\s\S]*?await canRequestCode\(normalized\)/);
+  assert.match(portalAuth, /router\.post\('\/verify',\s*portalVerifyLimiter/);
+});
+
+test('AI scan output remains a draft until schema-validated human confirmation', () => {
+  const ai = routeSource('ai');
+  const purchaseOrders = routeSource('purchase-orders');
+  const scanBlock = ai.slice(ai.indexOf("'/scan-po'"), ai.indexOf('// ── ROUTE OPTIMIZATION'));
+  const confirmBlock = purchaseOrders.slice(
+    purchaseOrders.indexOf("router.post('/confirm'"),
+    purchaseOrders.indexOf("// ── GET /api/purchase-orders")
+  );
+
+  assert.ok(scanBlock.includes('recordPoInvoiceScan'), 'AI scan should persist review/audit metadata');
+  assert.ok(scanBlock.includes('scan_id: scanRecord?.id || null'), 'AI scan should return a scan id for later review');
+  assert.equal(/from\('purchase_orders'\)\.(insert|update)/.test(scanBlock), false, 'AI scan must not directly write purchase orders');
+  assert.match(confirmBlock, /validateBody\(purchaseOrderConfirmSchema\)/, 'PO confirmation must validate submitted AI output');
+  assert.ok(confirmBlock.includes('source_scan_id'), 'confirmed purchase order should retain scan provenance');
+});
+
+test('production error responses for AI surfaces use generic fallbacks', () => {
+  const ai = routeSource('ai');
+  const inventory = routeSource('inventory');
+  const forecast = routeSource('forecast');
+  const source = `${ai}\n${inventory}\n${forecast}`;
+
+  assert.ok(ai.includes('function sendAiError(res, err, fallback'));
+  assert.ok(inventory.includes('function sendInventoryAiError(res, err, fallback'));
+  assert.ok(forecast.includes('function sendForecastAiError(res, err, fallback'));
+  assert.ok(!source.includes("res.status(503).json({ error: err.message })"));
+  assert.ok(!source.includes("res.status(500).json({ error: 'AI analysis failed: ' + err.message })"));
+  assert.ok(!source.includes("res.status(500).json({ error: 'AI forecast failed: ' + err.message })"));
+
+  const { clientError } = require('../lib/safe-error');
+  const previousEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'production';
+  try {
+    const internalError = new Error('select * from users at /Users/ryan/NodeRoute Systems with SUPABASE_SERVICE_ROLE_KEY');
+    assert.equal(clientError(internalError, 'Public fallback'), 'Public fallback');
+  } finally {
+    if (previousEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousEnv;
+  }
+});
+
 test('dwell tracking requires assigned routes and route stop membership', () => {
   const source = routeSource('stops');
   const { isRouteAssignedToUser } = require('../routes/stops');

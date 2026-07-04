@@ -40,12 +40,14 @@ async function startHarness(t) {
     role: 'driver',
     status: 'active',
     company_id: 'company-contract-001',
+    location_id: 'location-contract-001',
   };
   const route = {
     id: 'route-contract-001',
     name: 'Contract Route',
     driver_id: driver.id,
     company_id: driver.company_id,
+    location_id: driver.location_id,
     stop_ids: [],
     active_stop_ids: [],
   };

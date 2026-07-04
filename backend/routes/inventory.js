@@ -3,10 +3,12 @@ const express = require('express');
 const { z } = require('zod');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
-const { emailLimiter } = require('../middleware/rateLimiter');
+const { aiLimiter, emailLimiter } = require('../middleware/rateLimiter');
 const { createMailer } = require('../services/email');
 const { analyzeInventory, generateReorderAlert } = require('../services/ai');
 const { validateBody } = require('../lib/zod-validate');
+const { textToHtml } = require('../lib/html');
+const { clientError } = require('../lib/safe-error');
 const {
   inventoryCountBodySchema,
   inventoryLotPatchBodySchema,
@@ -28,6 +30,13 @@ const {
 const reorderEngine = require('../services/reorderEngine');
 
 const router = express.Router();
+
+function sendInventoryAiError(res, err, fallback) {
+  if (String(err?.message || '').includes('OPENAI_API_KEY')) {
+    return res.status(503).json({ error: 'AI service is not configured.' });
+  }
+  return res.status(500).json({ error: clientError(err, fallback) });
+}
 
 // Products whose names match this pattern require a lot number on every receipt.
 const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
@@ -449,7 +458,7 @@ router.post('/alerts/send', authenticateToken, requireRole('admin', 'manager'), 
 });
 
 // GET /api/inventory/ai-analysis — full warehouse AI inventory health check
-router.get('/ai-analysis', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.get('/ai-analysis', authenticateToken, requireRole('admin', 'manager'), aiLimiter, async (req, res) => {
   // Tenant scope: warehouse AI analysis must stay within the caller's company.
   const { data: products, error: pErr } = await scopeQueryByContext(
     supabase
@@ -494,8 +503,7 @@ router.get('/ai-analysis', authenticateToken, requireRole('admin', 'manager'), a
     const analysis = await analyzeInventory(products, historyByItem, expiringLots || []);
     res.json(analysis);
   } catch (err) {
-    if (err.message.includes('OPENAI_API_KEY')) return res.status(503).json({ error: err.message });
-    res.status(500).json({ error: 'AI analysis failed: ' + err.message });
+    return sendInventoryAiError(res, err, 'AI analysis failed. Please try again.');
   }
 });
 
@@ -1073,7 +1081,7 @@ router.get('/:id/yield', authenticateToken, async (req, res) => {
 });
 
 // POST /api/inventory/:id/reorder-alert — AI-generated reorder alert, optionally emailed
-router.post('/:id/reorder-alert', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/:id/reorder-alert', authenticateToken, requireRole('admin', 'manager'), aiLimiter, async (req, res) => {
   const { email } = req.body;
 
   // Tenant scope: reorder alert is per-company product + usage.
@@ -1128,7 +1136,7 @@ router.post('/:id/reorder-alert', authenticateToken, requireRole('admin', 'manag
           to:   email,
           subject: alert.subject,
           text:    alert.body,
-          html:    `<div style="font-family:sans-serif;font-size:14px;color:#111;padding:16px">${alert.body.replace(/\n/g, '<br>')}</div>`,
+          html:    `<div style="font-family:sans-serif;font-size:14px;color:#111;padding:16px">${textToHtml(alert.body)}</div>`,
         });
         return res.json({ ...alert, emailed: true, to: email });
       }
@@ -1136,8 +1144,7 @@ router.post('/:id/reorder-alert', authenticateToken, requireRole('admin', 'manag
 
     res.json({ ...alert, emailed: false });
   } catch (err) {
-    if (err.message.includes('OPENAI_API_KEY')) return res.status(503).json({ error: err.message });
-    res.status(500).json({ error: 'Alert generation failed: ' + err.message });
+    return sendInventoryAiError(res, err, 'Alert generation failed. Please try again.');
   }
 });
 

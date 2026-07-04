@@ -13,6 +13,9 @@ const PORTAL_AUTH_RATE_WINDOW_MS = Number(process.env.PORTAL_AUTH_RATE_WINDOW_MS
 const PORTAL_AUTH_RATE_LIMIT = Number(process.env.PORTAL_AUTH_RATE_LIMIT || 5);
 const IS_PROD = (process.env.NODE_ENV || '').toLowerCase() === 'production';
 const PORTAL_COOKIE = 'portal_token';
+const PORTAL_CSRF_COOKIE = 'csrf-token';
+const PORTAL_CSRF_HEADER = 'x-csrf-token';
+const PORTAL_CSRF_METHODS = new Set(['POST', 'PATCH', 'DELETE', 'PUT']);
 
 function escapeHtml(str) {
   return String(str ?? '')
@@ -248,18 +251,44 @@ async function requirePortalOrdering(req, res, next) {
   }
 }
 
-function extractPortalToken(req) {
+function extractPortalAuth(req) {
   const cookieToken = req.cookies?.[PORTAL_COOKIE];
-  if (cookieToken) return cookieToken;
+  if (cookieToken) return { token: cookieToken, source: 'cookie' };
 
   const auth = req.headers.authorization;
-  if (auth && auth.startsWith('Bearer ')) return auth.slice(7);
-  return null;
+  if (auth && auth.startsWith('Bearer ')) return { token: auth.slice(7), source: 'bearer' };
+  return { token: null, source: null };
+}
+
+function extractPortalToken(req) {
+  return extractPortalAuth(req).token;
+}
+
+function verifyPortalCsrf(req) {
+  if (!PORTAL_CSRF_METHODS.has(req.method)) return true;
+  const cookieToken = req.cookies?.[PORTAL_CSRF_COOKIE];
+  const headerToken = req.headers?.[PORTAL_CSRF_HEADER];
+  if (!cookieToken || !headerToken) return false;
+  try {
+    const a = Buffer.from(String(cookieToken));
+    const b = Buffer.from(String(headerToken));
+    if (a.length !== b.length) return false;
+    return crypto.timingSafeEqual(a, b);
+  } catch {
+    return false;
+  }
 }
 
 function setPortalAuthCookie(res, token) {
   res.cookie(PORTAL_COOKIE, token, {
     httpOnly: true,
+    secure: IS_PROD,
+    sameSite: 'strict',
+    maxAge: 24 * 60 * 60 * 1000,
+    path: '/',
+  });
+  res.cookie(PORTAL_CSRF_COOKIE, crypto.randomBytes(32).toString('hex'), {
+    httpOnly: false,
     secure: IS_PROD,
     sameSite: 'strict',
     maxAge: 24 * 60 * 60 * 1000,
@@ -274,10 +303,16 @@ function clearPortalAuthCookie(res) {
     sameSite: 'strict',
     path: '/',
   });
+  res.clearCookie(PORTAL_CSRF_COOKIE, {
+    httpOnly: false,
+    secure: IS_PROD,
+    sameSite: 'strict',
+    path: '/',
+  });
 }
 
 function authenticatePortalToken(req, res, next) {
-  const token = extractPortalToken(req);
+  const { token, source } = extractPortalAuth(req);
   if (!token) return res.status(401).json({ error: 'Unauthorized' });
 
   let payload;
@@ -288,6 +323,9 @@ function authenticatePortalToken(req, res, next) {
   }
 
   if (payload.role !== 'customer') return res.status(403).json({ error: 'Forbidden' });
+  if (source === 'cookie' && !verifyPortalCsrf(req)) {
+    return res.status(403).json({ error: 'Invalid CSRF token' });
+  }
   req.customerEmail = payload.email;
   req.customerName = payload.name;
   req.portalContext = {

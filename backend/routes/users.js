@@ -279,6 +279,7 @@ router.patch('/:id', authenticateToken, validateBody(userPatchBodySchema), async
   if (vehicle_id !== undefined) updates.vehicle_id = vehicle_id;
   const { data, error } = await scopeQueryByContext(supabase.from('users').update(updates), req.context).eq('id', req.params.id).select('id,name,phone,vehicle_id').single();
   if (error) return res.status(500).json({ error: error.message });
+  if (!data) return res.status(404).json({ error: 'User not found' });
   res.json(data);
 });
 

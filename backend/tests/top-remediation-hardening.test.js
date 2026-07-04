@@ -15,6 +15,7 @@ const configSource = read('backend', 'lib', 'config.js');
 const stopsSource = read('backend', 'routes', 'stops.js');
 const deliveriesSource = read('backend', 'routes', 'deliveries.js');
 const migrationSource = read('supabase', 'migrations', '20260625204708_harden_rls_rpc_portal_checkout.sql');
+const catalogHardeningMigrationSource = read('supabase', 'migrations', '20260702000000_security_catalog_hardening.sql');
 const driverStorageSource = read('driver-app', 'src', 'lib', 'storage.ts');
 const offlineQueueSource = read('driver-app', 'src', 'hooks', 'useOfflineQueue.ts');
 const driverAppSource = read('driver-app', 'src', 'hooks', 'useDriverApp.tsx');
@@ -52,6 +53,24 @@ test('Supabase migration stops trusting top-level JWT claims and locks definer R
   assert.ok(migrationSource.includes('set search_path = public, pg_temp'));
   assert.ok(migrationSource.includes('revoke all on function public.sync_route_stop_assignments'));
   assert.ok(migrationSource.includes('grant execute on function public.sync_route_stop_assignments'));
+});
+
+test('Supabase catalog hardening pins function search paths and guards definer RPC', () => {
+  for (const marker of [
+    'ALTER FUNCTION IF EXISTS public.fn_audit_log_customer_change()',
+    'ALTER FUNCTION IF EXISTS public.fn_audit_log_order_change()',
+    'ALTER FUNCTION IF EXISTS public.seafood_inventory_insert_fn()',
+    'ALTER FUNCTION IF EXISTS public.set_reorder_suggestions_updated_at()',
+    'ALTER FUNCTION IF EXISTS public.sync_products_inventory_report_fields()',
+  ]) {
+    assert.ok(catalogHardeningMigrationSource.includes(marker), `missing search_path marker ${marker}`);
+  }
+  assert.ok(catalogHardeningMigrationSource.includes("coalesce(auth.role(), '') <> 'service_role'"));
+  assert.ok(catalogHardeningMigrationSource.includes("using errcode = '42501'"));
+  assert.ok(catalogHardeningMigrationSource.includes('REVOKE ALL ON FUNCTION public.sync_route_stop_assignments(text, text[], text[]) FROM public'));
+  assert.ok(catalogHardeningMigrationSource.includes('REVOKE ALL ON FUNCTION public.sync_route_stop_assignments(text, text[], text[]) FROM anon'));
+  assert.ok(catalogHardeningMigrationSource.includes('REVOKE ALL ON FUNCTION public.sync_route_stop_assignments(text, text[], text[]) FROM authenticated'));
+  assert.ok(catalogHardeningMigrationSource.includes('GRANT EXECUTE ON FUNCTION public.sync_route_stop_assignments(text, text[], text[]) TO service_role'));
 });
 
 test('route hardening covers safe errors, production config fatals, and driver authorization', () => {

@@ -258,6 +258,93 @@ test('config exits in production when ADMIN_PASSWORD is missing or weak', () => 
   }
 });
 
+test('config exits in production when required secrets use placeholders', () => {
+  for (const [key, value] of [
+    ['SUPABASE_SERVICE_ROLE_KEY', 'your-service-role-key'],
+    ['OPENAI_API_KEY', 'changeme'],
+    ['TWILIO_AUTH_TOKEN', 'YOUR_TWILIO_AUTH_TOKEN_HERE'],
+  ]) {
+    withEnv({
+      ...requiredConfigEnv,
+      NODE_ENV: 'production',
+      PORTAL_JWT_SECRET: 'prod-portal-secret-value',
+      ADMIN_PASSWORD: 'Str0ng!ProdPassw0rd#2026',
+      BASE_URL: 'https://app.example.com',
+      CORS_ORIGINS: 'https://app.example.com',
+      SUPERADMIN_EMAIL: 'owner@example.com',
+      [key]: value,
+    }, () => {
+      const config = loadFreshConfig();
+      const logs = { warn: [], error: [], fatal: [], info: [] };
+      const logger = {
+        warn(message) { logs.warn.push(message); },
+        error(message) { logs.error.push(message); },
+        fatal(message) { logs.fatal.push(message); },
+        info(message) { logs.info.push(message); },
+      };
+      const originalExit = process.exit;
+      let exitCode = null;
+      process.exit = (code) => {
+        exitCode = code;
+        throw new Error(`process.exit:${code}`);
+      };
+
+      try {
+        assert.throws(() => config.validate(logger), /process\.exit:1/);
+      } finally {
+        process.exit = originalExit;
+      }
+
+      assert.equal(exitCode, 1);
+      assert.ok(
+        logs.fatal.some((message) => message.includes(`${key} is a placeholder or unsafe default`)),
+        `expected fatal placeholder message for ${key}`
+      );
+    });
+  }
+});
+
+test('config exits in production when Stripe payments are enabled without signing secrets', () => {
+  withEnv({
+    ...requiredConfigEnv,
+    NODE_ENV: 'production',
+    PORTAL_JWT_SECRET: 'prod-portal-secret-value',
+    ADMIN_PASSWORD: 'Str0ng!ProdPassw0rd#2026',
+    BASE_URL: 'https://app.example.com',
+    CORS_ORIGINS: 'https://app.example.com',
+    SUPERADMIN_EMAIL: 'owner@example.com',
+    PORTAL_PAYMENT_ENABLED: 'true',
+    PORTAL_PAYMENT_PROVIDER: 'stripe',
+    STRIPE_SECRET_KEY: undefined,
+    STRIPE_WEBHOOK_SECRET: '',
+  }, () => {
+    const config = loadFreshConfig();
+    const logs = { warn: [], error: [], fatal: [], info: [] };
+    const logger = {
+      warn(message) { logs.warn.push(message); },
+      error(message) { logs.error.push(message); },
+      fatal(message) { logs.fatal.push(message); },
+      info(message) { logs.info.push(message); },
+    };
+    const originalExit = process.exit;
+    let exitCode = null;
+    process.exit = (code) => {
+      exitCode = code;
+      throw new Error(`process.exit:${code}`);
+    };
+
+    try {
+      assert.throws(() => config.validate(logger), /process\.exit:1/);
+    } finally {
+      process.exit = originalExit;
+    }
+
+    assert.equal(exitCode, 1);
+    assert.ok(logs.fatal.some((message) => message.includes('STRIPE_SECRET_KEY is required when Stripe payments are enabled')));
+    assert.ok(logs.fatal.some((message) => message.includes('STRIPE_WEBHOOK_SECRET is required when Stripe payments are enabled')));
+  });
+});
+
 test('config derives session and csrf secrets from jwt secret when unset', () => {
   withEnv({
     ...requiredConfigEnv,

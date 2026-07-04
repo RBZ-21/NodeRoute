@@ -1,10 +1,19 @@
 const express = require('express');
 const { supabase } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
+const { aiLimiter } = require('../middleware/rateLimiter');
 const { forecastDemand } = require('../services/ai');
+const { clientError } = require('../lib/safe-error');
 const { filterRowsByContext, scopeQueryByContext } = require('../services/operating-context');
 
 const router = express.Router();
+
+function sendForecastAiError(res, err, fallback) {
+  if (String(err?.message || '').includes('OPENAI_API_KEY')) {
+    return res.status(503).json({ error: 'AI service is not configured.' });
+  }
+  return res.status(500).json({ error: clientError(err, fallback) });
+}
 
 // GET /api/forecast/orders
 // Returns per-customer order cadence and monthly volume data for the
@@ -71,7 +80,7 @@ router.get('/orders', authenticateToken, requireRole('admin', 'manager'), async 
 // ── AI DEMAND FORECASTING ─────────────────────────────────────────────────────
 
 // GET /api/forecast/inventory/:itemNumber — AI forecast for one product
-router.get('/inventory/:itemNumber', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.get('/inventory/:itemNumber', authenticateToken, requireRole('admin', 'manager'), aiLimiter, async (req, res) => {
   const { itemNumber } = req.params;
   const days = Math.min(parseInt(req.query.days) || 14, 90);
 
@@ -102,13 +111,12 @@ router.get('/inventory/:itemNumber', authenticateToken, requireRole('admin', 'ma
     const forecast = await forecastDemand(product, history, days);
     res.json(forecast);
   } catch (err) {
-    if (err.message.includes('OPENAI_API_KEY')) return res.status(503).json({ error: err.message });
-    res.status(500).json({ error: 'AI forecast failed: ' + err.message });
+    return sendForecastAiError(res, err, 'AI forecast failed. Please try again.');
   }
 });
 
 // GET /api/forecast/inventory — AI forecast for all products (batch)
-router.get('/inventory', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.get('/inventory', authenticateToken, requireRole('admin', 'manager'), aiLimiter, async (req, res) => {
   const days = Math.min(parseInt(req.query.days) || 14, 90);
 
   const { data: productData, error: pErr } = await scopeQueryByContext(

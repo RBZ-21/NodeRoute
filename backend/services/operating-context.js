@@ -198,6 +198,12 @@ function filterRowsByContext(rows, context) {
   return rows.filter((row) => rowMatchesContext(row, context));
 }
 
+function hasResolvedTenantContext(context) {
+  if (!context || context.isGlobalOperator) return true;
+  return !!normalizeId(context.activeCompanyId || context.companyId)
+    && !!normalizeId(context.activeLocationId || context.locationId);
+}
+
 // Sentinel tenant id that can never match a real row. Valid for both uuid
 // and text company_id columns, so the fail-closed filter below works either way.
 const NO_TENANT_MATCH = '00000000-0000-0000-0000-000000000000';
@@ -275,6 +281,7 @@ module.exports = {
   executeWithOptionalScope,
   filterRowsByContext,
   getUserOperatingContext,
+  hasResolvedTenantContext,
   insertRecordWithOptionalScope,
   isMissingColumnError,
   rowMatchesContext,

@@ -1,7 +1,7 @@
 'use strict';
 
 const logger = require('./logger');
-const { sendSms } = require('./sms');
+const { maskPhone, sendSms } = require('./sms');
 const { buildTrackingUrlFromBase } = require('../lib/tracking-url');
 const { getMedianDwellMs } = require('./dwell-stats');
 
@@ -163,20 +163,21 @@ async function sendEventSms(client, { event, order, stopId, body, metadata = {} 
     logger.info({ ...metadata, event, reason: 'missing_phone' }, 'Delivery SMS skipped');
     return { sent: false, skipped: true, reason: 'missing_phone' };
   }
+  const phoneForLog = maskPhone(phone);
 
   if (!(await smsPreferenceAllowed(client, order))) {
-    logger.info({ ...metadata, event, phone, reason: 'sms_notifications_disabled' }, 'Delivery SMS skipped');
+    logger.info({ ...metadata, event, phone: phoneForLog, reason: 'sms_notifications_disabled' }, 'Delivery SMS skipped');
     await logOutboundMessage(client, { ...logBase, phone, status: 'skipped', error: 'sms_notifications_disabled' });
     return { sent: false, skipped: true, reason: 'sms_notifications_disabled' };
   }
 
   if (await alreadySentEvent(client, event, { stopId, orderId: order?.id || metadata.orderId })) {
-    logger.info({ ...metadata, event, phone, reason: 'duplicate_event' }, 'Delivery SMS skipped (already sent)');
+    logger.info({ ...metadata, event, phone: phoneForLog, reason: 'duplicate_event' }, 'Delivery SMS skipped (already sent)');
     return { sent: false, skipped: true, reason: 'duplicate_event' };
   }
 
   if (await isRateLimited(client, phone)) {
-    logger.warn({ ...metadata, event, phone, reason: 'rate_limited' }, 'Delivery SMS skipped (rate limit)');
+    logger.warn({ ...metadata, event, phone: phoneForLog, reason: 'rate_limited' }, 'Delivery SMS skipped (rate limit)');
     await logOutboundMessage(client, { ...logBase, phone, status: 'skipped', error: 'rate_limited' });
     return { sent: false, skipped: true, reason: 'rate_limited' };
   }
@@ -184,15 +185,15 @@ async function sendEventSms(client, { event, order, stopId, body, metadata = {} 
   try {
     const result = await sendSms(phone, body);
     if (result?.success) {
-      logger.info({ ...metadata, event, phone, sid: result.sid }, 'Delivery SMS sent');
+      logger.info({ ...metadata, event, phone: phoneForLog, sid: result.sid }, 'Delivery SMS sent');
       await logOutboundMessage(client, { ...logBase, phone, status: result.dryRun ? 'dry_run' : 'sent', sid: result.sid || null });
       return { sent: true, phone, sid: result.sid || null };
     }
-    logger.warn({ ...metadata, event, phone, error: result?.error || 'unknown_error' }, 'Delivery SMS failed');
+    logger.warn({ ...metadata, event, phone: phoneForLog, error: result?.error || 'unknown_error' }, 'Delivery SMS failed');
     await logOutboundMessage(client, { ...logBase, phone, status: 'failed', error: result?.error || 'unknown_error' });
     return { sent: false, phone, error: result?.error || 'unknown_error' };
   } catch (error) {
-    logger.warn({ ...metadata, event, phone, error: error?.message || String(error) }, 'Delivery SMS threw');
+    logger.warn({ ...metadata, event, phone: phoneForLog, error: error?.message || String(error) }, 'Delivery SMS threw');
     await logOutboundMessage(client, { ...logBase, phone, status: 'failed', error: error?.message || String(error) });
     return { sent: false, phone, error: error?.message || String(error) };
   }

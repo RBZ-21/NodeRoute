@@ -6,6 +6,7 @@ const { filterRowsByContext, scopeQueryByContext } = require('../services/operat
 const { renderOrderSlip } = require('../services/print-template');
 const { validateParams } = require('../lib/zod-validate');
 const { buildOrderDocumentPDF } = require('../services/order-documents');
+const { escapeHtml } = require('../lib/html');
 
 const router = express.Router();
 const documentRole = requireRole('admin', 'manager', 'driver');
@@ -83,7 +84,7 @@ async function orderDocument(req, res, title) {
 router.get('/order-slip/:orderId', authenticateToken, documentRole, validateParams(orderParamSchema), async (req, res) => {
   const data = await loadOrder(req.validated.params.orderId, req.context);
   if (!data) return res.status(404).json({ error: 'Order not found' });
-  const html = `<pre>${renderOrderSlip({ ...data, items: data.items || [] })}</pre>`;
+  const html = `<pre>${escapeHtml(renderOrderSlip({ ...data, items: data.items || [] }))}</pre>`;
   res.setHeader('Content-Type', 'text/html');
   res.send(html);
 });

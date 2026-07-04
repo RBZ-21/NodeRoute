@@ -30,12 +30,8 @@ function installStripeVerifierStub(event) {
   };
 }
 
-function invokeWebhook(stripeWebhookHandler) {
+function invokeWebhookWithRequest(stripeWebhookHandler, request) {
   return new Promise((resolve) => {
-    const req = {
-      body: Buffer.from('{}'),
-      headers: { 'stripe-signature': 't=1,v1=test' },
-    };
     const res = {
       statusCode: 200,
       body: null,
@@ -48,7 +44,14 @@ function invokeWebhook(stripeWebhookHandler) {
         resolve({ statusCode: this.statusCode, body: payload });
       },
     };
-    stripeWebhookHandler(req, res);
+    stripeWebhookHandler(request, res);
+  });
+}
+
+function invokeWebhook(stripeWebhookHandler) {
+  return invokeWebhookWithRequest(stripeWebhookHandler, {
+    body: Buffer.from('{}'),
+    headers: { 'stripe-signature': 't=1,v1=test' },
   });
 }
 
@@ -208,4 +211,83 @@ test('payment_intent.succeeded does not cross company scope from metadata', asyn
     assert.equal(invoice.payment_status, undefined);
     assert.equal(invoice.stripe_payment_intent_id, undefined);
   });
+});
+
+test('forged Stripe webhook payload is rejected without recording event or mutating invoices', async () => {
+  const previousBackupPath = process.env.NODEROUTE_BACKUP_PATH;
+  const previousForceDemoMode = process.env.NODEROUTE_FORCE_DEMO_MODE;
+  const previousWebhookSecret = process.env.STRIPE_WEBHOOK_SECRET;
+  const previousStripeSecretKey = process.env.STRIPE_SECRET_KEY;
+  const backupPath = fs.mkdtempSync(path.join(os.tmpdir(), 'noderoute-stripe-forged-'));
+
+  process.env.NODEROUTE_BACKUP_PATH = backupPath;
+  process.env.NODEROUTE_FORCE_DEMO_MODE = 'true';
+  process.env.STRIPE_WEBHOOK_SECRET = 'whsec_test_secret';
+  process.env.STRIPE_SECRET_KEY = 'sk_test_fake_for_signature_verifier';
+  clearBackendModuleCache();
+
+  try {
+    const { supabase } = require('../services/supabase');
+    const { stripeWebhookHandler } = require('../routes/stripe-webhooks');
+
+    await supabase.from('invoices').insert({
+      id: 'inv-forged-webhook',
+      invoice_number: 'INV-FORGED-100',
+      total: 42.5,
+      status: 'sent',
+      company_id: 'company-stripe-a',
+      location_id: 'loc-stripe-a',
+    });
+
+    const forgedEvent = Buffer.from(JSON.stringify({
+      id: 'evt-forged-payment',
+      type: 'payment_intent.succeeded',
+      data: {
+        object: {
+          id: 'pi-forged',
+          amount_received: 4250,
+          metadata: {
+            invoice_id: 'inv-forged-webhook',
+            company_id: 'company-stripe-a',
+            location_id: 'loc-stripe-a',
+          },
+        },
+      },
+    }));
+    const timestamp = Math.floor(Date.now() / 1000);
+
+    const response = await invokeWebhookWithRequest(stripeWebhookHandler, {
+      body: forgedEvent,
+      headers: { 'stripe-signature': `t=${timestamp},v1=not-a-real-signature` },
+    });
+
+    assert.equal(response.statusCode, 400);
+    assert.match(response.body.error, /signature/i);
+
+    const { data: invoice } = await supabase
+      .from('invoices')
+      .select('*')
+      .eq('id', 'inv-forged-webhook')
+      .single();
+    assert.equal(invoice.status, 'sent');
+    assert.equal(invoice.payment_status, undefined);
+    assert.equal(invoice.stripe_payment_intent_id, undefined);
+
+    const { data: events } = await supabase
+      .from('stripe_webhook_events')
+      .select('*')
+      .eq('event_id', 'evt-forged-payment');
+    assert.deepEqual(events, []);
+  } finally {
+    if (previousBackupPath === undefined) delete process.env.NODEROUTE_BACKUP_PATH;
+    else process.env.NODEROUTE_BACKUP_PATH = previousBackupPath;
+    if (previousForceDemoMode === undefined) delete process.env.NODEROUTE_FORCE_DEMO_MODE;
+    else process.env.NODEROUTE_FORCE_DEMO_MODE = previousForceDemoMode;
+    if (previousWebhookSecret === undefined) delete process.env.STRIPE_WEBHOOK_SECRET;
+    else process.env.STRIPE_WEBHOOK_SECRET = previousWebhookSecret;
+    if (previousStripeSecretKey === undefined) delete process.env.STRIPE_SECRET_KEY;
+    else process.env.STRIPE_SECRET_KEY = previousStripeSecretKey;
+    clearBackendModuleCache();
+    fs.rmSync(backupPath, { recursive: true, force: true });
+  }
 });
