@@ -168,17 +168,22 @@ test('GET /api/billing/config reports test-mode readiness for a configured compa
 test('GET /api/billing/config is scoped to the authenticated user\'s own company, not another tenant\'s', async () => {
   await withBillingHarness(async ({ baseUrl, supabase }) => {
     await seedUser(supabase);
-    await supabase.from('companies').insert({
-      id: 'company-billing',
-      name: 'Billing Test Co',
-      plan: 'pro',
-      status: 'active',
-    });
     // A different tenant's company row exists in the same demo-mode store.
+    // Seeded FIRST so the demo-mode mock's insertion-order fallback (used when
+    // a query has no matching filter) would return this row -- not the
+    // authenticated user's own company -- if the tenant-scoping filter in
+    // loadBillingCompany() were ever broken or removed. This makes the
+    // assertions below a genuine red/green check on that filter.
     await supabase.from('companies').insert({
       id: 'company-other-tenant',
       name: 'Someone Else\'s Company',
       plan: 'enterprise',
+      status: 'active',
+    });
+    await supabase.from('companies').insert({
+      id: 'company-billing',
+      name: 'Billing Test Co',
+      plan: 'pro',
       status: 'active',
     });
     const token = signToken('billing-admin');
