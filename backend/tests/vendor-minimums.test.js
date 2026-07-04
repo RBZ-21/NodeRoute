@@ -6,7 +6,7 @@ const assert = require('node:assert/strict');
 const {
   buildPurchasingSuggestions,
   buildVendorPlanningSummary,
-} = require('../routes/ops/purchasing-shared');
+} = require('../lib/purchasing-shared');
 
 test('vendor minimum summary warns without fabricating filler items', () => {
   const summary = buildVendorPlanningSummary(

@@ -6,6 +6,7 @@ const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 const reorderEngine = require('../services/reorderEngine');
 const deliveryNotifications = require('../services/delivery-notifications');
 const { buildDeliveryWindow } = require('../lib/delivery-window');
+const { apiError } = require('../lib/safe-error');
 const router = express.Router();
 
 // Per-context cache for dashboard data. TTL is intentionally short
@@ -118,18 +119,21 @@ function deliveryInventoryDeductionNote(order) {
   return `Delivery ${order.order_number || order.id} completed`;
 }
 
-async function hasDeliveryInventoryLedgerEntry(itemNumber, note, context) {
+async function hasDeliveryInventoryLedgerEntries(itemNumbers, note, context) {
+  const uniqueItemNumbers = [...new Set((itemNumbers || []).filter(Boolean))];
+  if (!uniqueItemNumbers.length) return new Set();
+
   const { data, error } = await scopeQueryByContext(
     supabase
       .from('inventory_stock_history')
-      .select('id')
-      .eq('item_number', itemNumber)
+      .select('item_number')
       .eq('change_type', 'delivery_complete')
-      .eq('notes', note),
+      .eq('notes', note)
+      .in('item_number', uniqueItemNumbers),
     context
-  ).limit(1);
+  );
   if (error) throw error;
-  return Array.isArray(data) && data.length > 0;
+  return new Set((data || []).map((row) => row.item_number));
 }
 
 async function deductDeliveryInventoryAndRunReorder(order, req) {
@@ -150,8 +154,14 @@ async function deductDeliveryInventoryAndRunReorder(order, req) {
     deductionsByItemNumber.set(key, existing);
   }
 
+  const alreadyLedgered = await hasDeliveryInventoryLedgerEntries(
+    [...deductionsByItemNumber.keys()],
+    deductionNote,
+    req.context
+  );
+
   for (const { product, qty } of deductionsByItemNumber.values()) {
-    if (await hasDeliveryInventoryLedgerEntry(product.item_number, deductionNote, req.context)) {
+    if (alreadyLedgered.has(product.item_number)) {
       affectedProductIds.add(product.id);
       continue;
     }
@@ -588,7 +598,8 @@ router.patch('/deliveries/:id/status', authenticateToken, requireRole('admin', '
   };
 
   if (!allowed[requestedStatus]) {
-    return res.status(400).json({ error: 'Invalid delivery status' });
+    const { status, payload } = apiError('Invalid delivery status');
+    return res.status(status).json(payload);
   }
 
   const { data: order, error } = await supabase
@@ -597,7 +608,10 @@ router.patch('/deliveries/:id/status', authenticateToken, requireRole('admin', '
     .eq('id', req.params.id)
     .single();
 
-  if (error || !order) return res.status(404).json({ error: 'Not found' });
+  if (error || !order) {
+    const { status, payload } = apiError('Not found', { status: 404 });
+    return res.status(status).json(payload);
+  }
   if (!rowMatchesContext(order, req.context)) {
     return res.status(403).json({ error: 'Forbidden' });
   }
@@ -617,7 +631,8 @@ router.patch('/deliveries/:id/status', authenticateToken, requireRole('admin', '
   };
   const allowed2 = validTransitions[currentDbStatus];
   if (!allowed2) {
-    return res.status(400).json({ error: `Unknown current delivery status: '${currentDbStatus}'` });
+    const { status, payload } = apiError(`Unknown current delivery status: '${currentDbStatus}'`);
+    return res.status(status).json(payload);
   }
   if (!allowed2.includes(nextDbStatus)) {
     return res.status(400).json({
@@ -647,7 +662,9 @@ router.patch('/deliveries/:id/status', authenticateToken, requireRole('admin', '
   if (updateError) return res.status(500).json({ error: updateError.message });
   invalidateDashboardCache(req.context);
   if (requestedStatus === 'delivered') {
-    deliveryNotifications.notifyDeliveryCompleted(supabase, order.stop_id || null, order.id).catch(() => {});
+    deliveryNotifications.notifyDeliveryCompleted(supabase, order.stop_id || null, order.id).catch((err) => {
+      console.warn('[delivery-notify] failed to notify delivery completion:', err?.message || err);
+    });
   }
 
   try {
@@ -667,4 +684,5 @@ module.exports.invalidateDashboardCache = invalidateDashboardCache;
 module.exports.buildDeliveryWindow = buildDeliveryWindow;
 module.exports.deliveryInventoryLookupKeys = deliveryInventoryLookupKeys;
 module.exports.deliveryInventoryDeductionNote = deliveryInventoryDeductionNote;
+module.exports.hasDeliveryInventoryLedgerEntries = hasDeliveryInventoryLedgerEntries;
 module.exports.dashboardCache = dashboardCache;

@@ -11,7 +11,7 @@ const {
   normalizeReceiptRules,
   summarizeVendorPurchaseOrders,
   toNumber,
-} = require('../routes/ops/purchasing-shared');
+} = require('../lib/purchasing-shared');
 
 const COUNT_UNITS = new Set(['ea', 'each', 'count', 'case', 'cases', 'box', 'boxes', 'bag', 'bags', 'carton', 'cartons', 'dozen', 'pallet', 'pallets']);
 const WEIGHT_UNITS = new Set(['lb', 'lbs', 'pound', 'pounds', 'kg', 'kgs', 'oz', 'ounce', 'ounces']);

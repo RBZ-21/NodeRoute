@@ -12,7 +12,7 @@ const opsRouteSource = readSources([
   path.join(repoRoot, 'backend', 'routes', 'ops.js'),
   path.join(repoRoot, 'backend', 'routes', 'ops-purchasing.js'),
   path.join(repoRoot, 'backend', 'routes', 'ops', 'admin-routes.js'),
-  path.join(repoRoot, 'backend', 'routes', 'ops', 'purchasing-shared.js'),
+  path.join(repoRoot, 'backend', 'lib', 'purchasing-shared.js'),
   path.join(repoRoot, 'backend', 'routes', 'ops', 'purchasing-planning-routes.js'),
   path.join(repoRoot, 'backend', 'routes', 'ops', 'purchasing-order-routes.js'),
 ]);

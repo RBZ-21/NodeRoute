@@ -19,7 +19,7 @@ const {
   summarizeVendorPo,
   supabase,
   toNumber,
-} = require('./purchasing-shared');
+} = require('../../lib/purchasing-shared');
 const {
   attachLotsToPurchaseOrder,
   linkScanToPurchaseOrder,

@@ -1,5 +1,10 @@
 // Shared types and pure helpers for the Orders feature.
 
+// Zod-derived request types generated from backend/lib/schemas.js. These are
+// additive (not yet consumed here) — see ../types/generated/order.generated.ts.
+// Regenerate via `npm run codegen:types` from the repo root.
+export type { GeneratedOrderCreateInput, GeneratedOrderUpdateInput } from '../types/generated/order.generated';
+
 export type OrderStatus = 'pending' | 'in_process' | 'processed' | 'delivered' | 'invoiced' | 'cancelled' | 'unknown';
 
 export type OrderItem = {
