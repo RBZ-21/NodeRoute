@@ -6,6 +6,7 @@ const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 const reorderEngine = require('../services/reorderEngine');
 const deliveryNotifications = require('../services/delivery-notifications');
 const { buildDeliveryWindow } = require('../lib/delivery-window');
+const { apiError } = require('../lib/safe-error');
 const router = express.Router();
 
 // Per-context cache for dashboard data. TTL is intentionally short
@@ -597,7 +598,8 @@ router.patch('/deliveries/:id/status', authenticateToken, requireRole('admin', '
   };
 
   if (!allowed[requestedStatus]) {
-    return res.status(400).json({ error: 'Invalid delivery status' });
+    const { status, payload } = apiError('Invalid delivery status');
+    return res.status(status).json(payload);
   }
 
   const { data: order, error } = await supabase
@@ -606,7 +608,10 @@ router.patch('/deliveries/:id/status', authenticateToken, requireRole('admin', '
     .eq('id', req.params.id)
     .single();
 
-  if (error || !order) return res.status(404).json({ error: 'Not found' });
+  if (error || !order) {
+    const { status, payload } = apiError('Not found', { status: 404 });
+    return res.status(status).json(payload);
+  }
   if (!rowMatchesContext(order, req.context)) {
     return res.status(403).json({ error: 'Forbidden' });
   }
@@ -626,7 +631,8 @@ router.patch('/deliveries/:id/status', authenticateToken, requireRole('admin', '
   };
   const allowed2 = validTransitions[currentDbStatus];
   if (!allowed2) {
-    return res.status(400).json({ error: `Unknown current delivery status: '${currentDbStatus}'` });
+    const { status, payload } = apiError(`Unknown current delivery status: '${currentDbStatus}'`);
+    return res.status(status).json(payload);
   }
   if (!allowed2.includes(nextDbStatus)) {
     return res.status(400).json({
