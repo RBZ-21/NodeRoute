@@ -19,8 +19,15 @@ function clearBackendModuleCache() {
   }
 }
 
-function installStripeStub({ checkoutUrl = 'https://checkout.stripe.test/session-1', sessionId = 'cs_test_1' } = {}) {
+function installStripeStub({
+  checkoutUrl = 'https://checkout.stripe.test/session-1',
+  sessionId = 'cs_test_1',
+  unreachable = false,
+} = {}) {
   const stripePath = require.resolve('../services/stripe');
+  const unreachableFn = async () => {
+    throw new Error('should not be called');
+  };
   require.cache[stripePath] = {
     id: stripePath,
     filename: stripePath,
@@ -30,8 +37,10 @@ function installStripeStub({ checkoutUrl = 'https://checkout.stripe.test/session
       isStripeTestMode: () => true,
       stripeKeyMode: (key) => (String(key || '').startsWith('pk_test_') ? 'test' : 'missing'),
       stripeSecretKeyMode: () => 'test',
-      findOrCreateCustomer: async ({ email }) => ({ id: `cus_${email}` }),
-      createSubscriptionCheckoutSession: async () => ({ url: checkoutUrl, id: sessionId, livemode: false }),
+      findOrCreateCustomer: unreachable ? unreachableFn : async ({ email }) => ({ id: `cus_${email}` }),
+      createSubscriptionCheckoutSession: unreachable
+        ? unreachableFn
+        : async () => ({ url: checkoutUrl, id: sessionId, livemode: false }),
     },
   };
 }
@@ -112,11 +121,13 @@ async function close(server) {
 async function withBillingHarness(run, { stripeConfigured = true } = {}) {
   const backupPath = fs.mkdtempSync(path.join(os.tmpdir(), 'noderoute-billing-route-'));
   const prev = {
+    NODE_ENV: process.env.NODE_ENV,
     NODEROUTE_BACKUP_PATH: process.env.NODEROUTE_BACKUP_PATH,
     NODEROUTE_FORCE_DEMO_MODE: process.env.NODEROUTE_FORCE_DEMO_MODE,
     STRIPE_PUBLISHABLE_KEY: process.env.STRIPE_PUBLISHABLE_KEY,
     NODEROUTE_STRIPE_PRICE_ID: process.env.NODEROUTE_STRIPE_PRICE_ID,
   };
+  process.env.NODE_ENV = 'test';
   process.env.NODEROUTE_BACKUP_PATH = backupPath;
   process.env.NODEROUTE_FORCE_DEMO_MODE = 'true';
   if (stripeConfigured) {
@@ -131,7 +142,14 @@ async function withBillingHarness(run, { stripeConfigured = true } = {}) {
   if (stripeConfigured) {
     installStripeStub();
   } else {
-    installStripeStub({ checkoutUrl: '', sessionId: '' });
+    // billingReadiness() gates on the missing STRIPE_PUBLISHABLE_KEY/price-id env
+    // vars deleted above, not on isStripeConfigured(). The customer/checkout
+    // functions should never be reached in this scenario, so make them throw
+    // to fail loudly if billing.js regresses and calls them before checking
+    // readiness.
+    installStripeStub({
+      unreachable: true,
+    });
   }
 
   const user = {
