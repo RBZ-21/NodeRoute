@@ -268,3 +268,47 @@ test('minimum sell enforcement uses the higher explicit min price or margin pric
     assert.equal(allowed.min_price, 14);
   });
 });
+
+test('enforceMinimumSellBatch resolves multiple items with a fixed, small number of queries', async () => {
+  await withPricingEngine(async ({ supabase, engine, context }) => {
+    await seedBaseRows(supabase);
+    await supabase.from('products').insert(product('p-min-2'));
+    await supabase.from('minimum_sell_rules').insert([
+      { id: 'min-rule-p', company_id: COMPANY_ID, product_id: 'p-min', category_id: null, min_margin_pct: 25, min_price: 14 },
+      { id: 'min-rule-p2', company_id: COMPANY_ID, product_id: 'p-min-2', category_id: null, min_margin_pct: null, min_price: 18 },
+    ]);
+
+    const queryLog = [];
+    const originalFrom = supabase.from.bind(supabase);
+    supabase.from = (table) => {
+      if (table === 'products' || table === 'minimum_sell_rules') queryLog.push(table);
+      return originalFrom(table);
+    };
+
+    try {
+      const results = await engine.enforceMinimumSellBatch({
+        db: supabase,
+        context,
+        refs: [
+          { productId: 'p-min', price: 13 },
+          { productId: 'p-min-2', price: 20 },
+          { productId: 'p-min', price: 15 },
+        ],
+      });
+
+      assert.equal(results.get(0).allowed, false, 'first p-min item at price 13 should violate the 14 minimum');
+      assert.equal(results.get(0).min_price, 14);
+      assert.equal(results.get(1).allowed, true, 'p-min-2 at price 20 clears its 18 minimum');
+      assert.equal(results.get(1).min_price, 18);
+      assert.equal(results.get(2).allowed, true, 'second p-min item at price 15 clears the 14 minimum');
+      assert.equal(results.get(2).min_price, 14);
+
+      const productQueries = queryLog.filter((t) => t === 'products').length;
+      const ruleQueries = queryLog.filter((t) => t === 'minimum_sell_rules').length;
+      assert.equal(productQueries, 1, `expected exactly 1 products query for the whole batch (id lookup only, since all refs use productId), got ${productQueries}`);
+      assert.equal(ruleQueries, 1, `expected exactly 1 minimum_sell_rules query for the whole batch regardless of item count, got ${ruleQueries}`);
+    } finally {
+      supabase.from = originalFrom;
+    }
+  });
+});
