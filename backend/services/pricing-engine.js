@@ -250,15 +250,25 @@ async function resolvePriceLevelPrice(db, { customerId, product, context, onDate
     .filter((row) => activeOnDate(row, onDate, 'effective_date', 'expiry_date'))
     .sort((a, b) => String(b.effective_date || '').localeCompare(String(a.effective_date || '')) || sortById(a, b));
 
-  for (const assignment of assignments) {
-    const { data: ruleRows, error: ruleErr } = await scopeQueryByContext(
-      db.from('price_level_rules').select('*'),
-      context,
-    )
-      .eq('price_level_id', assignment.price_level_id);
-    if (ruleErr) throw ruleErr;
+  if (!assignments.length) return null;
 
-    const rules = filterRowsByContext(ruleRows || [], context)
+  const priceLevelIds = [...new Set(assignments.map((row) => row.price_level_id).filter(Boolean))];
+  const { data: allRuleRows, error: ruleErr } = await scopeQueryByContext(
+    db.from('price_level_rules').select('*'),
+    context,
+  )
+    .in('price_level_id', priceLevelIds);
+  if (ruleErr) throw ruleErr;
+
+  const rulesByLevel = new Map();
+  for (const rule of filterRowsByContext(allRuleRows || [], context)) {
+    const list = rulesByLevel.get(rule.price_level_id) || [];
+    list.push(rule);
+    rulesByLevel.set(rule.price_level_id, list);
+  }
+
+  for (const assignment of assignments) {
+    const rules = (rulesByLevel.get(assignment.price_level_id) || [])
       .filter((rule) => targetMatchesProduct(rule, product))
       .sort(moreSpecificFirst);
     for (const rule of rules) {
