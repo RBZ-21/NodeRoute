@@ -395,43 +395,11 @@ git commit -m "fix(deliveries): log delivery-notification failures instead of sw
 
 ---
 
-### Task 5: Remove `@tauri-apps/*` from `frontend-v2`
+### Task 5: ~~Remove `@tauri-apps/*` from `frontend-v2`~~ — CANCELLED, premise was wrong
 
-**Files:**
-- Modify: `frontend-v2/package.json`
-- Modify: `ios-driver-app/package.json`
+**Status: no action taken.** Step 1's verification (`grep -rn "@tauri-apps" frontend-v2/src`) found a real, load-bearing match at `frontend-v2/src/main.tsx:20` — a conditional dynamic import of `@tauri-apps/api/webviewWindow` used to reveal the main window and close the splashscreen when running inside a Tauri shell (`window.__TAURI_INTERNALS__`). Further investigation found `frontend-v2/src-tauri/tauri.conf.json` and `frontend-v2/.github/workflows/tauri-build.yml` — `frontend-v2` has its own independent Tauri desktop-app build pipeline. Meanwhile `ios-driver-app` has **zero** Tauri references anywhere (no config, no source usage) — the original audit finding had the two workspaces backwards.
 
-**Interfaces:** None — dependency relocation only.
-
-- [ ] **Step 1: Confirm `frontend-v2` doesn't actually import Tauri APIs**
-
-Run: `grep -rn "@tauri-apps" frontend-v2/src`
-Expected: no matches. If there ARE matches, stop — this task is not safe to do as scoped; escalate instead of silently deleting used code.
-
-- [ ] **Step 2: Confirm `ios-driver-app` already depends on Tauri, or needs it added**
-
-Run: `grep -n "tauri" ios-driver-app/package.json`
-If `@tauri-apps/api`/`@tauri-apps/cli` are already listed there at the same versions (`^2.11.0` / `^2.11.2`), skip Step 4 (no need to add — already present). If absent, proceed to Step 4.
-
-- [ ] **Step 3: Remove from `frontend-v2`**
-
-Run: `npm --prefix frontend-v2 uninstall @tauri-apps/api @tauri-apps/cli`
-
-- [ ] **Step 4: Add to `ios-driver-app` only if Step 2 found it missing**
-
-Run: `npm --prefix ios-driver-app install @tauri-apps/api@2.11.0 @tauri-apps/cli@2.11.2`
-
-- [ ] **Step 5: Verify frontend-v2 still builds and lints**
-
-Run: `npm --prefix frontend-v2 run lint && npm --prefix frontend-v2 run build`
-Expected: lint `0 errors, 6 warnings`; build succeeds with no missing-module errors.
-
-- [ ] **Step 6: Commit**
-
-```bash
-git add frontend-v2/package.json frontend-v2/package-lock.json ios-driver-app/package.json ios-driver-app/package-lock.json
-git commit -m "chore(deps): move @tauri-apps/* out of frontend-v2 into ios-driver-app where it's used"
-```
+**Corrected conclusion:** `@tauri-apps/api` and `@tauri-apps/cli` are correctly placed in `frontend-v2/package.json` exactly where they are. This was a false positive from the original maintainability audit (it didn't check for `src-tauri/` or grep frontend-v2's own source before recommending the move). No dependency relocation is needed. Task 5 is closed with no file changes.
 
 ---
 
