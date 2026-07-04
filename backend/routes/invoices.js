@@ -250,6 +250,10 @@ async function canAccessInvoice(req, invoice) {
   return rowMatchesContext(invoice, req.context);
 }
 
+const INVOICES_LIST_MAX_ROWS = Number.parseInt(process.env.INVOICES_LIST_MAX_ROWS, 10) > 0
+  ? Number.parseInt(process.env.INVOICES_LIST_MAX_ROWS, 10)
+  : 1000;
+
 router.get('/', authenticateToken, async (req, res) => {
   if (req.user.role === 'driver') {
     try {
@@ -260,7 +264,9 @@ router.get('/', authenticateToken, async (req, res) => {
     }
   }
 
-  let query = scopeQueryByContext(supabase.from('invoices').select('*'), req.context).order('created_at', { ascending: false });
+  let query = scopeQueryByContext(supabase.from('invoices').select('*'), req.context)
+    .order('created_at', { ascending: false })
+    .limit(INVOICES_LIST_MAX_ROWS);
   const customerId = req.query.customer_id;
   if (customerId) {
     const parsedId = parseInt(customerId, 10);

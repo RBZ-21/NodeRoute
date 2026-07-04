@@ -991,8 +991,17 @@ async function sendFulfillmentInvoiceIfPossible(invoice) {
 }
 
 // ── ORDERS ────────────────────────────────────────────────────────────────────
+const ORDERS_LIST_MAX_ROWS = Number.parseInt(process.env.ORDERS_LIST_MAX_ROWS, 10) > 0
+  ? Number.parseInt(process.env.ORDERS_LIST_MAX_ROWS, 10)
+  : 1000;
+
 router.get('/', authenticateToken, async (req, res) => {
-  const data = await dbQuery(scopeQueryByContext(supabase.from('orders').select('*'), req.context).order('created_at', { ascending: false }), res);
+  const data = await dbQuery(
+    scopeQueryByContext(supabase.from('orders').select('*'), req.context)
+      .order('created_at', { ascending: false })
+      .limit(ORDERS_LIST_MAX_ROWS),
+    res
+  );
   if (!data) return;
   res.json(filterRowsByContext(data || [], req.context));
 });
