@@ -312,3 +312,31 @@ test('enforceMinimumSellBatch resolves multiple items with a fixed, small number
     }
   });
 });
+
+test('enforceMinimumSellBatch allows a ref that resolves to no product at all', async () => {
+  await withPricingEngine(async ({ supabase, engine, context }) => {
+    await seedBaseRows(supabase);
+
+    const results = await engine.enforceMinimumSellBatch({
+      db: supabase,
+      context,
+      refs: [{ productId: 'p-does-not-exist', price: 5 }],
+    });
+
+    assert.deepEqual(results.get(0), { allowed: true, min_price: null, source_id: null });
+  });
+});
+
+test('enforceMinimumSellBatch allows a resolved product with zero matching minimum-sell rules', async () => {
+  await withPricingEngine(async ({ supabase, engine, context }) => {
+    await seedBaseRows(supabase);
+
+    const results = await engine.enforceMinimumSellBatch({
+      db: supabase,
+      context,
+      refs: [{ productId: 'p-list', price: 1 }],
+    });
+
+    assert.deepEqual(results.get(0), { allowed: true, min_price: null, source_id: null });
+  });
+});

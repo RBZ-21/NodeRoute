@@ -77,6 +77,34 @@ function moreSpecificFirst(a, b) {
   return sortById(a, b);
 }
 
+// Shared pricing-floor math used by both enforceMinimumSell and
+// enforceMinimumSellBatch: scores an already-filtered-and-sorted list of
+// minimum_sell_rules against a product, returning the highest applicable
+// minimum price (explicit min_price or margin-derived floor) and the id of
+// the rule that produced it.
+function scoreRulesForProduct(rules, product) {
+  const cost = productCost(product);
+  let minPrice = 0;
+  let sourceId = null;
+  for (const rule of rules) {
+    const explicitMin = toNumber(rule.min_price, NaN);
+    if (Number.isFinite(explicitMin)) {
+      minPrice = Math.max(minPrice, explicitMin);
+      if (minPrice === explicitMin) sourceId = rule.id;
+    }
+    const marginPct = toNumber(rule.min_margin_pct, NaN);
+    if (Number.isFinite(marginPct) && marginPct >= 0 && marginPct < 100 && cost > 0) {
+      const marginPrice = cost / (1 - marginPct / 100);
+      if (marginPrice > minPrice) {
+        minPrice = marginPrice;
+        sourceId = rule.id;
+      }
+    }
+  }
+
+  return { minPrice: roundPrice(minPrice), sourceId };
+}
+
 function queryWithCompanyFallback(query, companyId) {
   return companyId ? query.eq('company_id', companyId) : query;
 }
@@ -358,26 +386,7 @@ async function enforceMinimumSell(priceOrArgs, productId, companyId) {
     .sort(moreSpecificFirst);
   if (!rules.length) return { allowed: true, min_price: null, source_id: null };
 
-  const cost = productCost(product);
-  let minPrice = 0;
-  let sourceId = null;
-  for (const rule of rules) {
-    const explicitMin = toNumber(rule.min_price, NaN);
-    if (Number.isFinite(explicitMin)) {
-      minPrice = Math.max(minPrice, explicitMin);
-      if (minPrice === explicitMin) sourceId = rule.id;
-    }
-    const marginPct = toNumber(rule.min_margin_pct, NaN);
-    if (Number.isFinite(marginPct) && marginPct >= 0 && marginPct < 100 && cost > 0) {
-      const marginPrice = cost / (1 - marginPct / 100);
-      if (marginPrice > minPrice) {
-        minPrice = marginPrice;
-        sourceId = rule.id;
-      }
-    }
-  }
-
-  const roundedMin = roundPrice(minPrice);
+  const { minPrice: roundedMin, sourceId } = scoreRulesForProduct(rules, product);
   return {
     allowed: toNumber(args.price, 0) + 0.0001 >= roundedMin,
     min_price: roundedMin,
@@ -498,26 +507,7 @@ async function enforceMinimumSellBatch({ db, context, refs }) {
       continue;
     }
 
-    const cost = productCost(product);
-    let minPrice = 0;
-    let sourceId = null;
-    for (const rule of rules) {
-      const explicitMin = toNumber(rule.min_price, NaN);
-      if (Number.isFinite(explicitMin)) {
-        minPrice = Math.max(minPrice, explicitMin);
-        if (minPrice === explicitMin) sourceId = rule.id;
-      }
-      const marginPct = toNumber(rule.min_margin_pct, NaN);
-      if (Number.isFinite(marginPct) && marginPct >= 0 && marginPct < 100 && cost > 0) {
-        const marginPrice = cost / (1 - marginPct / 100);
-        if (marginPrice > minPrice) {
-          minPrice = marginPrice;
-          sourceId = rule.id;
-        }
-      }
-    }
-
-    const roundedMin = roundPrice(minPrice);
+    const { minPrice: roundedMin, sourceId } = scoreRulesForProduct(rules, product);
     results.set(i, {
       allowed: toNumber(ref.price, 0) + 0.0001 >= roundedMin,
       min_price: roundedMin,
