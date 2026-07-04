@@ -34,5 +34,8 @@
     "resend": "^6.12.0",
     "stripe": "^17.7.0",
     "zod": "^4.4.1"
+  },
+  "devDependencies": {
+    "zod-to-ts": "^2.1.0"
   }
 }

@@ -16,7 +16,8 @@
     "test": "npm run test --workspace=backend && npm run test --workspace=noderoute-frontend-v2",
     "install:all": "npm install --include=dev",
     "audit:all": "npm audit --workspaces",
-    "seed:admin": "node scripts/seed-admin.js"
+    "seed:admin": "node scripts/seed-admin.js",
+    "codegen:types": "node backend/scripts/generate-frontend-types.js"
   },
   "dependencies": {
     "@sentry/node": "^10.61.0",
