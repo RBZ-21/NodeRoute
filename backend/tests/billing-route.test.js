@@ -4,6 +4,7 @@ const express = require('express');
 const fs = require('node:fs');
 const os = require('node:os');
 const path = require('node:path');
+const jwt = require('jsonwebtoken');
 
 function clearBackendModuleCache() {
   for (const key of Object.keys(require.cache)) {
@@ -45,68 +46,6 @@ function installStripeStub({
   };
 }
 
-function installAuthStub(user = null) {
-  const authPath = require.resolve('../middleware/auth');
-  require.cache[authPath] = {
-    id: authPath,
-    filename: authPath,
-    loaded: true,
-    exports: {
-      authenticateToken(req, _res, next) {
-        if (user) {
-          req.user = user;
-          req.context = { activeCompanyId: user.company_id, isGlobalOperator: false };
-        }
-        next();
-      },
-      requireRole(...roles) {
-        return (req, _res, next) => {
-          if (!req.user) return _res.status(401).json({ error: 'Unauthorized' });
-          if (!roles.includes(req.user.role) && req.user.role !== 'superadmin') {
-            return _res.status(403).json({ error: 'Forbidden' });
-          }
-          next();
-        };
-      },
-      requireSuperadmin(req, _res, next) {
-        if (!req.user || req.user.role !== 'superadmin') {
-          return _res.status(403).json({ error: 'Forbidden' });
-        }
-        next();
-      },
-      extractToken() {
-        return null;
-      },
-    },
-  };
-}
-
-function installSupabaseStub() {
-  const supabasePath = require.resolve('../services/supabase');
-  require.cache[supabasePath] = {
-    id: supabasePath,
-    filename: supabasePath,
-    loaded: true,
-    exports: {
-      supabase: {
-        from() {
-          return {
-            select() {
-              return {
-                eq() {
-                  return {
-                    single: () => Promise.resolve({ data: null, error: null }),
-                  };
-                },
-              };
-            },
-          };
-        },
-      },
-    },
-  };
-}
-
 function listen(app) {
   return new Promise((resolve) => {
     const server = app.listen(0, '127.0.0.1', () => resolve(server));
@@ -124,12 +63,16 @@ async function withBillingHarness(run, { stripeConfigured = true } = {}) {
     NODE_ENV: process.env.NODE_ENV,
     NODEROUTE_BACKUP_PATH: process.env.NODEROUTE_BACKUP_PATH,
     NODEROUTE_FORCE_DEMO_MODE: process.env.NODEROUTE_FORCE_DEMO_MODE,
+    JWT_SECRET: process.env.JWT_SECRET,
     STRIPE_PUBLISHABLE_KEY: process.env.STRIPE_PUBLISHABLE_KEY,
     NODEROUTE_STRIPE_PRICE_ID: process.env.NODEROUTE_STRIPE_PRICE_ID,
   };
+  // NODE_ENV=test neutralizes stripeLimiter (applied to create-checkout-session),
+  // matching purchase-orders-draft-route.test.js / portal-payments-checkout-route.test.js.
   process.env.NODE_ENV = 'test';
   process.env.NODEROUTE_BACKUP_PATH = backupPath;
   process.env.NODEROUTE_FORCE_DEMO_MODE = 'true';
+  process.env.JWT_SECRET = 'billing-route-test-secret';
   if (stripeConfigured) {
     process.env.STRIPE_PUBLISHABLE_KEY = 'pk_test_billing_route';
     process.env.NODEROUTE_STRIPE_PRICE_ID = 'price_billing_route_test';
@@ -152,30 +95,17 @@ async function withBillingHarness(run, { stripeConfigured = true } = {}) {
     });
   }
 
-  const user = {
-    id: 'billing-admin',
-    name: 'Billing Admin',
-    email: 'billing.admin@noderoute.test',
-    role: 'admin',
-    status: 'active',
-    company_id: 'company-billing',
-    location_id: 'loc-billing',
-    accessible_company_ids: ['company-billing'],
-    accessible_location_ids: ['loc-billing'],
-  };
-  installAuthStub(user);
-  installSupabaseStub();
-
   let server;
   try {
+    const { supabase } = require('../services/supabase');
     const { authenticateToken } = require('../middleware/auth');
+
     const app = express();
     app.use(express.json());
-    app.use(authenticateToken);
-    app.use('/api/billing', require('../routes/billing'));
+    app.use('/api/billing', authenticateToken, require('../routes/billing'));
     server = await listen(app);
     const baseUrl = `http://127.0.0.1:${server.address().port}`;
-    await run({ baseUrl });
+    await run({ baseUrl, supabase });
   } finally {
     await close(server);
     for (const [key, value] of Object.entries(prev)) {
@@ -187,22 +117,101 @@ async function withBillingHarness(run, { stripeConfigured = true } = {}) {
   }
 }
 
+function signToken(userId) {
+  return jwt.sign({ userId }, process.env.JWT_SECRET, { expiresIn: '1h' });
+}
+
+async function seedUser(supabase, overrides = {}) {
+  return supabase.from('users').insert({
+    id: 'billing-admin',
+    name: 'Billing Admin',
+    email: 'billing.admin@noderoute.test',
+    role: 'admin',
+    status: 'active',
+    company_id: 'company-billing',
+    location_id: 'loc-billing',
+    accessible_company_ids: ['company-billing'],
+    accessible_location_ids: ['loc-billing'],
+    ...overrides,
+  });
+}
+
 test('GET /api/billing/config reports test-mode readiness for a configured company', async () => {
-  await withBillingHarness(async ({ baseUrl }) => {
-    const response = await fetch(`${baseUrl}/api/billing/config`);
+  await withBillingHarness(async ({ baseUrl, supabase }) => {
+    await seedUser(supabase);
+    await supabase.from('companies').insert({
+      id: 'company-billing',
+      name: 'Billing Test Co',
+      plan: 'pro',
+      status: 'active',
+    });
+    const token = signToken('billing-admin');
+
+    const response = await fetch(`${baseUrl}/api/billing/config`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
     assert.equal(response.status, 200);
     const body = await response.json();
     assert.equal(body.enabled, true);
     assert.equal(body.mode, 'test');
+    // These values only come from the seeded `companies` row via a real,
+    // tenant-scoped loadBillingCompany() lookup (supabase.from('companies')
+    // .select(...).eq('id', activeCompanyId).single()) -- not from a stub.
     assert.equal(body.company.id, 'company-billing');
+    assert.equal(body.company.name, 'Billing Test Co');
+    assert.equal(body.company.plan, 'pro');
+    assert.equal(body.company.status, 'active');
+    assert.equal(body.can_manage_billing, true);
+  });
+});
+
+test('GET /api/billing/config is scoped to the authenticated user\'s own company, not another tenant\'s', async () => {
+  await withBillingHarness(async ({ baseUrl, supabase }) => {
+    await seedUser(supabase);
+    await supabase.from('companies').insert({
+      id: 'company-billing',
+      name: 'Billing Test Co',
+      plan: 'pro',
+      status: 'active',
+    });
+    // A different tenant's company row exists in the same demo-mode store.
+    await supabase.from('companies').insert({
+      id: 'company-other-tenant',
+      name: 'Someone Else\'s Company',
+      plan: 'enterprise',
+      status: 'active',
+    });
+    const token = signToken('billing-admin');
+
+    const response = await fetch(`${baseUrl}/api/billing/config`, {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    // Must resolve to the authenticated user's own company_id (from the real
+    // JWT -> authenticateToken -> buildRequestContext flow), never the other
+    // tenant's row, even though both exist in the same backing store.
+    assert.equal(body.company.id, 'company-billing');
+    assert.equal(body.company.name, 'Billing Test Co');
+    assert.notEqual(body.company.id, 'company-other-tenant');
+    assert.notEqual(body.company.name, 'Someone Else\'s Company');
   });
 });
 
 test('POST /api/billing/create-checkout-session returns a Stripe test-mode checkout URL', async () => {
-  await withBillingHarness(async ({ baseUrl }) => {
+  await withBillingHarness(async ({ baseUrl, supabase }) => {
+    await seedUser(supabase);
+    await supabase.from('companies').insert({
+      id: 'company-billing',
+      name: 'Billing Test Co',
+      plan: 'pro',
+      status: 'active',
+    });
+    const token = signToken('billing-admin');
+
     const response = await fetch(`${baseUrl}/api/billing/create-checkout-session`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     });
     assert.equal(response.status, 200);
@@ -213,14 +222,42 @@ test('POST /api/billing/create-checkout-session returns a Stripe test-mode check
 });
 
 test('POST /api/billing/create-checkout-session is blocked when Stripe is not configured', async () => {
-  await withBillingHarness(async ({ baseUrl }) => {
+  await withBillingHarness(async ({ baseUrl, supabase }) => {
+    await seedUser(supabase);
+    await supabase.from('companies').insert({
+      id: 'company-billing',
+      name: 'Billing Test Co',
+      plan: 'pro',
+      status: 'active',
+    });
+    const token = signToken('billing-admin');
+
     const response = await fetch(`${baseUrl}/api/billing/create-checkout-session`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({}),
     });
     assert.equal(response.status, 501);
     const body = await response.json();
     assert.equal(body.code, 'STRIPE_TEST_KEYS_MISSING');
   }, { stripeConfigured: false });
+});
+
+test('POST /api/billing/create-checkout-session rejects an unauthenticated request', async () => {
+  await withBillingHarness(async ({ baseUrl, supabase }) => {
+    await seedUser(supabase);
+    await supabase.from('companies').insert({
+      id: 'company-billing',
+      name: 'Billing Test Co',
+      plan: 'pro',
+      status: 'active',
+    });
+
+    const response = await fetch(`${baseUrl}/api/billing/create-checkout-session`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
+    });
+    assert.equal(response.status, 401);
+  });
 });
