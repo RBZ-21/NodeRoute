@@ -19,7 +19,7 @@ const {
   resolveInventoryMatch,
   summarizeVendorPurchaseOrders,
   toNumber,
-} = require('./purchasing-shared');
+} = require('../../lib/purchasing-shared');
 
 function mapDraftRow(row) {
   if (!row) return null;

@@ -8,7 +8,7 @@ const receiveRouteSource = fs.readFileSync(
   path.join(repoRoot, 'backend', 'routes', 'ops', 'purchasing-order-routes.js'),
   'utf8'
 );
-const { normalizePoLine, poLineRequiresLot } = require('../routes/ops/purchasing-shared');
+const { normalizePoLine, poLineRequiresLot } = require('../lib/purchasing-shared');
 
 test('vendor PO lines preserve lot metadata needed by receipt drafts', () => {
   const normalized = normalizePoLine({
