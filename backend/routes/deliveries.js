@@ -118,18 +118,21 @@ function deliveryInventoryDeductionNote(order) {
   return `Delivery ${order.order_number || order.id} completed`;
 }
 
-async function hasDeliveryInventoryLedgerEntry(itemNumber, note, context) {
+async function hasDeliveryInventoryLedgerEntries(itemNumbers, note, context) {
+  const uniqueItemNumbers = [...new Set((itemNumbers || []).filter(Boolean))];
+  if (!uniqueItemNumbers.length) return new Set();
+
   const { data, error } = await scopeQueryByContext(
     supabase
       .from('inventory_stock_history')
-      .select('id')
-      .eq('item_number', itemNumber)
+      .select('item_number')
       .eq('change_type', 'delivery_complete')
-      .eq('notes', note),
+      .eq('notes', note)
+      .in('item_number', uniqueItemNumbers),
     context
-  ).limit(1);
+  );
   if (error) throw error;
-  return Array.isArray(data) && data.length > 0;
+  return new Set((data || []).map((row) => row.item_number));
 }
 
 async function deductDeliveryInventoryAndRunReorder(order, req) {
@@ -150,8 +153,14 @@ async function deductDeliveryInventoryAndRunReorder(order, req) {
     deductionsByItemNumber.set(key, existing);
   }
 
+  const alreadyLedgered = await hasDeliveryInventoryLedgerEntries(
+    [...deductionsByItemNumber.keys()],
+    deductionNote,
+    req.context
+  );
+
   for (const { product, qty } of deductionsByItemNumber.values()) {
-    if (await hasDeliveryInventoryLedgerEntry(product.item_number, deductionNote, req.context)) {
+    if (alreadyLedgered.has(product.item_number)) {
       affectedProductIds.add(product.id);
       continue;
     }
@@ -669,4 +678,5 @@ module.exports.invalidateDashboardCache = invalidateDashboardCache;
 module.exports.buildDeliveryWindow = buildDeliveryWindow;
 module.exports.deliveryInventoryLookupKeys = deliveryInventoryLookupKeys;
 module.exports.deliveryInventoryDeductionNote = deliveryInventoryDeductionNote;
+module.exports.hasDeliveryInventoryLedgerEntries = hasDeliveryInventoryLedgerEntries;
 module.exports.dashboardCache = dashboardCache;
