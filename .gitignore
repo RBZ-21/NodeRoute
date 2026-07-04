@@ -151,6 +151,7 @@ backend/data/
 
 # Local agent worktrees
 .claude/worktrees/
+.worktrees/
 
 # History-cleanup / nested repository artifacts
 NodeRoute.git/
