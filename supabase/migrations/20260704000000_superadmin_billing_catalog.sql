@@ -365,6 +365,14 @@ on conflict (code) do update set
   updated_at = now();
 
 insert into public.company_billing_profiles (company_id, plan_tier_code, billing_status)
-select id, case when lower(coalesce(plan, '')) = 'enterprise' then 'erp' else 'track' end, coalesce(nullif(status, ''), 'trial')
+select
+  id,
+  case when lower(coalesce(plan, '')) = 'enterprise' then 'erp' else 'track' end,
+  case
+    when lower(coalesce(status, '')) = 'active' then 'active'
+    when lower(coalesce(status, '')) = 'trial' then 'trial'
+    when lower(coalesce(status, '')) = 'suspended' then 'paused'
+    else 'trial'
+  end
 from public.companies
 on conflict (company_id) do nothing;
