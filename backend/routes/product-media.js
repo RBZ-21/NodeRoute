@@ -1,6 +1,7 @@
 'use strict';
 
 const express = require('express');
+const net = require('node:net');
 const { z } = require('zod');
 const { supabase } = require('../services/supabase');
 const config = require('../lib/config');
@@ -43,6 +44,39 @@ function normalizeHost(value) {
   return String(value || '').trim().toLowerCase().replace(/^www\./, '');
 }
 
+function isPrivateOrLocalHost(hostname) {
+  const host = normalizeHost(hostname).replace(/^\[|\]$/g, '');
+  if (!host) return true;
+  if (host === 'localhost' || host.endsWith('.localhost')) return true;
+
+  if (net.isIP(host) === 4) {
+    const parts = host.split('.').map((part) => Number(part));
+    const [a, b] = parts;
+    return (
+      a === 0 ||
+      a === 10 ||
+      a === 127 ||
+      (a === 169 && b === 254) ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 100 && b >= 64 && b <= 127)
+    );
+  }
+
+  if (net.isIP(host) === 6) {
+    const compact = host.toLowerCase();
+    return (
+      compact === '::1' ||
+      compact === '0:0:0:0:0:0:0:1' ||
+      compact.startsWith('fc') ||
+      compact.startsWith('fd') ||
+      compact.startsWith('fe80:')
+    );
+  }
+
+  return false;
+}
+
 function isAllowedImageUrl(rawUrl) {
   let parsed;
   try {
@@ -51,6 +85,7 @@ function isAllowedImageUrl(rawUrl) {
     return false;
   }
   if (parsed.protocol !== 'https:') return false;
+  if (isPrivateOrLocalHost(parsed.hostname)) return false;
   const host = normalizeHost(parsed.hostname);
   return config.ALLOWED_IMAGE_HOSTS.some((allowed) => normalizeHost(allowed) === host);
 }
@@ -164,5 +199,7 @@ router.delete('/:id', authenticateToken, mediaRoles, validateParams(productMedia
     res.status(500).json({ error: error.message || 'Failed to delete product media' });
   }
 });
+
+router.isAllowedImageUrl = isAllowedImageUrl;
 
 module.exports = router;

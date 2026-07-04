@@ -25,6 +25,7 @@ const {
 } = require('../services/ai');
 const { recordPoInvoiceScan } = require('../services/purchase-order-workflows');
 const { getAiScanErrorResponse } = require('../services/ai-errors');
+const { clientError } = require('../lib/safe-error');
 const { filterRowsByContext, scopeQueryByContext } = require('../services/operating-context');
 
 const router = express.Router();
@@ -389,6 +390,13 @@ function aiRateLimit(group) {
   };
 }
 
+function sendAiError(res, err, fallback, status = 500) {
+  if (String(err?.message || '').includes('OPENAI_API_KEY')) {
+    return res.status(503).json({ error: 'AI service is not configured.' });
+  }
+  return res.status(status).json({ error: clientError(err, fallback) });
+}
+
 // Periodically prune stale entries so the Map doesn't grow forever.
 const aiRateWindowPruner = setInterval(() => {
   const cutoff = Date.now() - HEAVY_WINDOW_MS;
@@ -413,10 +421,7 @@ router.post('/walkthrough', authenticateToken, requireRole('admin', 'manager'), 
     const walkthrough = await generateWalkthrough(feature, question);
     res.json(walkthrough);
   } catch (err) {
-    if (String(err.message || '').includes('OPENAI_API_KEY')) {
-      return res.status(503).json({ error: err.message });
-    }
-    res.status(500).json({ error: 'AI walkthrough failed: ' + err.message });
+    return sendAiError(res, err, 'AI walkthrough failed. Please try again.');
   }
 });
 
@@ -432,12 +437,12 @@ router.post('/order-intake', authenticateToken, requireRole('admin', 'manager'),
     const draft = await generateOrderIntakeDraft(message);
     res.json(draft);
   } catch (err) {
-    res.status(500).json({ error: 'Order intake parsing failed: ' + err.message });
+    return sendAiError(res, err, 'Order intake parsing failed. Please try again.');
   }
 });
 
 // ── CHAT ───────────────────────────────────────────────────────────────────────
-router.post('/chat', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.post('/chat', authenticateToken, requireRole('admin', 'manager'), aiRateLimit('chat'), async (req, res) => {
   const message = String(req.body.message || '').trim();
   if (!message) {
     return res.status(400).json({ error: 'message is required' });
@@ -458,10 +463,7 @@ router.post('/chat', authenticateToken, requireRole('admin', 'manager'), async (
     const conversation_id = req.body.conversation_id || null;
     res.json({ reply, ...(conversation_id ? { conversation_id } : {}) });
   } catch (err) {
-    if (String(err.message || '').includes('OPENAI_API_KEY')) {
-      return res.status(503).json({ error: 'AI service is not configured.' });
-    }
-    res.status(502).json({ error: 'AI chat failed. Please try again.' });
+    return sendAiError(res, err, 'AI chat failed. Please try again.', 502);
   }
 });
 
@@ -510,10 +512,7 @@ router.post('/inventory-analysis', authenticateToken, requireRole('admin', 'mana
     const analysis = await analyzeInventory(products || [], historyByItem, expiringLots || []);
     res.json(analysis);
   } catch (err) {
-    if (String(err.message || '').includes('OPENAI_API_KEY')) {
-      return res.status(503).json({ error: 'AI service is not configured.' });
-    }
-    res.status(500).json({ error: 'Inventory analysis failed: ' + err.message });
+    return sendAiError(res, err, 'Inventory analysis failed. Please try again.');
   }
 });
 
@@ -601,8 +600,7 @@ router.post('/optimize-route', authenticateToken, requireRole('admin', 'manager'
     const result = await optimizeRoute(enrichedStops);
     res.json(result);
   } catch (err) {
-    if (String(err.message || '').includes('OPENAI_API_KEY')) return res.status(503).json({ error: 'AI service is not configured.' });
-    res.status(500).json({ error: 'Route optimization failed: ' + err.message });
+    return sendAiError(res, err, 'Route optimization failed. Please try again.');
   }
 });
 
@@ -624,8 +622,7 @@ router.post('/customer-risk', authenticateToken, requireRole('admin', 'manager')
     const result = await scoreCustomerRisk(customer, invoices || [], orders || []);
     res.json({ customer_id: customerId, customer_name: customer.company_name, ...result });
   } catch (err) {
-    if (String(err.message || '').includes('OPENAI_API_KEY')) return res.status(503).json({ error: 'AI service is not configured.' });
-    res.status(500).json({ error: 'Customer risk scoring failed: ' + err.message });
+    return sendAiError(res, err, 'Customer risk scoring failed. Please try again.');
   }
 });
 
@@ -641,8 +638,7 @@ router.post('/anomalies', authenticateToken, requireRole('admin', 'manager'), ai
     const result = await detectAnomalies(deliveries || [], orders || []);
     res.json(result);
   } catch (err) {
-    if (String(err.message || '').includes('OPENAI_API_KEY')) return res.status(503).json({ error: 'AI service is not configured.' });
-    res.status(500).json({ error: 'Anomaly detection failed: ' + err.message });
+    return sendAiError(res, err, 'Anomaly detection failed. Please try again.');
   }
 });
 
@@ -670,8 +666,7 @@ router.post('/vendor-score', authenticateToken, requireRole('admin', 'manager'),
     const result = await scoreVendorPerformance(vendor, vendorOrders);
     res.json({ vendor_id: vendorId, vendor_name: vendor.name, ...result });
   } catch (err) {
-    if (String(err.message || '').includes('OPENAI_API_KEY')) return res.status(503).json({ error: 'AI service is not configured.' });
-    res.status(500).json({ error: 'Vendor scoring failed: ' + err.message });
+    return sendAiError(res, err, 'Vendor scoring failed. Please try again.');
   }
 });
 
@@ -724,8 +719,7 @@ router.post('/driver-assignments', authenticateToken, requireRole('admin', 'mana
     const result = await optimizeDriverAssignments(enrichedDrivers, enrichedRoutes);
     res.json(result);
   } catch (err) {
-    if (String(err.message || '').includes('OPENAI_API_KEY')) return res.status(503).json({ error: 'AI service is not configured.' });
-    res.status(500).json({ error: 'Driver assignment failed: ' + err.message });
+    return sendAiError(res, err, 'Driver assignment failed. Please try again.');
   }
 });
 
@@ -774,8 +768,7 @@ router.post('/markdown-recommendations', authenticateToken, requireRole('admin',
     const result = await generateMarkdownRecommendations(enrichedItems);
     res.json(result);
   } catch (err) {
-    if (String(err.message || '').includes('OPENAI_API_KEY')) return res.status(503).json({ error: 'AI service is not configured.' });
-    res.status(500).json({ error: 'Markdown recommendations failed: ' + err.message });
+    return sendAiError(res, err, 'Markdown recommendations failed. Please try again.');
   }
 });
 
@@ -801,8 +794,7 @@ router.post('/invoice-followup', authenticateToken, requireRole('admin', 'manage
     const result = await generateInvoiceFollowUp({ ...invoice, prior_invoice_count: priorCount || 0 }, customer, daysOverdue);
     res.json({ invoice_id: invoiceId, days_overdue: daysOverdue, ...result });
   } catch (err) {
-    if (String(err.message || '').includes('OPENAI_API_KEY')) return res.status(503).json({ error: 'AI service is not configured.' });
-    res.status(500).json({ error: 'Invoice follow-up generation failed: ' + err.message });
+    return sendAiError(res, err, 'Invoice follow-up generation failed. Please try again.');
   }
 });
 
@@ -840,8 +832,7 @@ router.get('/reorder-alerts', authenticateToken, requireRole('admin', 'manager')
     const result = await generateBulkReorderAlerts(enriched);
     res.json(result);
   } catch (err) {
-    if (String(err.message || '').includes('OPENAI_API_KEY')) return res.status(503).json({ error: 'AI service is not configured.' });
-    res.status(500).json({ error: 'Reorder alerts failed: ' + err.message });
+    return sendAiError(res, err, 'Reorder alerts failed. Please try again.');
   }
 });
 
@@ -874,8 +865,7 @@ router.get('/late-payment-risk', authenticateToken, requireRole('admin', 'manage
     const result = await scoreLatePaymentRisk(customerData);
     res.json(result);
   } catch (err) {
-    if (String(err.message || '').includes('OPENAI_API_KEY')) return res.status(503).json({ error: 'AI service is not configured.' });
-    res.status(500).json({ error: 'Late payment risk scoring failed: ' + err.message });
+    return sendAiError(res, err, 'Late payment risk scoring failed. Please try again.');
   }
 });
 
@@ -894,8 +884,7 @@ router.post('/pricing-anomalies', authenticateToken, requireRole('admin', 'manag
     const result = detectPricingAnomalies(orders || []);
     res.json({ ...result, lookback_days: days });
   } catch (err) {
-    if (String(err.message || '').includes('OPENAI_API_KEY')) return res.status(503).json({ error: 'AI service is not configured.' });
-    res.status(500).json({ error: 'Pricing anomaly detection failed: ' + err.message });
+    return sendAiError(res, err, 'Pricing anomaly detection failed. Please try again.');
   }
 });
 
@@ -931,8 +920,7 @@ router.get('/vendor-performance', authenticateToken, requireRole('admin', 'manag
     const result = await scoreVendorList(vendorSummaries);
     res.json(result);
   } catch (err) {
-    if (String(err.message || '').includes('OPENAI_API_KEY')) return res.status(503).json({ error: 'AI service is not configured.' });
-    res.status(500).json({ error: 'Vendor performance scoring failed: ' + err.message });
+    return sendAiError(res, err, 'Vendor performance scoring failed. Please try again.');
   }
 });
 

@@ -14,4 +14,8 @@ test('production CSP omits unsafe-eval and unsafe-inline from script-src', () =>
     serverSource,
     /script-src 'self' 'unsafe-inline' 'unsafe-eval'/
   );
+  assert.match(serverSource, /"style-src 'self' https:\/\/fonts\.googleapis\.com"/);
+  assert.match(serverSource, /"style-src-attr 'unsafe-inline'"/);
+  assert.doesNotMatch(serverSource, /"style-src 'self' 'unsafe-inline'/);
+  assert.match(serverSource, /upgrade-insecure-requests/);
 });

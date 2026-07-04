@@ -16,6 +16,12 @@ const hasTwilio = !!(ACCOUNT_SID && AUTH_TOKEN && FROM_NUMBER);
 // Twilio — for staging/testing without burning real sends.
 const isDryRun = () => ['true', '1', 'yes'].includes(String(process.env.SMS_DRY_RUN || '').toLowerCase());
 
+function maskPhone(value) {
+  const digits = String(value || '').replace(/\D/g, '');
+  if (!digits) return '[redacted]';
+  return `***${digits.slice(-4)}`;
+}
+
 /**
  * @param {string} to   - E.164 phone number, e.g. '+18435551234'
  * @param {string} body - SMS body text
@@ -25,11 +31,11 @@ async function sendSms(to, body) {
     return { success: false, error: 'Missing to or body' };
   }
   if (isDryRun()) {
-    console.info('[sms] DRY RUN — would send to', to, ':', body);
+    console.info('[sms] DRY RUN — would send SMS', { to: maskPhone(to), bodyLength: String(body).length });
     return { success: true, sid: `dry-run-${Date.now()}`, dryRun: true };
   }
   if (!hasTwilio) {
-    console.warn('[sms] Twilio is not configured — skipping SMS to', to);
+    console.warn('[sms] Twilio is not configured — skipping SMS', { to: maskPhone(to) });
     return { success: false, error: 'Twilio not configured' };
   }
 
@@ -56,4 +62,4 @@ async function sendSms(to, body) {
   }
 }
 
-module.exports = { sendSms, hasTwilio };
+module.exports = { maskPhone, sendSms, hasTwilio };

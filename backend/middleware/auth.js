@@ -3,7 +3,7 @@
 const crypto = require('crypto');
 const jwt = require('jsonwebtoken');
 const { supabase } = require('../services/supabase');
-const { buildRequestContext } = require('../services/operating-context');
+const { buildRequestContext, hasResolvedTenantContext } = require('../services/operating-context');
 
 // Use the config module which provides a dev fallback. In production, config.js
 // already validates that JWT_SECRET is set to a non-default value.
@@ -145,6 +145,9 @@ async function authenticateToken(req, res, next) {
 
   req.user = user;
   req.context = buildRequestContext(req, user);
+  if (!hasResolvedTenantContext(req.context)) {
+    return res.status(403).json({ error: 'Tenant context required' });
+  }
   next();
 }
 

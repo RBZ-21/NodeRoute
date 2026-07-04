@@ -115,6 +115,8 @@ async function startAiScanHarness(t, { userRole = 'manager', parsedResult, throw
     email: `${userRole}@noderoute.test`,
     role: userRole,
     status: 'active',
+    company_id: 'scan-company-a',
+    location_id: 'scan-location-a',
   };
   await supabase.from('users').insert(user);
 

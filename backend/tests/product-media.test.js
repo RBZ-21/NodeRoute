@@ -112,6 +112,43 @@ function authHeaders(token) {
 
 const PRODUCT_A = '11111111-1111-4111-8111-111111111111';
 
+test('product media URL validator rejects local and private IP hosts even when allowlisted', () => {
+  const previousAllowedHosts = process.env.ALLOWED_IMAGE_HOSTS;
+  process.env.ALLOWED_IMAGE_HOSTS = [
+    'cdn.example.com',
+    'localhost',
+    '127.0.0.1',
+    '10.0.0.5',
+    '172.16.0.10',
+    '192.168.1.8',
+    '169.254.169.254',
+    '[::1]',
+  ].join(',');
+  clearBackendModuleCache();
+
+  try {
+    const router = require('../routes/product-media');
+
+    assert.equal(router.isAllowedImageUrl('https://cdn.example.com/fish.png'), true);
+    for (const url of [
+      'http://cdn.example.com/fish.png',
+      'https://localhost/fish.png',
+      'https://127.0.0.1/fish.png',
+      'https://10.0.0.5/fish.png',
+      'https://172.16.0.10/fish.png',
+      'https://192.168.1.8/fish.png',
+      'https://169.254.169.254/latest/meta-data',
+      'https://[::1]/fish.png',
+    ]) {
+      assert.equal(router.isAllowedImageUrl(url), false, `${url} should be rejected`);
+    }
+  } finally {
+    if (previousAllowedHosts === undefined) delete process.env.ALLOWED_IMAGE_HOSTS;
+    else process.env.ALLOWED_IMAGE_HOSTS = previousAllowedHosts;
+    clearBackendModuleCache();
+  }
+});
+
 test('product media rejects image URLs from hosts outside the allowlist', async () => {
   await withProductMediaApp(async ({ baseUrl, tokenFor }) => {
     const response = await fetch(`${baseUrl}/api/product-media`, {

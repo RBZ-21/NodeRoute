@@ -128,13 +128,16 @@ function buildContentSecurityPolicy(isDevelopment) {
   return [
     "default-src 'self'",
     `script-src ${scriptSrc.join(' ')}`,
-    "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com",
+    "style-src 'self' https://fonts.googleapis.com",
+    "style-src-elem 'self' https://fonts.googleapis.com",
+    "style-src-attr 'unsafe-inline'",
     "font-src 'self' https://fonts.gstatic.com",
     "img-src 'self' data: blob: https:",
     "connect-src 'self' https://*.supabase.co https://api.openai.com https://api.stripe.com https://api.resend.com https://maps.googleapis.com https://*.googleapis.com https://maps.gstatic.com https://*.gstatic.com wss://*.supabase.co",
     'frame-src https://js.stripe.com',
     "object-src 'none'",
     "base-uri 'self'",
+    ...(isDevelopment ? [] : ['upgrade-insecure-requests']),
   ].join('; ');
 }
 

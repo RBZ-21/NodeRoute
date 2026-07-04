@@ -4,6 +4,7 @@ const { loadCompanySettings } = require('./company-settings');
 const { statusAfterInvoiceEmail } = require('./invoice-delivery');
 const { normalizeInvoiceLots } = require('./invoice-lots');
 const { supabase } = require('./supabase');
+const { escapeHtml } = require('../lib/html');
 
 async function sendInvoiceEmail(inv, subjectPrefix = 'Your Invoice') {
   const recipient = inv?.billing_email || inv?.customer_email;
@@ -33,11 +34,11 @@ async function sendInvoiceEmail(inv, subjectPrefix = 'Your Invoice') {
             <th style="padding:8px;text-align:right">Weight</th>
           </tr>
           ${invoiceLots.map((lot) => `<tr>
-            <td style="padding:8px;border-bottom:1px solid #eee">${lot.item_number || '-'}</td>
-            <td style="padding:8px;border-bottom:1px solid #eee">${lot.description || '-'}</td>
-            <td style="padding:8px;border-bottom:1px solid #eee"><strong>${lot.lot_number}</strong></td>
-            <td style="padding:8px;text-align:right;border-bottom:1px solid #eee">${lot.qty ?? '-'}</td>
-            <td style="padding:8px;text-align:right;border-bottom:1px solid #eee">${lot.weight != null ? `${lot.weight} lbs` : '-'}</td>
+            <td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml(lot.item_number || '-')}</td>
+            <td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml(lot.description || '-')}</td>
+            <td style="padding:8px;border-bottom:1px solid #eee"><strong>${escapeHtml(lot.lot_number || '-')}</strong></td>
+            <td style="padding:8px;text-align:right;border-bottom:1px solid #eee">${escapeHtml(lot.qty ?? '-')}</td>
+            <td style="padding:8px;text-align:right;border-bottom:1px solid #eee">${escapeHtml(lot.weight != null ? `${lot.weight} lbs` : '-')}</td>
           </tr>`).join('')}
         </table>`
     : '';
@@ -48,12 +49,12 @@ async function sendInvoiceEmail(inv, subjectPrefix = 'Your Invoice') {
     subject: `${subjectPrefix} ${invoiceLabel} from ${businessName}`,
     html: `
       <div style="font-family:Arial,sans-serif;max-width:600px">
-        <h2 style="color:#ff6b35">${businessName}</h2>
-        <p>Hi ${inv.customer_name || 'there'},</p>
+        <h2 style="color:#ff6b35">${escapeHtml(businessName)}</h2>
+        <p>Hi ${escapeHtml(inv.customer_name || 'there')},</p>
         <p>Please find your invoice attached.</p>
         <table style="width:100%;border-collapse:collapse;margin:16px 0">
           <tr style="background:#f5f5f5"><th style="padding:8px;text-align:left">Item</th><th style="padding:8px;text-align:right">Qty</th><th style="padding:8px;text-align:right">Price</th><th style="padding:8px;text-align:right">Total</th></tr>
-          ${(inv.items || []).map((i) => `<tr><td style="padding:8px;border-bottom:1px solid #eee">${i.description || ''}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #eee">${i.quantity || 0}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #eee">$${parseFloat(i.unit_price ?? i.unitPrice ?? 0).toFixed(2)}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #eee">$${parseFloat(i.total || 0).toFixed(2)}</td></tr>`).join('')}
+          ${(inv.items || []).map((i) => `<tr><td style="padding:8px;border-bottom:1px solid #eee">${escapeHtml(i.description || '')}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #eee">${escapeHtml(i.quantity || 0)}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #eee">$${escapeHtml(parseFloat(i.unit_price ?? i.unitPrice ?? 0).toFixed(2))}</td><td style="padding:8px;text-align:right;border-bottom:1px solid #eee">$${escapeHtml(parseFloat(i.total || 0).toFixed(2))}</td></tr>`).join('')}
         </table>
         ${lotSummaryHtml}
         <p style="text-align:right"><strong>Total: $${parseFloat(inv.total || 0).toFixed(2)}</strong></p>
