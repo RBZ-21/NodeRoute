@@ -25,39 +25,47 @@
 ### Task 1: Patch backend dependency vulnerabilities
 
 **Files:**
-- Modify: `backend/package.json`, `backend/package-lock.json` (npm-managed)
+- Modify: `backend/package.json`, `backend/package-lock.json` (npm-managed — this is the lockfile CI's `npm ci --prefix backend` installs from, per `.github/workflows/ci.yml:21`)
 
 **Interfaces:** None — dependency-only change, no code touches this task.
+
+**Revision note (superseding the original text of this task):** This repo has two independent lockfiles for the backend workspace — `backend/package-lock.json` (installed by CI via `npm ci --prefix backend`) and the root workspace lockfile (installed by the actual Railway production deploy via `npm install --include=dev` at the repo root, per `nixpacks.toml`). They had drifted: the root lockfile was already ahead and only carried 2 real vulnerabilities (`uuid`, `exceljs` — both moderate), while `backend/package-lock.json` still carried all 12, including the 3 high-severity ones (`multer`, `nodemailer`, `ws`). Verified directly: `exceljs@4.4.0` is the current latest release and pins `uuid@^8.3.0` (the vulnerable range) with no newer upstream release available — `npm audit fix --force` would downgrade `exceljs` to `3.4.0`, which is a breaking change AND introduces its own different vulnerabilities (`fast-csv`, `tmp`). There is no clean fix for the `uuid`/`exceljs` pair right now. Decision: fix the 10 that patch cleanly, leave `uuid`/`exceljs` as a documented, tracked exception, and do not force the downgrade.
 
 - [ ] **Step 1: Confirm baseline is green**
 
 Run: `cd "backend" && node --test tests/*.test.js`
 Expected: `pass 473`, `fail 0`, `skipped 1` (matches current baseline).
 
-- [ ] **Step 2: Confirm the fix is non-breaking**
+- [ ] **Step 2: Confirm the fix is non-breaking for the 10 in scope**
 
 Run: `npm --prefix backend audit fix --dry-run`
-Expected output includes `12 vulnerabilities (9 moderate, 3 high)` and no `--force` / "breaking change" language for any of: `@opentelemetry/core`, `@opentelemetry/resources`, `@opentelemetry/sdk-trace-base`, `express-rate-limit`, `ip-address`, `multer`, `nodemailer`, `qs`, `resend`, `svix`, `uuid`, `ws`. If any of these now require `--force`, stop and re-scope this task — do not force a major bump silently.
+Expected output includes `12 vulnerabilities (9 moderate, 3 high)`. Confirm none of `@opentelemetry/core`, `@opentelemetry/resources`, `@opentelemetry/sdk-trace-base`, `express-rate-limit`, `ip-address`, `multer`, `nodemailer`, `qs`, `resend`, `svix`, `ws` require `--force` — only `uuid` (via its `exceljs` pin) should show `--force`/breaking-change language. If any of the other 10 now shows `--force` too, stop and re-scope — do not force a major bump silently on any of them.
 
-- [ ] **Step 3: Apply the fix**
+- [ ] **Step 3: Apply the fix (non-forced)**
 
 Run: `npm --prefix backend audit fix`
 
-- [ ] **Step 4: Verify zero vulnerabilities remain**
+This resolves the 10 non-`uuid`/`exceljs` CVEs and leaves `uuid`/`exceljs` untouched (plain `audit fix` never applies a breaking change on its own).
+
+- [ ] **Step 4: Verify exactly the 2 documented vulnerabilities remain**
 
 Run: `npm --prefix backend audit --production`
-Expected: `found 0 vulnerabilities`
+Expected: `2 vulnerabilities (2 moderate)` — `uuid` and `exceljs`, nothing else. If any other package still shows up, the fix in Step 3 didn't fully apply — investigate before proceeding. Do NOT run `npm audit fix --force` to clear these last 2.
 
 - [ ] **Step 5: Run the full backend suite again**
 
 Run: `cd "backend" && node --test tests/*.test.js`
 Expected: `pass 473`, `fail 0`, `skipped 1` (unchanged — this is a dependency patch, not a behavior change).
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Document the deferred exception**
+
+Add a short note to this plan's "Deferred / Explicitly Out of Scope" section (at the bottom of this file) recording: `uuid`/`exceljs` (2 moderate CVEs) are deferred pending an upstream `exceljs` release that supports `uuid@>=11`; re-run `npm --prefix backend audit` periodically to check.
+
+- [ ] **Step 7: Commit**
 
 ```bash
-git add backend/package.json backend/package-lock.json
-git commit -m "fix(deps): patch 3 high and 9 moderate backend CVEs (multer, nodemailer, ws, uuid, qs, ip-address, express-rate-limit, opentelemetry, resend/svix)"
+git add backend/package.json backend/package-lock.json docs/superpowers/plans/2026-07-03-code-audit-remediation.md
+git commit -m "fix(deps): patch 3 high and 7 moderate backend CVEs; defer uuid/exceljs pending upstream fix"
 ```
 
 ---
@@ -1956,6 +1964,8 @@ git commit -m "test(e2e): add Playwright coverage for PO draft creation flow"
 
 ## Deferred / Explicitly Out of Scope
 
+- **`uuid`/`exceljs` CVEs (2 moderate, GHSA-w5hq-g745-h8pq)** (Task 1's deferred item) — `exceljs@4.4.0` is the current latest upstream release and pins the vulnerable `uuid@^8.3.0`; no newer `exceljs` release exists that supports `uuid@>=11`. Forcing the fix downgrades `exceljs` to `3.4.0` (breaking) and introduces different vulnerabilities (`fast-csv`, `tmp`). Re-check with `npm --prefix backend audit` periodically for an upstream `exceljs` fix.
+- **`backend/package-lock.json` vs. root workspace lockfile drift** (discovered during Task 1) — these two lockfiles are independently authoritative for different consumers (CI's `npm ci --prefix backend` vs. Railway's root-level `npm install --include=dev`) and can drift silently. Task 1 reconciles the vulnerability set but does not eliminate the underlying dual-lockfile structure — consider whether `backend/package-lock.json` should exist at all in an npm-workspaces setup, as a separate follow-up.
 - **`vite`/`esbuild` major upgrade** (Task 2's deferred item) — needs its own task with a full manual smoke test, not bundled into a dependency-patch commit.
 - **Codebase-wide `apiError()` rollout** (Task 11's deferred item) — adopt incrementally as files are touched for other reasons.
 - **Config alias cleanup** (`.env.example` legacy vars like `GOOGLE_MAPS_KEY`/`CORS_ORIGIN`) and **Zod `.passthrough()` removal in `lib/config.js`** — lower-risk cleanup, not blocking anything else in this plan; do as a standalone task when convenient.
