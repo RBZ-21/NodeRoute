@@ -1,8 +1,60 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const express = require('express');
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const jwt = require('jsonwebtoken');
 
 const smsPath = require.resolve('../services/sms');
 const notificationsPath = require.resolve('../services/delivery-notifications');
+
+const deliveriesRouteModulePaths = [
+  require.resolve('../routes/deliveries'),
+  require.resolve('../middleware/auth'),
+  require.resolve('../services/supabase'),
+  require.resolve('../services/reorderEngine'),
+  require.resolve('../services/delivery-notifications'),
+  require.resolve('../lib/config'),
+];
+
+function clearDeliveriesRouteModuleCache() {
+  for (const modulePath of deliveriesRouteModulePaths) {
+    delete require.cache[modulePath];
+  }
+}
+
+function listen(app) {
+  return new Promise((resolve) => {
+    const server = app.listen(0, '127.0.0.1', () => resolve(server));
+  });
+}
+
+function withDemoEnv(backupPath) {
+  const keys = [
+    'NODEROUTE_BACKUP_PATH',
+    'NODEROUTE_FORCE_DEMO_MODE',
+    'JWT_SECRET',
+    'SUPABASE_URL',
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'DEFAULT_COMPANY_ID',
+    'DEFAULT_LOCATION_ID',
+  ];
+  const previous = Object.fromEntries(keys.map((key) => [key, process.env[key]]));
+  process.env.NODEROUTE_BACKUP_PATH = backupPath;
+  process.env.NODEROUTE_FORCE_DEMO_MODE = 'true';
+  process.env.JWT_SECRET = 'delivery-notify-warn-test-secret';
+  process.env.SUPABASE_URL = 'http://supabase.invalid';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+  process.env.DEFAULT_COMPANY_ID = 'notify-company';
+  process.env.DEFAULT_LOCATION_ID = 'notify-location';
+  return () => {
+    for (const [key, value] of Object.entries(previous)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+  };
+}
 
 function loadNotifications(sendSms) {
   delete require.cache[notificationsPath];
@@ -307,4 +359,73 @@ test('delivery events are logged to outbound_messages and de-duplicated per stop
   assert.equal(second.skipped, true);
   assert.equal(second.reason, 'duplicate_event');
   assert.equal(sent.length, 1);
+});
+
+test('delivery completion logs a warning when the notification promise rejects instead of swallowing it silently', async () => {
+  const backupPath = fs.mkdtempSync(path.join(os.tmpdir(), 'noderoute-delivery-notify-warn-'));
+  const restoreEnv = withDemoEnv(backupPath);
+  clearDeliveriesRouteModuleCache();
+
+  const originalWarn = console.warn;
+  const warnings = [];
+  console.warn = (...args) => warnings.push(args.join(' '));
+
+  let server;
+  try {
+    const { supabase } = require('../services/supabase');
+    await supabase.from('users').insert({
+      id: 'notify-admin',
+      name: 'Notify Admin',
+      email: 'notify.admin@noderoute.test',
+      role: 'admin',
+      status: 'active',
+      company_id: 'notify-company',
+      location_id: 'notify-location',
+    });
+    await supabase.from('orders').insert({
+      id: 'notify-order',
+      order_number: 'ORD-NOTIFY',
+      status: 'in_process',
+      customer_name: 'Notify Cafe',
+      customer_address: '1 Notify Way',
+      items: [],
+      company_id: 'notify-company',
+      location_id: 'notify-location',
+    });
+
+    const deliveryNotifications = require('../services/delivery-notifications');
+    const originalNotify = deliveryNotifications.notifyDeliveryCompleted;
+    deliveryNotifications.notifyDeliveryCompleted = async () => {
+      throw new Error('simulated notification failure');
+    };
+
+    const app = express();
+    app.use(express.json());
+    app.use('/api', require('../routes/deliveries'));
+    server = await listen(app);
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const token = jwt.sign({ userId: 'notify-admin' }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+    const body = JSON.stringify({ status: 'delivered' });
+
+    const response = await fetch(`${baseUrl}/api/deliveries/notify-order/status`, { method: 'PATCH', headers, body });
+    assert.equal(response.status, 200);
+
+    // The notification promise rejects asynchronously (fire-and-forget); give its
+    // .catch() handler a turn to run before asserting on the captured warnings.
+    await new Promise((resolve) => setImmediate(resolve));
+
+    deliveryNotifications.notifyDeliveryCompleted = originalNotify;
+
+    assert.ok(
+      warnings.some((line) => line.includes('delivery-notify') && line.includes('simulated notification failure')),
+      `expected a [delivery-notify] warning, got: ${JSON.stringify(warnings)}`
+    );
+  } finally {
+    console.warn = originalWarn;
+    if (server) await new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())));
+    restoreEnv();
+    clearDeliveriesRouteModuleCache();
+    fs.rmSync(backupPath, { recursive: true, force: true });
+  }
 });

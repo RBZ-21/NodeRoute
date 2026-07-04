@@ -647,7 +647,9 @@ router.patch('/deliveries/:id/status', authenticateToken, requireRole('admin', '
   if (updateError) return res.status(500).json({ error: updateError.message });
   invalidateDashboardCache(req.context);
   if (requestedStatus === 'delivered') {
-    deliveryNotifications.notifyDeliveryCompleted(supabase, order.stop_id || null, order.id).catch(() => {});
+    deliveryNotifications.notifyDeliveryCompleted(supabase, order.stop_id || null, order.id).catch((err) => {
+      console.warn('[delivery-notify] failed to notify delivery completion:', err?.message || err);
+    });
   }
 
   try {
