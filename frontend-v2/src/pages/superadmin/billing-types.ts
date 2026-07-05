@@ -103,6 +103,7 @@ export type CompanyAddonEntitlement = {
 };
 
 export type CompanyBillingResponse = {
+  catalog: BillingCatalogResponse;
   company: { id: string; name: string; slug: string | null; status: string; plan: string | null };
   profile: CompanyBillingProfile;
   selectedTier: PlanTier;
