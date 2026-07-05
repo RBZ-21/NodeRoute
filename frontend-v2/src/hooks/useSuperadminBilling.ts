@@ -40,10 +40,17 @@ export function useSaveCompanyBilling(companyId: string | null) {
   return useMutation({
     mutationFn: (payload: SaveCompanyBillingPayload) =>
       sendWithAuth<CompanyBillingResponse>(`/api/superadmin/companies/${companyId}/billing`, 'PATCH', payload),
-    onSuccess: () => {
-      void queryClient.invalidateQueries({ queryKey: billingAnalyticsKey });
-      void queryClient.invalidateQueries({ queryKey: companyBillingKey(companyId) });
-      void queryClient.invalidateQueries({ queryKey: ['superadmin-companies'] });
+    onSuccess: async () => {
+      const invalidations = [
+        queryClient.invalidateQueries({ queryKey: billingCatalogKey }),
+        queryClient.invalidateQueries({ queryKey: billingAnalyticsKey }),
+      ];
+
+      if (companyId) {
+        invalidations.push(queryClient.invalidateQueries({ queryKey: companyBillingKey(companyId) }));
+      }
+
+      await Promise.all(invalidations);
     },
   });
 }

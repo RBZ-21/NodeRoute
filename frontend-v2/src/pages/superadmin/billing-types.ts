@@ -19,11 +19,11 @@ export type PlanTier = {
   display_order: number;
   monthly_price_cents: number;
   setup_price_cents: number;
-  best_for?: string;
-  included_scope?: string;
-  excluded_gated?: string;
-  upgrade_trigger?: string;
-  sales_note?: string;
+  best_for: string;
+  included_scope: string;
+  excluded_gated: string;
+  upgrade_trigger: string;
+  sales_note: string;
 };
 
 export type PlanFeature = {
@@ -38,8 +38,8 @@ export type PlanFeatureMatrixRow = {
   tier_code: PlanTierCode;
   feature_code: string;
   inclusion: FeatureInclusion;
-  detail?: string;
-  pricing_scope_note?: string;
+  detail: string;
+  pricing_scope_note: string;
 };
 
 export type PlanLimit = {
@@ -60,8 +60,8 @@ export type PlanAddon = {
   default_setup_cents: number | null;
   usage_terms: string;
   eligible_tier_codes: PlanTierCode[];
-  when_to_sell?: string;
-  pricing_rationale?: string;
+  when_to_sell: string;
+  pricing_rationale: string;
   quote_only: boolean;
   display_order: number;
 };
