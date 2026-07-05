@@ -1,7 +1,7 @@
-const { supabase } = require('../../services/supabase');
-const { scopeQueryByContext } = require('../../services/operating-context');
-const { applyInventoryLedgerEntry } = require('../../services/inventory-ledger');
-const { genId, readOpsData, toNumber, writeOpsData } = require('./store');
+const { supabase } = require('../services/supabase');
+const { scopeQueryByContext } = require('../services/operating-context');
+const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
+const { genId, readOpsData, toNumber, writeOpsData } = require('../routes/ops/store');
 
 const LOT_REQUIRED = /\b(mussel|clam|oyster)s?\b/i;
 

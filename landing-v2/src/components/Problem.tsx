@@ -39,7 +39,7 @@ export function Problem() {
 
         <div className="mt-10 grid gap-6 md:grid-cols-12">
           <div className="rounded-2xl border border-black/10 bg-white p-7 shadow-[0_10px_30px_-18px_rgba(17,17,17,0.18)] md:col-span-7">
-            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-teal-light">
+            <p className="font-mono text-[11px] uppercase tracking-[0.18em] text-teal">
               The pattern
             </p>
             <h3 className="mt-3 font-display text-2xl leading-tight tracking-tight text-ink-100 md:text-[28px]">
@@ -62,7 +62,7 @@ export function Problem() {
                 key={s.title}
                 className="group flex items-start gap-4 rounded-xl border border-black/10 bg-white p-4 shadow-[0_8px_22px_-16px_rgba(17,17,17,0.14)] transition-colors hover:border-teal/30"
               >
-                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-black/10 bg-cream text-teal-light">
+                <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-black/10 bg-cream text-teal">
                   <s.icon className="h-4 w-4" />
                 </span>
                 <div>

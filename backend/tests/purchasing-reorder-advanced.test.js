@@ -3,7 +3,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildPurchasingSuggestions } = require('../routes/ops/purchasing-shared');
+const { buildPurchasingSuggestions } = require('../lib/purchasing-shared');
 
 test('advanced vendor planning is inactive when vendor configuration is absent', () => {
   const suggestions = buildPurchasingSuggestions(

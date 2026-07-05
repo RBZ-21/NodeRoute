@@ -57,7 +57,7 @@ export function FAQ() {
               <span
                 className={cn(
                   'mt-1 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line-strong bg-ink-0 text-white/70 transition-transform',
-                  isOpen && 'rotate-45 border-teal/50 text-teal-light'
+                  isOpen && 'rotate-45 border-teal/50 text-teal-sky'
                 )}
               >
                 <Plus className="h-4 w-4" />

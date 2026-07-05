@@ -13,4 +13,11 @@ function sendSafeError(req, res, err, fallback = 'Internal server error', status
   return res.status(statusCode).json({ error: clientError(err, fallback) });
 }
 
-module.exports = { clientError, sendSafeError };
+function apiError(message, { code, status = 400, details = null } = {}) {
+  const payload = { error: message };
+  if (code) payload.code = code;
+  if (details) payload.details = details;
+  return { status: Number.isInteger(status) ? status : 400, payload };
+}
+
+module.exports = { clientError, sendSafeError, apiError };

@@ -77,6 +77,34 @@ function moreSpecificFirst(a, b) {
   return sortById(a, b);
 }
 
+// Shared pricing-floor math used by both enforceMinimumSell and
+// enforceMinimumSellBatch: scores an already-filtered-and-sorted list of
+// minimum_sell_rules against a product, returning the highest applicable
+// minimum price (explicit min_price or margin-derived floor) and the id of
+// the rule that produced it.
+function scoreRulesForProduct(rules, product) {
+  const cost = productCost(product);
+  let minPrice = 0;
+  let sourceId = null;
+  for (const rule of rules) {
+    const explicitMin = toNumber(rule.min_price, NaN);
+    if (Number.isFinite(explicitMin)) {
+      minPrice = Math.max(minPrice, explicitMin);
+      if (minPrice === explicitMin) sourceId = rule.id;
+    }
+    const marginPct = toNumber(rule.min_margin_pct, NaN);
+    if (Number.isFinite(marginPct) && marginPct >= 0 && marginPct < 100 && cost > 0) {
+      const marginPrice = cost / (1 - marginPct / 100);
+      if (marginPrice > minPrice) {
+        minPrice = marginPrice;
+        sourceId = rule.id;
+      }
+    }
+  }
+
+  return { minPrice: roundPrice(minPrice), sourceId };
+}
+
 function queryWithCompanyFallback(query, companyId) {
   return companyId ? query.eq('company_id', companyId) : query;
 }
@@ -250,15 +278,25 @@ async function resolvePriceLevelPrice(db, { customerId, product, context, onDate
     .filter((row) => activeOnDate(row, onDate, 'effective_date', 'expiry_date'))
     .sort((a, b) => String(b.effective_date || '').localeCompare(String(a.effective_date || '')) || sortById(a, b));
 
-  for (const assignment of assignments) {
-    const { data: ruleRows, error: ruleErr } = await scopeQueryByContext(
-      db.from('price_level_rules').select('*'),
-      context,
-    )
-      .eq('price_level_id', assignment.price_level_id);
-    if (ruleErr) throw ruleErr;
+  if (!assignments.length) return null;
 
-    const rules = filterRowsByContext(ruleRows || [], context)
+  const priceLevelIds = [...new Set(assignments.map((row) => row.price_level_id).filter(Boolean))];
+  const { data: allRuleRows, error: ruleErr } = await scopeQueryByContext(
+    db.from('price_level_rules').select('*'),
+    context,
+  )
+    .in('price_level_id', priceLevelIds);
+  if (ruleErr) throw ruleErr;
+
+  const rulesByLevel = new Map();
+  for (const rule of filterRowsByContext(allRuleRows || [], context)) {
+    const list = rulesByLevel.get(rule.price_level_id) || [];
+    list.push(rule);
+    rulesByLevel.set(rule.price_level_id, list);
+  }
+
+  for (const assignment of assignments) {
+    const rules = (rulesByLevel.get(assignment.price_level_id) || [])
       .filter((rule) => targetMatchesProduct(rule, product))
       .sort(moreSpecificFirst);
     for (const rule of rules) {
@@ -348,31 +386,136 @@ async function enforceMinimumSell(priceOrArgs, productId, companyId) {
     .sort(moreSpecificFirst);
   if (!rules.length) return { allowed: true, min_price: null, source_id: null };
 
-  const cost = productCost(product);
-  let minPrice = 0;
-  let sourceId = null;
-  for (const rule of rules) {
-    const explicitMin = toNumber(rule.min_price, NaN);
-    if (Number.isFinite(explicitMin)) {
-      minPrice = Math.max(minPrice, explicitMin);
-      if (minPrice === explicitMin) sourceId = rule.id;
-    }
-    const marginPct = toNumber(rule.min_margin_pct, NaN);
-    if (Number.isFinite(marginPct) && marginPct >= 0 && marginPct < 100 && cost > 0) {
-      const marginPrice = cost / (1 - marginPct / 100);
-      if (marginPrice > minPrice) {
-        minPrice = marginPrice;
-        sourceId = rule.id;
-      }
-    }
-  }
-
-  const roundedMin = roundPrice(minPrice);
+  const { minPrice: roundedMin, sourceId } = scoreRulesForProduct(rules, product);
   return {
     allowed: toNumber(args.price, 0) + 0.0001 >= roundedMin,
     min_price: roundedMin,
     source_id: sourceId,
   };
+}
+
+// Batched counterpart to enforceMinimumSell: resolves minimum-sell rules for
+// a whole set of line items using a fixed number of queries (one products
+// lookup by id, one products lookup by item_number, one minimum_sell_rules
+// lookup) instead of the ~2 queries per item that calling enforceMinimumSell
+// in a loop would issue. Returns a Map keyed by the same index positions as
+// the input `refs` array, with values shaped like enforceMinimumSell's
+// return value ({ allowed, min_price, source_id }).
+async function enforceMinimumSellBatch({ db, context, refs }) {
+  if (!db) throw new Error('enforceMinimumSellBatch requires a db client');
+  const list = Array.isArray(refs) ? refs : [];
+
+  const productIds = new Set();
+  const itemNumbers = new Set();
+  for (const ref of list) {
+    const normalizedProductId = normalizeText(ref.productId).replace(/^item:/, '');
+    const normalizedItemNumber = normalizeText(ref.itemNumber);
+    if (normalizedProductId && !String(ref.productId).startsWith('item:')) {
+      productIds.add(normalizedProductId);
+    }
+    const fallbackItemNumber = normalizedItemNumber
+      || (String(ref.productId || '').startsWith('item:') ? normalizedProductId : '');
+    if (fallbackItemNumber) itemNumbers.add(fallbackItemNumber);
+  }
+
+  const productsById = new Map();
+  const productsByItemNumber = new Map();
+
+  if (productIds.size) {
+    const { data, error } = await scopeQueryByContext(
+      db.from('products').select('*'),
+      context,
+    ).in('id', [...productIds]);
+    if (error) throw error;
+    for (const row of filterRowsByContext(data || [], context)) {
+      if (!productsById.has(row.id)) productsById.set(row.id, row);
+    }
+  }
+
+  if (itemNumbers.size) {
+    const { data, error } = await scopeQueryByContext(
+      db.from('products').select('*'),
+      context,
+    ).in('item_number', [...itemNumbers]);
+    if (error) throw error;
+    for (const row of filterRowsByContext(data || [], context)) {
+      if (!productsByItemNumber.has(row.item_number)) productsByItemNumber.set(row.item_number, row);
+    }
+  }
+
+  function resolveProductForRef(ref) {
+    const normalizedProductId = normalizeText(ref.productId).replace(/^item:/, '');
+    const normalizedItemNumber = normalizeText(ref.itemNumber);
+    if (normalizedProductId && !String(ref.productId).startsWith('item:')) {
+      const byId = productsById.get(normalizedProductId);
+      if (byId) return byId;
+    }
+    const fallbackItemNumber = normalizedItemNumber
+      || (String(ref.productId || '').startsWith('item:') ? normalizedProductId : '');
+    if (fallbackItemNumber) {
+      const byItemNumber = productsByItemNumber.get(fallbackItemNumber);
+      if (byItemNumber) return byItemNumber;
+    }
+    return null;
+  }
+
+  // Resolve every ref's product up front so we know which company scopes and
+  // products actually need minimum_sell_rules loaded.
+  const productByIndex = list.map((ref) => resolveProductForRef(ref));
+
+  let allRules = [];
+  if (productByIndex.some(Boolean)) {
+    let query = db.from('minimum_sell_rules').select('*');
+    if (context) {
+      query = scopeQueryByContext(query, context);
+    } else {
+      // No context: fall back to matching any company id present among the
+      // resolved products/refs, mirroring enforceMinimumSell's per-item
+      // queryWithCompanyFallback behavior as closely as a single batched
+      // query allows.
+      const companyIds = new Set();
+      for (let i = 0; i < list.length; i += 1) {
+        const product = productByIndex[i];
+        if (product) companyIds.add(list[i].companyId || product.company_id);
+      }
+      const ids = [...companyIds].filter(Boolean);
+      if (ids.length === 1) query = query.eq('company_id', ids[0]);
+      else if (ids.length > 1) query = query.in('company_id', ids);
+    }
+    const { data, error } = await query;
+    if (error) throw error;
+    allRules = filterRowsByContext(data || [], context);
+  }
+
+  const results = new Map();
+  for (let i = 0; i < list.length; i += 1) {
+    const ref = list[i];
+    const product = productByIndex[i];
+    if (!product) {
+      results.set(i, { allowed: true, min_price: null, source_id: null });
+      continue;
+    }
+
+    const categoryKeys = productCategoryKeys(product);
+    const rules = allRules
+      .filter((rule) => (context ? true : (!rule.company_id || rule.company_id === (ref.companyId || product.company_id))))
+      .filter((rule) => targetMatchesProduct(rule, product, categoryKeys))
+      .sort(moreSpecificFirst);
+
+    if (!rules.length) {
+      results.set(i, { allowed: true, min_price: null, source_id: null });
+      continue;
+    }
+
+    const { minPrice: roundedMin, sourceId } = scoreRulesForProduct(rules, product);
+    results.set(i, {
+      allowed: toNumber(ref.price, 0) + 0.0001 >= roundedMin,
+      min_price: roundedMin,
+      source_id: sourceId,
+    });
+  }
+
+  return results;
 }
 
 async function logPriceUpdate(batchIdOrArgs, productId, costField, oldValue, newValue) {
@@ -405,6 +548,7 @@ module.exports = {
   calculatePromotionPrice,
   calculateRulePrice,
   enforceMinimumSell,
+  enforceMinimumSellBatch,
   logPriceUpdate,
   productCost,
   productListPrice,
