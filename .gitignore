@@ -167,3 +167,6 @@ frontend-v2/src-tauri/target/
 # Windows Explorer metadata
 desktop.ini
 Thumbs.db
+
+# Brainstorming visual companion session files
+.superpowers/
