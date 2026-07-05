@@ -31,6 +31,18 @@ function money(cents: number) {
   return `$${(cents / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
+function formatAuditDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 export function ClientBillingDrawer({
   companyId,
   open,
@@ -53,6 +65,7 @@ export function ClientBillingDrawer({
   const [notes, setNotes] = useState('');
   const [features, setFeatures] = useState<CompanyFeatureEntitlement[]>([]);
   const [addons, setAddons] = useState<CompanyAddonEntitlement[]>([]);
+  const auditEvents = data?.auditEvents ?? [];
 
   useEffect(() => {
     if (!data) return;
@@ -211,6 +224,25 @@ export function ClientBillingDrawer({
           <section className="space-y-2">
             <h3 className="text-sm font-semibold">Feature entitlements</h3>
             <FeatureMatrixTable catalog={data.catalog} editableFeatures={features} onChange={setFeatures} />
+          </section>
+
+          <section className="space-y-2">
+            <h3 className="text-sm font-semibold">Pricing history</h3>
+            {auditEvents.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No pricing changes recorded yet.</p>
+            ) : (
+              <div className="divide-y divide-border rounded-md border border-border">
+                {auditEvents.map((event) => (
+                  <div key={event.id} className="space-y-1 px-3 py-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <span className="text-sm font-medium">{event.event_type}</span>
+                      <span className="text-xs text-muted-foreground">{formatAuditDate(event.created_at)}</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{event.notes || 'No notes'}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         </div>
       ) : null}

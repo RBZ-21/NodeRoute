@@ -508,6 +508,14 @@ test('superadmin billing API rejects tenant admins and lets superadmin save cust
     assert.equal(body.profile.custom_monthly_price_cents, 180000);
     assert.equal(body.effectiveMonthlyCents, 229900);
     assert.equal(body.addons.find((addon) => addon.addon_code === 'ai_phone_orders').enabled, true);
+
+    const audit = await supabase
+      .from('platform_pricing_audit_events')
+      .select('*')
+      .eq('company_id', '00000000-0000-0000-0000-00000000b111');
+    assert.equal(audit.error, null);
+    assert.equal(audit.data.length, 1);
+    assert.equal(audit.data[0].performed_by, 'sa-001');
   } finally {
     if (server) await new Promise((resolve) => server.close(resolve));
     clearBillingModuleCache();
