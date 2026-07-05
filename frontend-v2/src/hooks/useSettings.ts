@@ -30,6 +30,15 @@ export type BillingCompany = {
   status?: string | null;
 };
 
+export type BillingProfile = {
+  plan_tier_code?: string | null;
+  billing_status?: string | null;
+  billing_interval?: string | null;
+  custom_pricing_enabled?: boolean;
+  custom_monthly_price_cents?: number | null;
+  custom_setup_price_cents?: number | null;
+};
+
 export type BillingConfig = {
   enabled?: boolean;
   provider?: string;
@@ -44,6 +53,10 @@ export type BillingConfig = {
   price_label?: string;
   support_email?: string;
   company?: BillingCompany | null;
+  billing_profile?: BillingProfile | null;
+  effective_monthly_cents?: number | null;
+  effective_setup_cents?: number | null;
+  custom_pricing_enabled?: boolean;
 };
 
 export type BillingCheckoutResponse = {

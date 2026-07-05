@@ -221,7 +221,7 @@ router.get('/', authenticateToken, async (req, res) => {
   res.json(filterRowsByContext(data, req.context));
 });
 
-router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryCreateBodySchema), async (req, res) => {
+router.post('/', authenticateToken, requireRole('admin', 'manager', 'warehouse'), validateBody(inventoryCreateBodySchema), async (req, res) => {
   const {
     description,
     description_line_1,
@@ -283,7 +283,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
 // ── LOW STOCK ────────────────────────────────────────────────────────────────
 // Returns every product whose on_hand_qty is at or below its reorder_point.
 // Products with no reorder_point set are excluded.
-router.get('/low-stock', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.get('/low-stock', authenticateToken, requireRole('admin', 'manager', 'warehouse'), async (req, res) => {
   // FIX [H3]: scope low-stock product reads before filtering.
   const { data, error } = await scopeQueryByContext(
     supabase
@@ -532,7 +532,7 @@ router.get('/lots', authenticateToken, async (req, res) => {
 });
 
 // POST /api/inventory/lots — create a new lot and optionally bump product on_hand_qty
-router.post('/lots', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryLotCreateBodySchema), async (req, res) => {
+router.post('/lots', authenticateToken, requireRole('admin', 'manager', 'warehouse'), validateBody(inventoryLotCreateBodySchema), async (req, res) => {
   const {
     item_number, lot_number, batch_number, supplier_name, country_of_origin,
     certifications, storage_temp, received_date, expiry_date, best_before_date,
@@ -605,7 +605,7 @@ router.get('/lots/expiring', authenticateToken, async (req, res) => {
 });
 
 // PATCH /api/inventory/lots/:lotId — update lot fields
-router.patch('/lots/:lotId', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryLotPatchBodySchema), async (req, res) => {
+router.patch('/lots/:lotId', authenticateToken, requireRole('admin', 'manager', 'warehouse'), validateBody(inventoryLotPatchBodySchema), async (req, res) => {
   const fields = req.validated.body;
   const { data, error } = await scopeQueryByContext(supabase.from('inventory_lots').update(fields), req.context).eq('id', req.params.lotId).select().single();
   if (error) return res.status(500).json({ error: error.message });
@@ -615,7 +615,7 @@ router.patch('/lots/:lotId', authenticateToken, requireRole('admin', 'manager'),
 });
 
 // POST /api/inventory/lots/:lotId/deplete — remove qty from a specific lot
-router.post('/lots/:lotId/deplete', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryLotDepleteBodySchema), async (req, res) => {
+router.post('/lots/:lotId/deplete', authenticateToken, requireRole('admin', 'manager', 'warehouse'), validateBody(inventoryLotDepleteBodySchema), async (req, res) => {
   const { qty: removeQty, change_type, notes } = req.validated.body;
 
   const { data: lot, error: lotErr } = await scopeQueryByContext(supabase.from('inventory_lots').select('*'), req.context).eq('id', req.params.lotId).single();
@@ -658,7 +658,7 @@ router.post('/lots/:lotId/deplete', authenticateToken, requireRole('admin', 'man
 });
 
 // DELETE /api/inventory/lots/:lotId
-router.delete('/lots/:lotId', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+router.delete('/lots/:lotId', authenticateToken, requireRole('admin', 'manager', 'warehouse'), async (req, res) => {
   const { error } = await scopeQueryByContext(supabase.from('inventory_lots').delete(), req.context).eq('id', req.params.lotId);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ message: 'Lot deleted' });
@@ -667,7 +667,7 @@ router.delete('/lots/:lotId', authenticateToken, requireRole('admin', 'manager')
 // ─────────────────────────────────────────────────────────────────────────────
 
 // POST /api/inventory/count — replace product stock quantities after a physical count
-router.post('/count', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryCountBodySchema), async (req, res) => {
+router.post('/count', authenticateToken, requireRole('admin', 'manager', 'warehouse'), validateBody(inventoryCountBodySchema), async (req, res) => {
   const countNotes = req.validated.body.notes || 'Physical inventory count';
   const normalized = req.validated.body.items;
 
@@ -710,7 +710,7 @@ router.post('/count', authenticateToken, requireRole('admin', 'manager'), valida
 });
 
 // POST /api/inventory/:id/restock — add stock and log history
-router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryRestockBodySchema), async (req, res) => {
+router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager', 'warehouse'), validateBody(inventoryRestockBodySchema), async (req, res) => {
   const { qty: addQty, notes } = req.validated.body;
 
   // Tenant scope: never resolve another company's product by shared item_number.
@@ -744,7 +744,7 @@ router.post('/:id/restock', authenticateToken, requireRole('admin', 'manager'), 
 });
 
 // POST /api/inventory/:id/adjust — manual depletion, waste, or correction
-router.post('/:id/adjust', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryAdjustBodySchema), async (req, res) => {
+router.post('/:id/adjust', authenticateToken, requireRole('admin', 'manager', 'warehouse'), validateBody(inventoryAdjustBodySchema), async (req, res) => {
   const { delta: d, change_type, notes } = req.validated.body;
   const type = change_type || (d < 0 ? 'depletion' : 'adjustment');
 
@@ -767,7 +767,7 @@ router.post('/:id/adjust', authenticateToken, requireRole('admin', 'manager'), v
 });
 
 // POST /api/inventory/:id/pick — pick stock for an order or outbound workflow
-router.post('/:id/pick', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryPickBodySchema), async (req, res) => {
+router.post('/:id/pick', authenticateToken, requireRole('admin', 'manager', 'warehouse'), validateBody(inventoryPickBodySchema), async (req, res) => {
   const { qty, order_id, order_number, notes } = req.validated.body;
   const orderRef = String(order_id || order_number || '').trim();
   const trimmedNotes = String(notes || '').trim();
@@ -831,7 +831,7 @@ router.post('/:id/pick', authenticateToken, requireRole('admin', 'manager'), val
 });
 
 // POST /api/inventory/:id/spoilage — record spoiled/wasted inventory
-router.post('/:id/spoilage', authenticateToken, requireRole('admin', 'manager'), validateBody(inventorySpoilageBodySchema), async (req, res) => {
+router.post('/:id/spoilage', authenticateToken, requireRole('admin', 'manager', 'warehouse'), validateBody(inventorySpoilageBodySchema), async (req, res) => {
   const { qty, reason, notes } = req.validated.body;
   const trimmedReason = String(reason || '').trim();
   const trimmedNotes = String(notes || '').trim();
@@ -855,7 +855,7 @@ router.post('/:id/spoilage', authenticateToken, requireRole('admin', 'manager'),
 });
 
 // POST /api/inventory/transfer — move stock from one item to another item
-router.post('/transfer', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryTransferBodySchema), async (req, res) => {
+router.post('/transfer', authenticateToken, requireRole('admin', 'manager', 'warehouse'), validateBody(inventoryTransferBodySchema), async (req, res) => {
   const { from_item_number: fromItemNumber, to_item_number: toItemNumber, qty, notes } = req.validated.body;
   const trimmedNotes = String(notes || '').trim();
 
@@ -1152,7 +1152,7 @@ router.post('/:id/reorder-alert', authenticateToken, requireRole('admin', 'manag
 
 const COST_FIELDS = ['cost', 'base_cost', 'cost_base', 'landed_cost', 'lot_cost', 'market_cost', 'real_cost', 'cost_real'];
 
-router.patch('/:id', authenticateToken, requireRole('admin', 'manager'), validateBody(inventoryProductPatchBodySchema), async (req, res) => {
+router.patch('/:id', authenticateToken, requireRole('admin', 'manager', 'warehouse'), validateBody(inventoryProductPatchBodySchema), async (req, res) => {
   const existing = await dbQuery(scopeQueryByContext(supabase.from('products').select('*'), req.context).eq('item_number', req.params.id).single(), res);
   if (!existing) return res.status(404).json({ error: 'Product not found' });
   if (!rowMatchesContext(existing, req.context)) return res.status(403).json({ error: 'Forbidden' });

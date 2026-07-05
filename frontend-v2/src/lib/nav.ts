@@ -20,7 +20,7 @@ import {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type Role = 'superadmin' | 'admin' | 'manager' | 'driver' | 'rep' | string;
+export type Role = 'superadmin' | 'admin' | 'manager' | 'driver' | 'rep' | 'warehouse' | string;
 
 export interface NavItem {
   id: string;
@@ -132,9 +132,9 @@ export const navGroups: NavGroup[] = [
     id: 'dispatch',
     label: 'Dispatch',
     items: [
-      { id: NAV_ITEM_IDS.orders, label: 'Orders', path: '/orders', icon: Package, component: OrdersPage },
-      { id: NAV_ITEM_IDS.routes, label: 'Routes', path: '/routes', icon: Map, component: RoutesPage },
-      { id: NAV_ITEM_IDS.map, label: 'Map', path: '/map', icon: Globe2, component: MapPage },
+      { id: NAV_ITEM_IDS.orders, label: 'Orders', path: '/orders', icon: Package, component: OrdersPage, roles: ['admin', 'manager', 'driver', 'rep'] },
+      { id: NAV_ITEM_IDS.routes, label: 'Routes', path: '/routes', icon: Map, component: RoutesPage, roles: ['admin', 'manager', 'driver', 'rep'] },
+      { id: NAV_ITEM_IDS.map, label: 'Map', path: '/map', icon: Globe2, component: MapPage, roles: ['admin', 'manager', 'driver', 'rep'] },
     ],
   },
   {
@@ -142,7 +142,7 @@ export const navGroups: NavGroup[] = [
     label: 'Inventory',
     items: [
       { id: NAV_ITEM_IDS.inventory, label: 'Inventory', path: '/inventory', icon: Factory, component: InventoryPage },
-      { id: NAV_ITEM_IDS.kits, label: 'Kits', path: '/kits', icon: PackageCheck, component: KitsPage, roles: ['admin', 'manager'] },
+      { id: NAV_ITEM_IDS.kits, label: 'Kits', path: '/kits', icon: PackageCheck, component: KitsPage, roles: ['admin', 'manager', 'warehouse'] },
       { id: 'purchasing', label: 'Purchasing', path: '/purchasing', icon: ShoppingCart, component: PurchasingPage },
       { id: 'warehouse', label: 'Warehouse', path: '/warehouse', icon: Warehouse, component: WarehousePage },
       { id: NAV_ITEM_IDS.traceability, label: 'Traceability', path: '/traceability', icon: Search, component: TraceabilityPage },
@@ -152,9 +152,9 @@ export const navGroups: NavGroup[] = [
     id: 'customers',
     label: 'Customers',
     items: [
-      { id: NAV_ITEM_IDS.customers, label: 'Customers', path: '/customers', icon: Users, component: CustomersPage },
-      { id: NAV_ITEM_IDS.vendors, label: 'Vendors', path: '/vendors', icon: Handshake, component: VendorsPage },
-      { id: NAV_ITEM_IDS.salesRep, label: 'Sales Rep', path: '/sales-rep', icon: Briefcase, component: SalesRepPage },
+      { id: NAV_ITEM_IDS.customers, label: 'Customers', path: '/customers', icon: Users, component: CustomersPage, roles: ['admin', 'manager', 'driver', 'rep'] },
+      { id: NAV_ITEM_IDS.vendors, label: 'Vendors', path: '/vendors', icon: Handshake, component: VendorsPage, roles: ['admin', 'manager', 'driver', 'rep'] },
+      { id: NAV_ITEM_IDS.salesRep, label: 'Sales Rep', path: '/sales-rep', icon: Briefcase, component: SalesRepPage, roles: ['admin', 'manager', 'driver', 'rep'] },
       { id: NAV_ITEM_IDS.phoneOrders, label: 'Phone Orders', path: '/phone-orders', icon: Phone, component: PhoneOrdersPage, roles: ['admin', 'manager'] },
     ],
   },
@@ -162,9 +162,9 @@ export const navGroups: NavGroup[] = [
     id: 'financials',
     label: 'Financials',
     items: [
-      { id: NAV_ITEM_IDS.financials, label: 'Financials', path: '/financials', icon: DollarSign, component: FinancialsPage },
+      { id: NAV_ITEM_IDS.financials, label: 'Financials', path: '/financials', icon: DollarSign, component: FinancialsPage, roles: ['admin', 'manager', 'driver', 'rep'] },
       { id: NAV_ITEM_IDS.pricing, label: 'Pricing', path: '/pricing', icon: DollarSign, component: PricingPage, roles: ['admin', 'manager'] },
-      { id: NAV_ITEM_IDS.invoices, label: 'Invoices', path: '/invoices', icon: Receipt, component: InvoicesPage },
+      { id: NAV_ITEM_IDS.invoices, label: 'Invoices', path: '/invoices', icon: Receipt, component: InvoicesPage, roles: ['admin', 'manager', 'driver', 'rep'] },
       { id: NAV_ITEM_IDS.creditHold, label: 'Credit Hold', path: '/credit-hold', icon: Lock, component: CreditHoldPage, roles: ['admin', 'manager'] },
     ],
   },
@@ -172,12 +172,12 @@ export const navGroups: NavGroup[] = [
     id: 'insights',
     label: 'Insights',
     items: [
-      { id: NAV_ITEM_IDS.analytics, label: 'Analytics', path: '/analytics', icon: BarChart2, component: AnalyticsPage },
+      { id: NAV_ITEM_IDS.analytics, label: 'Analytics', path: '/analytics', icon: BarChart2, component: AnalyticsPage, roles: ['admin', 'manager', 'driver', 'rep'] },
       { id: NAV_ITEM_IDS.dashboardBuilder, label: 'Dashboard Builder', path: '/dashboard/builder', icon: LayoutDashboard, component: DashboardBuilderPage, roles: ['admin', 'manager'] },
-      { id: NAV_ITEM_IDS.dsr, label: 'DSR', path: '/dsr', icon: ClipboardList, component: DSRPage },
-      { id: NAV_ITEM_IDS.forecasting, label: 'Forecasting', path: '/forecasting', icon: Sparkles, component: ForecastPage },
-      { id: NAV_ITEM_IDS.reports, label: 'Reports', path: '/reports', icon: FileText, component: ReportsPage },
-      { id: NAV_ITEM_IDS.aiHelp, label: 'AI Help', path: '/ai-help', icon: Bot, component: AIHelpPage },
+      { id: NAV_ITEM_IDS.dsr, label: 'DSR', path: '/dsr', icon: ClipboardList, component: DSRPage, roles: ['admin', 'manager', 'driver', 'rep'] },
+      { id: NAV_ITEM_IDS.forecasting, label: 'Forecasting', path: '/forecasting', icon: Sparkles, component: ForecastPage, roles: ['admin', 'manager', 'driver', 'rep'] },
+      { id: NAV_ITEM_IDS.reports, label: 'Reports', path: '/reports', icon: FileText, component: ReportsPage, roles: ['admin', 'manager', 'driver', 'rep'] },
+      { id: NAV_ITEM_IDS.aiHelp, label: 'AI Help', path: '/ai-help', icon: Bot, component: AIHelpPage, roles: ['admin', 'manager', 'driver', 'rep'] },
     ],
   },
   {
@@ -187,10 +187,10 @@ export const navGroups: NavGroup[] = [
       { id: NAV_ITEM_IDS.superadmin, label: 'Superadmin', path: '/superadmin', icon: ShieldCheck, component: SuperadminPage, roles: ['superadmin'] },
       { id: NAV_ITEM_IDS.users, label: 'Users', path: '/users', icon: User, component: UsersPage, roles: ['admin', 'superadmin'] },
       { id: NAV_ITEM_IDS.companies, label: 'Companies', path: '/companies', icon: Building2, component: CompaniesPage, roles: ['superadmin'] },
-      { id: NAV_ITEM_IDS.settings, label: 'Settings', path: '/settings', icon: Settings, component: SettingsPage },
+      { id: NAV_ITEM_IDS.settings, label: 'Settings', path: '/settings', icon: Settings, component: SettingsPage, roles: ['admin', 'manager', 'driver', 'rep'] },
       { id: 'integrations', label: 'Integrations', path: '/integrations', icon: Plug, component: IntegrationsPage, roles: ['admin'] },
       { id: NAV_ITEM_IDS.compliance, label: 'Compliance', path: '/compliance', icon: CheckSquare, component: CompliancePage, roles: ['admin', 'manager'] },
-      { id: 'planning', label: 'Planning', path: '/planning', icon: Calendar, component: PlanningPage },
+      { id: 'planning', label: 'Planning', path: '/planning', icon: Calendar, component: PlanningPage, roles: ['admin', 'manager', 'driver', 'rep'] },
       { id: NAV_ITEM_IDS.auditLog, label: 'Audit Log', path: '/audit-log', icon: ScanSearch, component: AuditLogPage, roles: ['admin', 'superadmin'] },
     ],
   },

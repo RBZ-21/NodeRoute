@@ -17,6 +17,7 @@ const { applyInventoryLedgerEntry } = require('../services/inventory-ledger');
 
 const router = express.Router();
 const kitRoles = requireRole('admin', 'manager');
+const kitViewRoles = requireRole('admin', 'manager', 'warehouse');
 
 const recipeItemSchema = z.object({
   input_product_id: z.string().trim().min(1),
@@ -291,7 +292,7 @@ async function processKitRun({ recipeId, quantityProduced, user, context, simula
   }
 }
 
-router.get('/recipes', authenticateToken, kitRoles, async (req, res) => {
+router.get('/recipes', authenticateToken, kitViewRoles, async (req, res) => {
   try {
     const { data, error } = await scopeQueryByContext(
       supabase.from('kit_recipes').select('*'),
@@ -363,7 +364,7 @@ router.post('/process', authenticateToken, kitRoles, validateBody(processKitSche
   }
 });
 
-router.get('/runs', authenticateToken, kitRoles, async (req, res) => {
+router.get('/runs', authenticateToken, kitViewRoles, async (req, res) => {
   try {
     const { data, error } = await scopeQueryByContext(
       supabase.from('kit_processing_runs').select('*'),

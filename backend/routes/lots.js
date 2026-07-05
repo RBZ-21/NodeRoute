@@ -129,7 +129,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
 // ── POST /api/lots ─────────────────────────────────────────────────────────────
 // Create a lot record manually (also called internally by PO confirm).
-router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBody(lotCreateBodySchema), async (req, res) => {
+router.post('/', authenticateToken, requireRole('admin', 'manager', 'warehouse'), validateBody(lotCreateBodySchema), async (req, res) => {
   const { lot_number, product_id, vendor_id, quantity_received, unit_of_measure, received_date, expiration_date, notes } = req.validated.body;
 
   const { data, error } = await supabase.from('lot_codes').insert([{
@@ -156,7 +156,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
 // FDA 24-hour traceability report for a single lot.
 // Returns the full supply chain: receiving → orders → stops.
 // Admin only. Must be fast — single DB query set.
-router.get('/:lotNumber/trace', authenticateToken, requireRole('admin'), async (req, res) => {
+router.get('/:lotNumber/trace', authenticateToken, requireRole('admin', 'manager', 'warehouse'), async (req, res) => {
   const lotNumber = req.params.lotNumber;
   const traceData = await loadLotTraceData(lotNumber, req.context);
   if (traceData.error) return res.status(traceData.status).json({ error: traceData.error });
@@ -167,7 +167,7 @@ router.get('/:lotNumber/trace', authenticateToken, requireRole('admin'), async (
 // Paginated lot-movement report for admins.
 // Query params: ?lot=, ?product_id=, ?vendor=, ?date_from=, ?date_to=, ?page=, ?limit=
 // Returns rows suitable for CSV export.
-router.get('/traceability/report', authenticateToken, requireRole('admin'), async (req, res) => {
+router.get('/traceability/report', authenticateToken, requireRole('admin', 'manager', 'warehouse'), async (req, res) => {
   const { lot, product_id, vendor, date_from, date_to, page = '1', limit: limitParam = '50' } = req.query;
 
   const pageNum  = Math.max(1, parseInt(page, 10)  || 1);

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canAccess, findNavItem, navGroups, navRedirects, allNavItems, defaultPath, NAV_ITEM_IDS } from './nav';
+import { canAccess, canAccessGroup, findNavItem, navGroups, navRedirects, allNavItems, defaultPath, NAV_ITEM_IDS } from './nav';
 
 describe('findNavItem', () => {
   it('returns the correct item for a known path', () => {
@@ -114,5 +114,39 @@ describe('canAccess', () => {
   it('role-restricted items stay hidden from roles not in the list', () => {
     const restricted = allNavItems.find((i) => i.roles?.length && !i.roles.includes('driver'))!;
     expect(canAccess(restricted, 'driver')).toBe(false);
+  });
+});
+
+describe('warehouse role scoping', () => {
+  const inventoryGroupItemIds = ['inventory', 'kits', 'purchasing', 'warehouse', 'traceability'];
+  const hiddenItemIds = [
+    'orders', 'routes', 'map',
+    'customers', 'vendors', 'sales-rep', 'phone-orders',
+    'financials', 'pricing', 'invoices', 'credit-hold',
+    'analytics', 'dashboard-builder', 'dsr', 'forecasting', 'reports', 'ai-help',
+    'superadmin', 'users', 'companies', 'settings', 'integrations', 'compliance', 'planning', 'audit-log',
+  ];
+
+  it('can access Dashboard and every item in the Inventory group', () => {
+    const dashboard = allNavItems.find((i) => i.id === 'dashboard')!;
+    expect(canAccess(dashboard, 'warehouse')).toBe(true);
+    for (const id of inventoryGroupItemIds) {
+      const item = allNavItems.find((i) => i.id === id)!;
+      expect(canAccess(item, 'warehouse')).toBe(true);
+    }
+  });
+
+  it('cannot access Dispatch, Customers, Financials, Insights, or Admin items', () => {
+    for (const id of hiddenItemIds) {
+      const item = allNavItems.find((i) => i.id === id)!;
+      expect(canAccess(item, 'warehouse')).toBe(false);
+    }
+  });
+
+  it('sees only Dashboard and Inventory in the group listing', () => {
+    const visibleGroupLabels = navGroups
+      .filter((g) => canAccessGroup(g, 'warehouse'))
+      .map((g) => g.label);
+    expect(visibleGroupLabels).toEqual(['', 'Inventory']);
   });
 });

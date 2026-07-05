@@ -5,6 +5,7 @@ import { Button } from '../components/ui/button';
 import { StatusBadge } from '../components/ui/status-badge';
 import { fetchWithAuth } from '../lib/api';
 import { SuperadminGuard } from '../components/SuperadminGuard';
+import { BillingDashboardPanel } from './superadmin/BillingDashboardPanel';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -186,6 +187,8 @@ function SuperadminDashboard() {
         <KpiCard icon={<TrendingUp className="h-5 w-5 text-emerald-500" />} label="Orders This Month" value={loading ? '—' : fmt(summary?.total_orders_month ?? 0)} sub={loading ? '' : `${fmt(summary?.total_routes_month ?? 0)} routes run`} />
         <KpiCard icon={<DollarSign className="h-5 w-5 text-amber-500" />}  label="MRR Estimate"      value={loading ? '—' : fmtMrr(summary?.mrr_estimate ?? 0)}   sub="Based on active plan tiers" highlight />
       </div>
+
+      <BillingDashboardPanel />
 
       {/* Tier breakdown + Alerts */}
       <div className="grid gap-4 lg:grid-cols-2">
