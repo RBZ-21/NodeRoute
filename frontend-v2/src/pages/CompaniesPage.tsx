@@ -11,6 +11,7 @@ import { PageSkeleton } from '../components/layout/PageSkeleton';
 import { TableEmptyState } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { ClientBillingDrawer } from './superadmin/ClientBillingDrawer';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
 
@@ -96,6 +97,7 @@ export function CompaniesPage() {
   const [statusFilter, setStatusFilter] = useState<'all' | 'active' | 'trial' | 'suspended'>('all');
   const [impersonating, setImpersonating] = useState<string | null>(null);
   const [configDrawer, setConfigDrawer]   = useState<Company | null>(null);
+  const [billingCompanyId, setBillingCompanyId] = useState<string | null>(null);
   const [showAnalytics, setShowAnalytics] = useState(false);
 
   async function load() {
@@ -310,6 +312,9 @@ export function CompaniesPage() {
                         <Button size="sm" variant="ghost" onClick={() => setConfigDrawer(company)}>
                           Config
                         </Button>
+                        <Button size="sm" variant="ghost" onClick={() => setBillingCompanyId(company.id)}>
+                          Billing
+                        </Button>
                         <Button
                           size="sm"
                           variant="ghost"
@@ -345,6 +350,14 @@ export function CompaniesPage() {
           onSaved={() => { setConfigDrawer(null); load(); }}
         />
       )}
+
+      {/* Tenant billing drawer */}
+      <ClientBillingDrawer
+        companyId={billingCompanyId}
+        open={!!billingCompanyId}
+        onClose={() => setBillingCompanyId(null)}
+        onSaved={() => { setBillingCompanyId(null); load(); }}
+      />
     </div>
   );
 }
