@@ -1,6 +1,8 @@
 'use strict';
 
+const express = require('express');
 const fs = require('node:fs');
+const jwt = require('jsonwebtoken');
 const os = require('node:os');
 const path = require('node:path');
 const test = require('node:test');
@@ -23,6 +25,26 @@ function clearSupabaseTestCache() {
       delete require.cache[key];
     }
   }
+}
+
+function clearBillingModuleCache() {
+  for (const key of Object.keys(require.cache)) {
+    if (
+      key.includes(`${path.sep}backend${path.sep}services${path.sep}supabase.js`)
+      || key.includes(`${path.sep}backend${path.sep}middleware${path.sep}auth.js`)
+      || key.includes(`${path.sep}backend${path.sep}routes${path.sep}superadmin.js`)
+      || key.includes(`${path.sep}backend${path.sep}routes${path.sep}superadmin-billing.js`)
+      || key.includes(`${path.sep}backend${path.sep}lib${path.sep}config.js`)
+    ) {
+      delete require.cache[key];
+    }
+  }
+}
+
+function listen(app) {
+  return new Promise((resolve) => {
+    const server = app.listen(0, () => resolve(server));
+  });
 }
 
 async function withDemoSupabase(run) {
@@ -333,4 +355,118 @@ test('saveCompanyBilling does not mutate company billing state when audit insert
     assert.equal(addonRows.length, 0);
     assert.equal(auditRows.length, 0);
   });
+});
+
+test('superadmin billing API rejects tenant admins and lets superadmin save custom pricing', async () => {
+  const previousEnv = {
+    NODEROUTE_BACKUP_PATH: process.env.NODEROUTE_BACKUP_PATH,
+    NODEROUTE_FORCE_DEMO_MODE: process.env.NODEROUTE_FORCE_DEMO_MODE,
+    SUPERADMIN_EMAIL: process.env.SUPERADMIN_EMAIL,
+    JWT_SECRET: process.env.JWT_SECRET,
+    SESSION_SECRET: process.env.SESSION_SECRET,
+    PORTAL_JWT_SECRET: process.env.PORTAL_JWT_SECRET,
+    SUPABASE_URL: process.env.SUPABASE_URL,
+    SUPABASE_SERVICE_ROLE_KEY: process.env.SUPABASE_SERVICE_ROLE_KEY,
+  };
+  const backupPath = fs.mkdtempSync(path.join(os.tmpdir(), 'noderoute-superadmin-billing-api-'));
+
+  process.env.NODEROUTE_BACKUP_PATH = backupPath;
+  process.env.NODEROUTE_FORCE_DEMO_MODE = 'true';
+  process.env.SUPERADMIN_EMAIL = 'owner@noderoute.test';
+  process.env.JWT_SECRET = 'BillingSecret!123';
+  process.env.SESSION_SECRET = 'BillingSession!123';
+  process.env.PORTAL_JWT_SECRET = 'BillingPortal!123';
+  process.env.SUPABASE_URL = 'https://example.supabase.test';
+  process.env.SUPABASE_SERVICE_ROLE_KEY = 'service-role-test';
+  clearBillingModuleCache();
+
+  let server;
+  try {
+    const { supabase } = require('../services/supabase');
+    const superadminRouter = require('../routes/superadmin');
+
+    await supabase.from('companies').insert({
+      id: '00000000-0000-0000-0000-00000000b111',
+      name: 'Blue Harbor',
+      slug: 'blue-harbor',
+      plan: 'track',
+      status: 'trial',
+    });
+    await supabase.from('users').insert({
+      id: 'sa-001',
+      name: 'Owner',
+      email: 'owner@noderoute.test',
+      role: 'superadmin',
+      status: 'active',
+      company_id: '00000000-0000-0000-0000-00000000b111',
+    });
+    await supabase.from('users').insert({
+      id: 'admin-002',
+      name: 'Tenant Admin',
+      email: 'admin@noderoute.test',
+      role: 'admin',
+      status: 'active',
+      company_id: '00000000-0000-0000-0000-00000000b111',
+    });
+    await supabase.from('platform_plan_tiers').insert({ code: 'operations', name: 'Operations', display_order: 30, monthly_price_cents: 149900, setup_price_cents: 350000 });
+    await supabase.from('platform_plan_tiers').insert({ code: 'track', name: 'Track', display_order: 10, monthly_price_cents: 29900, setup_price_cents: 75000 });
+    await supabase.from('platform_addons').insert({ code: 'ai_phone_orders', name: 'AI Phone Orders', base_monthly_cents: 49900, usage_terms: '$0.20 per connected minute', eligible_tier_codes: ['track', 'operations'], display_order: 10 });
+
+    const app = express();
+    app.use(express.json());
+    app.use('/api/superadmin', superadminRouter);
+    server = await listen(app);
+    const baseUrl = `http://127.0.0.1:${server.address().port}`;
+    const adminToken = jwt.sign({ userId: 'admin-002' }, process.env.JWT_SECRET, { expiresIn: '1h' });
+    const superToken = jwt.sign({ userId: 'sa-001' }, process.env.JWT_SECRET, { expiresIn: '1h' });
+
+    const denied = await fetch(`${baseUrl}/api/superadmin/billing/catalog`, {
+      headers: { Authorization: `Bearer ${adminToken}` },
+    });
+    assert.equal(denied.status, 403);
+
+    const saved = await fetch(`${baseUrl}/api/superadmin/companies/00000000-0000-0000-0000-00000000b111/billing`, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${superToken}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        plan_tier_code: 'operations',
+        billing_status: 'active',
+        billing_interval: 'monthly',
+        custom_pricing_enabled: true,
+        custom_monthly_price_cents: 180000,
+        custom_setup_price_cents: 400000,
+        annual_discount_bps: 0,
+        contract_start_date: null,
+        contract_end_date: null,
+        pricing_notes: 'First customer custom price',
+        feature_overrides: [],
+        addons: [{
+          addon_code: 'ai_phone_orders',
+          enabled: true,
+          quantity: 1,
+          monthly_price_cents: 49900,
+          setup_price_cents: null,
+          usage_terms: '$0.20 per connected minute',
+          notes: '',
+        }],
+      }),
+    });
+    assert.equal(saved.status, 200);
+    const body = await saved.json();
+    assert.equal(body.profile.plan_tier_code, 'operations');
+    assert.equal(body.profile.custom_monthly_price_cents, 180000);
+    assert.equal(body.effectiveMonthlyCents, 229900);
+    assert.equal(body.addons.find((addon) => addon.addon_code === 'ai_phone_orders').enabled, true);
+  } finally {
+    if (server) await new Promise((resolve) => server.close(resolve));
+    clearBillingModuleCache();
+    for (const [key, value] of Object.entries(previousEnv)) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
+    fs.rmSync(backupPath, { recursive: true, force: true });
+  }
 });

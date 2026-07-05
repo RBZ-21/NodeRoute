@@ -50,6 +50,12 @@ function configuredSuperadminEmail() {
 router.use(authenticateToken);
 router.use(requireSuperadmin);
 
+const superadminBilling = require('./superadmin-billing');
+
+router.use('/billing', superadminBilling.router);
+router.get('/companies/:id/billing', superadminBilling.getCompanyBilling);
+router.patch('/companies/:id/billing', superadminBilling.patchCompanyBilling);
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 function extractRows(result) {
   if (Array.isArray(result)) return result;
