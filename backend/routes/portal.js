@@ -4,6 +4,9 @@ const buildPortalAuthRouter = require('./portal/auth-routes');
 const { supabase } = require('../services/supabase');
 const { authenticatePortalToken, requirePortalOrdering } = require('./portal/shared');
 
+// Mostly a sub-router mount point, but also owns the /ordering-status route below, which
+// issues its own Supabase query scoped via req.portalContext.companyId (set by
+// authenticatePortalToken). See backend/tests/tenant-scoping-consistency.test.js.
 const router = express.Router();
 
 router.use('/', buildPortalAuthRouter());

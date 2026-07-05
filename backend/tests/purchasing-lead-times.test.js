@@ -1,7 +1,7 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 
-const { buildPurchasingSuggestions, summarizeVendorPurchaseOrders, resolveHistoricalLeadTimeDays } = require('../routes/ops/purchasing-shared');
+const { buildPurchasingSuggestions, summarizeVendorPurchaseOrders, resolveHistoricalLeadTimeDays } = require('../lib/purchasing-shared');
 
 test('summarizeVendorPurchaseOrders calculates actual and historical lead-time metrics', () => {
   const orders = summarizeVendorPurchaseOrders([

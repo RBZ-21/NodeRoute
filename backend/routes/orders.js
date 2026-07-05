@@ -45,8 +45,8 @@ const reorderEngine = require('../services/reorderEngine');
 const { sendInvoiceEmail } = require('../services/invoice-email');
 const deliveryNotifications = require('../services/delivery-notifications');
 const { invoiceLotEntriesFromItems } = require('../services/invoice-lots');
-const pricingEngine = require('../services/pricing-engine');
 const orderEntryEngine = require('../services/order-entry-engine');
+const orderValidation = require('../services/order-validation');
 const {
   buildScopeFields,
   executeWithOptionalScope,
@@ -79,41 +79,6 @@ function estimateOrderTotal({ items, charges, taxEnabled, taxRate }) {
 function hasMinimumSellOverride(user) {
   const role = String(user?.role || '').toLowerCase();
   return role === 'admin' || role === 'superadmin';
-}
-
-function lineProductRef(item) {
-  return {
-    productId: normalizeText(item?.product_id || item?.productId),
-    itemNumber: normalizeText(item?.item_number || item?.itemNumber),
-  };
-}
-
-function lineUnitPrice(item) {
-  if (item?.is_catch_weight) return parseFloat(item.price_per_lb ?? item.unit_price ?? item.price ?? 0) || 0;
-  return parseFloat(item?.unit_price ?? item?.unitPrice ?? item?.price ?? item?.price_per_lb ?? 0) || 0;
-}
-
-async function findMinimumSellViolation(items, context) {
-  for (const item of Array.isArray(items) ? items : []) {
-    const { productId, itemNumber } = lineProductRef(item);
-    if (!productId && !itemNumber) continue;
-    const price = lineUnitPrice(item);
-    const result = await pricingEngine.enforceMinimumSell({
-      db: supabase,
-      price,
-      productId,
-      itemNumber,
-      context,
-    });
-    if (!result.allowed) {
-      return {
-        item,
-        min_price: result.min_price,
-        source_id: result.source_id,
-      };
-    }
-  }
-  return null;
 }
 
 function sendMinimumSellViolation(res, violation) {
@@ -914,7 +879,7 @@ async function createOrUpdateProcessingInvoice(order, fulfilledItems, overrides,
     fulfilledItems,
     existingInvoice ? { ...overrides, invoice_number: existingInvoice.invoice_number } : overrides
   );
-  const minimumSellViolation = await findMinimumSellViolation(payload.items, req.context);
+  const minimumSellViolation = await orderValidation.validateOrderItemPricing(payload.items, req.context);
   if (minimumSellViolation && !hasMinimumSellOverride(req.user)) {
     if (res) sendMinimumSellViolation(res, minimumSellViolation);
     return null;
@@ -991,8 +956,17 @@ async function sendFulfillmentInvoiceIfPossible(invoice) {
 }
 
 // ── ORDERS ────────────────────────────────────────────────────────────────────
+const ORDERS_LIST_MAX_ROWS = Number.parseInt(process.env.ORDERS_LIST_MAX_ROWS, 10) > 0
+  ? Number.parseInt(process.env.ORDERS_LIST_MAX_ROWS, 10)
+  : 1000;
+
 router.get('/', authenticateToken, async (req, res) => {
-  const data = await dbQuery(scopeQueryByContext(supabase.from('orders').select('*'), req.context).order('created_at', { ascending: false }), res);
+  const data = await dbQuery(
+    scopeQueryByContext(supabase.from('orders').select('*'), req.context)
+      .order('created_at', { ascending: false })
+      .limit(ORDERS_LIST_MAX_ROWS),
+    res
+  );
   if (!data) return;
   res.json(filterRowsByContext(data || [], req.context));
 });
@@ -1102,7 +1076,7 @@ router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole
     customerId: resolvedCustomerId,
     context: req.context,
   });
-  const minimumSellViolation = await findMinimumSellViolation(enrichedItems, req.context);
+  const minimumSellViolation = await orderValidation.validateOrderItemPricing(enrichedItems, req.context);
   if (minimumSellViolation && !hasMinimumSellOverride(req.user)) {
     return sendMinimumSellViolation(res, minimumSellViolation);
   }
@@ -1284,7 +1258,7 @@ router.patch('/:id', validateBody(orderUpdateSchema), authenticateToken, require
       customerId: resolvedCustomerId,
       context: req.context,
     });
-    const minimumSellViolation = await findMinimumSellViolation(updates.items, req.context);
+    const minimumSellViolation = await orderValidation.validateOrderItemPricing(updates.items, req.context);
     if (minimumSellViolation && !hasMinimumSellOverride(req.user)) {
       return sendMinimumSellViolation(res, minimumSellViolation);
     }

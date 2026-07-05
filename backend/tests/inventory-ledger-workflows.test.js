@@ -10,7 +10,7 @@ const opsRouteSource = [
   fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops.js'), 'utf8'),
   fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops-purchasing.js'), 'utf8'),
   fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops', 'admin-routes.js'), 'utf8'),
-  fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops', 'purchasing-shared.js'), 'utf8'),
+  fs.readFileSync(path.join(repoRoot, 'backend', 'lib', 'purchasing-shared.js'), 'utf8'),
   fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'ops', 'purchasing-order-routes.js'), 'utf8'),
 ].join('\n');
 const ordersRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'orders.js'), 'utf8');

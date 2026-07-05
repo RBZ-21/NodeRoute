@@ -39,23 +39,26 @@ export default defineConfig(({ mode }) => {
     // Tauri expects a relative base so assets load correctly in the desktop shell.
     base: mode === 'tauri' ? './' : '/dashboard-v2/',
     // Tauri dev server port -- must be locked
+    // `server.proxy` only affects `vite dev`/`vite preview` (never `vite build`), so it's safe to
+    // always define it here. This proxy is what lets the plain dev server (used by Playwright's
+    // webServer and by any human running `npm run dev`) reach the backend, not just the Tauri
+    // desktop dev flow, which already opts into `--mode tauri` explicitly via tauri.conf.json's
+    // `beforeDevCommand`.
     server: {
       port: 5173,
       strictPort: true,
-      proxy: mode === 'tauri'
-        ? {
-            '/api': {
-              target: desktopApiTarget,
-              changeOrigin: true,
-              secure: false,
-            },
-            '/auth': {
-              target: desktopApiTarget,
-              changeOrigin: true,
-              secure: false,
-            },
-          }
-        : undefined,
+      proxy: {
+        '/api': {
+          target: desktopApiTarget,
+          changeOrigin: true,
+          secure: false,
+        },
+        '/auth': {
+          target: desktopApiTarget,
+          changeOrigin: true,
+          secure: false,
+        },
+      },
     },
     test: {
       environment: 'jsdom',

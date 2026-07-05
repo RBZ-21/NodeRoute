@@ -11,6 +11,7 @@ const jwt = require('jsonwebtoken');
 const COMPANY_ID = 'company-order-pricing-a';
 const LOCATION_ID = 'location-order-pricing-a';
 const PRODUCT_ID = 'order-pricing-product';
+const PRODUCT_ID_2 = 'order-pricing-product-2';
 
 function clearBackendModuleCache() {
   for (const key of Object.keys(require.cache)) {
@@ -19,6 +20,7 @@ function clearBackendModuleCache() {
       key.includes(`${path.sep}backend${path.sep}middleware${path.sep}auth.js`) ||
       key.includes(`${path.sep}backend${path.sep}routes${path.sep}orders.js`) ||
       key.includes(`${path.sep}backend${path.sep}services${path.sep}pricing-engine.js`) ||
+      key.includes(`${path.sep}backend${path.sep}services${path.sep}order-validation.js`) ||
       key.includes(`${path.sep}backend${path.sep}services${path.sep}creditEngine.js`) ||
       key.includes(`${path.sep}backend${path.sep}services${path.sep}plan-limits.js`) ||
       key.includes(`${path.sep}backend${path.sep}services${path.sep}printer.js`) ||
@@ -105,14 +107,37 @@ async function seedOrderPricingData(supabase) {
     is_catch_weight: false,
   });
 
-  await supabase.from('minimum_sell_rules').insert({
-    id: 'order-min-sell-rule',
+  await supabase.from('products').insert({
+    id: PRODUCT_ID_2,
     company_id: COMPANY_ID,
-    product_id: PRODUCT_ID,
-    category_id: null,
-    min_margin_pct: 20,
-    min_price: 12,
+    location_id: LOCATION_ID,
+    item_number: 'MIN-SELL-2',
+    description: 'Second Minimum Sell Product',
+    category: 'Produce',
+    category_id: 'cat-produce',
+    cost: 5,
+    price_per_unit: 7,
+    is_catch_weight: false,
   });
+
+  await supabase.from('minimum_sell_rules').insert([
+    {
+      id: 'order-min-sell-rule',
+      company_id: COMPANY_ID,
+      product_id: PRODUCT_ID,
+      category_id: null,
+      min_margin_pct: 20,
+      min_price: 12,
+    },
+    {
+      id: 'order-min-sell-rule-2',
+      company_id: COMPANY_ID,
+      product_id: PRODUCT_ID_2,
+      category_id: null,
+      min_margin_pct: null,
+      min_price: 6,
+    },
+  ]);
 }
 
 async function withOrdersApp(fn) {
@@ -202,5 +227,59 @@ test('orders allow minimum sell override for admins', async () => {
     const { data: orders } = await supabase.from('orders').select('*');
     assert.equal(orders.length, 1);
     assert.equal(orders[0].items[0].unit_price, 8);
+  });
+});
+
+test('multi-item orders validate minimum sell with a batched query instead of one per item', async () => {
+  await withOrdersApp(async ({ baseUrl, supabase, tokenFor }) => {
+    const queryLog = [];
+    const originalFrom = supabase.from.bind(supabase);
+    supabase.from = (table) => {
+      if (table === 'minimum_sell_rules') queryLog.push(table);
+      return originalFrom(table);
+    };
+
+    let response;
+    try {
+      response = await fetch(`${baseUrl}/api/orders`, {
+        method: 'POST',
+        headers: authHeaders(tokenFor('pricing-admin')),
+        body: JSON.stringify({
+          customerName: 'Multi Item Cafe',
+          customerEmail: 'buyer2@example.test',
+          fulfillmentType: 'pickup',
+          items: [
+            {
+              product_id: PRODUCT_ID,
+              item_number: 'MIN-SELL-1',
+              name: 'Minimum Sell Product',
+              unit: 'each',
+              quantity: 1,
+              requested_qty: 1,
+              unit_price: 13,
+            },
+            {
+              product_id: PRODUCT_ID_2,
+              item_number: 'MIN-SELL-2',
+              name: 'Second Minimum Sell Product',
+              unit: 'each',
+              quantity: 1,
+              requested_qty: 1,
+              unit_price: 7,
+            },
+          ],
+        }),
+      });
+    } finally {
+      supabase.from = originalFrom;
+    }
+
+    assert.equal(response.status, 200);
+
+    // minimum_sell_rules is only ever queried by minimum-sell validation, so
+    // this directly measures whether the route batches across items: with
+    // the old per-item loop this would be 2 (one per line item).
+    const ruleQueries = queryLog.filter((t) => t === 'minimum_sell_rules').length;
+    assert.equal(ruleQueries, 1, `expected exactly 1 minimum_sell_rules query for a 2-item order, got ${ruleQueries}`);
   });
 });
