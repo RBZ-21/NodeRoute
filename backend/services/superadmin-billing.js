@@ -3,6 +3,12 @@
 const { parseSaveCompanyBilling } = require('../lib/superadmin-billing-schemas');
 
 const DEFAULT_SELECT_LIMIT = 10000;
+const BILLING_TO_COMPANY_STATUS = {
+  active: 'active',
+  trial: 'trial',
+  paused: 'suspended',
+  cancelled: 'suspended',
+};
 const UPSERT_KEY_FIELDS = {
   company_billing_profiles: ['company_id'],
   company_feature_entitlements: ['company_id', 'feature_code'],
@@ -24,6 +30,10 @@ function normalizeMoneyCents(value) {
 
 function normalizeBillingPayload(input) {
   return parseSaveCompanyBilling(input);
+}
+
+function mapBillingStatusToCompanyStatus(status) {
+  return BILLING_TO_COMPANY_STATUS[status] || 'trial';
 }
 
 function addonMonthlyCents(addon) {
@@ -104,7 +114,7 @@ function defaultFeatureEntitlements(companyId, profile, catalog) {
     return {
       company_id: companyId,
       feature_code: feature.code,
-      enabled: !['no', 'add_on'].includes(inclusion),
+      enabled: !['no', 'add_on', 'discounted_add_on'].includes(inclusion),
       inclusion,
       source: 'tier',
       notes: '',
@@ -218,6 +228,12 @@ async function upsertRows(db, table, rows) {
   return savedRows;
 }
 
+async function replaceCompanyRows(db, table, companyId, rows) {
+  const { error } = await db.from(table).delete().eq('company_id', companyId);
+  if (error) throw error;
+  return upsertRows(db, table, rows);
+}
+
 async function saveCompanyBilling(db, companyId, input, actor) {
   const payload = normalizeBillingPayload(input);
   const before = await loadCompanyBilling(db, companyId).catch(() => null);
@@ -241,12 +257,12 @@ async function saveCompanyBilling(db, companyId, input, actor) {
 
   const { error: companyErr } = await db.from('companies').update({
     plan: payload.plan_tier_code,
-    status: payload.billing_status === 'paused' ? 'suspended' : payload.billing_status,
+    status: mapBillingStatusToCompanyStatus(payload.billing_status),
   }).eq('id', companyId);
   if (companyErr) throw companyErr;
 
   await upsertRows(db, 'company_billing_profiles', [profile]);
-  await upsertRows(db, 'company_feature_entitlements', payload.feature_overrides.map((feature) => ({
+  await replaceCompanyRows(db, 'company_feature_entitlements', companyId, payload.feature_overrides.map((feature) => ({
     company_id: companyId,
     feature_code: feature.feature_code,
     enabled: feature.enabled,
@@ -256,7 +272,7 @@ async function saveCompanyBilling(db, companyId, input, actor) {
     updated_by: actor?.id || null,
     updated_at: now,
   })));
-  await upsertRows(db, 'company_addon_entitlements', payload.addons.map((addon) => ({
+  await replaceCompanyRows(db, 'company_addon_entitlements', companyId, payload.addons.map((addon) => ({
     company_id: companyId,
     addon_code: addon.addon_code,
     enabled: addon.enabled,
@@ -269,7 +285,7 @@ async function saveCompanyBilling(db, companyId, input, actor) {
     updated_at: now,
   })));
 
-  await db.from('platform_pricing_audit_events').insert({
+  const auditInsertResult = await db.from('platform_pricing_audit_events').insert({
     company_id: companyId,
     event_type: before?.profile?.plan_tier_code === payload.plan_tier_code ? 'pricing_changed' : 'tier_changed',
     performed_by: actor?.id || null,
@@ -280,6 +296,7 @@ async function saveCompanyBilling(db, companyId, input, actor) {
     next_value: payload,
     notes: payload.pricing_notes || '',
   });
+  if (auditInsertResult?.error) throw auditInsertResult.error;
 
   return loadCompanyBilling(db, companyId);
 }
