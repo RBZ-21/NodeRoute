@@ -1,13 +1,16 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { companyBillingKey } from '../hooks/useSuperadminBilling';
 import { renderWithQueryClient } from '../test/renderWithQueryClient';
+import { BillingDashboardPanel } from './superadmin/BillingDashboardPanel';
 import type { BillingCatalogResponse } from './superadmin/billing-types';
 import { AddonChecklist } from './superadmin/AddonChecklist';
 import { ClientBillingDrawer } from './superadmin/ClientBillingDrawer';
 import { FeatureMatrixTable } from './superadmin/FeatureMatrixTable';
 
-const { useCompanyBillingMock, useSaveCompanyBillingMock } = vi.hoisted(() => ({
+const { useBillingCatalogMock, useBillingAnalyticsMock, useCompanyBillingMock, useSaveCompanyBillingMock } = vi.hoisted(() => ({
+  useBillingCatalogMock: vi.fn(),
+  useBillingAnalyticsMock: vi.fn(),
   useCompanyBillingMock: vi.fn(),
   useSaveCompanyBillingMock: vi.fn(),
 }));
@@ -16,9 +19,18 @@ vi.mock('../hooks/useSuperadminBilling', async () => {
   const actual = await vi.importActual<Record<string, unknown>>('../hooks/useSuperadminBilling');
   return {
     ...actual,
+    useBillingCatalog: useBillingCatalogMock,
+    useBillingAnalytics: useBillingAnalyticsMock,
     useCompanyBilling: useCompanyBillingMock,
     useSaveCompanyBilling: useSaveCompanyBillingMock,
   };
+});
+
+beforeEach(() => {
+  useBillingCatalogMock.mockReset();
+  useBillingAnalyticsMock.mockReset();
+  useCompanyBillingMock.mockReset();
+  useSaveCompanyBillingMock.mockReset();
 });
 
 describe('Superadmin billing types', () => {
@@ -60,6 +72,82 @@ describe('Superadmin billing types', () => {
     expect(catalog.tiers[0].code).toBe('track');
     expect(catalog.addons[0].code).toBe('ai_phone_orders');
     expect(companyBillingKey('company-123')).toEqual(['superadmin-company-billing', 'company-123']);
+  });
+});
+
+describe('BillingDashboardPanel', () => {
+  it('renders workbook-backed tier names and analytics MRR', async () => {
+    useBillingCatalogMock.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        tiers: [
+          {
+            code: 'track',
+            name: 'Track',
+            display_order: 10,
+            monthly_price_cents: 29900,
+            setup_price_cents: 75000,
+            best_for: '',
+            included_scope: '',
+            excluded_gated: '',
+            upgrade_trigger: '',
+            sales_note: '',
+          },
+          {
+            code: 'operations',
+            name: 'Operations',
+            display_order: 20,
+            monthly_price_cents: 149900,
+            setup_price_cents: 100000,
+            best_for: '',
+            included_scope: '',
+            excluded_gated: '',
+            upgrade_trigger: '',
+            sales_note: '',
+          },
+        ],
+        features: [
+          {
+            code: 'route_optimization',
+            name: 'Route Optimization',
+            category: 'Operations',
+            description: 'Plan delivery runs from order demand.',
+            display_order: 10,
+          },
+        ],
+        featureMatrix: [
+          {
+            tier_code: 'operations',
+            feature_code: 'route_optimization',
+            inclusion: 'full',
+            detail: '',
+            pricing_scope_note: '',
+          },
+        ],
+        limits: [],
+        addons: [],
+      },
+    });
+    useBillingAnalyticsMock.mockReturnValue({
+      isLoading: false,
+      error: null,
+      data: {
+        total_companies: 3,
+        active_companies: 2,
+        mrr_cents: 149900,
+        arr_cents: 1798800,
+        custom_pricing_companies: 1,
+        enabled_addons: 4,
+        tier_breakdown: [{ tier: 'operations', count: 1, mrr_cents: 149900 }],
+      },
+    });
+
+    renderWithQueryClient(<BillingDashboardPanel />);
+
+    expect(await screen.findByText('Billing MRR')).toBeInTheDocument();
+    expect(screen.getByText('$1,499')).toBeInTheDocument();
+    expect(screen.getAllByText('Operations').length).toBeGreaterThan(0);
   });
 });
 
