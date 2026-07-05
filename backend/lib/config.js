@@ -45,6 +45,7 @@ const envSchema = z.object({
   STRIPE_WEBHOOK_SECRET:      z.string().optional().default(''),
   CORS_ORIGINS:               z.string().optional().default(''),
   CORS_ORIGIN:                z.string().optional().default(''),
+  CANONICAL_HOST:             z.string().optional().default(''),
   ALLOWED_IMAGE_HOSTS:         z.string().optional().default(''),
   PORTAL_PAYMENT_ENABLED:     z.string().optional().default('false'),
   PORTAL_PAYMENT_PROVIDER:    z.string().optional().default('manual'),
@@ -95,6 +96,17 @@ const STRIPE_PUBLISHABLE_KEY = rawEnv.STRIPE_PUBLISHABLE_KEY;
 const STRIPE_WEBHOOK_SECRET = rawEnv.STRIPE_WEBHOOK_SECRET;
 const _corsRaw        = rawEnv.CORS_ORIGINS || rawEnv.CORS_ORIGIN || '';
 const CORS_ORIGINS    = _corsRaw.split(',').map((s) => s.trim()).filter(Boolean);
+// Canonical public host (no scheme). Explicit CANONICAL_HOST wins; otherwise
+// derived from BASE_URL's hostname. Used to 301 www → apex.
+const CANONICAL_HOST = (() => {
+  const explicit = String(rawEnv.CANONICAL_HOST || '').trim().toLowerCase();
+  if (explicit) return explicit.replace(/^www\./, '');
+  try {
+    return new URL(rawEnv.BASE_URL).hostname.toLowerCase().replace(/^www\./, '');
+  } catch {
+    return '';
+  }
+})();
 const ALLOWED_IMAGE_HOSTS = rawEnv.ALLOWED_IMAGE_HOSTS
   .split(',')
   .map((s) => s.trim().toLowerCase())
@@ -291,6 +303,7 @@ module.exports = {
   PORTAL_PAYMENT_ENABLED,
   PORTAL_PAYMENT_PROVIDER,
   CORS_ORIGINS,
+  CANONICAL_HOST,
   ALLOWED_IMAGE_HOSTS,
   STRIPE_WEBHOOK_TOLERANCE_SECONDS,
   DEFAULT_COMPANY_ID,
