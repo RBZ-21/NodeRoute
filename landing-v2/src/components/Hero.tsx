@@ -33,31 +33,19 @@ export function Hero() {
             place — so you're not running the whole day through calls, texts, and spreadsheets.
           </p>
 
-          <div className="mt-8 flex flex-wrap gap-3">
+          <div className="mt-8 flex flex-wrap items-center gap-3">
             <a
-              href={CTA.signup}
-              className="group inline-flex items-center gap-1.5 rounded-lg bg-teal px-4 py-2.5 text-[14px] font-semibold text-white transition-all hover:bg-teal-light"
+              href={CTA.earlyAccess}
+              className="group inline-flex items-center gap-1.5 rounded-lg bg-teal px-5 py-3 text-[15px] font-semibold text-white transition-all hover:bg-teal-light"
             >
-              Sign Up
+              Request Early Access
               <ArrowRight className="h-4 w-4 transition-transform group-hover:translate-x-0.5" />
             </a>
             <a
-              href={CTA.earlyAccess}
-              className="inline-flex items-center rounded-lg border border-line-strong bg-ink-100 px-4 py-2.5 text-[14px] font-semibold text-white hover:border-white/30 transition-colors"
-            >
-              Request Early Access
-            </a>
-            <a
               href={CTA.founder}
-              className="inline-flex items-center rounded-lg border border-line-strong bg-ink-100 px-4 py-2.5 text-[14px] font-semibold text-white hover:border-white/30 transition-colors"
+              className="inline-flex items-center rounded-lg px-4 py-3 text-[14px] font-semibold text-white/70 hover:text-white transition-colors"
             >
-              Talk to the Founder
-            </a>
-            <a
-              href={CTA.login}
-              className="inline-flex items-center rounded-lg px-4 py-2.5 text-[14px] font-semibold text-white/70 hover:text-white transition-colors"
-            >
-              Login →
+              Talk to the founder →
             </a>
           </div>
 
@@ -86,7 +74,7 @@ function EyebrowTag() {
         <span className="absolute inline-flex h-full w-full rounded-full bg-teal opacity-60 animate-ping" />
         <span className="relative inline-flex h-1.5 w-1.5 rounded-full bg-teal" />
       </span>
-      Built for small wholesale and local delivery teams
+      Built for seafood & perishable wholesale teams
     </div>
   );
 }
