@@ -23,7 +23,7 @@ export function Nav() {
       className={cn(
         'sticky top-0 z-50 transition-all duration-200',
         scrolled
-          ? 'backdrop-blur-md bg-black/70 border-b border-line'
+          ? 'backdrop-blur-md bg-ink-0/70 border-b border-line'
           : 'bg-transparent border-b border-transparent'
       )}
     >
@@ -59,7 +59,7 @@ export function Nav() {
           </a>
           <a
             href={CTA.signup}
-            className="inline-flex items-center rounded-lg bg-teal px-3.5 py-2 text-[13px] font-semibold text-black hover:bg-teal-light transition-colors"
+            className="inline-flex items-center rounded-lg bg-teal px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-teal-light transition-colors"
           >
             Sign Up
           </a>

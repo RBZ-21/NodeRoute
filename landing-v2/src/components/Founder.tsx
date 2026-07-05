@@ -26,7 +26,7 @@ export function Founder() {
         <aside className="md:col-span-4">
           <div className="rounded-2xl border border-line bg-ink-100 p-6">
             <div className="flex items-center gap-3">
-              <span className="flex h-10 w-10 items-center justify-center rounded-full border border-line-strong bg-ink-200 font-display text-[15px] font-semibold text-teal-light">
+              <span className="flex h-10 w-10 items-center justify-center rounded-full border border-line-strong bg-ink-200 font-display text-[15px] font-semibold text-teal-sky">
                 R
               </span>
               <div>
@@ -39,7 +39,7 @@ export function Founder() {
             </p>
             <a
               href="mailto:ryan@noderoutesystems.com?subject=NodeRoute%20-%20Talk%20to%20the%20Founder"
-              className="mt-5 inline-flex items-center gap-1 text-[13px] font-semibold text-teal-light hover:text-teal"
+              className="mt-5 inline-flex items-center gap-1 text-[13px] font-semibold text-teal-sky hover:text-white"
             >
               Talk to the founder →
             </a>
