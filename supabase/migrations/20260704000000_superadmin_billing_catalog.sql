@@ -368,6 +368,15 @@ on conflict (code) do update set
   updated_at = now();
 
 insert into public.company_billing_profiles (company_id, plan_tier_code, billing_status)
-select id, case when lower(coalesce(plan, '')) = 'enterprise' then 'erp' else 'track' end, coalesce(nullif(status, ''), 'trial')
+select
+  id,
+  case when lower(coalesce(plan, '')) = 'enterprise' then 'erp' else 'track' end,
+  -- billing_status only allows trial/active/paused/cancelled; companies.status
+  -- also contains 'suspended' (mapped to 'paused', matching the backend service).
+  case
+    when status = 'suspended' then 'paused'
+    when status in ('trial', 'active', 'paused', 'cancelled') then status
+    else 'trial'
+  end
 from public.companies
 on conflict (company_id) do nothing;
