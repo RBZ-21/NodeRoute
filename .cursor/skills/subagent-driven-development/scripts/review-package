@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+# Generate a review package file for subagent reviewers.
+# Usage: scripts/review-package BASE HEAD
+# Prints the path to the written file on stdout.
+
+set -euo pipefail
+
+if [[ $# -ne 2 ]]; then
+  echo "Usage: review-package BASE HEAD" >&2
+  exit 1
+fi
+
+BASE="$1"
+HEAD="$2"
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+OUT_DIR="${ROOT}/.superpowers/sdd"
+mkdir -p "$OUT_DIR"
+
+BASE_SHORT="${BASE:0:7}"
+HEAD_SHORT="${HEAD:0:7}"
+STAMP="$(date +%s)"
+PACKAGE_FILE="${OUT_DIR}/review-${STAMP}-${BASE_SHORT}-${HEAD_SHORT}.md"
+
+{
+  echo "# Review Package"
+  echo ""
+  echo "Base: \`${BASE}\`"
+  echo "Head: \`${HEAD}\`"
+  echo ""
+  echo "## Commits"
+  echo '```'
+  git log --oneline "${BASE}..${HEAD}" || true
+  echo '```'
+  echo ""
+  echo "## Stat"
+  echo '```'
+  git diff --stat "${BASE}..${HEAD}" || true
+  echo '```'
+  echo ""
+  echo "## Diff"
+  echo '```diff'
+  git diff -U10 "${BASE}..${HEAD}" || true
+  echo '```'
+} >"$PACKAGE_FILE"
+
+echo "$PACKAGE_FILE"

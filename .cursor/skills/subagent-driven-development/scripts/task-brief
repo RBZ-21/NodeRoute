@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+# Extract a single task from an implementation plan to a brief file.
+# Usage: scripts/task-brief PLAN_FILE TASK_NUMBER
+# Prints the path to the written brief on stdout.
+
+set -euo pipefail
+
+if [[ $# -ne 2 ]]; then
+  echo "Usage: task-brief PLAN_FILE TASK_NUMBER" >&2
+  exit 1
+fi
+
+PLAN_FILE="$1"
+TASK_NUM="$2"
+
+if [[ ! -f "$PLAN_FILE" ]]; then
+  echo "Plan file not found: $PLAN_FILE" >&2
+  exit 1
+fi
+
+ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+OUT_DIR="${ROOT}/.superpowers/sdd"
+mkdir -p "$OUT_DIR"
+
+BRIEF_FILE="${OUT_DIR}/task-${TASK_NUM}-brief.md"
+
+awk -v task="$TASK_NUM" '
+  BEGIN { in_task = 0 }
+  /^### Task [0-9]+:/ {
+    if (in_task) { exit }
+    n = $3
+    sub(/:$/, "", n)
+    if (n + 0 == task + 0) { in_task = 1; print; next }
+    next
+  }
+  in_task { print }
+' "$PLAN_FILE" >"$BRIEF_FILE"
+
+if [[ ! -s "$BRIEF_FILE" ]]; then
+  echo "Task ${TASK_NUM} not found in ${PLAN_FILE}" >&2
+  rm -f "$BRIEF_FILE"
+  exit 1
+fi
+
+{
+  echo "# Task ${TASK_NUM} Brief"
+  echo ""
+  echo "Source plan: \`${PLAN_FILE}\`"
+  echo ""
+  cat "$BRIEF_FILE"
+} >"${BRIEF_FILE}.tmp"
+mv "${BRIEF_FILE}.tmp" "$BRIEF_FILE"
+
+echo "$BRIEF_FILE"
