@@ -1,6 +1,6 @@
 const { z } = require('zod');
 
-const USER_ROLES = ['admin', 'manager', 'driver'];
+const USER_ROLES = ['admin', 'manager', 'driver', 'warehouse'];
 
 const nullableField = z.preprocess(
   (v) => { if (v === undefined) return undefined; return (v && String(v).trim()) || null; },
