@@ -14,3 +14,45 @@ describe('Superadmin billing types', () => {
     expect(catalog.addons[0].code).toBe('ai_phone_orders');
   });
 });
+
+import { fireEvent, screen } from '@testing-library/react';
+import { renderWithQueryClient } from '../test/renderWithQueryClient';
+import { AddonChecklist } from './superadmin/AddonChecklist';
+
+describe('AddonChecklist', () => {
+  it('renders add-ons as list-style checkboxes and emits checked changes', () => {
+    const changes: unknown[] = [];
+    renderWithQueryClient(
+      <AddonChecklist
+        addons={[
+          {
+            company_id: 'company-1',
+            addon_code: 'ai_phone_orders',
+            enabled: false,
+            quantity: 1,
+            monthly_price_cents: 49900,
+            setup_price_cents: null,
+            usage_terms: '$0.20 per connected minute',
+            notes: '',
+            addon: {
+              code: 'ai_phone_orders',
+              name: 'AI Phone Orders',
+              base_monthly_cents: 49900,
+              default_setup_cents: null,
+              usage_terms: '$0.20 per connected minute',
+              eligible_tier_codes: ['track'],
+              quote_only: false,
+              display_order: 10,
+            },
+          },
+        ]}
+        onChange={(next) => changes.push(next)}
+      />,
+    );
+
+    const checkbox = screen.getByRole('checkbox', { name: /AI Phone Orders/i });
+    expect(checkbox).not.toBeChecked();
+    fireEvent.click(checkbox);
+    expect(changes).toHaveLength(1);
+  });
+});
