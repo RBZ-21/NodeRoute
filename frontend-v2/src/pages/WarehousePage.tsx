@@ -16,10 +16,6 @@ function ErrorBanner({ msg }: { msg: string }) {
   return <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">{msg}</div>;
 }
 
-function NoticeBanner({ msg }: { msg: string }) {
-  return <div className="rounded-md border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm text-emerald-700">{msg}</div>;
-}
-
 export function WarehousePage() {
   const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<Tab>('inventory');

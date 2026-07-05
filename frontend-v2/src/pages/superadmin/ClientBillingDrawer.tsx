@@ -10,7 +10,6 @@ import { FeatureMatrixTable } from './FeatureMatrixTable';
 import type {
   BillingStatus,
   CompanyAddonEntitlement,
-  CompanyBillingResponse,
   CompanyFeatureEntitlement,
   PlanTierCode,
 } from './billing-types';
