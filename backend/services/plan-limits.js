@@ -1,11 +1,19 @@
 'use strict';
 
 const PLAN_LIMITS = {
-  trial: { maxDrivers: 3, maxDeliveriesPerMonth: 100 },
-  starter: { maxDrivers: 5, maxDeliveriesPerMonth: 500 },
-  growth: { maxDrivers: 25, maxDeliveriesPerMonth: 5000 },
-  pro: { maxDrivers: 100, maxDeliveriesPerMonth: 25000 },
-  enterprise: { maxDrivers: Infinity, maxDeliveriesPerMonth: Infinity },
+  trial: { maxDrivers: 2, maxDeliveriesPerMonth: 500 },
+  track: { maxDrivers: 2, maxDeliveriesPerMonth: 500 },
+  dispatch: { maxDrivers: 5, maxDeliveriesPerMonth: 2500 },
+  operations: { maxDrivers: 10, maxDeliveriesPerMonth: 5000 },
+  erp: { maxDrivers: 15, maxDeliveriesPerMonth: 10000 },
+  enterprise: { maxDrivers: 25, maxDeliveriesPerMonth: 20000 },
+};
+
+const PLAN_ALIASES = {
+  free: 'track',
+  starter: 'track',
+  growth: 'operations',
+  pro: 'erp',
 };
 
 function currentCompanyId(context) {
@@ -21,8 +29,10 @@ function planLimitError(message, details) {
 }
 
 function planLimitsFor(company) {
-  const plan = String(company?.plan || company?.subscription_plan || 'starter').toLowerCase();
-  return { plan, ...(PLAN_LIMITS[plan] || PLAN_LIMITS.starter) };
+  const rawPlan = String(company?.plan || company?.subscription_plan || 'track').toLowerCase();
+  const plan = PLAN_ALIASES[rawPlan] || rawPlan;
+  const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.track;
+  return { plan: PLAN_LIMITS[plan] ? plan : 'track', ...limits };
 }
 
 async function loadCompanyPlan(supabase, companyId) {
@@ -98,5 +108,6 @@ module.exports = {
   PLAN_LIMITS,
   enforceDeliveryLimit,
   enforceDriverLimit,
+  planLimitsFor,
   sendPlanLimitError,
 };

@@ -15,6 +15,7 @@ const {
   normalizeBillingPayload,
   saveCompanyBilling,
 } = require('../services/superadmin-billing');
+const { planLimitsFor } = require('../services/plan-limits');
 
 function clearSupabaseTestCache() {
   for (const key of Object.keys(require.cache)) {
@@ -223,6 +224,30 @@ test('superadmin billing payload rejects negative custom monthly prices independ
     feature_overrides: [],
     addons: [],
   }), /custom_monthly_price_cents/);
+});
+
+test('plan limits match workbook pricing tiers and legacy aliases', () => {
+  const trackLimits = {
+    plan: 'track',
+    maxDrivers: 2,
+    maxDeliveriesPerMonth: 500,
+  };
+  const operationsLimits = {
+    plan: 'operations',
+    maxDrivers: 10,
+    maxDeliveriesPerMonth: 5000,
+  };
+
+  assert.deepEqual(planLimitsFor({ plan: 'track' }), trackLimits);
+  assert.deepEqual(planLimitsFor({ plan: 'operations' }), operationsLimits);
+  assert.deepEqual(planLimitsFor({ plan: 'free' }), trackLimits);
+  assert.deepEqual(planLimitsFor({ plan: 'starter' }), trackLimits);
+  assert.deepEqual(planLimitsFor({ plan: 'growth' }), operationsLimits);
+  assert.deepEqual(planLimitsFor({ plan: 'pro' }), {
+    plan: 'erp',
+    maxDrivers: 15,
+    maxDeliveriesPerMonth: 10000,
+  });
 });
 
 test('discounted add-on feature inclusions stay disabled until explicitly enabled', async () => {
