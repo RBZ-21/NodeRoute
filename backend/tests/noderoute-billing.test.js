@@ -25,6 +25,9 @@ test('NodeRoute billing backend exposes test-only subscription checkout', () => 
     'noderoute-billing-',
     "mode: 'subscription'",
     "app.use('/api/billing'",
+    'custom_pricing_enabled',
+    'effective_monthly_cents',
+    'effective_setup_cents',
   ]) {
     const source = marker === "app.use('/api/billing'" ? serverSource : `${billingRouteSource}\n${stripeServiceSource}`;
     assert.ok(source.includes(marker), `missing NodeRoute billing marker ${marker}`);
@@ -46,6 +49,9 @@ test('NodeRoute billing frontend lives in authenticated Settings, not customer p
     'This is for NodeRoute service billing, not restaurant invoice collection.',
     "billing === 'success'",
     'Pay Now with Stripe',
+    'custom_pricing_enabled',
+    'effective_monthly_cents',
+    'effective_setup_cents',
   ]) {
     assert.ok(`${settingsSource}\n${settingsHookSource}`.includes(marker), `missing NodeRoute billing frontend marker ${marker}`);
   }

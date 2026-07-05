@@ -421,7 +421,16 @@ function NodeRouteBillingCard({
           <ReadonlyField label="Company" value={String(company.name || '—')} />
           <ReadonlyField label="Plan" value={String(company.plan || 'starter')} />
           <ReadonlyField label="Status" value={String(company.status || 'active')} />
+          {billing.effective_monthly_cents != null ? (
+            <ReadonlyField label="Assigned Monthly" value={`$${Math.round(billing.effective_monthly_cents / 100).toLocaleString()}`} />
+          ) : null}
+          {billing.effective_setup_cents != null ? (
+            <ReadonlyField label="Assigned Setup" value={`$${Math.round(billing.effective_setup_cents / 100).toLocaleString()}`} />
+          ) : null}
         </div>
+        {billing.custom_pricing_enabled ? (
+          <div className="text-xs text-muted-foreground">Custom pricing assigned by NodeRoute.</div>
+        ) : null}
 
         <div className="rounded-lg border border-border bg-background px-4 py-3">
           <div className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">Subscription</div>

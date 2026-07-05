@@ -44,6 +44,9 @@ export type BillingConfig = {
   price_label?: string;
   support_email?: string;
   company?: BillingCompany | null;
+  effective_monthly_cents?: number | null;
+  effective_setup_cents?: number | null;
+  custom_pricing_enabled?: boolean;
 };
 
 export type BillingCheckoutResponse = {
