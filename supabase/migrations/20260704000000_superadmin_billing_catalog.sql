@@ -1,4 +1,7 @@
 -- Superadmin billing catalog and tenant-specific pricing controls.
+-- These tables are backend-only: no anon/authenticated grants, deny-only RLS
+-- policies, and all reads/writes flow through Express requireSuperadmin routes
+-- using the service-role client (repo convention per security-hardening tests).
 -- Source workbook: Reports/noderoute-pricing-tiers-replacement.xlsx
 
 create table if not exists public.platform_plan_tiers (
@@ -183,39 +186,39 @@ revoke all on public.platform_pricing_audit_events from anon, authenticated;
 
 drop policy if exists "platform billing catalog: platform admin only" on public.platform_plan_tiers;
 create policy "platform billing catalog: platform admin only" on public.platform_plan_tiers
-  for all to authenticated using (public.is_platform_admin()) with check (public.is_platform_admin());
+  for all to authenticated using (false) with check (false);
 
 drop policy if exists "platform billing features: platform admin only" on public.platform_plan_features;
 create policy "platform billing features: platform admin only" on public.platform_plan_features
-  for all to authenticated using (public.is_platform_admin()) with check (public.is_platform_admin());
+  for all to authenticated using (false) with check (false);
 
 drop policy if exists "platform billing matrix: platform admin only" on public.platform_plan_feature_matrix;
 create policy "platform billing matrix: platform admin only" on public.platform_plan_feature_matrix
-  for all to authenticated using (public.is_platform_admin()) with check (public.is_platform_admin());
+  for all to authenticated using (false) with check (false);
 
 drop policy if exists "platform billing limits: platform admin only" on public.platform_plan_limits;
 create policy "platform billing limits: platform admin only" on public.platform_plan_limits
-  for all to authenticated using (public.is_platform_admin()) with check (public.is_platform_admin());
+  for all to authenticated using (false) with check (false);
 
 drop policy if exists "platform billing addons: platform admin only" on public.platform_addons;
 create policy "platform billing addons: platform admin only" on public.platform_addons
-  for all to authenticated using (public.is_platform_admin()) with check (public.is_platform_admin());
+  for all to authenticated using (false) with check (false);
 
 drop policy if exists "company billing profiles: platform admin only" on public.company_billing_profiles;
 create policy "company billing profiles: platform admin only" on public.company_billing_profiles
-  for all to authenticated using (public.is_platform_admin()) with check (public.is_platform_admin());
+  for all to authenticated using (false) with check (false);
 
 drop policy if exists "company feature entitlements: platform admin only" on public.company_feature_entitlements;
 create policy "company feature entitlements: platform admin only" on public.company_feature_entitlements
-  for all to authenticated using (public.is_platform_admin()) with check (public.is_platform_admin());
+  for all to authenticated using (false) with check (false);
 
 drop policy if exists "company addon entitlements: platform admin only" on public.company_addon_entitlements;
 create policy "company addon entitlements: platform admin only" on public.company_addon_entitlements
-  for all to authenticated using (public.is_platform_admin()) with check (public.is_platform_admin());
+  for all to authenticated using (false) with check (false);
 
 drop policy if exists "pricing audit events: platform admin only" on public.platform_pricing_audit_events;
 create policy "pricing audit events: platform admin only" on public.platform_pricing_audit_events
-  for all to authenticated using (public.is_platform_admin()) with check (public.is_platform_admin());
+  for all to authenticated using (false) with check (false);
 
 insert into public.platform_plan_tiers
   (code, name, display_order, monthly_price_cents, setup_price_cents, best_for, included_scope, excluded_gated, upgrade_trigger, sales_note)
