@@ -183,3 +183,11 @@ The following are explicitly **not** included in this ERP release:
 The Superadmin billing catalog is sourced from `Reports/noderoute-pricing-tiers-replacement.xlsx` and lives in `platform_plan_tiers`, `platform_plan_features`, `platform_plan_feature_matrix`, `platform_plan_limits`, and `platform_addons`.
 
 Tenant-specific pricing lives in `company_billing_profiles`, `company_feature_entitlements`, and `company_addon_entitlements`. The distributor customer table `Customers` is not used for platform billing.
+
+## Superadmin Billing Rollout
+
+- Migration: `20260704000000_superadmin_billing_catalog.sql`
+- Superadmin routes: `/api/superadmin/billing/catalog`, `/api/superadmin/billing/analytics`, `/api/superadmin/companies/:id/billing`
+- Primary UI: `/superadmin` billing dashboard and `/companies` Billing action
+- Manual billing handoff: use assigned monthly/setup totals from the company billing drawer until dynamic Stripe price creation is explicitly implemented
+- Safety: custom pricing writes are behind `requireSuperadmin`; all writes create `platform_pricing_audit_events`
