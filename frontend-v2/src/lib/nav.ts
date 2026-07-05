@@ -20,7 +20,7 @@ import {
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
-export type Role = 'superadmin' | 'admin' | 'manager' | 'driver' | 'rep' | string;
+export type Role = 'superadmin' | 'admin' | 'manager' | 'driver' | 'rep' | 'warehouse' | string;
 
 export interface NavItem {
   id: string;

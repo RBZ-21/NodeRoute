@@ -199,7 +199,7 @@ export async function fetchCurrentUser<T>(): Promise<T> {
  * driver      — Only their own assigned routes and invoices.
  * unknown     — Not authenticated / unrecognised role.
  */
-export type Role = 'superadmin' | 'admin' | 'manager' | 'driver' | 'rep' | 'unknown';
+export type Role = 'superadmin' | 'admin' | 'manager' | 'driver' | 'rep' | 'warehouse' | 'unknown';
 
 export function getUserRole(): Role {
   try {
@@ -207,7 +207,7 @@ export function getUserRole(): Role {
     if (!raw) return 'unknown';
     const parsed = JSON.parse(raw);
     const role = String(parsed?.role || '').toLowerCase();
-    if (role === 'superadmin' || role === 'admin' || role === 'manager' || role === 'driver' || role === 'rep') {
+    if (role === 'superadmin' || role === 'admin' || role === 'manager' || role === 'driver' || role === 'rep' || role === 'warehouse') {
       return role as Role;
     }
   } catch { return 'unknown'; }

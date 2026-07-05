@@ -1,7 +1,7 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
 
-export type Role = 'superadmin' | 'admin' | 'manager' | 'driver' | 'rep';
+export type Role = 'superadmin' | 'admin' | 'manager' | 'driver' | 'rep' | 'warehouse';
 
 export type UserRecord = {
   id: string;
