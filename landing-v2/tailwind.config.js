@@ -4,22 +4,27 @@ export default {
   theme: {
     extend: {
       colors: {
+        // Harbor ink: blue-black canvas scale (hue ~215) so the brand blue
+        // reads native to the surface instead of floating on neutral black.
         ink: {
-          0: '#000000',
-          50: '#050505',
-          100: '#0a0a0a',
-          200: '#111111',
-          300: '#1a1a1a',
-          400: '#242424',
-          500: '#2e2e2e',
+          0: '#070b12',
+          50: '#0a0f17',
+          100: '#0d1219',
+          200: '#121a26',
+          300: '#1b2533',
+          400: '#252f3f',
+          500: '#303c4d',
         },
-        line: 'rgba(255,255,255,0.08)',
-        'line-strong': 'rgba(255,255,255,0.14)',
+        line: 'rgba(163,190,225,0.10)',
+        'line-strong': 'rgba(163,190,225,0.17)',
         // Dashboard primary blue: hsl(213 70% 42%) = #2367b5
         teal: {
           DEFAULT: '#2367b5',
           light: '#3a7fcc',
           dim: '#1a4f8a',
+          sky: '#6aa5e3', // small text & links on dark (8:1 on ink-0)
+          ice: '#e8f0f9', // tint surfaces on light sections
+          deep: '#12253d', // deep-harbor feature surface (final CTA)
         },
         cream: {
           DEFAULT: '#f4f4f0',
@@ -37,9 +42,9 @@ export default {
       },
       backgroundImage: {
         'grid-faint':
-          "linear-gradient(to right, rgba(255,255,255,0.04) 1px, transparent 1px), linear-gradient(to bottom, rgba(255,255,255,0.04) 1px, transparent 1px)",
+          "linear-gradient(to right, rgba(163,190,225,0.05) 1px, transparent 1px), linear-gradient(to bottom, rgba(163,190,225,0.05) 1px, transparent 1px)",
         'radial-teal':
-          'radial-gradient(600px 300px at 50% 0%, rgba(35,103,181,0.18), transparent 60%)',
+          'radial-gradient(600px 300px at 50% 0%, rgba(35,103,181,0.22), transparent 60%)',
       },
       keyframes: {
         fadeUp: {

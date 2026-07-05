@@ -58,7 +58,7 @@ export function Footer() {
             Questions?{' '}
             <a
               href="mailto:ryan@noderoutesystems.com?subject=NodeRoute%20-%20Talk%20to%20the%20Founder"
-              className="text-teal-light hover:text-teal"
+              className="text-teal-sky hover:text-white"
             >
               Talk directly with the founder.
             </a>
