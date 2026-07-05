@@ -227,27 +227,50 @@ test('superadmin billing payload rejects negative custom monthly prices independ
 });
 
 test('plan limits match workbook pricing tiers and legacy aliases', () => {
+  const trialLimits = {
+    plan: 'trial',
+    maxDrivers: 2,
+    maxDeliveriesPerMonth: 500,
+  };
   const trackLimits = {
     plan: 'track',
     maxDrivers: 2,
     maxDeliveriesPerMonth: 500,
+  };
+  const dispatchLimits = {
+    plan: 'dispatch',
+    maxDrivers: 5,
+    maxDeliveriesPerMonth: 2500,
   };
   const operationsLimits = {
     plan: 'operations',
     maxDrivers: 10,
     maxDeliveriesPerMonth: 5000,
   };
-
-  assert.deepEqual(planLimitsFor({ plan: 'track' }), trackLimits);
-  assert.deepEqual(planLimitsFor({ plan: 'operations' }), operationsLimits);
-  assert.deepEqual(planLimitsFor({ plan: 'free' }), trackLimits);
-  assert.deepEqual(planLimitsFor({ plan: 'starter' }), trackLimits);
-  assert.deepEqual(planLimitsFor({ plan: 'growth' }), operationsLimits);
-  assert.deepEqual(planLimitsFor({ plan: 'pro' }), {
+  const erpLimits = {
     plan: 'erp',
     maxDrivers: 15,
     maxDeliveriesPerMonth: 10000,
-  });
+  };
+  const enterpriseLimits = {
+    plan: 'enterprise',
+    maxDrivers: 25,
+    maxDeliveriesPerMonth: 20000,
+  };
+
+  assert.deepEqual(planLimitsFor({ plan: 'trial' }), trialLimits);
+  assert.deepEqual(planLimitsFor({ plan: 'track' }), trackLimits);
+  assert.deepEqual(planLimitsFor({ plan: 'dispatch' }), dispatchLimits);
+  assert.deepEqual(planLimitsFor({ plan: 'operations' }), operationsLimits);
+  assert.deepEqual(planLimitsFor({ plan: 'erp' }), erpLimits);
+  assert.deepEqual(planLimitsFor({ plan: 'enterprise' }), enterpriseLimits);
+  assert.deepEqual(planLimitsFor({ plan: 'free' }), trackLimits);
+  assert.deepEqual(planLimitsFor({ plan: 'starter' }), trackLimits);
+  assert.deepEqual(planLimitsFor({ plan: 'growth' }), operationsLimits);
+  assert.deepEqual(planLimitsFor({ plan: 'pro' }), erpLimits);
+  assert.deepEqual(planLimitsFor({ plan: 'unknown-tier' }), trackLimits);
+  assert.deepEqual(planLimitsFor({ plan: '' }), trackLimits);
+  assert.deepEqual(planLimitsFor(null), trackLimits);
 });
 
 test('discounted add-on feature inclusions stay disabled until explicitly enabled', async () => {
