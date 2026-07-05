@@ -45,20 +45,21 @@ function createSupabaseMock({ plan = 'starter', count = 0 } = {}) {
 }
 
 test('order creation unit: delivery plan limit blocks over-limit companies', async () => {
-  const supabase = createSupabaseMock({ plan: 'trial', count: 100 });
+  const supabase = createSupabaseMock({ plan: 'trial', count: 500 });
   await assert.rejects(
     () => enforceDeliveryLimit(supabase, { companyId: 'company-1' }),
-    (error) => error.code === 'PLAN_LIMIT_EXCEEDED' && error.details.limit === 100
+    (error) => error.code === 'PLAN_LIMIT_EXCEEDED' && error.details.limit === 500
   );
   const companyLookup = supabase.calls.find((call) => call.table === 'companies');
   assert.equal(companyLookup.columns, 'id, plan, status');
 });
 
 test('driver assignment unit: driver plan limit blocks over-limit invites', async () => {
+  // 'starter' is a legacy plan name; it aliases to the workbook 'track' tier (2 drivers).
   const supabase = createSupabaseMock({ plan: 'starter', count: 5 });
   await assert.rejects(
     () => enforceDriverLimit(supabase, { companyId: 'company-1' }),
-    (error) => error.code === 'PLAN_LIMIT_EXCEEDED' && error.details.limit === 5
+    (error) => error.code === 'PLAN_LIMIT_EXCEEDED' && error.details.limit === 2
   );
 });
 

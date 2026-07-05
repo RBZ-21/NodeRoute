@@ -138,3 +138,17 @@ test('superadmin billing API rejects tenant admins and lets superadmin save cust
     fs.rmSync(backupPath, { recursive: true, force: true });
   }
 });
+
+test('workbook plan limits expose drivers and monthly stops by tier', async () => {
+  const { planLimitsFor } = require('../services/plan-limits');
+  assert.deepEqual(planLimitsFor({ plan: 'track' }), {
+    plan: 'track',
+    maxDrivers: 2,
+    maxDeliveriesPerMonth: 500,
+  });
+  assert.deepEqual(planLimitsFor({ plan: 'operations' }), {
+    plan: 'operations',
+    maxDrivers: 10,
+    maxDeliveriesPerMonth: 5000,
+  });
+});
