@@ -364,21 +364,36 @@ on conflict (code) do update set
   display_order = excluded.display_order,
   updated_at = now();
 
-insert into public.company_billing_profiles (company_id, plan_tier_code, billing_status)
+insert into public.company_billing_profiles (company_id, plan_tier_code, billing_status, pricing_notes)
 select
-  id,
+  company_id,
+  mapped_plan_tier_code,
+  mapped_billing_status,
   case
-    when lower(coalesce(plan, '')) in ('track', 'dispatch', 'operations', 'erp', 'enterprise') then lower(coalesce(plan, ''))
-    when lower(coalesce(plan, '')) in ('free', 'trial', 'starter') then 'track'
-    when lower(coalesce(plan, '')) = 'growth' then 'operations'
-    when lower(coalesce(plan, '')) = 'pro' then 'erp'
-    else 'track'
-  end,
-  case
-    when lower(coalesce(status, '')) = 'active' then 'active'
-    when lower(coalesce(status, '')) = 'trial' then 'trial'
-    when lower(coalesce(status, '')) = 'suspended' then 'paused'
-    else 'trial'
+    when normalized_plan in ('track', 'dispatch', 'operations', 'erp', 'enterprise') then ''
+    else 'Legacy plan migration backfill from "'
+      || coalesce(nullif(plan, ''), '(blank)')
+      || '" to "'
+      || mapped_plan_tier_code
+      || '". Flagged for superadmin review.'
   end
-from public.companies
+from (
+  select
+    id as company_id,
+    plan,
+    lower(btrim(coalesce(plan, ''))) as normalized_plan,
+    case
+      when lower(btrim(coalesce(plan, ''))) in ('track', 'dispatch', 'operations', 'erp', 'enterprise') then lower(btrim(coalesce(plan, '')))
+      when lower(btrim(coalesce(plan, ''))) in ('free', 'trial', 'starter') then 'track'
+      when lower(btrim(coalesce(plan, ''))) in ('growth', 'pro') then 'enterprise'
+      else 'track'
+    end as mapped_plan_tier_code,
+    case
+      when lower(coalesce(status, '')) = 'active' then 'active'
+      when lower(coalesce(status, '')) = 'trial' then 'trial'
+      when lower(coalesce(status, '')) = 'suspended' then 'paused'
+      else 'trial'
+    end as mapped_billing_status
+  from public.companies
+) company_backfill
 on conflict (company_id) do nothing;
