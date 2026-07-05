@@ -40,10 +40,11 @@ function normalizeEmail(value) {
   return String(value || '').trim().toLowerCase();
 }
 
-function configuredSuperadminEmail() {
-  const configuredEmail = normalizeEmail(SUPERADMIN_EMAIL);
-  if (!configuredEmail || configuredEmail === '__superadmin_unset__') return '';
-  return configuredEmail;
+function configuredSuperadminEmails() {
+  return String(SUPERADMIN_EMAIL || '')
+    .split(',')
+    .map((value) => normalizeEmail(value))
+    .filter((value) => value && value !== '__superadmin_unset__');
 }
 
 // All superadmin routes require authentication + role AND email double-check.
@@ -368,8 +369,8 @@ const restoreSessionHandler = async (req, res) => {
       return res.status(403).json({ error: 'Saved session is not a superadmin session.' });
     }
 
-    const configuredEmail = configuredSuperadminEmail();
-    if (!configuredEmail) {
+    const allowedEmails = configuredSuperadminEmails();
+    if (allowedEmails.length === 0) {
       return res.status(403).json({ error: 'Saved session is not a superadmin session.' });
     }
 
@@ -384,13 +385,13 @@ const restoreSessionHandler = async (req, res) => {
         return res.status(403).json({ error: 'Saved session is not a superadmin session.' });
       }
       const dbEmail = normalizeEmail(userRow.email);
-      if (dbEmail !== configuredEmail) {
+      if (!allowedEmails.includes(dbEmail)) {
         return res.status(403).json({ error: 'Saved session is not a superadmin session.' });
       }
     }
 
     const tokenEmail = normalizeEmail(payload?.email);
-    if (tokenEmail !== configuredEmail) {
+    if (!allowedEmails.includes(tokenEmail)) {
       return res.status(403).json({ error: 'Saved session is not a superadmin session.' });
     }
 

@@ -120,6 +120,16 @@ export const NAV_ITEM_IDS = {
 
 export const navGroups: NavGroup[] = [
   {
+    // Platform-owner section. Only ever visible to the superadmin role —
+    // every item in it is roles: ['superadmin'], so canAccessGroup hides the
+    // whole section for everyone else.
+    id: 'platform',
+    label: 'Platform',
+    items: [
+      { id: NAV_ITEM_IDS.superadmin, label: 'Superadmin', path: '/superadmin', icon: ShieldCheck, component: SuperadminPage, roles: ['superadmin'] },
+    ],
+  },
+  {
     // Standalone top-level entry. Empty label → rendered header-less (FlatItems),
     // so Dashboard sits on its own just above the Dispatch group.
     id: 'home',
@@ -184,7 +194,6 @@ export const navGroups: NavGroup[] = [
     id: 'admin',
     label: 'Admin',
     items: [
-      { id: NAV_ITEM_IDS.superadmin, label: 'Superadmin', path: '/superadmin', icon: ShieldCheck, component: SuperadminPage, roles: ['superadmin'] },
       { id: NAV_ITEM_IDS.users, label: 'Users', path: '/users', icon: User, component: UsersPage, roles: ['admin', 'superadmin'] },
       { id: NAV_ITEM_IDS.companies, label: 'Companies', path: '/companies', icon: Building2, component: CompaniesPage, roles: ['superadmin'] },
       { id: NAV_ITEM_IDS.settings, label: 'Settings', path: '/settings', icon: Settings, component: SettingsPage, roles: ['admin', 'manager', 'driver', 'rep'] },
@@ -220,6 +229,15 @@ export const navRedirects: NavRedirect[] = [
 export const allNavItems: NavItem[] = navGroups.flatMap((g) => g.items);
 
 export const defaultPath = '/dashboard';
+
+/**
+ * Role-aware landing page. Superadmins land on the platform dashboard
+ * (/superadmin) instead of the tenant dashboard; everyone else keeps the
+ * regular default.
+ */
+export function defaultPathFor(role: Role): string {
+  return role === 'superadmin' ? '/superadmin' : defaultPath;
+}
 
 export function routePath(path: string): string {
   return path.replace(/^\//, '') + '/*';
