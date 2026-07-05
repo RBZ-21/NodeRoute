@@ -21,7 +21,7 @@ const statusColors = { active: 'green', pending: 'yellow', inactive: 'gray' } as
 
 function normalizeRole(value: string | undefined): Role {
   const role = String(value || '').trim().toLowerCase();
-  if (role === 'superadmin' || role === 'admin' || role === 'manager' || role === 'driver' || role === 'rep') return role;
+  if (role === 'superadmin' || role === 'admin' || role === 'manager' || role === 'driver' || role === 'rep' || role === 'warehouse') return role;
   return 'driver';
 }
 function roleLabel(role: Role): string {
@@ -67,7 +67,7 @@ export function UsersPage() {
   const currentUser = useMemo(() => readCurrentUser(), []);
   const canAdminister = actorRole === 'admin';
   const canInvite = actorRole === 'admin' || actorRole === 'manager';
-  const inviteRoleOptions: Role[] = canAdminister ? ['driver', 'manager', 'admin'] : ['driver', 'manager'];
+  const inviteRoleOptions: Role[] = canAdminister ? ['driver', 'warehouse', 'manager', 'admin'] : ['driver', 'warehouse', 'manager'];
 
   const { data: users = [], isLoading, isError, error } = useUsers();
   const inviteUser = useInviteUser();
@@ -201,6 +201,7 @@ export function UsersPage() {
                 <option value="superadmin">Superadmin</option>
                 <option value="admin">Admin</option>
                 <option value="manager">Manager</option>
+                <option value="warehouse">Warehouse</option>
                 <option value="driver">Driver</option>
               </SelectInput>
             </label>
@@ -227,7 +228,7 @@ export function UsersPage() {
                 const busy = changeRole.isPending || removeUser.isPending;
                 // The role dropdown only offers driver/manager/admin; superadmin and
                 // rep accounts are managed elsewhere and shown as read-only here.
-                const editable = canAdminister && !self && (role === 'driver' || role === 'manager' || role === 'admin');
+                const editable = canAdminister && !self && (role === 'driver' || role === 'warehouse' || role === 'manager' || role === 'admin');
                 return (
                   <TableRow key={user.id || `${user.email || ''}-${user.name || ''}`}>
                     <TableCell className="font-medium">{user.name || '-'}</TableCell>
@@ -242,6 +243,7 @@ export function UsersPage() {
                         <div className="flex flex-wrap items-center gap-2">
                           <SelectInput value={role} onChange={(e) => void changeRole.mutateAsync({ id: user.id, role: e.target.value as Role })} disabled={busy} className="h-9 px-2 text-xs">
                             <option value="driver">Driver</option>
+                            <option value="warehouse">Warehouse</option>
                             <option value="manager">Manager</option>
                             <option value="admin">Admin</option>
                           </SelectInput>
