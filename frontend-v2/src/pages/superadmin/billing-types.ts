@@ -123,6 +123,7 @@ export type CompanyBillingResponse = {
   effectiveMonthlyCents: number;
   effectiveSetupCents: number;
   effectiveAnnualContractValueCents: number;
+  catalog: BillingCatalogResponse;
   features: CompanyFeatureEntitlement[];
   addons: CompanyAddonEntitlement[];
   auditEvents: Array<{

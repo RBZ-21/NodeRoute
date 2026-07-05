@@ -8,17 +8,12 @@ import { useCompanyBilling, useSaveCompanyBilling } from '../../hooks/useSuperad
 import { AddonChecklist } from './AddonChecklist';
 import { FeatureMatrixTable } from './FeatureMatrixTable';
 import type {
-  BillingCatalogResponse,
   BillingStatus,
   CompanyAddonEntitlement,
   CompanyBillingResponse,
   CompanyFeatureEntitlement,
   PlanTierCode,
 } from './billing-types';
-
-type CompanyBillingDrawerData = CompanyBillingResponse & {
-  catalog: BillingCatalogResponse;
-};
 
 function centsToDollars(cents: number | null | undefined) {
   if (cents == null) return '';
@@ -48,8 +43,7 @@ export function ClientBillingDrawer({
   onSaved: () => void;
 }) {
   const toast = useToast();
-  const { data: rawData, isLoading, error } = useCompanyBilling(open ? companyId : null);
-  const data = rawData as CompanyBillingDrawerData | undefined;
+  const { data, isLoading, error } = useCompanyBilling(open ? companyId : null);
   const save = useSaveCompanyBilling(companyId);
   const [tier, setTier] = useState<PlanTierCode>('track');
   const [status, setStatus] = useState<BillingStatus>('trial');

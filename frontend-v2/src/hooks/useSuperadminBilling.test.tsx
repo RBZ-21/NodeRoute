@@ -85,6 +85,7 @@ const companyBillingResponse: CompanyBillingResponse = {
   effectiveMonthlyCents: 29900,
   effectiveSetupCents: 75000,
   effectiveAnnualContractValueCents: 433800,
+  catalog: catalogResponse,
   features: [],
   addons: [],
   auditEvents: [],
