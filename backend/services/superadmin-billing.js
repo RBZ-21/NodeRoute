@@ -238,6 +238,21 @@ async function saveCompanyBilling(db, companyId, input, actor) {
   const payload = normalizeBillingPayload(input);
   const before = await loadCompanyBilling(db, companyId).catch(() => null);
   const now = new Date().toISOString();
+  const previousValue = before ? {
+    profile: before.profile,
+    addons: before.addons.map((addon) => ({ addon_code: addon.addon_code, enabled: addon.enabled, monthly_price_cents: addon.monthly_price_cents })),
+  } : {};
+  const nextValue = payload;
+  const eventType = before?.profile?.plan_tier_code === payload.plan_tier_code ? 'pricing_changed' : 'tier_changed';
+  const auditInsertResult = await db.from('platform_pricing_audit_events').insert({
+    company_id: companyId,
+    event_type: eventType,
+    performed_by: actor?.id || null,
+    previous_value: previousValue,
+    next_value: nextValue,
+    notes: payload.pricing_notes || '',
+  });
+  if (auditInsertResult?.error) throw auditInsertResult.error;
 
   const profile = {
     company_id: companyId,
@@ -284,19 +299,6 @@ async function saveCompanyBilling(db, companyId, input, actor) {
     updated_by: actor?.id || null,
     updated_at: now,
   })));
-
-  const auditInsertResult = await db.from('platform_pricing_audit_events').insert({
-    company_id: companyId,
-    event_type: before?.profile?.plan_tier_code === payload.plan_tier_code ? 'pricing_changed' : 'tier_changed',
-    performed_by: actor?.id || null,
-    previous_value: before ? {
-      profile: before.profile,
-      addons: before.addons.map((addon) => ({ addon_code: addon.addon_code, enabled: addon.enabled, monthly_price_cents: addon.monthly_price_cents })),
-    } : {},
-    next_value: payload,
-    notes: payload.pricing_notes || '',
-  });
-  if (auditInsertResult?.error) throw auditInsertResult.error;
 
   return loadCompanyBilling(db, companyId);
 }

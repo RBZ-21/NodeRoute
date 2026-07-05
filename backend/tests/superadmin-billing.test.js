@@ -186,6 +186,23 @@ test('superadmin billing payload rejects invalid tier codes and negative prices'
   }), /plan_tier_code/);
 });
 
+test('superadmin billing payload rejects negative custom monthly prices independently of tier validation', () => {
+  assert.throws(() => normalizeBillingPayload({
+    plan_tier_code: 'erp',
+    billing_status: 'active',
+    billing_interval: 'monthly',
+    custom_pricing_enabled: true,
+    custom_monthly_price_cents: -1,
+    custom_setup_price_cents: 0,
+    annual_discount_bps: 0,
+    contract_start_date: null,
+    contract_end_date: null,
+    pricing_notes: '',
+    feature_overrides: [],
+    addons: [],
+  }), /custom_monthly_price_cents/);
+});
+
 test('discounted add-on feature inclusions stay disabled until explicitly enabled', async () => {
   await withDemoSupabase(async (supabase) => {
     await seedBillingCatalog(supabase, { featureInclusion: 'discounted_add_on' });
@@ -271,5 +288,49 @@ test('saveCompanyBilling throws when audit insertion fails', async () => {
       ),
       /audit insert failed/,
     );
+  });
+});
+
+test('saveCompanyBilling does not mutate company billing state when audit insertion fails', async () => {
+  await withDemoSupabase(async (supabase) => {
+    await seedBillingCatalog(supabase);
+
+    await assert.rejects(
+      saveCompanyBilling(
+        withAuditInsertError(supabase, new Error('audit insert failed')),
+        'company-1',
+        makeBillingPayload({ billing_status: 'cancelled' }),
+        { id: 'superadmin-1' },
+      ),
+      /audit insert failed/,
+    );
+
+    const { data: companies } = await supabase
+      .from('companies')
+      .select('id,status,plan')
+      .eq('id', 'company-1');
+    const { data: profiles } = await supabase
+      .from('company_billing_profiles')
+      .select('*')
+      .eq('company_id', 'company-1');
+    const { data: featureRows } = await supabase
+      .from('company_feature_entitlements')
+      .select('*')
+      .eq('company_id', 'company-1');
+    const { data: addonRows } = await supabase
+      .from('company_addon_entitlements')
+      .select('*')
+      .eq('company_id', 'company-1');
+    const { data: auditRows } = await supabase
+      .from('platform_pricing_audit_events')
+      .select('*')
+      .eq('company_id', 'company-1');
+
+    assert.equal(companies[0].status, 'active');
+    assert.equal(companies[0].plan, 'track');
+    assert.equal(profiles.length, 0);
+    assert.equal(featureRows.length, 0);
+    assert.equal(addonRows.length, 0);
+    assert.equal(auditRows.length, 0);
   });
 });
