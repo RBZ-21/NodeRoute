@@ -12,6 +12,7 @@ const {
   stripeKeyMode,
   stripeSecretKeyMode,
 } = require('../services/stripe');
+const { loadCompanyBilling } = require('../services/superadmin-billing');
 const { requireRole } = require('../middleware/auth');
 const { stripeLimiter } = require('../middleware/rateLimiter');
 
@@ -117,7 +118,7 @@ async function loadBillingCompany(req) {
   };
 }
 
-function billingConfigPayload(req, company) {
+function billingConfigPayload(req, company, billingProfile = null) {
   const readiness = billingReadiness();
   const canManageBilling = req.user?.role === 'admin' || req.user?.role === 'superadmin';
   return {
@@ -134,6 +135,10 @@ function billingConfigPayload(req, company) {
     price_label: NODEROUTE_BILLING_PRICE_LABEL,
     support_email: NODEROUTE_BILLING_SUPPORT_EMAIL,
     company,
+    billing_profile: billingProfile?.profile || null,
+    effective_monthly_cents: billingProfile?.effectiveMonthlyCents ?? null,
+    effective_setup_cents: billingProfile?.effectiveSetupCents ?? null,
+    custom_pricing_enabled: billingProfile?.profile?.custom_pricing_enabled === true,
   };
 }
 
@@ -141,7 +146,15 @@ router.get('/config', async (req, res) => {
   try {
     const company = await loadBillingCompany(req);
     if (!company) return res.status(400).json({ error: 'No company context.', code: 'NO_COMPANY_CONTEXT' });
-    return res.json(billingConfigPayload(req, company));
+    let billingProfile = null;
+    try {
+      billingProfile = await loadCompanyBilling(supabase, company.id);
+    } catch (profileError) {
+      const log = req.log || logger;
+      const warn = typeof log.warn === 'function' ? log.warn.bind(log) : logger.warn.bind(logger);
+      warn({ err: profileError, company_id: company.id }, 'NodeRoute billing profile unavailable for config');
+    }
+    return res.json(billingConfigPayload(req, company, billingProfile));
   } catch (error) {
     const log = req.log || logger;
     log.error({ err: error, company_id: companyId(req) }, 'NodeRoute billing config failed');
