@@ -49,7 +49,7 @@ describe('Superadmin billing types', () => {
 });
 
 describe('AddonChecklist', () => {
-  it('renders add-ons as list-style checkboxes and emits checked changes', () => {
+  it('patches the add-on row when the checkbox changes', () => {
     const changes: unknown[] = [];
 
     renderWithQueryClient(
@@ -88,11 +88,19 @@ describe('AddonChecklist', () => {
     fireEvent.click(checkbox);
 
     expect(changes).toHaveLength(1);
+    expect(changes[0]).toEqual([
+      expect.objectContaining({
+        addon_code: 'ai_phone_orders',
+        enabled: true,
+        quantity: 1,
+        monthly_price_cents: 49900,
+      }),
+    ]);
   });
 });
 
 describe('FeatureMatrixTable', () => {
-  it('renders editable client settings and emits inclusion changes', () => {
+  it('keeps non-add-on inclusions enabled when patched', () => {
     const changes: unknown[] = [];
 
     renderWithQueryClient(
@@ -151,5 +159,80 @@ describe('FeatureMatrixTable', () => {
     fireEvent.change(select, { target: { value: 'limited' } });
 
     expect(changes).toHaveLength(1);
+    expect(changes[0]).toEqual([
+      expect.objectContaining({
+        feature_code: 'proof_of_delivery',
+        inclusion: 'limited',
+        enabled: true,
+      }),
+    ]);
+  });
+
+  it.each(['add_on', 'discounted_add_on'] as const)('marks %s inclusions disabled', (inclusion) => {
+    const changes: unknown[] = [];
+
+    renderWithQueryClient(
+      <FeatureMatrixTable
+        catalog={{
+          tiers: [
+            {
+              code: 'track',
+              name: 'Track',
+              display_order: 10,
+              monthly_price_cents: 29900,
+              setup_price_cents: 75000,
+              best_for: '',
+              included_scope: '',
+              excluded_gated: '',
+              upgrade_trigger: '',
+              sales_note: '',
+            },
+          ],
+          features: [
+            {
+              code: 'proof_of_delivery',
+              name: 'Proof of Delivery',
+              category: 'Operations',
+              description: 'Collect signatures and photo evidence.',
+              display_order: 10,
+            },
+          ],
+          featureMatrix: [
+            {
+              tier_code: 'track',
+              feature_code: 'proof_of_delivery',
+              inclusion: 'yes',
+              detail: '',
+              pricing_scope_note: '',
+            },
+          ],
+          limits: [],
+          addons: [],
+        }}
+        editableFeatures={[
+          {
+            company_id: 'company-1',
+            feature_code: 'proof_of_delivery',
+            enabled: true,
+            inclusion: 'yes',
+            source: 'custom',
+            notes: '',
+          },
+        ]}
+        onChange={(next) => changes.push(next)}
+      />,
+    );
+
+    const select = screen.getByRole('combobox', { name: /Proof of Delivery entitlement/i });
+    fireEvent.change(select, { target: { value: inclusion } });
+
+    expect(changes).toHaveLength(1);
+    expect(changes[0]).toEqual([
+      expect.objectContaining({
+        feature_code: 'proof_of_delivery',
+        inclusion,
+        enabled: false,
+      }),
+    ]);
   });
 });

@@ -28,6 +28,10 @@ const EDITABLE_VALUES: FeatureInclusion[] = [
   'assisted_migration',
 ];
 
+function isEnabledInclusion(inclusion: FeatureInclusion) {
+  return inclusion !== 'no' && inclusion !== 'add_on' && inclusion !== 'discounted_add_on';
+}
+
 type FeatureMatrixTableProps = {
   catalog: BillingCatalogResponse;
   editableFeatures?: CompanyFeatureEntitlement[];
@@ -42,7 +46,7 @@ export function FeatureMatrixTable({ catalog, editableFeatures, onChange }: Feat
 
     onChange(
       editableFeatures.map((feature) =>
-        feature.feature_code === featureCode ? { ...feature, inclusion, enabled: inclusion !== 'no' } : feature,
+        feature.feature_code === featureCode ? { ...feature, inclusion, enabled: isEnabledInclusion(inclusion) } : feature,
       ),
     );
   }
