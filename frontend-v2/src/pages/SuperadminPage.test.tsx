@@ -134,3 +134,46 @@ describe('ClientBillingDrawer', () => {
     await waitFor(() => expect(mutateAsync).toHaveBeenCalled());
   });
 });
+
+import { BillingDashboardPanel } from './superadmin/BillingDashboardPanel';
+
+const { useBillingCatalogMock, useBillingAnalyticsMock } = vi.hoisted(() => ({
+  useBillingCatalogMock: vi.fn(),
+  useBillingAnalyticsMock: vi.fn(),
+}));
+
+vi.mock('../hooks/useSuperadminBilling', async () => {
+  const actual = await vi.importActual<Record<string, unknown>>('../hooks/useSuperadminBilling');
+  return {
+    ...actual,
+    useBillingCatalog: useBillingCatalogMock,
+    useBillingAnalytics: useBillingAnalyticsMock,
+    useCompanyBilling: useCompanyBillingMock,
+    useSaveCompanyBilling: useSaveCompanyBillingMock,
+  };
+});
+
+describe('BillingDashboardPanel', () => {
+  it('renders workbook-backed tier names and MRR', () => {
+    useBillingCatalogMock.mockReturnValue({
+      isLoading: false,
+      data: {
+        tiers: [{ code: 'operations', name: 'Operations', display_order: 30, monthly_price_cents: 149900, setup_price_cents: 350000 }],
+        features: [],
+        featureMatrix: [],
+        limits: [],
+        addons: [],
+      },
+    });
+    useBillingAnalyticsMock.mockReturnValue({
+      isLoading: false,
+      data: { total_companies: 1, active_companies: 1, mrr_cents: 149900, arr_cents: 1798800, custom_pricing_companies: 0, enabled_addons: 0, tier_breakdown: [{ tier: 'operations', count: 1, mrr_cents: 149900 }] },
+    });
+
+    renderWithQueryClient(<BillingDashboardPanel />);
+    // Tier name and MRR legitimately render in more than one panel region
+    // (tier revenue list, feature matrix header, MRR stat card).
+    expect(screen.getAllByText('Operations').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('$1,499').length).toBeGreaterThan(0);
+  });
+});
