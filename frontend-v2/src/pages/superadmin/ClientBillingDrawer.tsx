@@ -157,6 +157,18 @@ export function ClientBillingDrawer({
             <h3 className="text-sm font-semibold">Feature entitlements</h3>
             <FeatureMatrixTable catalog={data.catalog} editableFeatures={features} onChange={setFeatures} />
           </section>
+
+          <section className="space-y-2">
+            <h3 className="text-sm font-semibold">Pricing history</h3>
+            <div className="divide-y rounded-md border border-border">
+              {data.auditEvents.length ? data.auditEvents.map((event) => (
+                <div key={event.id} className="grid gap-1 p-3 text-sm md:grid-cols-[11rem_1fr]">
+                  <span className="font-medium">{event.event_type.replace(/_/g, ' ')}</span>
+                  <span className="text-muted-foreground">{new Date(event.created_at).toLocaleString()} {event.notes ? `- ${event.notes}` : ''}</span>
+                </div>
+              )) : <div className="p-3 text-sm text-muted-foreground">No pricing changes recorded yet.</div>}
+            </div>
+          </section>
         </div>
       ) : null}
     </SlideOver>
