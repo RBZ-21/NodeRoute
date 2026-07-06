@@ -30,18 +30,22 @@ final class SessionStore {
         apiClient: APIClient,
         offlineQueue: OfflineActionQueue = OfflineActionQueue(),
         reachability: Reachability = Reachability(),
-        locationManager: LocationManager = LocationManager()
+        locationManager: LocationManager? = nil
     ) {
         self.apiClient = apiClient
         self.offlineQueue = offlineQueue
         self.reachability = reachability
-        self.locationManager = locationManager
+        // LocationManager is @MainActor; it cannot be built in a default argument
+        // (those are evaluated in a nonisolated context). Construct it here, inside
+        // the @MainActor init body, where main-actor isolation is available.
+        self.locationManager = locationManager ?? LocationManager()
         self.token = try? tokenStore.read(.access)
 
         // Upload throttled location fixes while en route (DR-003).
         self.locationManager.onLocation = { [weak self] payload in
             guard let self, let token = self.token else { return }
-            Task { try? await self.apiClient.pingDriverLocation(payload, token) }
+            let client = self.apiClient
+            Task { try? await client.pingDriverLocation(payload, token) }
         }
         self.locationManager.onPermissionDenied = { [weak self] in
             self?.alertMessage = "Location access is off. Turn it on in Settings so dispatch can track your position while you're en route."
