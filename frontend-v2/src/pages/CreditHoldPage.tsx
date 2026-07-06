@@ -239,12 +239,17 @@ export function CreditHoldPage() {
   }
 
   async function doAction(url: string, body: object) {
+    const activeCustomer = customer;
+    if (!activeCustomer) {
+      setActionError('Select a customer before changing credit status.');
+      return;
+    }
     setActionLoading(true);
     setActionError(null);
     try {
       await sendWithAuth(url, 'POST', body);
       // refresh customer + dashboard
-      const c = await fetchWithAuth<CustomerStatus>(`/api/credit/customer/${customer!.customer_id}/status`);
+      const c = await fetchWithAuth<CustomerStatus>(`/api/credit/customer/${activeCustomer.customer_id}/status`);
       setCustomer(c);
       await loadDashboard();
       setHoldModal(false); setReleaseModal(false); setOverrideModal(false);
