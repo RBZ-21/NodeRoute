@@ -58,3 +58,37 @@ test('exactly one migration defines orders.stop_id, and it is uuid + FK', () => 
     'conflicting TEXT-variant migration 20260527_orders_stop_id.sql must stay removed'
   );
 });
+
+test('production repair migration converts drifted orders.stop_id to uuid + FK', () => {
+  const file = '20260706130000_repair_orders_stop_id_uuid.sql';
+  const migrationPath = path.join(migrationsDir, file);
+
+  assert.ok(fs.existsSync(migrationPath), `${file} must exist`);
+
+  const sql = fs.readFileSync(migrationPath, 'utf8').toLowerCase();
+
+  assert.ok(
+    /alter column stop_id type uuid/.test(sql),
+    `${file} must convert drifted stop_id columns to uuid`
+  );
+  assert.ok(
+    /btrim\(stop_id::text\) !~\*/.test(sql),
+    `${file} must null non-uuid text stop_id values before casting`
+  );
+  assert.ok(
+    /not exists \(\s*select 1\s+from public\.stops/.test(sql),
+    `${file} must null uuid-like values that do not reference a stop before adding the FK`
+  );
+  assert.ok(
+    /foreign key \(stop_id\)\s+references public\.stops\(id\)\s+on delete set null\s+not valid/.test(sql),
+    `${file} must add the stop_id FK with NOT VALID before validation`
+  );
+  assert.ok(
+    /validate constraint orders_stop_id_fkey/.test(sql),
+    `${file} must validate the guarded FK`
+  );
+  assert.ok(
+    !/add column (if not exists )?stop_id/.test(sql),
+    `${file} must repair production drift without becoming a second column definition`
+  );
+});
