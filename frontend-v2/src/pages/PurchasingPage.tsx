@@ -345,7 +345,14 @@ export function PurchasingPage() {
             <ReceivePoDrawer
               key={activeReceivePo.id}
               po={activeReceivePo}
-              onPosted={setActiveReceivePo}
+              // FE-002: only apply a receipt resolution if it belongs to the
+              // PO that is STILL selected — a slow mutation for a previously
+              // selected PO must not overwrite the current selection.
+              onPosted={(updatedPo) =>
+                setActiveReceivePo((current) =>
+                  current && current.id === updatedPo.id ? updatedPo : current
+                )
+              }
               onClose={() => setActiveReceivePo(null)}
               setNotice={toast.success}
               setFormError={setFormError}
