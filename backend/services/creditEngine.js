@@ -610,15 +610,19 @@ async function runScheduledCreditCheck() {
   };
 
   // Pull customers in pages — Supabase will cap responses at 1000 by default.
+  // BE-007: keyset pagination on the raw id value (no numeric coercion) —
+  // the previous cursor=0 / .gte / Number(id)+1 pattern silently truncated
+  // to one page whenever ids were not numeric.
   const pageSize = 500;
-  let cursor = 0;
+  let cursor = null;
   while (true) {
-    const { data: page, error } = await supabase
+    let pageQuery = supabase
       .from('Customers')
       .select('id, company_name, credit_hold, credit_status, auto_hold_enabled, credit_limit')
       .order('id', { ascending: true })
-      .gte('id', cursor)
       .limit(pageSize);
+    if (cursor != null) pageQuery = pageQuery.gt('id', cursor);
+    const { data: page, error } = await pageQuery;
     if (error) {
       logger.error({ err: error.message }, 'runScheduledCreditCheck: customer fetch failed');
       break;
@@ -662,8 +666,8 @@ async function runScheduledCreditCheck() {
     }
 
     if (page.length < pageSize) break;
-    cursor = Number(page[page.length - 1].id) + 1;
-    if (!Number.isFinite(cursor)) break;
+    cursor = page[page.length - 1].id;
+    if (cursor == null) break;
   }
 
   summary.duration_ms = Date.now() - startedAt;
