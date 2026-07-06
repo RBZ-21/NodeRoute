@@ -23,7 +23,7 @@ jobs:
         run: npm --prefix backend test
 
   frontend-build:
-    name: Frontend-v2 – Install, Type-check, Lint & Build
+    name: Frontend-v2 – Install, Type-check, Lint, Test & Build
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -38,13 +38,13 @@ jobs:
         run: npx --prefix frontend-v2 tsc -p frontend-v2/tsconfig.app.json --noEmit
       - name: Lint frontend-v2
         run: npm --prefix frontend-v2 run lint --if-present
+      - name: Test frontend-v2
+        run: npm --prefix frontend-v2 test -- --run --passWithNoTests
       - name: Build frontend-v2
         run: npm --prefix frontend-v2 run build
         env:
           VITE_MAP_API_KEY: ''
           VITE_API_URL: https://ci-placeholder.invalid
-      - name: Test frontend-v2
-        run: npm --prefix frontend-v2 test -- --run --passWithNoTests
 
   landing-build:
     name: Landing-v2 – Install, Lint & Build
