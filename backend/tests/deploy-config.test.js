@@ -18,3 +18,25 @@ test('railway deploy config health-checks the existing /healthz endpoint', () =>
   assert.match(railway, /healthcheckPath\s*=\s*"\/healthz"/, 'railway.toml must set healthcheckPath');
   assert.match(read('backend/server.js'), /app\.get\('\/healthz'/, '/healthz endpoint must exist');
 });
+
+// OPS-004: no Node pin existed outside CI — local, Railway, and CI could all
+// build on different Node majors.
+test('Node 20 is pinned consistently across CI, engines, nvmrc, and Nixpacks', () => {
+  const ci = read('.github/workflows/ci.yml');
+  assert.match(ci, /node-version:\s*20/, 'CI must pin Node 20');
+
+  for (const pkgPath of [
+    'package.json',
+    'backend/package.json',
+    'frontend-v2/package.json',
+    'landing-v2/package.json',
+    'driver-app/package.json',
+  ]) {
+    const pkg = JSON.parse(read(pkgPath));
+    assert.ok(pkg.engines && pkg.engines.node, `${pkgPath} must declare engines.node`);
+    assert.match(pkg.engines.node, /(^|[^\d])20/, `${pkgPath} engines.node must pin the Node 20 line`);
+  }
+
+  assert.equal(read('.nvmrc').trim(), '20', '.nvmrc must pin Node 20');
+  assert.match(read('nixpacks.toml'), /NIXPACKS_NODE_VERSION\s*=\s*"20"/, 'nixpacks.toml must pin Node 20');
+});

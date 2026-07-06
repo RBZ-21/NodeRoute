@@ -1,6 +1,9 @@
 {
   "name": "noderoute-driver-app",
   "version": "0.1.0",
+  "engines": {
+    "node": "20.x"
+  },
   "private": true,
   "type": "module",
   "scripts": {

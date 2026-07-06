@@ -1,6 +1,9 @@
 {
   "name": "noderoute",
   "version": "1.0.0",
+  "engines": {
+    "node": "20.x"
+  },
   "workspaces": [
     "backend",
     "frontend-v2",
