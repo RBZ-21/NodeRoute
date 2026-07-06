@@ -6,6 +6,7 @@ const { authenticateToken, requireRole } = require('../middleware/auth');
 const { OPEN_UNPAID_INVOICE_STATUSES } = require('../services/invoice-delivery');
 const { filterRowsByContext, rowMatchesContext, scopeQueryByContext } = require('../services/operating-context');
 const { sendInvoiceEmail } = require('../services/invoice-email');
+const { escapeLike } = require('../lib/escape-like'); // BE-005: literal matching for user-supplied filters
 
 const router = express.Router();
 const OPEN_STATUSES = [...OPEN_UNPAID_INVOICE_STATUSES];
@@ -83,7 +84,7 @@ router.post('/remind/:customerId', authenticateToken, requireRole('admin', 'mana
       const { data: byName } = await scopeQueryByContext(supabase
         .from('invoices')
         .select('*'), req.context)
-        .ilike('customer_name', `%${id}%`)
+        .ilike('customer_name', `%${escapeLike(id)}%`)
         .in('status', OPEN_STATUSES);
       invoices = byName || [];
     }

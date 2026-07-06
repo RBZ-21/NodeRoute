@@ -28,6 +28,7 @@ const { getAiScanErrorResponse } = require('../services/ai-errors');
 const { clientError } = require('../lib/safe-error');
 const { filterRowsByContext, scopeQueryByContext } = require('../services/operating-context');
 const logger = require('../services/logger');
+const { escapeLike } = require('../lib/escape-like'); // BE-005: literal matching for user-supplied search terms
 
 const router = express.Router();
 const MAX_SCAN_PAGES = 5;
@@ -133,7 +134,7 @@ async function runOptionalScopedQuery(query, context) {
 async function searchTableByTerms({ table, field, select, terms, context, limit = 5, orderField = null }) {
   const matches = [];
   for (const term of terms || []) {
-    let query = supabase.from(table).select(select).ilike(field, `%${term}%`).limit(limit);
+    let query = supabase.from(table).select(select).ilike(field, `%${escapeLike(term)}%`).limit(limit);
     if (orderField) query = query.order(orderField, { ascending: false });
     const rows = await runScopedQuery(query, context);
     matches.push(...rows);
@@ -177,14 +178,14 @@ async function searchInventoryByTerms({ terms, context, limit = 5 }) {
       runOptionalScopedQuery(
         supabase.from('products')
           .select(CHAT_INVENTORY_SELECT)
-          .ilike('description', `%${term}%`)
+          .ilike('description', `%${escapeLike(term)}%`)
           .limit(limit),
         context
       ),
       runOptionalScopedQuery(
         supabase.from('seafood_inventory')
           .select(CHAT_INVENTORY_SELECT)
-          .ilike('description', `%${term}%`)
+          .ilike('description', `%${escapeLike(term)}%`)
           .limit(limit),
         context
       ),
