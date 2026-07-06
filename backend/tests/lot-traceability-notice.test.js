@@ -50,7 +50,8 @@ test('lot traceability notice email stays scoped to the recipient order history'
 });
 
 test('traceability routes support vendor filtering and standalone customer notices', () => {
-  assert.match(lotsRouteSource, /if \(vendor\)\s+query = query\.ilike\('vendor_id', `%\$\{vendor\}%`\)/);
+  // BE-005: the vendor filter now escapes LIKE metacharacters before .ilike().
+  assert.match(lotsRouteSource, /if \(vendor\)\s+query = query\.ilike\('vendor_id', `%\$\{escapeLike\(vendor\)\}%`\)/);
   assert.match(lotsRouteSource, /router\.post\('\/:lotNumber\/notice'/);
   assert.match(lotsRouteSource, /groupLotNoticeRecipients\(traceData\.data\.orders\)/);
   assert.match(lotsRouteSource, /buildLotNoticeEmail\(/);
