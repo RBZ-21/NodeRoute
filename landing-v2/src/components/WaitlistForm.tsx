@@ -53,8 +53,11 @@ export function WaitlistForm({ source = 'landing', className = '' }: Props) {
   return (
     <form onSubmit={handleSubmit} className={`w-full max-w-md space-y-3 ${className}`}>
       <div className="flex gap-2">
+        {/* LP-002: placeholders are not labels — screen readers need
+            aria-label (kept invisible to preserve the design). */}
         <input
           type="text"
+          aria-label="Your name"
           placeholder="Your name"
           value={name}
           onChange={e => setName(e.target.value)}
@@ -62,6 +65,7 @@ export function WaitlistForm({ source = 'landing', className = '' }: Props) {
         />
         <input
           type="text"
+          aria-label="Company (optional)"
           placeholder="Company (optional)"
           value={company}
           onChange={e => setCompany(e.target.value)}
@@ -72,6 +76,7 @@ export function WaitlistForm({ source = 'landing', className = '' }: Props) {
         <input
           type="email"
           required
+          aria-label="Work email"
           placeholder="Work email"
           value={email}
           onChange={e => setEmail(e.target.value)}
