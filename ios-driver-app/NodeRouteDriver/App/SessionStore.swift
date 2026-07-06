@@ -50,7 +50,7 @@ final class SessionStore {
         defer { isLoading = false }
 
         do {
-            let response = try await apiClient.login(email: email, password: password)
+            let response = try await apiClient.login(email, password)
             token = response.token
             user = response.user
             try tokenStore.save(response.token, kind: .access)
@@ -87,10 +87,10 @@ final class SessionStore {
         }
 
         do {
-            async let routes = apiClient.driverRoutes(token: token)
-            async let invoices = apiClient.driverInvoices(token: token)
-            async let deliveries = apiClient.deliveries(token: token)
-            async let summary = apiClient.driverSummary(token: token)
+            async let routes = apiClient.driverRoutes(token)
+            async let invoices = apiClient.driverInvoices(token)
+            async let deliveries = apiClient.deliveries(token)
+            async let summary = apiClient.driverSummary(token)
 
             self.routes = try await routes
             self.invoices = try await invoices
@@ -111,7 +111,7 @@ final class SessionStore {
         guard let token else { return }
 
         do {
-            try await apiClient.markStopArrived(stopID: stop.id, token: token)
+            try await apiClient.markStopArrived(stop.id, token)
             await refresh(silent: true)
         } catch {
             alertMessage = error.localizedDescription
@@ -123,14 +123,14 @@ final class SessionStore {
 
         do {
             if let invoiceID = stop.invoiceID, let proofImageDataURI {
-                try await apiClient.uploadProofOfDelivery(invoiceID: invoiceID, imageDataURI: proofImageDataURI, token: token)
+                try await apiClient.uploadProofOfDelivery(invoiceID, proofImageDataURI, token)
             }
 
             if !notes.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                try await apiClient.patchStop(stopID: stop.id, payload: ["driver_notes": notes], token: token)
+                try await apiClient.patchStop(stop.id, ["driver_notes": notes], token)
             }
 
-            try await apiClient.markStopDeparted(stopID: stop.id, token: token)
+            try await apiClient.markStopDeparted(stop.id, token)
             await refresh(silent: true)
         } catch {
             alertMessage = error.localizedDescription
@@ -142,10 +142,10 @@ final class SessionStore {
 
         do {
             let failureNotes = notes.isEmpty ? "Marked failed from iOS app" : notes
-            try await apiClient.patchStop(stopID: stop.id, payload: [
+            try await apiClient.patchStop(stop.id, [
                 "status": "failed",
                 "driver_notes": failureNotes
-            ], token: token)
+            ], token)
             await refresh(silent: true)
         } catch {
             alertMessage = error.localizedDescription
@@ -156,7 +156,7 @@ final class SessionStore {
         guard let token else { return }
 
         do {
-            try await apiClient.submitTemperatureLog(payload, token: token)
+            try await apiClient.submitTemperatureLog(payload, token)
             alertMessage = "Temperature log saved."
         } catch {
             alertMessage = error.localizedDescription

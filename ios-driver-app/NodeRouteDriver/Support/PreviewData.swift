@@ -2,7 +2,7 @@ import Foundation
 
 extension APIClient {
     static let preview = APIClient(
-        login: { _, _ in LoginResponse(token: "preview", user: .preview) },
+        login: { _, _ in LoginResponse(token: "preview", refreshToken: "preview", user: .preview) },
         driverRoutes: { _ in [.preview] },
         driverInvoices: { _ in [.preview] },
         deliveries: { _ in [.preview] },
