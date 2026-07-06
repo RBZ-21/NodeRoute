@@ -165,7 +165,7 @@ export function SyncPage() {
               onClick={clearOfflineDrafts}
               className="min-h-12 rounded-2xl px-4 text-sm font-semibold text-slate-700 ring-1 ring-slate-200 disabled:opacity-60"
             >
-              Clear drafts
+              Clear saved drafts
             </button>
           </div>
           {stopDrafts.length ? (
@@ -192,7 +192,7 @@ export function SyncPage() {
                     onClick={() => clearOfflineDraft(draft.stopId)}
                     className="mt-3 ml-2 inline-flex min-h-10 items-center rounded-2xl px-4 text-sm font-semibold text-slate-700 ring-1 ring-slate-200"
                   >
-                    Remove draft
+                    Remove saved draft
                   </button>
                 </div>
               ))}

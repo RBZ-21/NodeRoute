@@ -386,8 +386,11 @@ export function clearStopDraft(stopId: string) {
 }
 
 export function clearAllStopDrafts() {
+  const drafts = listStopDrafts();
   window.localStorage.removeItem(STOP_DRAFTS_KEY);
-  void clearPodDraftPhotos();
+  for (const draft of drafts) {
+    if (draft.proofImageDraftId) void deletePodDraftPhoto(draft.proofImageDraftId);
+  }
 }
 
 /**
