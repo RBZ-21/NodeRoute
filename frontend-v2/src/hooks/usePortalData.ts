@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { clearPortalSession, fetchPortalBlob, fetchWithPortalAuth, sendWithPortalAuth } from '../lib/portalApi';
 import type {
   PortalContact,
@@ -19,6 +19,7 @@ function checkoutIdempotencyKey() {
 }
 
 export function usePortalData(token: string, setToken: (t: string) => void, setMe: (me: PortalMe | null) => void) {
+  const isMountedRef = useRef(true);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState('');
@@ -35,6 +36,13 @@ export function usePortalData(token: string, setToken: (t: string) => void, setM
   const [markupPercent, setMarkupPercent] = useState('18');
   const [fishSearch, setFishSearch] = useState('');
 
+  useEffect(() => {
+    isMountedRef.current = true;
+    return () => {
+      isMountedRef.current = false;
+    };
+  }, []);
+
   const loadPortalData = useCallback(async (mode: 'initial' | 'refresh' = 'initial') => {
     if (!token) return;
     if (mode === 'initial') setLoading(true);
@@ -50,6 +58,8 @@ export function usePortalData(token: string, setToken: (t: string) => void, setM
       fetchWithPortalAuth<PortalPaymentConfig>('/api/portal/payments/config'),
       fetchWithPortalAuth<PortalPaymentProfile>('/api/portal/payments/profile'),
     ]);
+
+    if (!isMountedRef.current) return;
 
     const firstError = results.find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
     if (firstError) {
@@ -94,6 +104,7 @@ export function usePortalData(token: string, setToken: (t: string) => void, setM
       window.open(url, '_blank', 'noopener,noreferrer');
       window.setTimeout(() => URL.revokeObjectURL(url), 30_000);
     } catch (err) {
+      if (!isMountedRef.current) return;
       setError(String((err as Error).message || 'Could not download that invoice.'));
     }
   }
@@ -107,9 +118,11 @@ export function usePortalData(token: string, setToken: (t: string) => void, setM
         'POST',
         { idempotency_key: checkoutIdempotencyKey() }
       );
+      if (!isMountedRef.current) return;
       if (!payload.checkout_url) throw new Error(payload.error || 'No checkout link was returned.');
       window.location.href = payload.checkout_url;
     } catch (err) {
+      if (!isMountedRef.current) return;
       setError(String((err as Error).message || 'Could not start checkout.'));
       setPaymentBusy(false);
     }
@@ -120,11 +133,13 @@ export function usePortalData(token: string, setToken: (t: string) => void, setM
     setError('');
     try {
       await sendWithPortalAuth('/api/portal/payments/autopay/charge-now', 'POST', {});
+      if (!isMountedRef.current) return;
       await loadPortalData('refresh');
     } catch (err) {
+      if (!isMountedRef.current) return;
       setError(String((err as Error).message || 'Could not run autopay.'));
     } finally {
-      setPaymentBusy(false);
+      if (isMountedRef.current) setPaymentBusy(false);
     }
   }
 
@@ -143,11 +158,13 @@ export function usePortalData(token: string, setToken: (t: string) => void, setM
           door_code: contact.door_code || '',
         }),
       ]);
+      if (!isMountedRef.current) return;
       setContactNotice('Contact preferences saved.');
     } catch (err) {
+      if (!isMountedRef.current) return;
       setContactNotice(String((err as Error).message || 'Could not save contact details.'));
     } finally {
-      setContactBusy(false);
+      if (isMountedRef.current) setContactBusy(false);
     }
   }
 
