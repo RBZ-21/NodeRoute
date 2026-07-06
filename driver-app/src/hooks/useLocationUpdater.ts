@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef } from 'react';
+import { useToast } from '@/hooks/useToast';
 import { pingDriverLocation } from '@/lib/api';
 
 const LOCATION_UPDATE_MIN_INTERVAL_MS = 5000;
@@ -9,8 +10,13 @@ type SendLocationOptions = {
   userInitiated?: boolean;
 };
 
+function isIosLocationDenied(error: GeolocationPositionError) {
+  return error.code === error.PERMISSION_DENIED && /iphone|ipad|ipod/i.test(window.navigator.userAgent);
+}
+
 export function useLocationUpdater(enabled: boolean, onSuccess?: () => void) {
-  const hasWarnedRef = useRef(false);
+  const { pushToast } = useToast();
+  const deniedToastShownRef = useRef(false);
   const lastSentAtRef = useRef(0);
   const lastActiveAtRef = useRef(Date.now());
 
@@ -39,9 +45,10 @@ export function useLocationUpdater(enabled: boolean, onSuccess?: () => void) {
             resolve();
           }
         },
-        () => {
-          if (!hasWarnedRef.current) {
-            hasWarnedRef.current = true;
+        (error) => {
+          if (isIosLocationDenied(error) && !deniedToastShownRef.current) {
+            deniedToastShownRef.current = true;
+            pushToast('Location permission denied. Enable Location Services for this app in iOS Settings to share route updates.', 'error');
           }
           resolve();
         },
@@ -52,7 +59,7 @@ export function useLocationUpdater(enabled: boolean, onSuccess?: () => void) {
         }
       );
     });
-  }, [enabled, onSuccess]);
+  }, [enabled, onSuccess, pushToast]);
 
   useEffect(() => {
     if (!enabled) return;

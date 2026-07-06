@@ -91,3 +91,18 @@ test('driver location updates require active route work and expire after idle ti
     assert.ok(driverLocationUpdaterSource.includes(marker), `location updater idle cutoff missing marker ${marker}`);
   }
 });
+
+test('driver location updater surfaces iOS permission denial instead of toggling a dead warning ref', () => {
+  assert.ok(!driverLocationUpdaterSource.includes('hasWarnedRef'), 'dead warning ref should be removed');
+
+  for (const marker of [
+    'function isIosLocationDenied(error: GeolocationPositionError)',
+    'error.code === error.PERMISSION_DENIED',
+    '/iphone|ipad|ipod/i.test(window.navigator.userAgent)',
+    'const deniedToastShownRef = useRef(false);',
+    'deniedToastShownRef.current = true;',
+    'Location permission denied. Enable Location Services for this app in iOS Settings to share route updates.',
+  ]) {
+    assert.ok(driverLocationUpdaterSource.includes(marker), `iOS location denial toast missing marker ${marker}`);
+  }
+});
