@@ -100,7 +100,7 @@ struct DriverSummary: Codable, Hashable {
     let vehicleId: String?
 }
 
-struct TemperatureLogPayload: Codable {
+struct TemperatureLogPayload: Codable, Equatable, Sendable {
     let temperature: String
     let storageArea: String
     let unit: String

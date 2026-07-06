@@ -2,16 +2,17 @@ import Foundation
 
 extension APIClient {
     static let preview = APIClient(
-        login: { _, _ in LoginResponse(token: "preview", user: .preview) },
+        login: { _, _ in LoginResponse(token: "preview", refreshToken: "preview-refresh", user: .preview) },
         driverRoutes: { _ in [.preview] },
         driverInvoices: { _ in [.preview] },
         deliveries: { _ in [.preview] },
         driverSummary: { _ in .preview },
-        markStopArrived: { _, _ in },
-        markStopDeparted: { _, _ in },
-        patchStop: { _, _, _ in },
-        uploadProofOfDelivery: { _, _, _ in },
-        submitTemperatureLog: { _, _ in }
+        markStopArrived: { _, _, _ in },
+        markStopDeparted: { _, _, _ in },
+        patchStop: { _, _, _, _ in },
+        uploadProofOfDelivery: { _, _, _, _ in },
+        submitTemperatureLog: { _, _, _ in },
+        pingDriverLocation: { _, _ in }
     )
 }
 
