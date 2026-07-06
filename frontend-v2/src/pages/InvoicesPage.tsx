@@ -435,14 +435,21 @@ export function InvoicesPage() {
     if (!id || !addonDraft.product_id.trim()) {
       toast.error('Product ID is required for an add-on.');
       return;
-    }    addInvoiceAddon.mutate(
+    }
+    const addonPriceText = addonDraft.price.trim();
+    const addonPrice = addonPriceText ? Number(addonPriceText) : undefined;
+    if (addonPrice !== undefined && !Number.isFinite(addonPrice)) {
+      toast.error('Add-on price must be a valid number.');
+      return;
+    }
+    addInvoiceAddon.mutate(
       {
         id,
         payload: {
           product_id: addonDraft.product_id.trim(),
           qty: Number(addonDraft.qty) || 1,
           uom: addonDraft.uom.trim() || null,
-          price: addonDraft.price.trim() ? Number(addonDraft.price) : undefined,
+          price: addonPrice,
           reason: addonDraft.reason.trim() || null,
         },
       },

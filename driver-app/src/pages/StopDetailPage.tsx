@@ -6,7 +6,7 @@ import { useDriverApp } from '@/hooks/useDriverApp';
 import { useLocationUpdater } from '@/hooks/useLocationUpdater';
 import { useToast } from '@/hooks/useToast';
 import { clearStopDraft, loadPodDraftPhoto, loadStopDraft, savePodDraftPhoto, saveStopDraft } from '@/lib/storage';
-import { formatSchedule } from '@/lib/utils';
+import { formatSchedule, isDeliveredStatus, normalize } from '@/lib/utils';
 import type { DriverStop } from '@/types';
 
 export const FAILURE_REASON_OPTIONS = [
@@ -34,6 +34,7 @@ export function StopDetailPage() {
   const {
     captureSignature,
     companySettings,
+    currentRoute,
     deferStopToEnd,
     getStopStatusConflict,
     isOnline,
@@ -46,9 +47,14 @@ export function StopDetailPage() {
     stopById,
     stopItems,
   } = useDriverApp();
-  const { sendLocation } = useLocationUpdater(true);
   const { pushToast } = useToast();
   const stop = stopId ? stopById(stopId) : null;
+  const activeRouteStops = currentRoute?.stops ?? [];
+  const hasActiveRouteWork = activeRouteStops.length > 0 && activeRouteStops.some(
+    (routeStop) => !isDeliveredStatus(routeStop.status) && normalize(routeStop.status) !== 'failed'
+  );
+  const routeLocationUpdatesEnabled = Boolean(currentRoute && stop && hasActiveRouteWork);
+  const { sendLocation } = useLocationUpdater(routeLocationUpdatesEnabled);
   const initialDraft = stopId ? loadStopDraft(stopId) : null;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [proofImage, setProofImage] = useState<string | null>(initialDraft?.proofImage || null);
@@ -64,6 +70,7 @@ export function StopDetailPage() {
   if (!stop) return <Navigate to="/stops" replace />;
   const activeStop = stop;
   const statusConflict = getStopStatusConflict(activeStop.id);
+  const proofPhotoExpiredConflict = statusConflict?.serverStatus === 'photo_expired';
 
   const items = stopItems(activeStop);
   const signatureRequired = companySettings.forceDriverSignature && !activeStop.invoice_has_signature;
@@ -251,7 +258,7 @@ export function StopDetailPage() {
         setProofImageDraftId(null);
       }
 
-      await sendLocation();
+      await sendLocation({ userInitiated: true });
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Unable to update the stop.', 'error');
     } finally {
@@ -286,18 +293,30 @@ export function StopDetailPage() {
         </div>
         {statusConflict ? (
           <div className="mt-4 rounded-2xl bg-rose-50 p-3 text-sm text-rose-950 ring-1 ring-rose-100">
-            <p className="font-semibold">Sync conflict - tap to resolve</p>
+            <p className="font-semibold">{proofPhotoExpiredConflict ? 'Proof photo expired' : 'Sync conflict - tap to resolve'}</p>
             <p className="mt-1">
-              Local status: {statusConflict.localStatus}. Server status: {statusConflict.serverStatus}.
+              {proofPhotoExpiredConflict
+                ? 'The saved proof photo expired before it synced. Capture a new proof photo before retrying this delivery.'
+                : `Local status: ${statusConflict.localStatus}. Server status: ${statusConflict.serverStatus}.`}
             </p>
             <div className="mt-3 grid grid-cols-2 gap-2">
-              <button
-                type="button"
-                onClick={() => void resolveStatusConflict(activeStop.id, 'keep-local')}
-                className="min-h-10 rounded-2xl bg-rose-600 px-3 text-sm font-semibold text-white"
-              >
-                Keep local
-              </button>
+              {proofPhotoExpiredConflict ? (
+                <button
+                  type="button"
+                  onClick={() => openPhotoCapture(false)}
+                  className="min-h-10 rounded-2xl bg-rose-600 px-3 text-sm font-semibold text-white"
+                >
+                  Capture new photo
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => void resolveStatusConflict(activeStop.id, 'keep-local')}
+                  className="min-h-10 rounded-2xl bg-rose-600 px-3 text-sm font-semibold text-white"
+                >
+                  Keep local
+                </button>
+              )}
               <button
                 type="button"
                 onClick={() => void resolveStatusConflict(activeStop.id, 'accept-server')}
