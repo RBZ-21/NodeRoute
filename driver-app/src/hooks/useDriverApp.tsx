@@ -597,7 +597,11 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     }
 
     if (proofImage && activeStop.invoice_id) {
-      await uploadProofOfDelivery(activeStop.invoice_id, proofImage);
+      await uploadProofOfDelivery(
+        activeStop.invoice_id,
+        proofImage,
+        options.clientActionId ? `${options.clientActionId}-pod` : undefined,
+      );
     }
 
     if (combinedNotes) {
