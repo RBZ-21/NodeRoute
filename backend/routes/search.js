@@ -11,12 +11,10 @@ const { supabase } = require('../services/supabase');
 const { authenticateToken } = require('../middleware/auth');
 const { filterRowsByContext, isMissingColumnError, scopeQueryByContext } = require('../services/operating-context');
 
+const { escapeLike } = require('../lib/escape-like');
+
 const router = express.Router();
 const PER_TYPE_LIMIT = 6;
-
-function escapeLike(value) {
-  return String(value).replace(/[%_\\]/g, (m) => `\\${m}`);
-}
 
 function dedupeById(rows) {
   const seen = new Set();

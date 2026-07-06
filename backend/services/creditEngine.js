@@ -19,6 +19,8 @@
 const { supabase } = require('./supabase');
 const { createMailer } = require('./email');
 const logger = require('./logger');
+const { scopeQueryByContext } = require('./operating-context');
+const { escapeLike } = require('../lib/escape-like');
 
 // Invoice statuses that still represent money owed to us.
 const OPEN_INVOICE_STATUSES = ['pending', 'sent', 'overdue', 'signed', 'delivered'];
@@ -166,23 +168,30 @@ async function logEvent(entry) {
 }
 
 // ── Customer + invoice fetch helpers ───────────────────────────────────────
-async function getCustomer(customerId) {
-  const { data, error } = await supabase
+// BE-002: all three lookups accept an optional request context and scope the
+// query to the caller's tenant via scopeQueryByContext. Without context
+// (system cron paths) behavior is unchanged.
+async function getCustomer(customerId, context = null) {
+  let query = supabase
     .from('Customers')
     .select('*')
-    .eq('id', customerId)
-    .single();
-  if (error) throw new Error(`Customer ${customerId}: ${error.message}`);
+    .eq('id', customerId);
+  if (context) query = scopeQueryByContext(query, context);
+  const { data, error } = await query.single();
+  if (error || !data) throw new Error(`Customer ${customerId}: ${error ? error.message : 'not found'}`);
   return data;
 }
 
-async function findCustomerByName(customerName) {
+async function findCustomerByName(customerName, context = null) {
   if (!customerName) return null;
-  const { data, error } = await supabase
+  // BE-002: escape LIKE metacharacters so a name like "100%" matches
+  // literally instead of acting as a wildcard.
+  let query = supabase
     .from('Customers')
     .select('*')
-    .ilike('company_name', String(customerName).trim())
-    .limit(1);
+    .ilike('company_name', escapeLike(String(customerName).trim()));
+  if (context) query = scopeQueryByContext(query, context);
+  const { data, error } = await query.limit(1);
   if (error) return null;
   return Array.isArray(data) && data.length ? data[0] : null;
 }
@@ -191,21 +200,26 @@ async function findCustomerByName(customerName) {
 // name (legacy invoices may carry only customer_name). Two parallel queries
 // merged by id avoids supabase .or() parser fragility with names that contain
 // commas, dots, or quotes.
-async function fetchOpenInvoicesForCustomer(customer_id, company_name) {
+async function fetchOpenInvoicesForCustomer(customer_id, company_name, context = null) {
+  const scoped = (query) => (context ? scopeQueryByContext(query, context) : query);
   const queries = [
-    supabase
-      .from('invoices')
-      .select('id, total, due_date, invoice_date, created_at, status')
-      .in('status', OPEN_INVOICE_STATUSES)
-      .eq('customer_id', customer_id),
-  ];
-  if (company_name) {
-    queries.push(
+    scoped(
       supabase
         .from('invoices')
         .select('id, total, due_date, invoice_date, created_at, status')
         .in('status', OPEN_INVOICE_STATUSES)
-        .eq('customer_name', company_name)
+        .eq('customer_id', customer_id)
+    ),
+  ];
+  if (company_name) {
+    queries.push(
+      scoped(
+        supabase
+          .from('invoices')
+          .select('id, total, due_date, invoice_date, created_at, status')
+          .in('status', OPEN_INVOICE_STATUSES)
+          .eq('customer_name', company_name)
+      )
     );
   }
   const results = await Promise.all(queries);
@@ -218,9 +232,9 @@ async function fetchOpenInvoicesForCustomer(customer_id, company_name) {
 }
 
 // ── 2A. calculateCustomerBalance ───────────────────────────────────────────
-async function calculateCustomerBalance(customer_id) {
-  const customer = await getCustomer(customer_id);
-  const unpaidRows = await fetchOpenInvoicesForCustomer(customer_id, customer.company_name);
+async function calculateCustomerBalance(customer_id, context = null) {
+  const customer = await getCustomer(customer_id, context);
+  const unpaidRows = await fetchOpenInvoicesForCustomer(customer_id, customer.company_name, context);
   const unpaidTotal = unpaidRows.reduce((sum, inv) => sum + toCents(inv.total), 0);
 
   // Unapplied portal credits (best-effort — some deployments lack this table).
@@ -266,8 +280,8 @@ async function calculateCustomerBalance(customer_id) {
 }
 
 // ── 2B. checkCreditStatus ──────────────────────────────────────────────────
-async function checkCreditStatus(customer_id) {
-  const customer = await getCustomer(customer_id);
+async function checkCreditStatus(customer_id, context = null) {
+  const customer = await getCustomer(customer_id, context);
   const limit = customer.credit_limit == null ? null : toMoney(customer.credit_limit);
   const balance = toMoney(customer.current_balance || 0);
   const warnPct = toMoney(customer.warning_threshold_pct ?? 80);
@@ -290,7 +304,7 @@ async function checkCreditStatus(customer_id) {
 
   // ── Check 2: PAST DUE ──
   // For COD/PREPAY (days === 0) any unpaid invoice past invoice_date is overdue.
-  const openInvoices = await fetchOpenInvoicesForCustomer(customer_id, customer.company_name);
+  const openInvoices = await fetchOpenInvoicesForCustomer(customer_id, customer.company_name, context);
 
   const now = Date.now();
   let oldestPastDueDays = 0;
@@ -469,13 +483,17 @@ async function findActiveOverride(customer_id, order_id) {
 }
 
 // ── 2E. checkOrderAllowed ──────────────────────────────────────────────────
-async function checkOrderAllowed({ customer_id, customer_name, order_id, order_total }) {
+// BE-002: pass `context` (req.context) so customer resolution is scoped to
+// the requesting tenant. Without it, a name lookup could match another
+// company's customer and echo their balance/credit-limit/hold-reason in the
+// 402 response.
+async function checkOrderAllowed({ customer_id, customer_name, order_id, order_total, context = null }) {
   let customer = null;
   if (customer_id) {
-    try { customer = await getCustomer(customer_id); } catch { customer = null; }
+    try { customer = await getCustomer(customer_id, context); } catch { customer = null; }
   }
   if (!customer && customer_name) {
-    customer = await findCustomerByName(customer_name);
+    customer = await findCustomerByName(customer_name, context);
   }
   if (!customer) {
     // Unknown customer — let it through; this is not a credit decision.
