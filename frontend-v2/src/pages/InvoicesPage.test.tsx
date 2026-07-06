@@ -188,6 +188,25 @@ describe('InvoicesPage', () => {
     expect(await screen.findByText('Invoice INV-100 deleted.')).toBeInTheDocument();
   });
 
+  it('rejects non-finite add-on prices before submitting', async () => {
+    sendWithAuthMock.mockResolvedValue({ invoice: baseInvoices[0] });
+    renderInvoicesPage();
+
+    expect(await screen.findByText('INV-100')).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'View / Edit' })[0]);
+    expect(await screen.findByRole('heading', { name: 'INV-100' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('Product ID'), { target: { value: 'FEE-1' } });
+    const priceInput = screen.getByPlaceholderText('Price') as HTMLInputElement;
+    priceInput.setAttribute('type', 'text');
+    fireEvent.change(priceInput, { target: { value: '1e309' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Invoice' }));
+
+    expect(await screen.findByText('Add-on price must be a valid number.')).toBeInTheDocument();
+    expect(sendWithAuthMock).not.toHaveBeenCalledWith('/api/invoices/inv-1/addons', 'POST', expect.anything());
+  });
+
   it('marks an invoice paid from the invoice table for check payments', async () => {
     sendWithAuthMock.mockResolvedValueOnce({
       id: 'inv-1',
