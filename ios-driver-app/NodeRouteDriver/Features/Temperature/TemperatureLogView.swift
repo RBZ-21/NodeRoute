@@ -11,7 +11,7 @@ struct TemperatureLogView: View {
     var body: some View {
         Form {
             Section {
-                Text("Logs submit to `/api/temperature-logs`. If the backend keeps its current role guard, driver submissions may return a permissions error.")
+                Text("Logs submit to `/api/temperature-logs`; driver, manager, and admin submissions are accepted by the backend.")
                     .foregroundStyle(.secondary)
             }
 

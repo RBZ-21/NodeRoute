@@ -10,6 +10,7 @@ const routeSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'te
 const migrationSource = fs.readFileSync(path.join(repoRoot, 'supabase', 'migrations', '20260508000200_temperature_log_route_stop_context.sql'), 'utf8');
 const integrityMigrationSource = fs.readFileSync(path.join(repoRoot, 'supabase', 'migrations', '20260706212223_db011_temperature_log_integrity.sql'), 'utf8');
 const driverPageSource = fs.readFileSync(path.join(repoRoot, 'driver-app', 'src', 'pages', 'TemperatureLogPage.tsx'), 'utf8');
+const iosTemperatureLogSource = fs.readFileSync(path.join(repoRoot, 'ios-driver-app', 'NodeRouteDriver', 'Features', 'Temperature', 'TemperatureLogView.swift'), 'utf8');
 
 const {
   buildTemperatureLogCsv,
@@ -58,6 +59,8 @@ test('temperature log route and driver UI markers are present', () => {
   assert.ok(routeSource.includes('stop_id: body.stop_id || body.stopId || null'), 'stop context should be persisted');
   assert.ok(driverPageSource.includes('route_id: currentRoute?.id || null'), 'driver page should submit current route id');
   assert.ok(driverPageSource.includes('stop_id: stop?.id || null'), 'driver page should submit current stop id');
+  assert.ok(iosTemperatureLogSource.includes('driver, manager, and admin submissions are accepted by the backend'), 'iOS copy should match temperature log POST role guard');
+  assert.ok(!iosTemperatureLogSource.includes('driver submissions may return a permissions error'), 'iOS copy should not warn about a stale role guard');
   assert.ok(migrationSource.includes('add column if not exists route_id text'), 'migration should add route_id');
   assert.ok(migrationSource.includes('add column if not exists stop_id text'), 'migration should add stop_id');
 });
