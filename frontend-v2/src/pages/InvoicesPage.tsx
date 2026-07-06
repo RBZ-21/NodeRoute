@@ -202,7 +202,10 @@ export function InvoicesPage() {
 
   useEffect(() => {
     const visibleIds = new Set(activeInvoiceIds);
-    setSelectedInvoiceIds((current) => new Set([...current].filter((id) => visibleIds.has(id))));
+    setSelectedInvoiceIds((current) => {
+      const nextIds = [...current].filter((id) => visibleIds.has(id));
+      return nextIds.length === current.size ? current : new Set(nextIds);
+    });
   }, [activeInvoiceIds]);
 
   useEffect(() => {
