@@ -55,6 +55,8 @@ import type {
   OfflineRoutePackStatus,
   OfflineStatusConflict,
   QueuedStatusAction,
+  QueuedStopNoteUpdate,
+  QueuedTemperatureLog,
   StatusAction,
   StopDraft,
 } from '@/types';
@@ -261,7 +263,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     const queuedLogs = loadQueuedTemperatureLogs();
     if (!queuedLogs.length || !token) return;
 
-    const remaining = [];
+    const remaining: QueuedTemperatureLog[] = [];
     let flushedCount = 0;
     let deadLetteredCount = 0;
 
@@ -311,7 +313,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     const queuedUpdates = loadQueuedStopNoteUpdates();
     if (!queuedUpdates.length || !token) return;
 
-    const remaining = [];
+    const remaining: QueuedStopNoteUpdate[] = [];
     let flushedCount = 0;
     let deadLetteredCount = 0;
 
