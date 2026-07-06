@@ -1,4 +1,4 @@
-import { useCallback, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { sendWithAuth } from '../lib/api';
 import type { LocationStatusTone } from '../pages/driver.types';
 
@@ -36,6 +36,12 @@ export function useLocationSharing() {
         }
       },
       (geoError) => {
+        // FE-001: actually stop the browser watch before dropping our handle.
+        // Previously this only nulled the ref, orphaning the GPS watch
+        // permanently (it kept firing, and stop() could no longer clear it).
+        // clearWatch uses the closure id, not the ref, so it works even if
+        // the ref was already reset.
+        navigator.geolocation.clearWatch(watchId);
         setLocationStatus({ text: geoError.message || 'Location access was blocked.', tone: 'error' });
         watchIdRef.current = null;
         setLocationBusy(false);
@@ -53,6 +59,18 @@ export function useLocationSharing() {
     }
     setLocationStatus({ text: 'Location sync idle', tone: 'neutral' });
     setLocationBusy(false);
+  }, []);
+
+  // FE-001: unmount cleanup. Every code path that nulls the ref now clears
+  // the watch first (error callback uses the closure id), so a non-null ref
+  // here is guaranteed to be a live watch that must be released.
+  useEffect(() => {
+    return () => {
+      if (watchIdRef.current != null) {
+        navigator.geolocation.clearWatch(watchIdRef.current);
+        watchIdRef.current = null;
+      }
+    };
   }, []);
 
   return { watchIdRef, locationBusy, locationStatus, startLocationSharing: start, stopLocationSharing: stop };

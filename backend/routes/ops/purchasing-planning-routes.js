@@ -1,5 +1,6 @@
 const express = require('express');
 const { supabase } = require('../../services/supabase');
+const { escapeLike } = require('../../lib/escape-like'); // BE-005: literal matching for vendor-name lookups
 const { authenticateToken, requireRole } = require('../../middleware/auth');
 const {
   filterRowsByContext,
@@ -75,7 +76,7 @@ module.exports = function buildOpsPurchasingPlanningRouter() {
       const { data, error } = await scopeQueryByContext(
         supabase.from('vendors').select('*'),
         context
-      ).ilike('name', value).limit(10);
+      ).ilike('name', escapeLike(value)).limit(10);
       if (error) throw error;
       return (data || []).find((row) =>
         rowMatchesContext(row, context)

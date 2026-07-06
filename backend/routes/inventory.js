@@ -658,9 +658,20 @@ router.post('/lots/:lotId/deplete', authenticateToken, requireRole('admin', 'man
 });
 
 // DELETE /api/inventory/lots/:lotId
+// DB-004 (FSMA 204): inventory_lots is delete-protected at the DB level —
+// traceability records must be retained. Surface that as a 409 with guidance
+// instead of a generic 500.
 router.delete('/lots/:lotId', authenticateToken, requireRole('admin', 'manager', 'warehouse'), async (req, res) => {
   const { error } = await scopeQueryByContext(supabase.from('inventory_lots').delete(), req.context).eq('id', req.params.lotId);
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) {
+    if (String(error.message || '').includes('cannot be deleted')) {
+      return res.status(409).json({
+        error: 'Lots cannot be deleted — FSMA 204 traceability records must be retained. Use PATCH to set qty_on_hand to 0 or mark the lot depleted/expired instead.',
+        code: 'LOT_DELETE_PROTECTED',
+      });
+    }
+    return res.status(500).json({ error: error.message });
+  }
   res.json({ message: 'Lot deleted' });
 });
 
@@ -990,9 +1001,13 @@ router.get('/ledger', authenticateToken, async (req, res) => {
   const itemNumber = String(req.query.item_number || '').trim();
   const changeType = String(req.query.change_type || '').trim().toLowerCase();
 
-  let query = supabase
-    .from('inventory_stock_history')
-    .select('*')
+  // BE-003: tenant scope must be applied in the DB query BEFORE the LIMIT —
+  // filtering after LIMIT in JS truncated results for small tenants when
+  // other tenants' rows filled the page (matches the /:id/history handler).
+  let query = scopeQueryByContext(
+    supabase.from('inventory_stock_history').select('*'),
+    req.context
+  )
     .order('created_at', { ascending: false })
     .limit(limit);
 

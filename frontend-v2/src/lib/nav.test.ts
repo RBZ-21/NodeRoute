@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { canAccess, canAccessGroup, findNavItem, navGroups, navRedirects, allNavItems, defaultPath, NAV_ITEM_IDS } from './nav';
+import { canAccess, canAccessGroup, findNavItem, navGroups, navRedirects, allNavItems, defaultPath, defaultPathFor, NAV_ITEM_IDS } from './nav';
 
 describe('findNavItem', () => {
   it('returns the correct item for a known path', () => {
@@ -67,13 +67,34 @@ describe('navGroups integrity', () => {
 
   it('matches the consolidated group structure', () => {
     expect(navGroups.map((g) => g.label)).toEqual([
-      '', 'Dispatch', 'Inventory', 'Customers', 'Financials', 'Insights', 'Admin',
+      'Platform', '', 'Dispatch', 'Inventory', 'Customers', 'Financials', 'Insights', 'Admin',
     ]);
+    // Superadmin lives in its own platform-owner group, not under Admin.
+    const platform = navGroups.find((g) => g.id === 'platform');
+    expect(platform?.items.map((i) => i.id)).toEqual(['superadmin']);
+    for (const item of platform!.items) {
+      expect(item.roles).toEqual(['superadmin']);
+    }
     // Dashboard is its own standalone (empty-label) group above Dispatch.
     const home = navGroups.find((g) => g.id === 'home');
     expect(home?.items.map((i) => i.id)).toEqual(['dashboard']);
     const dispatch = navGroups.find((g) => g.id === 'dispatch');
     expect(dispatch?.items.map((i) => i.id)).toEqual(['orders', 'routes', 'map']);
+  });
+
+  it('routes superadmin to /superadmin as the landing page, everyone else to /dashboard', () => {
+    expect(defaultPathFor('superadmin')).toBe('/superadmin');
+    expect(defaultPathFor('admin')).toBe('/dashboard');
+    expect(defaultPathFor('manager')).toBe('/dashboard');
+    expect(defaultPathFor('warehouse')).toBe('/dashboard');
+  });
+
+  it('hides the Platform group from every role except superadmin', () => {
+    const platform = navGroups.find((g) => g.id === 'platform')!;
+    expect(canAccessGroup(platform, 'superadmin')).toBe(true);
+    for (const role of ['admin', 'manager', 'driver', 'rep', 'warehouse'] as const) {
+      expect(canAccessGroup(platform, role)).toBe(false);
+    }
   });
 
   it('preserves role guards after the nav consolidation', () => {

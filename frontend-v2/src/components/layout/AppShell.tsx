@@ -9,7 +9,7 @@ import { SessionExpiryBanner } from '../SessionExpiryBanner';
 import { AIAskBar } from './AIAskBar';
 import { CommandPalette } from './CommandPalette';
 import { getUserRole, logoutSession } from '../../lib/api';
-import { allNavItems, defaultPath, findNavItem, navRedirects, routePath, canAccess, type NavRedirect } from '../../lib/nav';
+import { allNavItems, defaultPathFor, findNavItem, navRedirects, routePath, canAccess, type NavRedirect } from '../../lib/nav';
 
 /** Redirects a legacy path (e.g. /stops) to its new home (e.g. /routes?tab=stops),
  *  preserving any existing query params such as routeId. */
@@ -36,7 +36,8 @@ const roleBadgeClass: Record<string, string> = {
 export function AppShell() {
   const role        = getUserRole();
   const location    = useLocation();
-  const currentItem = findNavItem(location.pathname) ?? findNavItem(defaultPath);
+  const homePath    = defaultPathFor(role);
+  const currentItem = findNavItem(location.pathname) ?? findNavItem(homePath);
 
   const [dark, setDark] = useState<boolean>(() => {
     try {
@@ -123,7 +124,7 @@ export function AppShell() {
 
           <main className="flex-1 overflow-y-auto p-4 md:p-6">
             <Routes>
-              <Route index element={<Navigate to={defaultPath} replace />} />
+              <Route index element={<Navigate to={homePath} replace />} />
               {navRedirects.map((redirect) => (
                 <Route
                   key={redirect.id}
@@ -138,7 +139,7 @@ export function AppShell() {
                     <Route
                       key={item.id}
                       path={routePath(item.path)}
-                      element={<Navigate to={defaultPath} replace />}
+                      element={<Navigate to={homePath} replace />}
                     />
                   );
                 }
@@ -155,7 +156,7 @@ export function AppShell() {
                   />
                 );
               })}
-              <Route path="*" element={<Navigate to={defaultPath} replace />} />
+              <Route path="*" element={<Navigate to={homePath} replace />} />
             </Routes>
           </main>
         </div>

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -125,6 +125,13 @@ export function InvoicesPage() {
   const [activeDate, setActiveDate] = useState(() => dateInputValue());
   const [deliveredOpen, setDeliveredOpen] = useState(false);
   const [selected, setSelected] = useState<Invoice | null>(null);
+  // FE-003: tracks the CURRENT selection so async AI-draft resolutions can
+  // detect that the user switched invoices while the mutation was in flight
+  // and discard themselves instead of applying a stale draft.
+  const selectedInvoiceIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    selectedInvoiceIdRef.current = selected ? String(selected.id || '') : null;
+  }, [selected]);
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState<Partial<Invoice>>({});
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -195,7 +202,10 @@ export function InvoicesPage() {
 
   useEffect(() => {
     const visibleIds = new Set(activeInvoiceIds);
-    setSelectedInvoiceIds((current) => new Set([...current].filter((id) => visibleIds.has(id))));
+    setSelectedInvoiceIds((current) => {
+      const nextIds = [...current].filter((id) => visibleIds.has(id));
+      return nextIds.length === current.size ? current : new Set(nextIds);
+    });
   }, [activeInvoiceIds]);
 
   useEffect(() => {
@@ -213,10 +223,13 @@ export function InvoicesPage() {
     setFollowUpError('');
     mutateInvoiceFollowUp(selectedId, {
       onSuccess: (result) => {
+        // FE-003: ignore stale resolutions for a no-longer-selected invoice.
+        if (selectedInvoiceIdRef.current !== selectedId) return;
         setFollowUpDraft(result);
         setFollowUpInvoiceId(selectedId);
       },
       onError: (mutationError) => {
+        if (selectedInvoiceIdRef.current !== selectedId) return;
         setFollowUpDraft(null);
         setFollowUpInvoiceId(selectedId);
         setFollowUpError(String((mutationError as Error)?.message || 'Could not build invoice follow-up'));
@@ -392,10 +405,13 @@ export function InvoicesPage() {
     openInvoice(inv);
     mutateInvoiceFollowUp(id, {
       onSuccess: (result) => {
+        // FE-003: ignore stale resolutions for a no-longer-selected invoice.
+        if (selectedInvoiceIdRef.current !== id) return;
         setFollowUpDraft(result);
         setFollowUpInvoiceId(id);
       },
       onError: (mutationError) => {
+        if (selectedInvoiceIdRef.current !== id) return;
         setFollowUpDraft(null);
         setFollowUpInvoiceId(id);
         setFollowUpError(String((mutationError as Error)?.message || 'Could not build invoice follow-up'));

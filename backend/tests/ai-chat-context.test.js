@@ -63,7 +63,10 @@ test('chat context loader pulls live overview and named matches from the program
       location_id: 'loc-a',
     },
   ]);
-  await supabase.from('customers').insert([
+  // BE-008: seed the REAL mixed-case "Customers" table. This test previously
+  // seeded a lowercase 'customers' table that only exists in demo mode, which
+  // masked the production bug where ai.js queried a nonexistent table.
+  await supabase.from('Customers').insert([
     {
       id: 'cust-1',
       customer_number: 'CUST-1',

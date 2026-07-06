@@ -1027,9 +1027,12 @@ router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole
     taxEnabled: creditTaxEnabled,
     taxRate: creditTaxRate,
   });
+  // BE-002: scope the credit lookup to the requesting tenant so the 402
+  // payload can never echo another company's balance/limit/hold-reason.
   const creditDecision = await creditEngine.checkOrderAllowed({
     customer_name: customerName,
     order_total: estimatedTotal,
+    context: req.context,
   });
   if (!creditDecision.allowed) {
     if (creditDecision.customer_id) {
@@ -1283,10 +1286,12 @@ router.patch('/:id', validateBody(orderUpdateSchema), authenticateToken, require
       taxRate: normalizeTaxRate(existing.tax_rate),
     });
     if (newTotal > previousTotal) {
+      // BE-002: tenant-scoped credit lookup (see POST / handler above).
       const decision = await creditEngine.checkOrderAllowed({
         customer_name: updates.customer_name || existing.customer_name,
         order_id: existing.id,
         order_total: newTotal,
+        context: req.context,
       });
       if (!decision.allowed) {
         if (decision.customer_id) {

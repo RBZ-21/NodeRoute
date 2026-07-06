@@ -44,6 +44,103 @@ async function fetchInventoryByItemNumber(itemNumber, context = null) {
   return data;
 }
 
+// BE-001: detect "RPC not deployed" separately from real failures so we only
+// fall back to the legacy path when the atomic function is genuinely absent.
+function isMissingRpcError(error) {
+  const code = String(error?.code || '');
+  if (code === 'PGRST202' || code === '42883') return true;
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('could not find the function') || message.includes('does not exist');
+}
+
+// BE-001: atomic DB-side path. The Postgres function locks the product row
+// (SELECT ... FOR UPDATE), applies the guarded qty/cost math, and writes the
+// inventory_stock_history row in the same transaction. Returns null when the
+// RPC is unavailable (demo mode, offline resilient mode, or migration not yet
+// applied) so the caller can fall back to the legacy non-atomic path.
+async function tryApplyInventoryLedgerEntryRpc({
+  itemNumber,
+  deltaQty,
+  changeType,
+  notes,
+  createdBy,
+  lotId,
+  unitCost,
+  cost_basis,
+  uom,
+  conversion_factor,
+  ledger_ref,
+  preventNegative,
+  setAbsoluteQty,
+  context,
+}) {
+  if (typeof supabase.rpc !== 'function') return null;
+  const scope = buildScopeFields(context || {});
+  const rpcResult = await supabase.rpc('apply_inventory_ledger_entry', {
+    p_item_number: itemNumber,
+    p_delta_qty: toNumber(deltaQty, 0),
+    p_set_absolute_qty: setAbsoluteQty == null ? null : roundQty(setAbsoluteQty),
+    p_change_type: changeType == null ? null : String(changeType),
+    p_notes: notes || null,
+    p_created_by: createdBy || 'system',
+    p_lot_id: lotId || null,
+    p_unit_cost: Number.isFinite(toNumber(unitCost, NaN)) ? toNumber(unitCost, null) : null,
+    p_cost_basis: cost_basis == null ? null : roundCost(cost_basis),
+    p_uom: uom == null ? null : String(uom),
+    p_conversion_factor: conversion_factor == null ? null : toNumber(conversion_factor, null),
+    p_ledger_ref: ledger_ref == null ? null : String(ledger_ref),
+    p_prevent_negative: preventNegative !== false,
+    p_company_id: scope.company_id || null,
+    p_location_id: scope.location_id || null,
+  });
+
+  if (rpcResult && rpcResult.error) {
+    if (isMissingRpcError(rpcResult.error)) return null;
+    throw formatLedgerError(rpcResult.error.message, 'LEDGER_UPDATE_FAILED', { item_number: itemNumber });
+  }
+
+  const payload = rpcResult && rpcResult.data;
+  // Null data with no error means the resilient/demo client could not reach
+  // the function — treat as unavailable rather than silently succeeding.
+  if (!payload || typeof payload !== 'object') return null;
+
+  if (payload.ok === false) {
+    if (payload.code === 'LEDGER_NEGATIVE_STOCK') {
+      throw formatLedgerError(
+        `Insufficient stock for ${payload.item_number}: on hand ${payload.on_hand_qty}, requested delta ${payload.requested_delta}`,
+        'LEDGER_NEGATIVE_STOCK',
+        {
+          item_number: payload.item_number,
+          on_hand_qty: toNumber(payload.on_hand_qty, 0),
+          requested_delta: toNumber(payload.requested_delta, 0),
+        }
+      );
+    }
+    if (payload.code === 'LEDGER_ITEM_NOT_FOUND') {
+      throw formatLedgerError(
+        `Inventory item not found for ${payload.item_number || itemNumber}`,
+        'LEDGER_ITEM_NOT_FOUND',
+        { item_number: payload.item_number || itemNumber }
+      );
+    }
+    throw formatLedgerError(
+      `Inventory ledger RPC failed with code ${payload.code || 'unknown'}`,
+      payload.code || 'LEDGER_ERROR',
+      { item_number: itemNumber }
+    );
+  }
+
+  return {
+    item_before: payload.item_before,
+    item_after: payload.item_after,
+    entry: payload.entry,
+    qty_before: toNumber(payload.qty_before, 0),
+    qty_after: toNumber(payload.qty_after, 0),
+    cost_before: toNumber(payload.cost_before, 0),
+    cost_after: toNumber(payload.cost_after, 0),
+  };
+}
+
 async function applyInventoryLedgerEntry({
   itemNumber,
   deltaQty,
@@ -60,7 +157,32 @@ async function applyInventoryLedgerEntry({
   setAbsoluteQty = null,
   context = null,
 }) {
-  const item = await fetchInventoryByItemNumber(itemNumber, context);
+  const normalizedItemNumber = String(itemNumber || '').trim();
+  if (!normalizedItemNumber) throw formatLedgerError('item_number is required', 'LEDGER_INVALID_ITEM');
+
+  // BE-001: prefer the atomic DB-side operation whenever it is reachable.
+  const rpcOutcome = await tryApplyInventoryLedgerEntryRpc({
+    itemNumber: normalizedItemNumber,
+    deltaQty,
+    changeType,
+    notes,
+    createdBy,
+    lotId,
+    unitCost,
+    cost_basis,
+    uom,
+    conversion_factor,
+    ledger_ref,
+    preventNegative,
+    setAbsoluteQty,
+    context,
+  });
+  if (rpcOutcome) return rpcOutcome;
+
+  // Legacy fallback (demo mode / offline resilient mode only): the original
+  // read-modify-write path. Single-process local state, so the concurrency
+  // hazard the RPC eliminates does not apply here.
+  const item = await fetchInventoryByItemNumber(normalizedItemNumber, context);
   const prevQty = roundQty(item.on_hand_qty);
   const nextQty = setAbsoluteQty != null
     ? roundQty(setAbsoluteQty)
@@ -213,4 +335,5 @@ module.exports = {
   transferInventoryLedgerEntry,
   formatLedgerError,
   toNumber,
+  isMissingRpcError,
 };

@@ -27,6 +27,8 @@ const { recordPoInvoiceScan } = require('../services/purchase-order-workflows');
 const { getAiScanErrorResponse } = require('../services/ai-errors');
 const { clientError } = require('../lib/safe-error');
 const { filterRowsByContext, scopeQueryByContext } = require('../services/operating-context');
+const logger = require('../services/logger');
+const { escapeLike } = require('../lib/escape-like'); // BE-005: literal matching for user-supplied search terms
 
 const router = express.Router();
 const MAX_SCAN_PAGES = 5;
@@ -112,12 +114,19 @@ async function runScopedQuery(query, context) {
   return filterRowsByContext(data || [], context);
 }
 
+// BE-008: optional queries tolerate missing legacy tables, but unexpected
+// errors must be visible — a wrong table name was silently indistinguishable
+// from a legitimately empty result here.
 async function runOptionalScopedQuery(query, context) {
   try {
     const { data, error } = await scopeQueryByContext(query, context);
-    if (error) return [];
+    if (error) {
+      logger.warn({ err: error.message, code: error.code }, 'ai: optional scoped query failed — returning empty result');
+      return [];
+    }
     return filterRowsByContext(data || [], context);
-  } catch {
+  } catch (err) {
+    logger.warn({ err: err?.message || String(err) }, 'ai: optional scoped query threw — returning empty result');
     return [];
   }
 }
@@ -125,7 +134,7 @@ async function runOptionalScopedQuery(query, context) {
 async function searchTableByTerms({ table, field, select, terms, context, limit = 5, orderField = null }) {
   const matches = [];
   for (const term of terms || []) {
-    let query = supabase.from(table).select(select).ilike(field, `%${term}%`).limit(limit);
+    let query = supabase.from(table).select(select).ilike(field, `%${escapeLike(term)}%`).limit(limit);
     if (orderField) query = query.order(orderField, { ascending: false });
     const rows = await runScopedQuery(query, context);
     matches.push(...rows);
@@ -169,14 +178,14 @@ async function searchInventoryByTerms({ terms, context, limit = 5 }) {
       runOptionalScopedQuery(
         supabase.from('products')
           .select(CHAT_INVENTORY_SELECT)
-          .ilike('description', `%${term}%`)
+          .ilike('description', `%${escapeLike(term)}%`)
           .limit(limit),
         context
       ),
       runOptionalScopedQuery(
         supabase.from('seafood_inventory')
           .select(CHAT_INVENTORY_SELECT)
-          .ilike('description', `%${term}%`)
+          .ilike('description', `%${escapeLike(term)}%`)
           .limit(limit),
         context
       ),
@@ -249,7 +258,7 @@ async function loadChatContext(message, context = {}) {
       : Promise.resolve([]),
     shouldLoadCustomers
       ? runScopedQuery(
-        supabase.from('customers')
+        supabase.from('Customers')
           .select('id,customer_number,company_name,credit_hold_reason')
           .order('company_name', { ascending: true })
           .limit(25),
@@ -278,7 +287,7 @@ async function loadChatContext(message, context = {}) {
       : Promise.resolve([]),
     searchTerms.length
       ? searchTableByTerms({
-        table: 'customers',
+        table: 'Customers',
         field: 'company_name',
         select: 'id,customer_number,company_name,credit_hold_reason',
         terms: searchTerms,
@@ -584,7 +593,7 @@ router.post('/optimize-route', authenticateToken, requireRole('admin', 'manager'
     let customerMap = {};
     if (customerIds.length) {
       const { data: customers } = await scopeQueryByContext(supabase
-        .from('customers')
+        .from('Customers')
         .select('customer_number,company_name,preferred_delivery_window,company_id,location_id'), req.context)
         .in('customer_number', customerIds);
       (customers || []).forEach((customer) => {
@@ -610,7 +619,7 @@ router.post('/customer-risk', authenticateToken, requireRole('admin', 'manager')
   if (!customerId) return res.status(400).json({ error: 'customer_id is required' });
 
   try {
-    const { data: customer, error: cErr } = await scopeQueryByContext(supabase.from('customers').select('*'), req.context).eq('customer_number', customerId).single();
+    const { data: customer, error: cErr } = await scopeQueryByContext(supabase.from('Customers').select('*'), req.context).eq('customer_number', customerId).single();
     if (cErr || !customer) return res.status(404).json({ error: 'Customer not found' });
 
     const since = new Date(Date.now() - 90 * 86400000).toISOString();
@@ -786,7 +795,7 @@ router.post('/invoice-followup', authenticateToken, requireRole('admin', 'manage
 
     let customer = {};
     if (invoice.customer_name) {
-      const { data: cust } = await scopeQueryByContext(supabase.from('customers').select('company_name,email,payment_terms,credit_hold_reason,company_id,location_id'), req.context).ilike('company_name', invoice.customer_name).limit(1).single();
+      const { data: cust } = await scopeQueryByContext(supabase.from('Customers').select('company_name,email,payment_terms,credit_hold_reason,company_id,location_id'), req.context).ilike('company_name', invoice.customer_name).limit(1).single();
       customer = cust || {};
     }
 

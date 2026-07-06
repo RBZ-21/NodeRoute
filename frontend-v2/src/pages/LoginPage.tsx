@@ -23,7 +23,10 @@ function nextDestination(search: string) {
 
 function landingFor(role: string | undefined, next: string) {
   if (next) return next;
-  return String(role || '').toLowerCase() === 'driver' ? '/driver' : '/dashboard';
+  const normalized = String(role || '').toLowerCase();
+  if (normalized === 'driver') return '/driver';
+  if (normalized === 'superadmin') return '/superadmin';
+  return '/dashboard';
 }
 
 export function LoginPage() {

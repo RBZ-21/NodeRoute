@@ -5,6 +5,7 @@ const crypto = require('crypto');
 const { supabase } = require('../../services/supabase');
 const { createConfiguredMailers } = require('../../services/email');
 const { PORTAL_JWT_SECRET } = require('../../lib/config');
+const { escapeLike } = require('../../lib/escape-like'); // BE-005: emails may contain LIKE wildcards (e.g. underscores)
 
 const PORTAL_CODE_TTL_MS = Number(process.env.PORTAL_CODE_TTL_MS || 10 * 60 * 1000);
 const PORTAL_MAX_VERIFY_ATTEMPTS = Number(process.env.PORTAL_MAX_VERIFY_ATTEMPTS || 5);
@@ -120,7 +121,7 @@ async function resolvePortalCustomer(email) {
   const { data: invoices, error: invoiceError } = await supabase
     .from('invoices')
     .select('customer_name,customer_email,company_id,location_id,created_at')
-    .ilike('customer_email', normalized)
+    .ilike('customer_email', escapeLike(normalized))
     .order('created_at', { ascending: false })
     .limit(10);
   if (invoiceError) throw invoiceError;
@@ -138,7 +139,7 @@ async function resolvePortalCustomer(email) {
   const { data: orders, error: orderError } = await supabase
     .from('orders')
     .select('customer_name,customer_email,company_id,location_id,created_at')
-    .ilike('customer_email', normalized)
+    .ilike('customer_email', escapeLike(normalized))
     .order('created_at', { ascending: false })
     .limit(10);
   if (orderError) throw orderError;
@@ -156,7 +157,7 @@ async function resolvePortalCustomer(email) {
   const { data: customers } = await supabase
     .from('Customers')
     .select('company_name, billing_email, company_id, location_id')
-    .ilike('billing_email', normalized)
+    .ilike('billing_email', escapeLike(normalized))
     .limit(10);
   const customer = uniquePortalTenantMatch(customers || []);
   if (customer) {
@@ -173,7 +174,7 @@ async function resolvePortalCustomer(email) {
     const { data: users, error: userError } = await supabase
       .from('users')
       .select('*')
-      .ilike('email', normalized)
+      .ilike('email', escapeLike(normalized))
       .limit(1);
     if (userError) throw userError;
     const user = Array.isArray(users) ? users[0] : null;

@@ -6,7 +6,41 @@
  * Returns { depleted: [{lot_id, lot_number, qty_taken}], remaining: number }
  * remaining > 0 means lots ran out before totalQty was satisfied.
  */
+// BE-001: detect "RPC not deployed" separately from real failures.
+function isMissingRpcError(error) {
+  const code = String(error?.code || '');
+  if (code === 'PGRST202' || code === '42883') return true;
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('could not find the function') || message.includes('does not exist');
+}
+
 async function depleteLotsFefo(supabase, itemNumber, totalQty, { createdBy, context }) {
+  // BE-001: prefer the atomic DB-side depletion (row locks + single txn in
+  // deplete_lots_fefo). Falls through to the legacy per-lot loop when the RPC
+  // is unavailable (demo mode, offline resilient mode, or migration not yet
+  // applied) — the demo path is single-process, so the concurrency hazard the
+  // RPC eliminates does not apply there.
+  if (typeof supabase.rpc === 'function') {
+    const rpcResult = await supabase.rpc('deplete_lots_fefo', {
+      p_item_number: itemNumber,
+      p_total_qty: parseFloat(totalQty),
+    });
+    if (rpcResult && rpcResult.error && !isMissingRpcError(rpcResult.error)) {
+      throw new Error(rpcResult.error.message);
+    }
+    const payload = rpcResult && rpcResult.data;
+    if (payload && typeof payload === 'object' && Array.isArray(payload.depleted)) {
+      return {
+        depleted: payload.depleted.map((entry) => ({
+          lot_id: entry.lot_id,
+          lot_number: entry.lot_number,
+          qty_taken: parseFloat(entry.qty_taken) || 0,
+        })),
+        remaining: parseFloat(payload.remaining) || 0,
+      };
+    }
+  }
+
   let remaining = parseFloat(totalQty);
   const depleted = [];
 

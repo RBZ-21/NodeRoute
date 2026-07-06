@@ -165,15 +165,23 @@ function requireRole(...roles) {
  *
  * Passes only when BOTH conditions are met:
  *   1. req.user.role === 'superadmin'
- *   2. normalizeEmail(req.user.email) === normalizeEmail(SUPERADMIN_EMAIL)
+ *   2. normalizeEmail(req.user.email) is in the SUPERADMIN_EMAIL allow-list
+ *      (comma-separated; a single email keeps working unchanged)
  *
  * The error response is intentionally generic — it does not reveal which
  * check failed so an attacker cannot probe which email addresses are
  * privileged.
  *
  * When SUPERADMIN_EMAIL is unset (sentinel '__superadmin_unset__'), the
- * email check never passes, so the gate is fail-closed by default.
+ * allow-list is empty, so the gate is fail-closed by default.
  */
+function configuredSuperadminEmails() {
+  return String(SUPERADMIN_EMAIL || '')
+    .split(',')
+    .map((value) => normalizeEmail(value))
+    .filter((value) => value && value !== '__superadmin_unset__');
+}
+
 function requireSuperadmin(req, res, next) {
   if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -182,16 +190,13 @@ function requireSuperadmin(req, res, next) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
-  const configuredEmail = normalizeEmail(SUPERADMIN_EMAIL);
-  const requestEmail = normalizeEmail(req.user.email);
-  if (
-    req.user.role === 'superadmin'
-    && requestEmail !== configuredEmail
-  ) {
+  const allowedEmails = configuredSuperadminEmails();
+  const requestEmail  = normalizeEmail(req.user.email);
+  if (!allowedEmails.includes(requestEmail)) {
     return res.status(403).json({ error: 'Forbidden' });
   }
 
   next();
 }
 
-module.exports = { authenticateToken, requireRole, requireSuperadmin, extractToken };
+module.exports = { authenticateToken, requireRole, requireSuperadmin, configuredSuperadminEmails, extractToken };

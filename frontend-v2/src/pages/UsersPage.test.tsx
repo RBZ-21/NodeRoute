@@ -124,4 +124,24 @@ describe('UsersPage', () => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/users/user-2', 'DELETE');
     });
   });
+
+  it('offers Warehouse as an assignable role and can promote a user to it', async () => {
+    sendWithAuthMock.mockResolvedValue({});
+
+    renderWithQueryClient(<UsersPage />);
+
+    expect(await screen.findByText('Jamie Driver')).toBeInTheDocument();
+
+    const inviteRoleSelects = screen.getAllByLabelText('Role');
+    for (const select of inviteRoleSelects) {
+      expect(within(select).getByRole('option', { name: 'Warehouse' })).toBeInTheDocument();
+    }
+
+    const jamieRow = screen.getByText('Jamie Driver').closest('tr') as HTMLElement | null;
+    if (!jamieRow) throw new Error('Expected Jamie row');
+    fireEvent.change(jamieRow.querySelector('select') as HTMLSelectElement, { target: { value: 'warehouse' } });
+    await waitFor(() => {
+      expect(sendWithAuthMock).toHaveBeenCalledWith('/api/users/user-2/role', 'PATCH', { role: 'warehouse' });
+    });
+  });
 });

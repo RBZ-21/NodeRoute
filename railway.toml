@@ -4,3 +4,6 @@ buildCommand = "npm install --include=dev && npm run build"
 [deploy]
 startCommand = "NODE_ENV=production node backend/server.js"
 restartPolicyType = "on_failure"
+# OPS-003: gate deploys on the existing health endpoint (backend/server.js)
+# so Railway only routes traffic once the app is actually serving.
+healthcheckPath = "/healthz"
