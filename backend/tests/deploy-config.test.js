@@ -40,3 +40,23 @@ test('Node 20 is pinned consistently across CI, engines, nvmrc, and Nixpacks', (
   assert.equal(read('.nvmrc').trim(), '20', '.nvmrc must pin Node 20');
   assert.match(read('nixpacks.toml'), /NIXPACKS_NODE_VERSION\s*=\s*"20"/, 'nixpacks.toml must pin Node 20');
 });
+
+// OPS-006 regression (Root Depth Scan): dotenv was declared at different
+// majors (17 root, 16 backend) and root carried duplicate/unowned copies of
+// @sentry/node, resend, and twilio that backend code actually imports.
+test('dependency ownership: dotenv aligned, runtime deps live in backend', () => {
+  const rootPkg = JSON.parse(read('package.json'));
+  const backendPkg = JSON.parse(read('backend/package.json'));
+
+  const rootDotenv = rootPkg.dependencies?.dotenv || '';
+  const backendDotenv = backendPkg.dependencies?.dotenv || '';
+  const major = (spec) => (String(spec).match(/(\d+)/) || [])[1];
+  assert.ok(rootDotenv && backendDotenv, 'dotenv must be declared where used (root scripts + backend)');
+  assert.equal(major(rootDotenv), major(backendDotenv), 'dotenv majors must match across package.json files');
+
+  // Backend imports these — backend must own them.
+  for (const dep of ['@sentry/node', 'resend', 'twilio']) {
+    assert.ok(backendPkg.dependencies?.[dep], `backend/package.json must declare ${dep}`);
+    assert.ok(!rootPkg.dependencies?.[dep], `root package.json must not duplicate ${dep}`);
+  }
+});
