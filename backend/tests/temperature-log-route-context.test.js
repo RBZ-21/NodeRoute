@@ -8,6 +8,7 @@ if (!process.env.JWT_SECRET) process.env.JWT_SECRET = 'test-dev-secret';
 const repoRoot = path.resolve(__dirname, '..', '..');
 const routeSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'temperature-logs.js'), 'utf8');
 const migrationSource = fs.readFileSync(path.join(repoRoot, 'supabase', 'migrations', '20260508000200_temperature_log_route_stop_context.sql'), 'utf8');
+const integrityMigrationSource = fs.readFileSync(path.join(repoRoot, 'supabase', 'migrations', '20260706212223_db011_temperature_log_integrity.sql'), 'utf8');
 const driverPageSource = fs.readFileSync(path.join(repoRoot, 'driver-app', 'src', 'pages', 'TemperatureLogPage.tsx'), 'utf8');
 
 const {
@@ -59,4 +60,17 @@ test('temperature log route and driver UI markers are present', () => {
   assert.ok(driverPageSource.includes('stop_id: stop?.id || null'), 'driver page should submit current stop id');
   assert.ok(migrationSource.includes('add column if not exists route_id text'), 'migration should add route_id');
   assert.ok(migrationSource.includes('add column if not exists stop_id text'), 'migration should add stop_id');
+});
+
+test('temperature log integrity migration requires recorder fields and validates route stop FKs', () => {
+  assert.match(integrityMigrationSource, /set recorded_by = 'unknown'/i);
+  assert.match(integrityMigrationSource, /alter column recorded_by set not null/i);
+  assert.match(integrityMigrationSource, /set initials = 'unknown'/i);
+  assert.match(integrityMigrationSource, /alter column initials set not null/i);
+  assert.match(integrityMigrationSource, /alter column route_id type uuid/i);
+  assert.match(integrityMigrationSource, /foreign key \(route_id\)\s+references public\.routes\(id\)\s+on delete set null\s+not valid/i);
+  assert.match(integrityMigrationSource, /validate constraint temperature_logs_route_id_fkey/i);
+  assert.match(integrityMigrationSource, /alter column stop_id type uuid/i);
+  assert.match(integrityMigrationSource, /foreign key \(stop_id\)\s+references public\.stops\(id\)\s+on delete set null\s+not valid/i);
+  assert.match(integrityMigrationSource, /validate constraint temperature_logs_stop_id_fkey/i);
 });
