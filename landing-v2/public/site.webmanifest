@@ -1,0 +1,16 @@
+{
+  "name": "NodeRoute Systems",
+  "short_name": "NodeRoute",
+  "description": "Delivery operations software for small wholesale and local delivery teams.",
+  "start_url": "/",
+  "display": "browser",
+  "background_color": "#070b12",
+  "theme_color": "#070b12",
+  "icons": [
+    {
+      "src": "/noderoute-logo.png",
+      "type": "image/png",
+      "sizes": "any"
+    }
+  ]
+}
