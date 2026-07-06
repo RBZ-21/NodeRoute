@@ -37,7 +37,7 @@ struct StopRow: View {
                 VStack(alignment: .leading, spacing: 4) {
                     Text(stop.name ?? "Customer stop")
                         .font(.headline)
-                        .foregroundStyle(.nrInk)
+                        .foregroundStyle(Color.nrInk)
                     Text(stop.address ?? "Address unavailable")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)

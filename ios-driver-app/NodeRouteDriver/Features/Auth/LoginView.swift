@@ -18,7 +18,7 @@ struct LoginView: View {
                         .foregroundStyle(.secondary)
                     Text("NodeRoute Driver")
                         .font(.largeTitle.weight(.bold))
-                        .foregroundStyle(.nrInk)
+                        .foregroundStyle(Color.nrInk)
                     Text("Sync routes, invoices, and proof-of-delivery updates before the wheels start turning.")
                         .foregroundStyle(.secondary)
                 }

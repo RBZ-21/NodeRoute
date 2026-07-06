@@ -7,7 +7,7 @@ import CoreLocation
 /// authorization (no background-location capability required) because updates only
 /// flow while the stop screen is on-screen and the app is in the foreground.
 @MainActor
-final class LocationManager: NSObject, CLLocationManagerDelegate {
+final class LocationManager: NSObject, @preconcurrency CLLocationManagerDelegate {
     private let manager: CLLocationManager
     private let minInterval: TimeInterval
     private var lastSentAt: Date = .distantPast

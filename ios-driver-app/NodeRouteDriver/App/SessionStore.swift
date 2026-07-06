@@ -88,7 +88,7 @@ final class SessionStore {
         defer { isLoading = false }
 
         do {
-            let response = try await apiClient.login(email: email, password: password)
+            let response = try await apiClient.login(email, password)
             token = response.token
             user = response.user
             try tokenStore.save(response.token, kind: .access)
@@ -125,10 +125,10 @@ final class SessionStore {
         }
 
         do {
-            async let routes = apiClient.driverRoutes(token: token)
-            async let invoices = apiClient.driverInvoices(token: token)
-            async let deliveries = apiClient.deliveries(token: token)
-            async let summary = apiClient.driverSummary(token: token)
+            async let routes = apiClient.driverRoutes(token)
+            async let invoices = apiClient.driverInvoices(token)
+            async let deliveries = apiClient.deliveries(token)
+            async let summary = apiClient.driverSummary(token)
 
             self.routes = try await routes
             self.invoices = try await invoices
