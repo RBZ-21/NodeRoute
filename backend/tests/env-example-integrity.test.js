@@ -40,6 +40,19 @@ test('.env.example declares every variable exactly once', () => {
   }
 });
 
+test('.env.example documents Supabase pooler host as an explicit override', () => {
+  const envExample = fs.readFileSync(path.join(repoRoot, '.env.example'), 'utf8');
+  const dbUrlScript = fs.readFileSync(path.join(repoRoot, 'scripts', 'supabase-db-url.mjs'), 'utf8');
+
+  assert.ok(dbUrlScript.includes("const directHost = `db.${projectRef}.supabase.co`;"));
+  assert.ok(dbUrlScript.includes('const poolerHost = parsed.SUPABASE_POOLER_HOST;'));
+  assert.ok(
+    envExample.includes('Optional transaction pooler host override. When unset, scripts/supabase-db-url.mjs uses the direct db.<ref>.supabase.co host.'),
+    'SUPABASE_POOLER_HOST comment should match the direct-host default',
+  );
+  assert.ok(!envExample.includes('default: aws-0-us-west-2.pooler.supabase.com'));
+});
+
 // OPS-005 regression (Root Depth Scan): 21+ env vars were used in code but
 // undeclared in .env.example, and ~10 declared vars were dead. This scans
 // every process.env / import.meta.env reference and asserts each is declared.
