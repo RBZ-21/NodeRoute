@@ -22,6 +22,8 @@ import {
   clearQueuedStopNoteUpdates,
   clearQueuedTemperatureLogs,
   clearSensitiveStorage,
+  deadLetterQueuedStopNoteUpdate,
+  deadLetterQueuedTemperatureLog,
   deletePodDraftPhoto,
   enqueueStopNoteUpdate,
   enqueueTemperatureLog,
@@ -261,6 +263,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
 
     const remaining = [];
     let flushedCount = 0;
+    let deadLetteredCount = 0;
 
     for (let index = 0; index < queuedLogs.length; index += 1) {
       const entry = queuedLogs[index];
@@ -272,8 +275,9 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
           await logout();
           return;
         }
-        remaining.push(...queuedLogs.slice(index));
-        break;
+        deadLetterQueuedTemperatureLog(entry, error);
+        deadLetteredCount += 1;
+        continue;
       }
     }
 
@@ -293,6 +297,14 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
         'success',
       );
     }
+    if (deadLetteredCount > 0) {
+      pushToast(
+        deadLetteredCount === 1
+          ? '1 queued temperature log could not sync and was moved aside.'
+          : `${deadLetteredCount} queued temperature logs could not sync and were moved aside.`,
+        'error',
+      );
+    }
   }
 
   async function flushQueuedStopNoteUpdates() {
@@ -301,6 +313,7 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
 
     const remaining = [];
     let flushedCount = 0;
+    let deadLetteredCount = 0;
 
     for (let index = 0; index < queuedUpdates.length; index += 1) {
       const entry = queuedUpdates[index];
@@ -313,8 +326,9 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
           await logout();
           return;
         }
-        remaining.push(...queuedUpdates.slice(index));
-        break;
+        deadLetterQueuedStopNoteUpdate(entry, error);
+        deadLetteredCount += 1;
+        continue;
       }
     }
 
@@ -332,6 +346,14 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
           ? '1 queued stop note synced.'
           : `${flushedCount} queued stop notes synced.`,
         'success',
+      );
+    }
+    if (deadLetteredCount > 0) {
+      pushToast(
+        deadLetteredCount === 1
+          ? '1 queued stop note could not sync and was moved aside.'
+          : `${deadLetteredCount} queued stop notes could not sync and were moved aside.`,
+        'error',
       );
     }
   }

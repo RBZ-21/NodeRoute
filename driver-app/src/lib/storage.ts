@@ -6,8 +6,10 @@ export const USER_STORAGE_KEY = 'nr_driver_user';
 export const CACHE_STORAGE_KEY = 'nr_driver_cache';
 export const ROUTE_STORAGE_KEY = 'nr_driver_route';
 export const TEMPERATURE_LOG_QUEUE_KEY = 'nr_driver_temperature_log_queue';
+export const TEMPERATURE_LOG_DEAD_LETTER_KEY = 'nr_driver_temperature_log_dead_letter';
 export const OFFLINE_ROUTE_PACK_KEY = 'nr_driver_offline_route_pack';
 export const STOP_NOTE_QUEUE_KEY = 'nr_driver_stop_note_queue';
+export const STOP_NOTE_DEAD_LETTER_KEY = 'nr_driver_stop_note_dead_letter';
 export const STOP_DRAFTS_KEY = 'nr_driver_stop_drafts';
 export const POD_DRAFT_PHOTO_DB_NAME = 'noderoute-driver-pod-drafts';
 
@@ -26,6 +28,11 @@ type PodDraftPhotoRecord = {
   mimeType: string;
   createdAt: number;
   expiresAt: number;
+};
+
+type DeadLetteredQueueEntry<T> = T & {
+  failedAt: string;
+  errorMessage: string;
 };
 
 let tokenCache: TokenStore = {};
@@ -81,6 +88,30 @@ function sanitizeStopDraftMap(map: Record<string, StopDraft>) {
   return Object.fromEntries(
     Object.entries(map).map(([stopId, draft]) => [stopId, sanitizeStopDraftForLocalStorage(draft)])
   ) as Record<string, StopDraft>;
+}
+
+function getQueueErrorMessage(error: unknown) {
+  return error instanceof Error && error.message.trim() ? error.message : 'Unknown offline sync error';
+}
+
+function appendDeadLetter<T>(key: string, entry: T, error: unknown) {
+  const raw = window.localStorage.getItem(key);
+  let current: Array<DeadLetteredQueueEntry<T>> = [];
+  if (raw) {
+    try {
+      const parsed = JSON.parse(raw);
+      current = Array.isArray(parsed) ? parsed as Array<DeadLetteredQueueEntry<T>> : [];
+    } catch {
+      current = [];
+    }
+  }
+
+  current.push({
+    ...entry,
+    failedAt: new Date().toISOString(),
+    errorMessage: getQueueErrorMessage(error),
+  });
+  window.localStorage.setItem(key, JSON.stringify(current));
 }
 
 export async function savePodDraftPhoto(stopId: string, dataUrl: string, existingId?: string | null) {
@@ -297,6 +328,14 @@ export function clearQueuedTemperatureLogs() {
   window.localStorage.removeItem(TEMPERATURE_LOG_QUEUE_KEY);
 }
 
+export function deadLetterQueuedTemperatureLog(entry: QueuedTemperatureLog, error: unknown) {
+  appendDeadLetter(TEMPERATURE_LOG_DEAD_LETTER_KEY, entry, error);
+}
+
+export function clearDeadLetteredTemperatureLogs() {
+  window.localStorage.removeItem(TEMPERATURE_LOG_DEAD_LETTER_KEY);
+}
+
 export function loadOfflineRoutePackStatus() {
   const raw = window.localStorage.getItem(OFFLINE_ROUTE_PACK_KEY);
   if (!raw) return null as OfflineRoutePackStatus | null;
@@ -340,6 +379,14 @@ export function enqueueStopNoteUpdate(entry: QueuedStopNoteUpdate) {
 
 export function clearQueuedStopNoteUpdates() {
   window.localStorage.removeItem(STOP_NOTE_QUEUE_KEY);
+}
+
+export function deadLetterQueuedStopNoteUpdate(entry: QueuedStopNoteUpdate, error: unknown) {
+  appendDeadLetter(STOP_NOTE_DEAD_LETTER_KEY, entry, error);
+}
+
+export function clearDeadLetteredStopNoteUpdates() {
+  window.localStorage.removeItem(STOP_NOTE_DEAD_LETTER_KEY);
 }
 
 function loadStopDraftMap() {
@@ -417,6 +464,8 @@ export async function clearSensitiveStorage() {
   // Offline queues that may contain customer-identifying actions.
   clearQueuedTemperatureLogs();
   clearQueuedStopNoteUpdates();
+  clearDeadLetteredTemperatureLogs();
+  clearDeadLetteredStopNoteUpdates();
   // Stop drafts in localStorage + proof photos in IndexedDB.
   clearAllStopDrafts();
   clearOfflineStatusConflicts();
