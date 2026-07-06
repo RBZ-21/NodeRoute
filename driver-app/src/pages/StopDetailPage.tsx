@@ -6,7 +6,7 @@ import { useDriverApp } from '@/hooks/useDriverApp';
 import { useLocationUpdater } from '@/hooks/useLocationUpdater';
 import { useToast } from '@/hooks/useToast';
 import { clearStopDraft, loadPodDraftPhoto, loadStopDraft, savePodDraftPhoto, saveStopDraft } from '@/lib/storage';
-import { formatSchedule } from '@/lib/utils';
+import { formatSchedule, isDeliveredStatus, normalize } from '@/lib/utils';
 import type { DriverStop } from '@/types';
 
 export const FAILURE_REASON_OPTIONS = [
@@ -34,6 +34,7 @@ export function StopDetailPage() {
   const {
     captureSignature,
     companySettings,
+    currentRoute,
     deferStopToEnd,
     getStopStatusConflict,
     isOnline,
@@ -46,9 +47,14 @@ export function StopDetailPage() {
     stopById,
     stopItems,
   } = useDriverApp();
-  const { sendLocation } = useLocationUpdater(true);
   const { pushToast } = useToast();
   const stop = stopId ? stopById(stopId) : null;
+  const activeRouteStops = currentRoute?.stops ?? [];
+  const hasActiveRouteWork = activeRouteStops.length > 0 && activeRouteStops.some(
+    (routeStop) => !isDeliveredStatus(routeStop.status) && normalize(routeStop.status) !== 'failed'
+  );
+  const routeLocationUpdatesEnabled = Boolean(currentRoute && stop && hasActiveRouteWork);
+  const { sendLocation } = useLocationUpdater(routeLocationUpdatesEnabled);
   const initialDraft = stopId ? loadStopDraft(stopId) : null;
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [proofImage, setProofImage] = useState<string | null>(initialDraft?.proofImage || null);
@@ -251,7 +257,7 @@ export function StopDetailPage() {
         setProofImageDraftId(null);
       }
 
-      await sendLocation();
+      await sendLocation({ userInitiated: true });
     } catch (error) {
       pushToast(error instanceof Error ? error.message : 'Unable to update the stop.', 'error');
     } finally {

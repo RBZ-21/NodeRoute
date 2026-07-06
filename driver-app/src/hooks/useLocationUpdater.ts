@@ -1,15 +1,26 @@
-import { useEffect, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { pingDriverLocation } from '@/lib/api';
 
 const LOCATION_UPDATE_MIN_INTERVAL_MS = 5000;
+const LOCATION_UPDATE_INTERVAL_MS = 60000;
+const LOCATION_UPDATE_IDLE_TIMEOUT_MS = 30 * 60 * 1000;
+
+type SendLocationOptions = {
+  userInitiated?: boolean;
+};
 
 export function useLocationUpdater(enabled: boolean, onSuccess?: () => void) {
   const hasWarnedRef = useRef(false);
   const lastSentAtRef = useRef(0);
+  const lastActiveAtRef = useRef(Date.now());
 
-  async function sendLocation() {
+  const sendLocation = useCallback(async (options: SendLocationOptions = {}) => {
     if (!enabled || !window.navigator.geolocation) return;
     const now = Date.now();
+    if (options.userInitiated) {
+      lastActiveAtRef.current = now;
+    }
+    if (now - lastActiveAtRef.current > LOCATION_UPDATE_IDLE_TIMEOUT_MS) return;
     if (now - lastSentAtRef.current < LOCATION_UPDATE_MIN_INTERVAL_MS) return;
     lastSentAtRef.current = now;
 
@@ -41,20 +52,21 @@ export function useLocationUpdater(enabled: boolean, onSuccess?: () => void) {
         }
       );
     });
-  }
+  }, [enabled, onSuccess]);
 
   useEffect(() => {
     if (!enabled) return;
 
-    void sendLocation();
+    lastActiveAtRef.current = Date.now();
+    void sendLocation({ userInitiated: true });
     const timer = window.setInterval(() => {
       if (document.visibilityState === 'visible') {
         void sendLocation();
       }
-    }, 60000);
+    }, LOCATION_UPDATE_INTERVAL_MS);
 
     return () => window.clearInterval(timer);
-  }, [enabled]);
+  }, [enabled, sendLocation]);
 
   return { sendLocation };
 }

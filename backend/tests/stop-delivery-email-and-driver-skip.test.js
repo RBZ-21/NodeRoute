@@ -8,6 +8,7 @@ const stopsRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes'
 const driverApiSource = fs.readFileSync(path.join(repoRoot, 'driver-app', 'src', 'lib', 'api.ts'), 'utf8');
 const stopDetailPageSource = fs.readFileSync(path.join(repoRoot, 'driver-app', 'src', 'pages', 'StopDetailPage.tsx'), 'utf8');
 const driverAppHookSource = fs.readFileSync(path.join(repoRoot, 'driver-app', 'src', 'hooks', 'useDriverApp.tsx'), 'utf8');
+const driverLocationUpdaterSource = fs.readFileSync(path.join(repoRoot, 'driver-app', 'src', 'hooks', 'useLocationUpdater.ts'), 'utf8');
 
 test('stop depart email follows the stop invoice instead of customer fallback order lookup', () => {
   for (const marker of [
@@ -63,5 +64,30 @@ test('driver app supports a two-tap proof-of-delivery completion path', () => {
     "? 'Capture Photo + Deliver'",
   ]) {
     assert.ok(stopDetailPageSource.includes(marker), `driver POD flow missing marker ${marker}`);
+  }
+});
+
+test('driver location updates require active route work and expire after idle timeout', () => {
+  for (const marker of [
+    'const activeRouteStops = currentRoute?.stops ?? [];',
+    'const hasActiveRouteWork = activeRouteStops.length > 0 && activeRouteStops.some(',
+    'const routeLocationUpdatesEnabled = Boolean(currentRoute && stop && hasActiveRouteWork);',
+    'useLocationUpdater(routeLocationUpdatesEnabled);',
+  ]) {
+    assert.ok(stopDetailPageSource.includes(marker), `stop detail location gating missing marker ${marker}`);
+  }
+
+  assert.ok(
+    !stopDetailPageSource.includes('useLocationUpdater(true)'),
+    'driver location updater should not be hardcoded enabled',
+  );
+
+  for (const marker of [
+    'const LOCATION_UPDATE_IDLE_TIMEOUT_MS = 30 * 60 * 1000;',
+    'const lastActiveAtRef = useRef(Date.now());',
+    'if (now - lastActiveAtRef.current > LOCATION_UPDATE_IDLE_TIMEOUT_MS) return;',
+    'void sendLocation({ userInitiated: true });',
+  ]) {
+    assert.ok(driverLocationUpdaterSource.includes(marker), `location updater idle cutoff missing marker ${marker}`);
   }
 });
