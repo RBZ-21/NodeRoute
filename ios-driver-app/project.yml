@@ -15,6 +15,7 @@ targets:
       - NodeRouteDriver
     settings:
       base:
+        GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.noderoute.driver
         INFOPLIST_KEY_CFBundleDisplayName: NodeRoute Driver
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.business
