@@ -85,6 +85,26 @@ test('lot-depletion service implements FEFO ordering', () => {
   assert.ok(inventoryRouteSource.includes('depleteLotsFefo'), 'inventory pick route must call depleteLotsFefo');
 });
 
+// BE-003 regression (Root Depth Scan): /ledger applied the DB LIMIT before
+// any tenant filter, then filtered by company in JS — truncating results for
+// small tenants whenever other tenants' rows filled the page.
+test('inventory /ledger route applies tenant scope in the DB query before LIMIT', () => {
+  const handlerStart = inventoryRouteSource.indexOf("router.get('/ledger'");
+  assert.ok(handlerStart >= 0, '/ledger handler missing');
+  const handlerEnd = inventoryRouteSource.indexOf('router.', handlerStart + 10);
+  const handler = inventoryRouteSource.slice(handlerStart, handlerEnd);
+
+  const scopeIndex = handler.indexOf('scopeQueryByContext');
+  const limitIndex = handler.indexOf('.limit(limit)');
+  assert.ok(scopeIndex >= 0, '/ledger must scope via scopeQueryByContext in the DB query');
+  assert.ok(limitIndex >= 0, '/ledger must retain its LIMIT');
+  assert.ok(scopeIndex < limitIndex, 'tenant scope must be applied BEFORE the LIMIT');
+  assert.ok(
+    !/from\('inventory_stock_history'\)\s*\n?\s*\.select\('\*'\)\s*\n?\s*\.order/.test(handler),
+    '/ledger must not build an unscoped query before ordering/limiting'
+  );
+});
+
 test('depleteLotsFefo correctly applies FEFO order and returns remaining qty', async () => {
   const { depleteLotsFefo: fefo } = require(path.join(repoRoot, 'backend', 'services', 'lot-depletion.js'));
 

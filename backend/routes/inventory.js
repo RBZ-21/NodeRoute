@@ -990,9 +990,13 @@ router.get('/ledger', authenticateToken, async (req, res) => {
   const itemNumber = String(req.query.item_number || '').trim();
   const changeType = String(req.query.change_type || '').trim().toLowerCase();
 
-  let query = supabase
-    .from('inventory_stock_history')
-    .select('*')
+  // BE-003: tenant scope must be applied in the DB query BEFORE the LIMIT —
+  // filtering after LIMIT in JS truncated results for small tenants when
+  // other tenants' rows filled the page (matches the /:id/history handler).
+  let query = scopeQueryByContext(
+    supabase.from('inventory_stock_history').select('*'),
+    req.context
+  )
     .order('created_at', { ascending: false })
     .limit(limit);
 
