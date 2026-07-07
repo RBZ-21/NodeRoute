@@ -710,7 +710,10 @@ let supabase;
 
 if (shouldUseCloudSupabase) {
   const { createClient } = require('@supabase/supabase-js');
-  const cloudSupabase = createClient(process.env.SUPABASE_URL, serviceRoleKey);
+  const WebSocket = require('ws');
+  const cloudSupabase = createClient(process.env.SUPABASE_URL, serviceRoleKey, {
+    realtime: { transport: WebSocket },
+  });
   supabase = createResilientSupabaseClient(cloudSupabase);
   console.log(`[backup] Resilient data mode enabled. Local backup path: ${backupRoot}`);
 } else if (isProduction) {
