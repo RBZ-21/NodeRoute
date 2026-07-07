@@ -308,6 +308,7 @@ const frontendV2Routes = [
   '/forecast', '/financials', '/pricing', '/purchasing', '/reorder', '/vendors', '/warehouse',
   '/planning', '/integrations', '/aihelp', '/settings', '/reports',
   '/admin/traceability',
+  '/superadmin',
   '/superadmin/companies',
   '/superadmin/waitlist',
   '/sales-rep',
