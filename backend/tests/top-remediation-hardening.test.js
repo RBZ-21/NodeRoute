@@ -19,6 +19,8 @@ const catalogHardeningMigrationSource = read('supabase', 'migrations', '20260702
 const driverStorageSource = read('driver-app', 'src', 'lib', 'storage.ts');
 const offlineQueueSource = read('driver-app', 'src', 'hooks', 'useOfflineQueue.ts');
 const driverAppSource = read('driver-app', 'src', 'hooks', 'useDriverApp.tsx');
+const stopDetailPageSource = read('driver-app', 'src', 'pages', 'StopDetailPage.tsx');
+const syncPageSource = read('driver-app', 'src', 'pages', 'SyncPage.tsx');
 
 test('portal checkout snapshots exact invoice set into Stripe metadata', () => {
   for (const marker of [
@@ -89,4 +91,25 @@ test('driver POD drafts store photos by IndexedDB reference instead of localStor
   assert.ok(offlineQueueSource.includes('const { proofImage, ...safePayload } = payload'));
   assert.ok(driverAppSource.includes('proofImageDraftId'));
   assert.ok(driverAppSource.includes('loadPodDraftPhoto(proofImageDraftId)'));
+});
+
+test('driver POD expiry is surfaced as a conflict without clearing queued photos through drafts', () => {
+  for (const marker of [
+    "const EXPIRED_PROOF_PHOTO_STATUS = 'photo_expired';",
+    'function createExpiredProofPhotoConflict(stopId: string)',
+    'throw createExpiredProofPhotoConflict(entry.stopId);',
+    'Capture a new proof photo before retrying this delivery.',
+  ]) {
+    assert.ok(driverAppSource.includes(marker), `missing expired POD conflict marker ${marker}`);
+  }
+
+  assert.ok(!driverAppSource.includes("throw new Error('Saved proof photo is no longer available on this device.')"));
+  assert.ok(driverStorageSource.includes('const drafts = listStopDrafts();'));
+  assert.ok(driverStorageSource.includes('if (draft.proofImageDraftId) void deletePodDraftPhoto(draft.proofImageDraftId);'));
+  assert.ok(!driverStorageSource.includes('void clearPodDraftPhotos();'));
+  assert.ok(stopDetailPageSource.includes("statusConflict?.serverStatus === 'photo_expired'"));
+  assert.ok(stopDetailPageSource.includes('Proof photo expired'));
+  assert.ok(syncPageSource.includes('Clear saved drafts'));
+  assert.ok(syncPageSource.includes('Remove saved draft'));
+  assert.ok(!syncPageSource.includes('Clear drafts'));
 });

@@ -200,6 +200,10 @@ export function ReceivePoDrawer({ po, onPosted, onClose, setNotice, setFormError
       },
       {
         onSuccess: (updatedPo) => {
+          // FE-002: ignore stale resolutions — only apply the result if it is
+          // for the PO this drawer instance is showing. The parent guard in
+          // PurchasingPage protects the selection; this protects local state.
+          if (updatedPo.id !== po.id) return;
           const latestReceipt = updatedPo.receipts?.[0];
           const acceptedQty = asNumber(latestReceipt?.variance_audit?.total_accepted_qty);
           const rejectedQty = asNumber(latestReceipt?.variance_audit?.total_rejected_qty);

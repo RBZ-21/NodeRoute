@@ -35,7 +35,7 @@ struct RootView: View {
                 LoginView()
             }
         }
-        .tint(.nrOcean)
+        .tint(Color.nrOcean)
         .alert("NodeRoute", isPresented: Binding(
             get: { session.alertMessage != nil },
             set: { if !$0 { session.alertMessage = nil } }

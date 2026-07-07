@@ -78,6 +78,15 @@ function defaultState() {
     report_schedules: [],
     report_runs: [],
     report_delivery_targets: [],
+    platform_plan_tiers: [],
+    platform_plan_features: [],
+    platform_plan_feature_matrix: [],
+    platform_plan_limits: [],
+    platform_addons: [],
+    company_billing_profiles: [],
+    company_feature_entitlements: [],
+    company_addon_entitlements: [],
+    platform_pricing_audit_events: [],
     inventory_alert_rules: [],
     credit_alert_rules: [],
     alert_sends: [],
@@ -771,7 +780,10 @@ let supabase;
 
 if (shouldUseCloudSupabase) {
   const { createClient } = require('@supabase/supabase-js');
-  const cloudSupabase = createClient(process.env.SUPABASE_URL, serviceRoleKey);
+  const WebSocket = require('ws');
+  const cloudSupabase = createClient(process.env.SUPABASE_URL, serviceRoleKey, {
+    realtime: { transport: WebSocket },
+  });
   supabase = createResilientSupabaseClient(cloudSupabase);
   console.log(`[backup] Resilient data mode enabled. Local backup path: ${backupRoot}`);
 } else if (isProduction) {

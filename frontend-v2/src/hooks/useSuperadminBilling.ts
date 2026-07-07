@@ -9,7 +9,8 @@ import type {
 
 export const billingCatalogKey = ['superadmin-billing-catalog'] as const;
 export const billingAnalyticsKey = ['superadmin-billing-analytics'] as const;
-export const companyBillingKey = (companyId: string | null) => ['superadmin-company-billing', companyId] as const;
+export const companyBillingKey = (companyId: string | null) =>
+  ['superadmin-company-billing', companyId] as const;
 
 export function useBillingCatalog() {
   return useQuery({
@@ -35,13 +36,21 @@ export function useCompanyBilling(companyId: string | null) {
 
 export function useSaveCompanyBilling(companyId: string | null) {
   const queryClient = useQueryClient();
+
   return useMutation({
     mutationFn: (payload: SaveCompanyBillingPayload) =>
       sendWithAuth<CompanyBillingResponse>(`/api/superadmin/companies/${companyId}/billing`, 'PATCH', payload),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: billingAnalyticsKey });
-      queryClient.invalidateQueries({ queryKey: companyBillingKey(companyId) });
-      queryClient.invalidateQueries({ queryKey: ['superadmin-companies'] });
+    onSuccess: async () => {
+      const invalidations = [
+        queryClient.invalidateQueries({ queryKey: billingCatalogKey }),
+        queryClient.invalidateQueries({ queryKey: billingAnalyticsKey }),
+      ];
+
+      if (companyId) {
+        invalidations.push(queryClient.invalidateQueries({ queryKey: companyBillingKey(companyId) }));
+      }
+
+      await Promise.all(invalidations);
     },
   });
 }

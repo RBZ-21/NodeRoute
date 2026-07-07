@@ -97,28 +97,28 @@ function customerPayload(source) {
 async function fetchAllCustomers(res) {
   const pageSize = 1000;
   const rows = [];
-  let nextId = 0;
+  // BE-007: keyset pagination on the raw id value. The previous
+  // nextId=0 / .gte / Number(id)+1 pattern assumed numeric ids and silently
+  // truncated to one page whenever ids were not numeric.
+  let cursor = null;
 
   while (true) {
-    const page = await dbQuery(
-      supabase
-        .from('Customers')
-        .select('*')
-        .order('id', { ascending: true })
-        .gte('id', nextId)
-        .limit(pageSize),
-      res
-    );
+    let query = supabase
+      .from('Customers')
+      .select('*')
+      .order('id', { ascending: true })
+      .limit(pageSize);
+    if (cursor != null) query = query.gt('id', cursor);
+
+    const page = await dbQuery(query, res);
     if (!page) return null;
     if (!page.length) break;
 
     rows.push(...page);
-
-    const lastId = Number(page[page.length - 1]?.id);
-    if (!Number.isFinite(lastId)) break;
     if (page.length < pageSize) break;
 
-    nextId = lastId + 1;
+    cursor = page[page.length - 1]?.id;
+    if (cursor == null) break;
   }
 
   return rows.sort((a, b) => {

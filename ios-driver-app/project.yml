@@ -15,10 +15,23 @@ targets:
       - NodeRouteDriver
     settings:
       base:
+        GENERATE_INFOPLIST_FILE: YES
         PRODUCT_BUNDLE_IDENTIFIER: com.noderoute.driver
         INFOPLIST_KEY_CFBundleDisplayName: NodeRoute Driver
         INFOPLIST_KEY_LSApplicationCategoryType: public.app-category.business
         INFOPLIST_KEY_NSPhotoLibraryUsageDescription: Select a proof-of-delivery photo to attach to the stop.
         INFOPLIST_KEY_NSCameraUsageDescription: Capture proof-of-delivery photos for completed stops.
+        INFOPLIST_KEY_NSLocationWhenInUseUsageDescription: Share your location while you're en route so dispatch can track deliveries in real time.
         INFOPLIST_KEY_API_BASE_URL: "$(API_BASE_URL)"
         API_BASE_URL: "https://your-backend.example.com"
+  NodeRouteDriverTests:
+    type: bundle.unit-test
+    platform: iOS
+    sources:
+      - NodeRouteDriverTests
+    dependencies:
+      - target: NodeRouteDriver
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.noderoute.driver.tests
+        GENERATE_INFOPLIST_FILE: YES

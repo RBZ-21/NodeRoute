@@ -1,7 +1,4 @@
 -- Superadmin billing catalog and tenant-specific pricing controls.
--- These tables are backend-only: no anon/authenticated grants, deny-only RLS
--- policies, and all reads/writes flow through Express requireSuperadmin routes
--- using the service-role client (repo convention per security-hardening tests).
 -- Source workbook: Reports/noderoute-pricing-tiers-replacement.xlsx
 
 create table if not exists public.platform_plan_tiers (
@@ -184,41 +181,41 @@ revoke all on public.company_feature_entitlements from anon, authenticated;
 revoke all on public.company_addon_entitlements from anon, authenticated;
 revoke all on public.platform_pricing_audit_events from anon, authenticated;
 
-drop policy if exists "platform billing catalog: platform admin only" on public.platform_plan_tiers;
-create policy "platform billing catalog: platform admin only" on public.platform_plan_tiers
-  for all to authenticated using (false) with check (false);
+drop policy if exists "platform_plan_tiers: deny direct client access" on public.platform_plan_tiers;
+create policy "platform_plan_tiers: deny direct client access" on public.platform_plan_tiers
+  for all to anon, authenticated using (false) with check (false);
 
-drop policy if exists "platform billing features: platform admin only" on public.platform_plan_features;
-create policy "platform billing features: platform admin only" on public.platform_plan_features
-  for all to authenticated using (false) with check (false);
+drop policy if exists "platform_plan_features: deny direct client access" on public.platform_plan_features;
+create policy "platform_plan_features: deny direct client access" on public.platform_plan_features
+  for all to anon, authenticated using (false) with check (false);
 
-drop policy if exists "platform billing matrix: platform admin only" on public.platform_plan_feature_matrix;
-create policy "platform billing matrix: platform admin only" on public.platform_plan_feature_matrix
-  for all to authenticated using (false) with check (false);
+drop policy if exists "platform_plan_feature_matrix: deny direct client access" on public.platform_plan_feature_matrix;
+create policy "platform_plan_feature_matrix: deny direct client access" on public.platform_plan_feature_matrix
+  for all to anon, authenticated using (false) with check (false);
 
-drop policy if exists "platform billing limits: platform admin only" on public.platform_plan_limits;
-create policy "platform billing limits: platform admin only" on public.platform_plan_limits
-  for all to authenticated using (false) with check (false);
+drop policy if exists "platform_plan_limits: deny direct client access" on public.platform_plan_limits;
+create policy "platform_plan_limits: deny direct client access" on public.platform_plan_limits
+  for all to anon, authenticated using (false) with check (false);
 
-drop policy if exists "platform billing addons: platform admin only" on public.platform_addons;
-create policy "platform billing addons: platform admin only" on public.platform_addons
-  for all to authenticated using (false) with check (false);
+drop policy if exists "platform_addons: deny direct client access" on public.platform_addons;
+create policy "platform_addons: deny direct client access" on public.platform_addons
+  for all to anon, authenticated using (false) with check (false);
 
-drop policy if exists "company billing profiles: platform admin only" on public.company_billing_profiles;
-create policy "company billing profiles: platform admin only" on public.company_billing_profiles
-  for all to authenticated using (false) with check (false);
+drop policy if exists "company_billing_profiles: deny direct client access" on public.company_billing_profiles;
+create policy "company_billing_profiles: deny direct client access" on public.company_billing_profiles
+  for all to anon, authenticated using (false) with check (false);
 
-drop policy if exists "company feature entitlements: platform admin only" on public.company_feature_entitlements;
-create policy "company feature entitlements: platform admin only" on public.company_feature_entitlements
-  for all to authenticated using (false) with check (false);
+drop policy if exists "company_feature_entitlements: deny direct client access" on public.company_feature_entitlements;
+create policy "company_feature_entitlements: deny direct client access" on public.company_feature_entitlements
+  for all to anon, authenticated using (false) with check (false);
 
-drop policy if exists "company addon entitlements: platform admin only" on public.company_addon_entitlements;
-create policy "company addon entitlements: platform admin only" on public.company_addon_entitlements
-  for all to authenticated using (false) with check (false);
+drop policy if exists "company_addon_entitlements: deny direct client access" on public.company_addon_entitlements;
+create policy "company_addon_entitlements: deny direct client access" on public.company_addon_entitlements
+  for all to anon, authenticated using (false) with check (false);
 
-drop policy if exists "pricing audit events: platform admin only" on public.platform_pricing_audit_events;
-create policy "pricing audit events: platform admin only" on public.platform_pricing_audit_events
-  for all to authenticated using (false) with check (false);
+drop policy if exists "platform_pricing_audit_events: deny direct client access" on public.platform_pricing_audit_events;
+create policy "platform_pricing_audit_events: deny direct client access" on public.platform_pricing_audit_events
+  for all to anon, authenticated using (false) with check (false);
 
 insert into public.platform_plan_tiers
   (code, name, display_order, monthly_price_cents, setup_price_cents, best_for, included_scope, excluded_gated, upgrade_trigger, sales_note)
@@ -367,16 +364,36 @@ on conflict (code) do update set
   display_order = excluded.display_order,
   updated_at = now();
 
-insert into public.company_billing_profiles (company_id, plan_tier_code, billing_status)
+insert into public.company_billing_profiles (company_id, plan_tier_code, billing_status, pricing_notes)
 select
-  id,
-  case when lower(coalesce(plan, '')) = 'enterprise' then 'erp' else 'track' end,
-  -- billing_status only allows trial/active/paused/cancelled; companies.status
-  -- also contains 'suspended' (mapped to 'paused', matching the backend service).
+  company_id,
+  mapped_plan_tier_code,
+  mapped_billing_status,
   case
-    when status = 'suspended' then 'paused'
-    when status in ('trial', 'active', 'paused', 'cancelled') then status
-    else 'trial'
+    when normalized_plan in ('track', 'dispatch', 'operations', 'erp', 'enterprise') then ''
+    else 'Legacy plan migration backfill from "'
+      || coalesce(nullif(plan, ''), '(blank)')
+      || '" to "'
+      || mapped_plan_tier_code
+      || '". Flagged for superadmin review.'
   end
-from public.companies
+from (
+  select
+    id as company_id,
+    plan,
+    lower(btrim(coalesce(plan, ''))) as normalized_plan,
+    case
+      when lower(btrim(coalesce(plan, ''))) in ('track', 'dispatch', 'operations', 'erp', 'enterprise') then lower(btrim(coalesce(plan, '')))
+      when lower(btrim(coalesce(plan, ''))) in ('free', 'trial', 'starter') then 'track'
+      when lower(btrim(coalesce(plan, ''))) in ('growth', 'pro') then 'enterprise'
+      else 'track'
+    end as mapped_plan_tier_code,
+    case
+      when lower(coalesce(status, '')) = 'active' then 'active'
+      when lower(coalesce(status, '')) = 'trial' then 'trial'
+      when lower(coalesce(status, '')) = 'suspended' then 'paused'
+      else 'trial'
+    end as mapped_billing_status
+  from public.companies
+) company_backfill
 on conflict (company_id) do nothing;

@@ -350,11 +350,9 @@ export function CompaniesPage() {
           onSaved={() => { setConfigDrawer(null); load(); }}
         />
       )}
-
-      {/* Tenant billing drawer */}
       <ClientBillingDrawer
         companyId={billingCompanyId}
-        open={!!billingCompanyId}
+        open={billingCompanyId !== null}
         onClose={() => setBillingCompanyId(null)}
         onSaved={() => { setBillingCompanyId(null); load(); }}
       />

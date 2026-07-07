@@ -22,6 +22,8 @@ import {
   clearQueuedStopNoteUpdates,
   clearQueuedTemperatureLogs,
   clearSensitiveStorage,
+  deadLetterQueuedStopNoteUpdate,
+  deadLetterQueuedTemperatureLog,
   deletePodDraftPhoto,
   enqueueStopNoteUpdate,
   enqueueTemperatureLog,
@@ -53,6 +55,8 @@ import type {
   OfflineRoutePackStatus,
   OfflineStatusConflict,
   QueuedStatusAction,
+  QueuedStopNoteUpdate,
+  QueuedTemperatureLog,
   StatusAction,
   StopDraft,
 } from '@/types';
@@ -64,6 +68,7 @@ const defaultCompanySettings: CompanySettings = {
   forceDriverProofOfDelivery: false,
   businessName: '',
 };
+const EXPIRED_PROOF_PHOTO_STATUS = 'photo_expired';
 
 type DriverAppContextValue = {
   token: string | null;
@@ -133,6 +138,17 @@ function statusForAction(action: StatusAction) {
   if (action === 'delivered' || action === 'dropoff') return 'completed';
   if (action === 'failed') return 'failed';
   return 'skipped';
+}
+
+function createExpiredProofPhotoConflict(stopId: string) {
+  const error = new Error('Proof photo expired before it could sync. Capture a new proof photo before retrying this delivery.');
+  return Object.assign(error, {
+    status: 409,
+    details: {
+      stopId,
+      serverStatus: EXPIRED_PROOF_PHOTO_STATUS,
+    },
+  });
 }
 
 export function DriverAppProvider({ children }: { children: ReactNode }) {
@@ -247,8 +263,9 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     const queuedLogs = loadQueuedTemperatureLogs();
     if (!queuedLogs.length || !token) return;
 
-    const remaining = [];
+    const remaining: QueuedTemperatureLog[] = [];
     let flushedCount = 0;
+    let deadLetteredCount = 0;
 
     for (let index = 0; index < queuedLogs.length; index += 1) {
       const entry = queuedLogs[index];
@@ -260,8 +277,9 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
           await logout();
           return;
         }
-        remaining.push(...queuedLogs.slice(index));
-        break;
+        deadLetterQueuedTemperatureLog(entry, error);
+        deadLetteredCount += 1;
+        continue;
       }
     }
 
@@ -281,14 +299,23 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
         'success',
       );
     }
+    if (deadLetteredCount > 0) {
+      pushToast(
+        deadLetteredCount === 1
+          ? '1 queued temperature log could not sync and was moved aside.'
+          : `${deadLetteredCount} queued temperature logs could not sync and were moved aside.`,
+        'error',
+      );
+    }
   }
 
   async function flushQueuedStopNoteUpdates() {
     const queuedUpdates = loadQueuedStopNoteUpdates();
     if (!queuedUpdates.length || !token) return;
 
-    const remaining = [];
+    const remaining: QueuedStopNoteUpdate[] = [];
     let flushedCount = 0;
+    let deadLetteredCount = 0;
 
     for (let index = 0; index < queuedUpdates.length; index += 1) {
       const entry = queuedUpdates[index];
@@ -301,8 +328,9 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
           await logout();
           return;
         }
-        remaining.push(...queuedUpdates.slice(index));
-        break;
+        deadLetterQueuedStopNoteUpdate(entry, error);
+        deadLetteredCount += 1;
+        continue;
       }
     }
 
@@ -320,6 +348,14 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
           ? '1 queued stop note synced.'
           : `${flushedCount} queued stop notes synced.`,
         'success',
+      );
+    }
+    if (deadLetteredCount > 0) {
+      pushToast(
+        deadLetteredCount === 1
+          ? '1 queued stop note could not sync and was moved aside.'
+          : `${deadLetteredCount} queued stop notes could not sync and were moved aside.`,
+        'error',
       );
     }
   }
@@ -466,7 +502,8 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
         ? await loadPodDraftPhoto(proofImageDraftId)
         : (typeof entry.payload.proofImage === 'string' ? entry.payload.proofImage : null);
       if (proofImageDraftId && !proofImage) {
-        throw new Error('Saved proof photo is no longer available on this device.');
+        await deletePodDraftPhoto(proofImageDraftId);
+        throw createExpiredProofPhotoConflict(entry.stopId);
       }
       await dispatchMarkDelivered(
         stop,
@@ -493,6 +530,11 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     if (resolution === 'accept-server') {
       await refreshData(true);
       pushToast('Server status kept for this stop.', 'info');
+      return;
+    }
+
+    if (resolved.conflict.serverStatus === EXPIRED_PROOF_PHOTO_STATUS) {
+      pushToast('Capture a new proof photo before retrying this delivery.', 'error');
       return;
     }
 
@@ -597,7 +639,11 @@ export function DriverAppProvider({ children }: { children: ReactNode }) {
     }
 
     if (proofImage && activeStop.invoice_id) {
-      await uploadProofOfDelivery(activeStop.invoice_id, proofImage);
+      await uploadProofOfDelivery(
+        activeStop.invoice_id,
+        proofImage,
+        options.clientActionId ? `${options.clientActionId}-pod` : undefined,
+      );
     }
 
     if (combinedNotes) {

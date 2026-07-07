@@ -45,6 +45,8 @@ function createSupabaseMock({ plan = 'starter', count = 0 } = {}) {
 }
 
 test('order creation unit: delivery plan limit blocks over-limit companies', async () => {
+  // trial's maxDeliveriesPerMonth is 500 per PLAN_LIMITS (services/plan-limits.js) —
+  // aligned with pricing tiers in commit 1c998e22.
   const supabase = createSupabaseMock({ plan: 'trial', count: 500 });
   await assert.rejects(
     () => enforceDeliveryLimit(supabase, { companyId: 'company-1' }),
@@ -55,8 +57,9 @@ test('order creation unit: delivery plan limit blocks over-limit companies', asy
 });
 
 test('driver assignment unit: driver plan limit blocks over-limit invites', async () => {
-  // 'starter' is a legacy plan name; it aliases to the workbook 'track' tier (2 drivers).
-  const supabase = createSupabaseMock({ plan: 'starter', count: 5 });
+  // 'starter' aliases to 'track', whose maxDrivers is 2 per PLAN_LIMITS
+  // (services/plan-limits.js) — aligned with pricing tiers in commit 1c998e22.
+  const supabase = createSupabaseMock({ plan: 'starter', count: 2 });
   await assert.rejects(
     () => enforceDriverLimit(supabase, { companyId: 'company-1' }),
     (error) => error.code === 'PLAN_LIMIT_EXCEEDED' && error.details.limit === 2

@@ -85,7 +85,7 @@ async function enrichItemsWithProducts(items, context) {
   };
 }
 
-router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBody(startCountSchema), async (req, res) => {
+router.post('/', authenticateToken, requireRole('admin', 'manager', 'warehouse'), validateBody(startCountSchema), async (req, res) => {
   try {
     const products = await loadProductsForSnapshot(req.validated.body.product_ids, req.context);
     if (!products.length) return res.status(400).json({ error: 'No products found for cycle count' });
@@ -130,7 +130,7 @@ router.get('/:id', authenticateToken, validateParams(countParamsSchema), async (
   }
 });
 
-router.patch('/:id/items', authenticateToken, requireRole('admin', 'manager'), validateParams(countParamsSchema), validateBody(submitItemsSchema), async (req, res) => {
+router.patch('/:id/items', authenticateToken, requireRole('admin', 'manager', 'warehouse'), validateParams(countParamsSchema), validateBody(submitItemsSchema), async (req, res) => {
   try {
     const count = await loadCount(req.validated.params.id, req.context);
     if (!count) return res.status(404).json({ error: 'Cycle count not found' });
@@ -159,7 +159,7 @@ router.patch('/:id/items', authenticateToken, requireRole('admin', 'manager'), v
   }
 });
 
-router.post('/:id/commit', authenticateToken, requireRole('admin', 'manager'), validateParams(countParamsSchema), async (req, res) => {
+router.post('/:id/commit', authenticateToken, requireRole('admin', 'manager', 'warehouse'), validateParams(countParamsSchema), async (req, res) => {
   try {
     const count = await loadCount(req.validated.params.id, req.context);
     if (!count) return res.status(404).json({ error: 'Cycle count not found' });

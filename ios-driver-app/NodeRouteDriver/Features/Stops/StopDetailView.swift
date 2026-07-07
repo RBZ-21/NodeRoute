@@ -12,6 +12,7 @@ struct StopDetailView: View {
     @State private var proofImage: UIImage?
     @State private var isCameraPresented = false
     @State private var isSubmitting = false
+    @State private var isFailureDialogPresented = false
 
     var body: some View {
         ScrollView {
@@ -114,13 +115,27 @@ struct StopDetailView: View {
                     .tint(.green)
 
                     Button("Mark Failed") {
-                        submit { await session.markFailed(stop, notes: notes) }
+                        isFailureDialogPresented = true
                     }
                     .buttonStyle(.borderedProminent)
                     .tint(.red)
                 }
                 .controlSize(.large)
                 .disabled(isSubmitting)
+                .confirmationDialog(
+                    "Why did this stop fail?",
+                    isPresented: $isFailureDialogPresented,
+                    titleVisibility: .visible
+                ) {
+                    ForEach(StopFailureReason.all, id: \.self) { reason in
+                        Button(reason) {
+                            submit { await session.markFailed(stop, reason: reason, notes: notes) }
+                        }
+                    }
+                    Button("Cancel", role: .cancel) {}
+                } message: {
+                    Text("Pick the closest reason. It's recorded on the stop as \"Exception: <reason>\" along with any notes above.")
+                }
             }
             .padding()
         }
@@ -138,6 +153,12 @@ struct StopDetailView: View {
         }
         .onAppear {
             notes = stop.driverNotes ?? ""
+            // Track location only while the driver is on a stop screen — i.e. en
+            // route to / at a stop — rather than for the whole shift (DR-003).
+            session.startLocationTracking()
+        }
+        .onDisappear {
+            session.stopLocationTracking()
         }
     }
 

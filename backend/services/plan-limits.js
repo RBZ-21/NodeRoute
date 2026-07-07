@@ -9,7 +9,7 @@ const PLAN_LIMITS = {
   enterprise: { maxDrivers: 25, maxDeliveriesPerMonth: 20000 },
 };
 
-const LEGACY_PLAN_ALIASES = {
+const PLAN_ALIASES = {
   free: 'track',
   starter: 'track',
   growth: 'operations',
@@ -30,8 +30,9 @@ function planLimitError(message, details) {
 
 function planLimitsFor(company) {
   const rawPlan = String(company?.plan || company?.subscription_plan || 'track').toLowerCase();
-  const plan = LEGACY_PLAN_ALIASES[rawPlan] || rawPlan;
-  return { plan, ...(PLAN_LIMITS[plan] || PLAN_LIMITS.track) };
+  const plan = PLAN_ALIASES[rawPlan] || rawPlan;
+  const limits = PLAN_LIMITS[plan] || PLAN_LIMITS.track;
+  return { plan: PLAN_LIMITS[plan] ? plan : 'track', ...limits };
 }
 
 async function loadCompanyPlan(supabase, companyId) {

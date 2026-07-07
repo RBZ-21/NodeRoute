@@ -7,6 +7,11 @@ extension Color {
     static let nrSand = Color(red: 0.99, green: 0.86, blue: 0.55)
 }
 
+extension ShapeStyle where Self == Color {
+    static var nrInk: Color { .nrInk }
+    static var nrOcean: Color { .nrOcean }
+}
+
 struct DriverCard<Content: View>: View {
     let content: Content
 

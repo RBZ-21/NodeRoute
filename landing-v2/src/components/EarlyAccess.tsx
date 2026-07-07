@@ -18,11 +18,11 @@ export function EarlyAccess() {
       <div className="mt-8">
         <WaitlistForm source="early-access" />
       </div>
-      <p className="mt-4 text-[13px] text-white/35">
+      <p className="mt-4 text-[13px] text-white/65">
         Prefer email?{' '}
         <a
           href="mailto:ryan@noderoutesystems.com?subject=NodeRoute%20-%20Talk%20to%20the%20Founder"
-          className="underline hover:text-white/60 transition-colors"
+          className="text-teal-sky underline hover:text-white transition-colors"
         >
           Talk directly to the founder.
         </a>

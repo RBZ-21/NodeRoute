@@ -43,7 +43,7 @@ export function WaitlistForm({ source = 'landing', className = '' }: Props) {
 
   if (status === 'success') {
     return (
-      <div className={`flex items-center gap-3 rounded-lg border border-teal/40 bg-teal/10 px-5 py-4 text-teal-light ${className}`}>
+      <div className={`flex items-center gap-3 rounded-lg border border-teal/40 bg-teal/10 px-5 py-4 text-teal-sky ${className}`}>
         <CheckCircle className="h-5 w-5 shrink-0" />
         <span className="text-[14px] font-medium">You’re on the list — check your email for a confirmation.</span>
       </div>
@@ -53,8 +53,11 @@ export function WaitlistForm({ source = 'landing', className = '' }: Props) {
   return (
     <form onSubmit={handleSubmit} className={`w-full max-w-md space-y-3 ${className}`}>
       <div className="flex gap-2">
+        {/* LP-002: placeholders are not labels — screen readers need
+            aria-label (kept invisible to preserve the design). */}
         <input
           type="text"
+          aria-label="Your name"
           placeholder="Your name"
           value={name}
           onChange={e => setName(e.target.value)}
@@ -62,6 +65,7 @@ export function WaitlistForm({ source = 'landing', className = '' }: Props) {
         />
         <input
           type="text"
+          aria-label="Company (optional)"
           placeholder="Company (optional)"
           value={company}
           onChange={e => setCompany(e.target.value)}
@@ -72,6 +76,7 @@ export function WaitlistForm({ source = 'landing', className = '' }: Props) {
         <input
           type="email"
           required
+          aria-label="Work email"
           placeholder="Work email"
           value={email}
           onChange={e => setEmail(e.target.value)}
@@ -80,7 +85,7 @@ export function WaitlistForm({ source = 'landing', className = '' }: Props) {
         <button
           type="submit"
           disabled={status === 'loading'}
-          className="group inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-teal px-4 py-2.5 text-[14px] font-semibold text-black hover:bg-teal-light transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
+          className="group inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-teal px-4 py-2.5 text-[14px] font-semibold text-white hover:bg-teal-light transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
         >
           {status === 'loading'
             ? <Loader2 className="h-4 w-4 animate-spin" />
@@ -88,7 +93,7 @@ export function WaitlistForm({ source = 'landing', className = '' }: Props) {
         </button>
       </div>
       {status === 'duplicate' && (
-        <p className="text-[13px] text-teal-light">You’re already on the list — I’ll be in touch soon.</p>
+        <p className="text-[13px] text-teal-sky">You’re already on the list — I’ll be in touch soon.</p>
       )}
       {status === 'error' && (
         <p className="text-[13px] text-red-400">

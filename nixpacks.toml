@@ -1,2 +1,7 @@
+# OPS-004: pin the Nixpacks Node major to match CI (node-version: 20) and
+# the engines.node fields in every package.json.
+[variables]
+NIXPACKS_NODE_VERSION = "20"
+
 [phases.setup]
 aptPkgs = ["libatomic1"]

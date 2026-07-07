@@ -1,11 +1,13 @@
 const { z } = require('zod');
 
-const USER_ROLES = ['admin', 'manager', 'driver'];
+const USER_ROLES = ['admin', 'manager', 'driver', 'warehouse'];
 
-const nullableField = z.preprocess(
+// In Zod v4, z.optional() must wrap the whole z.preprocess() so that absent
+// keys short-circuit before the preprocess runs (see inventory-write-schemas.js).
+const nullableField = z.optional(z.preprocess(
   (v) => { if (v === undefined) return undefined; return (v && String(v).trim()) || null; },
-  z.string().min(1).nullable().optional()
-);
+  z.string().min(1).nullable()
+));
 
 const userCreateBodySchema = z.object({
   name:     z.string().trim().min(1, 'Name is required'),

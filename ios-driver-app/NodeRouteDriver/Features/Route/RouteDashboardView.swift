@@ -37,7 +37,7 @@ struct RouteDashboardView: View {
                     }
                     .foregroundStyle(.white)
                 }
-                .background(.nrInk, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .background(Color.nrInk, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
 
                 ForEach(session.activeStops) { stop in
                     NavigationLink {

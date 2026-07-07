@@ -1,13 +1,18 @@
 import { useEffect, useState } from 'react';
 import { Button } from '../../components/ui/button';
 import { Input } from '../../components/ui/input';
-import { SelectInput } from '../../components/ui/select-input';
 import { SlideOver } from '../../components/ui/overlay-panel';
+import { SelectInput } from '../../components/ui/select-input';
 import { useToast } from '../../components/ui/toast';
 import { useCompanyBilling, useSaveCompanyBilling } from '../../hooks/useSuperadminBilling';
 import { AddonChecklist } from './AddonChecklist';
 import { FeatureMatrixTable } from './FeatureMatrixTable';
-import type { CompanyAddonEntitlement, CompanyFeatureEntitlement, PlanTierCode } from './billing-types';
+import type {
+  BillingStatus,
+  CompanyAddonEntitlement,
+  CompanyFeatureEntitlement,
+  PlanTierCode,
+} from './billing-types';
 
 function centsToDollars(cents: number | null | undefined) {
   if (cents == null) return '';
@@ -25,6 +30,18 @@ function money(cents: number) {
   return `$${(cents / 100).toLocaleString('en-US', { maximumFractionDigits: 0 })}`;
 }
 
+function formatAuditDate(value: string) {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return '-';
+  return date.toLocaleString('en-US', {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  });
+}
+
 export function ClientBillingDrawer({
   companyId,
   open,
@@ -40,16 +57,18 @@ export function ClientBillingDrawer({
   const { data, isLoading, error } = useCompanyBilling(open ? companyId : null);
   const save = useSaveCompanyBilling(companyId);
   const [tier, setTier] = useState<PlanTierCode>('track');
-  const [status, setStatus] = useState<'trial' | 'active' | 'paused' | 'cancelled'>('trial');
+  const [status, setStatus] = useState<BillingStatus>('trial');
   const [customPricing, setCustomPricing] = useState(false);
   const [monthly, setMonthly] = useState('');
   const [setup, setSetup] = useState('');
   const [notes, setNotes] = useState('');
   const [features, setFeatures] = useState<CompanyFeatureEntitlement[]>([]);
   const [addons, setAddons] = useState<CompanyAddonEntitlement[]>([]);
+  const auditEvents = data?.auditEvents ?? [];
 
   useEffect(() => {
     if (!data) return;
+
     setTier(data.profile.plan_tier_code);
     setStatus(data.profile.billing_status);
     setCustomPricing(data.profile.custom_pricing_enabled);
@@ -62,6 +81,7 @@ export function ClientBillingDrawer({
 
   async function handleSave() {
     if (!data) return;
+
     try {
       await save.mutateAsync({
         plan_tier_code: tier,
@@ -92,8 +112,8 @@ export function ClientBillingDrawer({
       });
       toast.success('Billing settings saved.');
       onSaved();
-    } catch (err) {
-      toast.error(String((err as Error).message || 'Could not save billing settings.'));
+    } catch (saveError) {
+      toast.error(String((saveError as Error).message || 'Could not save billing settings.'));
     }
   }
 
@@ -104,49 +124,96 @@ export function ClientBillingDrawer({
       description="Superadmin-only plan, pricing, feature, and add-on controls"
       onClose={onClose}
       widthClassName="max-w-5xl"
-      actions={<Button disabled={!data || save.isPending} onClick={handleSave}>{save.isPending ? 'Saving...' : 'Save Billing'}</Button>}
+      actions={
+        <Button disabled={!data || save.isPending} onClick={handleSave}>
+          {save.isPending ? 'Saving...' : 'Save Billing'}
+        </Button>
+      }
     >
       {isLoading ? <div className="text-sm text-muted-foreground">Loading billing profile...</div> : null}
-      {error ? <div className="rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive">{String((error as Error).message)}</div> : null}
+      {error ? (
+        <div className="rounded-md border border-destructive/25 bg-destructive/5 px-3 py-2 text-sm text-destructive">
+          {String((error as Error).message)}
+        </div>
+      ) : null}
       {data ? (
         <div className="space-y-6">
           <div className="grid gap-3 md:grid-cols-4">
             <label className="space-y-1 text-sm">
               <span className="font-medium">Plan tier</span>
-              <SelectInput aria-label="Plan tier" value={tier} onChange={(event) => setTier(event.target.value as PlanTierCode)}>
-                {data.catalog.tiers.map((row) => <option key={row.code} value={row.code}>{row.name}</option>)}
+              <SelectInput
+                aria-label="Plan tier"
+                value={tier}
+                onChange={(event) => setTier(event.target.value as PlanTierCode)}
+              >
+                {data.catalog.tiers.map((row) => (
+                  <option key={row.code} value={row.code}>
+                    {row.name}
+                  </option>
+                ))}
               </SelectInput>
             </label>
             <label className="space-y-1 text-sm">
               <span className="font-medium">Billing status</span>
-              <SelectInput value={status} onChange={(event) => setStatus(event.target.value as typeof status)}>
+              <SelectInput
+                aria-label="Billing status"
+                value={status}
+                onChange={(event) => setStatus(event.target.value as BillingStatus)}
+              >
                 <option value="trial">Trial</option>
                 <option value="active">Active</option>
                 <option value="paused">Paused</option>
                 <option value="cancelled">Cancelled</option>
               </SelectInput>
             </label>
-            <div className="rounded-md border border-border p-3">
+            <div className="rounded-md border border-border px-4 py-3">
               <div className="text-xs text-muted-foreground">Monthly total</div>
               <div className="text-lg font-semibold">{money(data.effectiveMonthlyCents)}</div>
             </div>
-            <div className="rounded-md border border-border p-3">
+            <div className="rounded-md border border-border px-4 py-3">
               <div className="text-xs text-muted-foreground">Setup total</div>
               <div className="text-lg font-semibold">{money(data.effectiveSetupCents)}</div>
             </div>
           </div>
 
-          <div className="rounded-md border border-border p-4">
+          <section className="space-y-3 rounded-md border border-border p-4">
             <label className="flex items-center gap-2 text-sm font-medium">
-              <input type="checkbox" className="h-4 w-4 rounded border-input" checked={customPricing} aria-label="Custom pricing" onChange={(event) => setCustomPricing(event.target.checked)} />
+              <input
+                type="checkbox"
+                className="h-4 w-4 rounded border-input accent-primary"
+                checked={customPricing}
+                aria-label="Custom pricing"
+                onChange={(event) => setCustomPricing(event.target.checked)}
+              />
               Custom pricing
             </label>
-            <div className="mt-3 grid gap-3 md:grid-cols-3">
-              <Input aria-label="Custom monthly price" type="number" min="0" placeholder="Monthly dollars" value={monthly} disabled={!customPricing} onChange={(event) => setMonthly(event.target.value)} />
-              <Input aria-label="Custom setup price" type="number" min="0" placeholder="Setup dollars" value={setup} disabled={!customPricing} onChange={(event) => setSetup(event.target.value)} />
-              <Input aria-label="Pricing notes" placeholder="Pricing notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
+            <div className="grid gap-3 md:grid-cols-3">
+              <Input
+                aria-label="Custom monthly price"
+                type="number"
+                min="0"
+                placeholder="Monthly dollars"
+                value={monthly}
+                disabled={!customPricing}
+                onChange={(event) => setMonthly(event.target.value)}
+              />
+              <Input
+                aria-label="Custom setup price"
+                type="number"
+                min="0"
+                placeholder="Setup dollars"
+                value={setup}
+                disabled={!customPricing}
+                onChange={(event) => setSetup(event.target.value)}
+              />
+              <Input
+                aria-label="Pricing notes"
+                placeholder="Pricing notes"
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+              />
             </div>
-          </div>
+          </section>
 
           <section className="space-y-2">
             <h3 className="text-sm font-semibold">Add-ons</h3>
@@ -160,14 +227,21 @@ export function ClientBillingDrawer({
 
           <section className="space-y-2">
             <h3 className="text-sm font-semibold">Pricing history</h3>
-            <div className="divide-y rounded-md border border-border">
-              {data.auditEvents.length ? data.auditEvents.map((event) => (
-                <div key={event.id} className="grid gap-1 p-3 text-sm md:grid-cols-[11rem_1fr]">
-                  <span className="font-medium">{event.event_type.replace(/_/g, ' ')}</span>
-                  <span className="text-muted-foreground">{new Date(event.created_at).toLocaleString()} {event.notes ? `- ${event.notes}` : ''}</span>
-                </div>
-              )) : <div className="p-3 text-sm text-muted-foreground">No pricing changes recorded yet.</div>}
-            </div>
+            {auditEvents.length === 0 ? (
+              <p className="text-sm text-muted-foreground">No pricing changes recorded yet.</p>
+            ) : (
+              <div className="divide-y divide-border rounded-md border border-border">
+                {auditEvents.map((event) => (
+                  <div key={event.id} className="space-y-1 px-3 py-2.5">
+                    <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                      <span className="text-sm font-medium">{event.event_type}</span>
+                      <span className="text-xs text-muted-foreground">{formatAuditDate(event.created_at)}</span>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{event.notes || 'No notes'}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </section>
         </div>
       ) : null}

@@ -56,7 +56,7 @@ export function Solution() {
               key={f.title}
               className="group relative flex flex-col gap-3 rounded-2xl border border-black/10 bg-white p-7 shadow-[0_10px_30px_-18px_rgba(17,17,17,0.18)] transition-colors hover:bg-cream"
             >
-              <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-black/10 bg-cream text-teal-light">
+              <span className="flex h-10 w-10 items-center justify-center rounded-lg border border-black/10 bg-cream text-teal">
                 <f.icon className="h-[18px] w-[18px]" />
               </span>
               <h3 className="font-display text-[19px] font-semibold leading-tight tracking-tight text-ink-100">

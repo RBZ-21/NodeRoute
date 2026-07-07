@@ -5,7 +5,6 @@ const navLinks = [
   { href: '#product', label: 'Product' },
   { href: '#how', label: 'How it works' },
   { href: '#about', label: 'About' },
-  { href: '#early', label: 'Early Access' },
 ];
 
 export function Nav() {
@@ -23,7 +22,7 @@ export function Nav() {
       className={cn(
         'sticky top-0 z-50 transition-all duration-200',
         scrolled
-          ? 'backdrop-blur-md bg-black/70 border-b border-line'
+          ? 'backdrop-blur-md bg-ink-0/70 border-b border-line'
           : 'bg-transparent border-b border-transparent'
       )}
     >
@@ -55,13 +54,13 @@ export function Nav() {
             href={CTA.login}
             className="hidden sm:inline-flex items-center rounded-lg px-3 py-2 text-[13px] font-medium text-white/70 hover:text-white transition-colors"
           >
-            Login
+            Pilot login
           </a>
           <a
-            href={CTA.signup}
-            className="inline-flex items-center rounded-lg bg-teal px-3.5 py-2 text-[13px] font-semibold text-black hover:bg-teal-light transition-colors"
+            href={CTA.earlyAccess}
+            className="inline-flex items-center rounded-lg bg-teal px-3.5 py-2 text-[13px] font-semibold text-white hover:bg-teal-light transition-colors"
           >
-            Sign Up
+            Request Early Access
           </a>
         </div>
       </div>

@@ -20,7 +20,7 @@ export function Section({
 
 export function SectionEyebrow({ children }: { children: ReactNode }) {
   return (
-    <div className="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.18em] text-teal-light">
+    <div className="inline-flex items-center gap-2 font-mono text-[11px] uppercase tracking-[0.18em] text-teal-sky [.bg-cream_&]:text-teal [.bg-cream-dim_&]:text-teal [.bg-white_&]:text-teal">
       <span className="h-px w-6 bg-teal/60" />
       {children}
     </div>

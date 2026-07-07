@@ -177,10 +177,11 @@ export async function patchDeliveryStatus(deliveryId: string, status: 'pending' 
   });
 }
 
-export async function uploadProofOfDelivery(invoiceId: string, image: string) {
+export async function uploadProofOfDelivery(invoiceId: string, image: string, clientActionId?: string) {
   return request(`/api/invoices/${invoiceId}/proof-of-delivery`, {
     method: 'POST',
     body: JSON.stringify({ proof_image_data: image }),
+    clientActionId,
   });
 }
 

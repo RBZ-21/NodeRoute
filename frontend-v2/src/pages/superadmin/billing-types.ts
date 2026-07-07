@@ -2,8 +2,16 @@ export type PlanTierCode = 'track' | 'dispatch' | 'operations' | 'erp' | 'enterp
 export type BillingStatus = 'trial' | 'active' | 'paused' | 'cancelled';
 export type BillingInterval = 'monthly' | 'annual';
 export type FeatureInclusion =
-  | 'no' | 'yes' | 'basic' | 'full' | 'limited' | 'add_on'
-  | 'included_fair_use' | 'discounted_add_on' | 'custom' | 'assisted_migration';
+  | 'no'
+  | 'yes'
+  | 'basic'
+  | 'full'
+  | 'limited'
+  | 'add_on'
+  | 'included_fair_use'
+  | 'discounted_add_on'
+  | 'custom'
+  | 'assisted_migration';
 
 export type PlanTier = {
   code: PlanTierCode;
@@ -11,11 +19,11 @@ export type PlanTier = {
   display_order: number;
   monthly_price_cents: number;
   setup_price_cents: number;
-  best_for?: string;
-  included_scope?: string;
-  excluded_gated?: string;
-  upgrade_trigger?: string;
-  sales_note?: string;
+  best_for: string;
+  included_scope: string;
+  excluded_gated: string;
+  upgrade_trigger: string;
+  sales_note: string;
 };
 
 export type PlanFeature = {
@@ -30,8 +38,8 @@ export type PlanFeatureMatrixRow = {
   tier_code: PlanTierCode;
   feature_code: string;
   inclusion: FeatureInclusion;
-  detail?: string;
-  pricing_scope_note?: string;
+  detail: string;
+  pricing_scope_note: string;
 };
 
 export type PlanLimit = {
@@ -52,8 +60,8 @@ export type PlanAddon = {
   default_setup_cents: number | null;
   usage_terms: string;
   eligible_tier_codes: PlanTierCode[];
-  when_to_sell?: string;
-  pricing_rationale?: string;
+  when_to_sell: string;
+  pricing_rationale: string;
   quote_only: boolean;
   display_order: number;
 };
@@ -103,16 +111,27 @@ export type CompanyAddonEntitlement = {
 };
 
 export type CompanyBillingResponse = {
-  catalog: BillingCatalogResponse;
-  company: { id: string; name: string; slug: string | null; status: string; plan: string | null };
+  company: {
+    id: string;
+    name: string;
+    slug: string | null;
+    status: string;
+    plan: string | null;
+  };
   profile: CompanyBillingProfile;
   selectedTier: PlanTier;
   effectiveMonthlyCents: number;
   effectiveSetupCents: number;
   effectiveAnnualContractValueCents: number;
+  catalog: BillingCatalogResponse;
   features: CompanyFeatureEntitlement[];
   addons: CompanyAddonEntitlement[];
-  auditEvents: Array<{ id: string; event_type: string; created_at: string; notes: string }>;
+  auditEvents: Array<{
+    id: string;
+    event_type: string;
+    created_at: string;
+    notes: string;
+  }>;
 };
 
 export type BillingAnalyticsResponse = {
@@ -122,7 +141,11 @@ export type BillingAnalyticsResponse = {
   arr_cents: number;
   custom_pricing_companies: number;
   enabled_addons: number;
-  tier_breakdown: Array<{ tier: PlanTierCode; count: number; mrr_cents: number }>;
+  tier_breakdown: Array<{
+    tier: PlanTierCode;
+    count: number;
+    mrr_cents: number;
+  }>;
 };
 
 export type SaveCompanyBillingPayload = {

@@ -12,6 +12,7 @@ const {
   stripeKeyMode,
   stripeSecretKeyMode,
 } = require('../services/stripe');
+const { loadCompanyBilling } = require('../services/superadmin-billing');
 const { requireRole } = require('../middleware/auth');
 const { stripeLimiter } = require('../middleware/rateLimiter');
 const { loadCompanyBilling } = require('../services/superadmin-billing');
@@ -146,7 +147,14 @@ router.get('/config', async (req, res) => {
   try {
     const company = await loadBillingCompany(req);
     if (!company) return res.status(400).json({ error: 'No company context.', code: 'NO_COMPANY_CONTEXT' });
-    const billingProfile = company?.id ? await loadCompanyBilling(supabase, company.id).catch(() => null) : null;
+    let billingProfile = null;
+    try {
+      billingProfile = await loadCompanyBilling(supabase, company.id);
+    } catch (profileError) {
+      const log = req.log || logger;
+      const warn = typeof log.warn === 'function' ? log.warn.bind(log) : logger.warn.bind(logger);
+      warn({ err: profileError, company_id: company.id }, 'NodeRoute billing profile unavailable for config');
+    }
     return res.json(billingConfigPayload(req, company, billingProfile));
   } catch (error) {
     const log = req.log || logger;

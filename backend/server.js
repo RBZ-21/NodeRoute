@@ -13,6 +13,8 @@ const pinoHttp = require('pino-http');
 const fs = require('fs');
 const path = require('path');
 const { globalLimiter, authLimiter, aiLimiter, publicLimiter, waitlistLimiter } = require('./middleware/rateLimiter');
+const { canonicalHostRedirect } = require('./middleware/canonicalHost');
+const { corsAllowlist } = require('./middleware/cors');
 const { validateJsonMutationBody } = require('./lib/zod-validate');
 
 // Route modules
@@ -173,23 +175,14 @@ app.use(pinoHttp({
 app.use(globalLimiter);
 app.use(validateJsonMutationBody());
 
-// CORS
-app.use((req, res, next) => {
-  const origin         = req.headers.origin || '';
-  const allowedOrigins = config.CORS_ORIGINS;
-  if (origin) {
-    if (!allowedOrigins.includes(origin)) {
-      return res.status(403).json({ error: 'CORS origin not allowed' });
-    }
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Vary', 'Origin');
-  }
-  res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization,X-CSRF-Token,sentry-trace,baggage');
-  res.setHeader('Access-Control-Allow-Credentials', 'true');
-  if (req.method === 'OPTIONS') return res.sendStatus(204);
-  next();
-});
+// Canonical host — 301 www → apex. Must run before static serving so the
+// landing page is only ever served from the canonical origin.
+// (Why: see middleware/canonicalHost.js — the www CORS-403 blank-page bug.)
+app.use(canonicalHostRedirect(config.CANONICAL_HOST));
+
+// CORS — enforced on the API surface only (/api, /auth). Static assets are
+// exempt by design; see middleware/cors.js.
+app.use(corsAllowlist({ allowedOrigins: config.CORS_ORIGINS }));
 
 const frontendV2DistDir = path.join(__dirname, '../frontend-v2/dist');
 const landingV2DistDir  = path.join(__dirname, '../landing-v2/dist');
@@ -315,6 +308,7 @@ const frontendV2Routes = [
   '/forecast', '/financials', '/pricing', '/purchasing', '/reorder', '/vendors', '/warehouse',
   '/planning', '/integrations', '/aihelp', '/settings', '/reports',
   '/admin/traceability',
+  '/superadmin',
   '/superadmin/companies',
   '/superadmin/waitlist',
   '/sales-rep',

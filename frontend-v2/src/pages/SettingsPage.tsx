@@ -68,6 +68,15 @@ function readBillingReturn(): { status: 'success' | 'cancelled'; sessionId?: str
   return null;
 }
 
+function billingMoney(cents: number | null | undefined): string | null {
+  if (typeof cents !== 'number' || !Number.isFinite(cents)) return null;
+  return (cents / 100).toLocaleString('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    maximumFractionDigits: Math.abs(cents) % 100 === 0 ? 0 : 2,
+  });
+}
+
 export function SettingsPage() {
   const role = getUserRole() as Role;
   const canManageCompanySettings = role === 'admin' || role === 'manager' || role === 'superadmin';
@@ -357,6 +366,8 @@ function NodeRouteBillingCard({
   const showTestPreview = !!billing.test_mode || !!billingReturn;
   const success = billingReturn?.status === 'success';
   const ReturnIcon = success ? CheckCircle2 : XCircle;
+  const assignedMonthly = billingMoney(billing.effective_monthly_cents);
+  const assignedSetup = billingMoney(billing.effective_setup_cents);
   const readinessMessage = billing.live_mode_blocked
     ? 'Live Stripe keys are present but blocked for this preview. Switch to sk_test_ and pk_test_ keys to test subscription checkout safely.'
     : billing.message || 'Stripe subscription checkout is not fully configured yet.';
@@ -420,6 +431,9 @@ function NodeRouteBillingCard({
         <div className="grid gap-3 sm:grid-cols-3">
           <ReadonlyField label="Company" value={String(company.name || '—')} />
           <ReadonlyField label="Plan" value={String(company.plan || 'starter')} />
+          {assignedMonthly ? <ReadonlyField label="Assigned monthly" value={`${assignedMonthly}/mo`} /> : null}
+          {assignedSetup ? <ReadonlyField label="Assigned setup" value={assignedSetup} /> : null}
+          {billing.custom_pricing_enabled ? <ReadonlyField label="Pricing" value="Custom pricing" /> : null}
           <ReadonlyField label="Status" value={String(company.status || 'active')} />
           {billing.effective_monthly_cents != null ? (
             <ReadonlyField label="Assigned Monthly" value={`$${Math.round(billing.effective_monthly_cents / 100).toLocaleString()}`} />

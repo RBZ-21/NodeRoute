@@ -188,7 +188,6 @@ function SuperadminDashboard() {
         <KpiCard icon={<DollarSign className="h-5 w-5 text-amber-500" />}  label="MRR Estimate"      value={loading ? '—' : fmtMrr(summary?.mrr_estimate ?? 0)}   sub="Based on active plan tiers" highlight />
       </div>
 
-      {/* Catalog-backed billing dashboard (workbook tiers) */}
       <BillingDashboardPanel />
 
       {/* Tier breakdown + Alerts */}

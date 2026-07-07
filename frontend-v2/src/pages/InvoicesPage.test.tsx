@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { InvoicesPage } from './InvoicesPage';
@@ -85,6 +85,11 @@ describe('InvoicesPage', () => {
     return renderWithQueryClient(<InvoicesPage />, {
       wrapper: ({ children }) => <MemoryRouter>{children}</MemoryRouter>,
     });
+  }
+
+  function openInvoiceActions(invoiceNumber: string) {
+    const row = screen.getByRole('row', { name: new RegExp(invoiceNumber) });
+    fireEvent.click(within(row).getByRole('button', { name: 'Actions' }));
   }
 
   it('renders invoice data, filters by status, and opens the invoice detail panel', async () => {
@@ -183,6 +188,25 @@ describe('InvoicesPage', () => {
     expect(await screen.findByText('Invoice INV-100 deleted.')).toBeInTheDocument();
   });
 
+  it('rejects non-finite add-on prices before submitting', async () => {
+    sendWithAuthMock.mockResolvedValue({ invoice: baseInvoices[0] });
+    renderInvoicesPage();
+
+    expect(await screen.findByText('INV-100')).toBeInTheDocument();
+
+    fireEvent.click(screen.getAllByRole('button', { name: 'View / Edit' })[0]);
+    expect(await screen.findByRole('heading', { name: 'INV-100' })).toBeInTheDocument();
+
+    fireEvent.change(screen.getByPlaceholderText('Product ID'), { target: { value: 'FEE-1' } });
+    const priceInput = screen.getByPlaceholderText('Price') as HTMLInputElement;
+    priceInput.setAttribute('type', 'text');
+    fireEvent.change(priceInput, { target: { value: '1e309' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Add to Invoice' }));
+
+    expect(await screen.findByText('Add-on price must be a valid number.')).toBeInTheDocument();
+    expect(sendWithAuthMock).not.toHaveBeenCalledWith('/api/invoices/inv-1/addons', 'POST', expect.anything());
+  });
+
   it('marks an invoice paid from the invoice table for check payments', async () => {
     sendWithAuthMock.mockResolvedValueOnce({
       id: 'inv-1',
@@ -195,8 +219,8 @@ describe('InvoicesPage', () => {
 
     expect(await screen.findByText('INV-100')).toBeInTheDocument();
 
-    const paidButtons = screen.getAllByRole('button', { name: 'PAID' });
-    fireEvent.click(paidButtons[0]);
+    openInvoiceActions('INV-100');
+    fireEvent.click(screen.getByRole('menuitem', { name: 'PAID' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/invoices/inv-1', 'PATCH', { status: 'paid' });
@@ -211,8 +235,8 @@ describe('InvoicesPage', () => {
 
     expect(await screen.findByText('INV-100')).toBeInTheDocument();
 
-    const resendButtons = screen.getAllByRole('button', { name: 'Resend Email' });
-    fireEvent.click(resendButtons[1]);
+    openInvoiceActions('INV-200');
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Resend Email' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledTimes(1);
@@ -232,7 +256,8 @@ describe('InvoicesPage', () => {
     renderInvoicesPage();
 
     expect(await screen.findByText('INV-100')).toBeInTheDocument();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Delivered' })[0]);
+    openInvoiceActions('INV-100');
+    fireEvent.click(screen.getByRole('menuitem', { name: 'Delivered' }));
 
     await waitFor(() => {
       expect(sendWithAuthMock).toHaveBeenCalledWith('/api/invoices/inv-1', 'PATCH', { status: 'delivered' });

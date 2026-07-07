@@ -5,6 +5,9 @@ import { StopDetailPage } from '@/pages/StopDetailPage';
 
 const pushToastMock = vi.fn();
 const sendLocationMock = vi.fn();
+const useLocationUpdaterMock = vi.fn((_enabled: boolean) => ({
+  sendLocation: sendLocationMock,
+}));
 const captureSignatureMock = vi.fn();
 const deferStopToEndMock = vi.fn();
 const markArrivedMock = vi.fn();
@@ -33,6 +36,10 @@ type DriverAppMock = {
     forceDriverProofOfDelivery: boolean;
     businessName: string;
   };
+  currentRoute: {
+    id: string;
+    stops: Array<typeof baseStop>;
+  } | null;
   deferStopToEnd: typeof deferStopToEndMock;
   getStopStatusConflict: ReturnType<typeof vi.fn>;
   isOnline: boolean;
@@ -55,6 +62,10 @@ function createDriverAppValue(overrides: Partial<DriverAppMock> = {}): DriverApp
       forceDriverSignature: false,
       forceDriverProofOfDelivery: false,
       businessName: 'NodeRoute',
+    },
+    currentRoute: {
+      id: 'route-1',
+      stops: [baseStop],
     },
     deferStopToEnd: deferStopToEndMock,
     getStopStatusConflict: vi.fn(() => null),
@@ -82,9 +93,7 @@ vi.mock('@/hooks/useToast', () => ({
 }));
 
 vi.mock('@/hooks/useLocationUpdater', () => ({
-  useLocationUpdater: () => ({
-    sendLocation: sendLocationMock,
-  }),
+  useLocationUpdater: (enabled: boolean) => useLocationUpdaterMock(enabled),
 }));
 
 vi.mock('@/lib/storage', () => ({
@@ -109,6 +118,7 @@ describe('StopDetailPage', () => {
   beforeEach(() => {
     pushToastMock.mockReset();
     sendLocationMock.mockReset();
+    useLocationUpdaterMock.mockClear();
     captureSignatureMock.mockReset();
     deferStopToEndMock.mockReset();
     markArrivedMock.mockReset();
@@ -178,6 +188,23 @@ describe('StopDetailPage', () => {
     });
 
     expect(sendLocationMock).toHaveBeenCalled();
+  });
+
+  it('enables location updates only while the selected route has remaining work', () => {
+    renderPage();
+
+    expect(useLocationUpdaterMock).toHaveBeenLastCalledWith(true);
+
+    driverAppValue = createDriverAppValue({
+      currentRoute: {
+        id: 'route-1',
+        stops: [{ ...baseStop, status: 'completed' }],
+      },
+      stopById: vi.fn(() => ({ ...baseStop, status: 'completed' })),
+    });
+    renderPage();
+
+    expect(useLocationUpdaterMock).toHaveBeenLastCalledWith(false);
   });
 
   it('blocks failed-stop submission until an exception reason is chosen', async () => {

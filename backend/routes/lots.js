@@ -10,6 +10,7 @@ const {
 const { validateBody } = require('../lib/zod-validate');
 const { lotCreateBodySchema, lotFtlPatchBodySchema } = require('../lib/lots-schemas');
 const { buildScopeFields, scopeQueryByContext } = require('../services/operating-context');
+const { escapeLike } = require('../lib/escape-like'); // BE-005: literal matching for user-supplied filters
 
 const router = express.Router();
 
@@ -129,7 +130,7 @@ router.get('/', authenticateToken, async (req, res) => {
 
 // ── POST /api/lots ─────────────────────────────────────────────────────────────
 // Create a lot record manually (also called internally by PO confirm).
-router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBody(lotCreateBodySchema), async (req, res) => {
+router.post('/', authenticateToken, requireRole('admin', 'manager', 'warehouse'), validateBody(lotCreateBodySchema), async (req, res) => {
   const { lot_number, product_id, vendor_id, quantity_received, unit_of_measure, received_date, expiration_date, notes } = req.validated.body;
 
   const { data, error } = await supabase.from('lot_codes').insert([{
@@ -156,7 +157,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
 // FDA 24-hour traceability report for a single lot.
 // Returns the full supply chain: receiving → orders → stops.
 // Admin only. Must be fast — single DB query set.
-router.get('/:lotNumber/trace', authenticateToken, requireRole('admin'), async (req, res) => {
+router.get('/:lotNumber/trace', authenticateToken, requireRole('admin', 'manager', 'warehouse'), async (req, res) => {
   const lotNumber = req.params.lotNumber;
   const traceData = await loadLotTraceData(lotNumber, req.context);
   if (traceData.error) return res.status(traceData.status).json({ error: traceData.error });
@@ -167,7 +168,7 @@ router.get('/:lotNumber/trace', authenticateToken, requireRole('admin'), async (
 // Paginated lot-movement report for admins.
 // Query params: ?lot=, ?product_id=, ?vendor=, ?date_from=, ?date_to=, ?page=, ?limit=
 // Returns rows suitable for CSV export.
-router.get('/traceability/report', authenticateToken, requireRole('admin'), async (req, res) => {
+router.get('/traceability/report', authenticateToken, requireRole('admin', 'manager', 'warehouse'), async (req, res) => {
   const { lot, product_id, vendor, date_from, date_to, page = '1', limit: limitParam = '50' } = req.query;
 
   const pageNum  = Math.max(1, parseInt(page, 10)  || 1);
@@ -179,9 +180,9 @@ router.get('/traceability/report', authenticateToken, requireRole('admin'), asyn
     .select('id, lot_number, product_id, vendor_id, quantity_received, unit_of_measure, received_date, received_by, expiration_date, notes, created_at', { count: 'exact' })
     .order('received_date', { ascending: false });
 
-  if (lot)        query = query.ilike('lot_number', `%${lot}%`);
+  if (lot)        query = query.ilike('lot_number', `%${escapeLike(lot)}%`);
   if (product_id) query = query.eq('product_id', product_id);
-  if (vendor)     query = query.ilike('vendor_id', `%${vendor}%`);
+  if (vendor)     query = query.ilike('vendor_id', `%${escapeLike(vendor)}%`);
   if (date_from)  query = query.gte('received_date', date_from);
   if (date_to)    query = query.lte('received_date', date_to);
 

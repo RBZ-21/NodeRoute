@@ -122,10 +122,66 @@ async function existingLedgerEntry(db, { entryType, referenceId, referenceType, 
   return Array.isArray(data) && data.length ? data[0] : null;
 }
 
+// BE-004: detect "RPC not deployed" separately from real failures so we only
+// fall back to the legacy path when the atomic function is genuinely absent.
+function isMissingRpcError(error) {
+  const code = String(error?.code || '');
+  if (code === 'PGRST202' || code === '42883') return true;
+  const message = String(error?.message || '').toLowerCase();
+  return message.includes('could not find the function') || message.includes('does not exist');
+}
+
+// BE-004: shared RPC attempt helper (same pattern as BE-001 in
+// inventory-ledger.js). Returns null when the RPC is unavailable (demo mode,
+// offline resilient mode, injected test db without rpc, or migration not yet
+// applied) so callers can fall back to the legacy path. Null data with no
+// error is treated as unavailable, never as silent success.
+async function tryArRpc(db, funcName, args) {
+  if (typeof db.rpc !== 'function') return null;
+  const result = await db.rpc(funcName, args);
+  if (result && result.error) {
+    if (isMissingRpcError(result.error)) return null;
+    throw new Error(`${funcName}: ${result.error.message}`);
+  }
+  const payload = result && result.data;
+  if (!payload || typeof payload !== 'object') return null;
+  return payload;
+}
+
 async function insertLedgerEntry(db, payload, context) {
   const entryType = payload.entry_type;
   const referenceId = payload.reference_id ? String(payload.reference_id) : null;
   const referenceType = payload.reference_type || null;
+
+  // BE-004: atomic DB-side path — idempotency check, customer row lock,
+  // balance computation, entry insert, and Customers.current_balance update
+  // all happen in one transaction inside insert_ar_ledger_entry.
+  const rpcPayload = await tryArRpc(db, 'insert_ar_ledger_entry', {
+    p_customer_id: String(payload.customer_id),
+    p_entry_type: entryType,
+    p_reference_id: referenceId,
+    p_reference_type: referenceType,
+    p_amount: toMoney(payload.amount),
+    p_entry_date: payload.entry_date || today(),
+    p_company_id: contextCompanyId(context) || null,
+    p_location_id: contextLocationId(context) || null,
+  });
+  if (rpcPayload) {
+    if (rpcPayload.ok !== false) {
+      return rpcPayload.idempotent ? { ...rpcPayload.entry, idempotent: true } : rpcPayload.entry;
+    }
+    if (rpcPayload.code === 'AR_CUSTOMER_NOT_FOUND') {
+      throw new Error(`Customers ${payload.customer_id}: not found`);
+    }
+    if (rpcPayload.code === 'AR_INVALID_CUSTOMER') {
+      throw new Error('ar_ledger_entries insert: customer_id is required');
+    }
+    // Any other structured failure: fall through to the legacy path.
+  }
+
+  // Legacy fallback (demo mode / offline resilient mode only): the original
+  // read-modify-write path. Single-process local state, so the concurrency
+  // hazard the RPC eliminates does not apply here.
   const existing = await existingLedgerEntry(db, { entryType, referenceId, referenceType, context });
   if (existing) return { ...existing, idempotent: true };
 
@@ -251,6 +307,31 @@ async function updateInvoiceOpenBalance(db, invoice, nextOpenBalance, context) {
   return result.data;
 }
 
+// BE-004: atomic invoice open-balance change. Prefers the DB-side RPC (row
+// lock + delta applied against the DB's current value, so concurrent receipt
+// applications cannot lose updates); falls back to the legacy JS-computed
+// absolute write when the RPC is unavailable.
+async function applyInvoiceOpenBalanceChange(db, invoice, { delta = null, absolute = null }, context) {
+  const rpcPayload = await tryArRpc(db, 'apply_invoice_balance_delta', {
+    p_invoice_id: String(invoice.id),
+    p_delta: delta == null ? null : toMoney(delta),
+    p_set_absolute: absolute == null ? null : toMoney(absolute),
+    p_company_id: contextCompanyId(context) || null,
+    p_location_id: contextLocationId(context) || null,
+  });
+  if (rpcPayload) {
+    if (rpcPayload.ok !== false) return rpcPayload.invoice;
+    if (rpcPayload.code === 'AR_INVOICE_NOT_FOUND') {
+      throw new Error(`invoices ${invoice.id}: not found`);
+    }
+    // AR_UNSUPPORTED_SCHEMA or other structured failure: use the legacy path.
+  }
+  const nextOpenBalance = absolute != null
+    ? absolute
+    : (invoiceAmount(invoice) || invoiceOriginalAmount(invoice)) - toMoney(delta || 0);
+  return updateInvoiceOpenBalance(db, invoice, nextOpenBalance, context);
+}
+
 async function postInvoice(invoiceId, options = {}) {
   const db = dbFrom(options);
   const context = options.context || {};
@@ -269,7 +350,7 @@ async function postInvoice(invoiceId, options = {}) {
   }, context);
 
   const openBalance = invoice.open_balance == null ? amount : invoiceAmount(invoice);
-  await updateInvoiceOpenBalance(db, invoice, openBalance, context);
+  await applyInvoiceOpenBalanceChange(db, invoice, { absolute: openBalance }, context);
   await evaluateAutomaticCreditHold(db, customerId, context, { asOfDate: options.asOfDate });
   return entry;
 }
@@ -337,8 +418,9 @@ async function applyReceipt(receiptId, applications = [], options = {}) {
     if (error) throw new Error(`cash_receipt_applications insert: ${error.message}`);
     insertedApplications.push(data);
 
-    const currentOpen = invoiceAmount(invoice) || invoiceOriginalAmount(invoice);
-    await updateInvoiceOpenBalance(db, invoice, currentOpen - application.applied_amount, context);
+    // BE-004: delta semantics — the RPC subtracts from the DB's current value
+    // under a row lock instead of writing a JS-computed absolute balance.
+    await applyInvoiceOpenBalanceChange(db, invoice, { delta: application.applied_amount }, context);
   }
 
   if (appliedTotal > 0) {
