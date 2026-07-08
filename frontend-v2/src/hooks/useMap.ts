@@ -31,24 +31,16 @@ export type StopMarker = {
   driver?: string;
 };
 
-export type CustomerGeocode = {
-  customer_id: string;
-  lat: number;
-  lng: number;
-  formatted_address?: string;
-  cached?: boolean;
+export type DriveTimePair = {
+  key: string;
+  from: string | null | undefined;
+  to: string | number | null | undefined;
 };
 
 export type DriveTime = {
   duration_seconds: number;
   distance_meters: number;
   cached?: boolean;
-};
-
-export type DriveTimePair = {
-  key: string;
-  from: string | null | undefined;
-  to: string | number | null | undefined;
 };
 
 export type RoutePolylineStop = {
@@ -83,33 +75,6 @@ export function useMapStops() {
     queryFn: () => fetchWithAuth<StopMarker[]>('/api/stops'),
     refetchInterval: 30_000,
     staleTime: 20_000,
-  });
-}
-
-export function useCustomerGeocode(customerId: string | number | null | undefined) {
-  const id = customerId == null ? '' : String(customerId);
-  return useQuery({
-    queryKey: ['customer-geocode', id],
-    enabled: !!id,
-    queryFn: () => fetchWithAuth<CustomerGeocode>(`/api/customers/${encodeURIComponent(id)}/location`),
-    staleTime: 60_000,
-  });
-}
-
-export function useDriveTime(
-  from: string | null | undefined,
-  to: string | number | null | undefined,
-  mode = 'driving',
-) {
-  const toId = to == null ? '' : String(to);
-  return useQuery({
-    queryKey: ['drive-time', from || '', toId, mode],
-    enabled: !!from && !!toId,
-    queryFn: () =>
-      fetchWithAuth<DriveTime>(
-        `/api/maps/drive-time?from=${encodeURIComponent(from || '')}&to=${encodeURIComponent(toId)}&mode=${encodeURIComponent(mode)}`,
-      ),
-    staleTime: 60_000,
   });
 }
 
