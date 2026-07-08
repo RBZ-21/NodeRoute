@@ -15,7 +15,6 @@ const {
 const { loadCompanyBilling } = require('../services/superadmin-billing');
 const { requireRole } = require('../middleware/auth');
 const { stripeLimiter } = require('../middleware/rateLimiter');
-const { loadCompanyBilling } = require('../services/superadmin-billing');
 
 const router = express.Router();
 

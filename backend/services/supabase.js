@@ -96,15 +96,6 @@ function defaultState() {
     purchase_orders: [],
     temperature_logs: [],
     route_mutation_audit_logs: [],
-    platform_plan_tiers: [],
-    platform_plan_features: [],
-    platform_plan_feature_matrix: [],
-    platform_plan_limits: [],
-    platform_addons: [],
-    company_billing_profiles: [],
-    company_feature_entitlements: [],
-    company_addon_entitlements: [],
-    platform_pricing_audit_events: [],
   };
 }
 

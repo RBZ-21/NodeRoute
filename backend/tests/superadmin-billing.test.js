@@ -226,6 +226,32 @@ test('superadmin billing payload rejects negative custom monthly prices independ
   }), /custom_monthly_price_cents/);
 });
 
+test('demo Supabase upsert updates superadmin billing rows by conflict key', async () => withDemoSupabase(async (supabase) => {
+  await seedBillingCatalog(supabase, { companyId: 'company-upsert-demo' });
+
+  await saveCompanyBilling(
+    supabase,
+    'company-upsert-demo',
+    makeBillingPayload({ custom_monthly_price_cents: 300000 }),
+    'superadmin-1',
+  );
+  await saveCompanyBilling(
+    supabase,
+    'company-upsert-demo',
+    makeBillingPayload({ custom_monthly_price_cents: 325000 }),
+    'superadmin-1',
+  );
+
+  const { data: profiles, error } = await supabase
+    .from('company_billing_profiles')
+    .select('*')
+    .eq('company_id', 'company-upsert-demo');
+
+  assert.equal(error, null);
+  assert.equal(profiles.length, 1);
+  assert.equal(profiles[0].custom_monthly_price_cents, 325000);
+}));
+
 test('plan limits match workbook pricing tiers and legacy aliases', () => {
   const trialLimits = {
     plan: 'trial',
