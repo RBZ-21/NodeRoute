@@ -338,6 +338,14 @@ function confirmPoCard() {
   return card;
 }
 
+function confirmPoLinePrimaryRow(index = 0) {
+  return within(confirmPoCard()).getByTestId(`po-line-primary-row-${index}`);
+}
+
+function confirmPoLineReceivingRow(index = 0) {
+  return within(confirmPoCard()).getByTestId(`po-line-receiving-row-${index}`);
+}
+
 describe('PurchasingPage', () => {
   beforeEach(() => {
     fetchWithAuthMock.mockReset();
@@ -401,7 +409,8 @@ describe('PurchasingPage', () => {
     fireEvent.change(screen.getByPlaceholderText('Blue Ocean Seafood'), { target: { value: 'Blue Ocean Seafood' } });
     fireEvent.change(screen.getByPlaceholderText('PO-2026-044'), { target: { value: 'PO-300' } });
     fireEvent.change(screen.getByPlaceholderText('Dock B receiving'), { target: { value: 'Cold storage intake' } });
-    const lineRow = within(confirmPoCard()).getAllByRole('row')[1];
+    const lineRow = confirmPoLinePrimaryRow();
+    const receivingRow = confirmPoLineReceivingRow();
     fireEvent.change(within(lineRow).getByPlaceholderText('Atlantic Salmon'), { target: { value: 'Fresh Salmon' } });
     fireEvent.change(within(lineRow).getByPlaceholderText('SAL-01'), { target: { value: 'SAL-1' } });
 
@@ -411,9 +420,8 @@ describe('PurchasingPage', () => {
 
     fireEvent.change(within(lineRow).getByDisplayValue('lb'), { target: { value: 'lb' } });
     fireEvent.change(within(lineRow).getByDisplayValue('Other'), { target: { value: 'Seafood' } });
-    fireEvent.change(within(lineRow).getByPlaceholderText('e.g. SAL-2026-001'), { target: { value: 'SAL-LOT-1' } });
-    const expirationInput = lineRow.querySelector('input[type="date"]') as HTMLInputElement | null;
-    if (!expirationInput) throw new Error('Expected expiration date input');
+    fireEvent.change(within(receivingRow).getByLabelText('Lot Number (FSMA)'), { target: { value: 'SAL-LOT-1' } });
+    const expirationInput = within(receivingRow).getByLabelText('Expiration (optional)') as HTMLInputElement;
     fireEvent.change(expirationInput, { target: { value: '2026-05-10' } });
 
     fireEvent.click(screen.getByRole('button', { name: 'Confirm PO' }));
@@ -444,12 +452,27 @@ describe('PurchasingPage', () => {
     expect(await screen.findByText('Purchase order confirmed and inventory updated. PO # PO-300. 1 lot record(s) created.')).toBeInTheDocument();
   });
 
+  it('splits confirm purchase order line fields into primary and receiving detail rows', async () => {
+    renderPurchasingPage();
+
+    expect(await screen.findByText('PO-100')).toBeInTheDocument();
+
+    const primaryRow = confirmPoLinePrimaryRow();
+    const receivingRow = confirmPoLineReceivingRow();
+
+    expect(within(primaryRow).getByPlaceholderText('Atlantic Salmon')).toBeInTheDocument();
+    expect(within(primaryRow).getByPlaceholderText('SAL-01')).toBeInTheDocument();
+    expect(within(receivingRow).getByLabelText('Lot Number (FSMA)')).toBeInTheDocument();
+    expect(within(receivingRow).getByLabelText('Expiration (optional)')).toBeInTheDocument();
+    expect(within(receivingRow).getByText('Line total')).toBeInTheDocument();
+  });
+
   it('requires a lot number before confirming mollusk items', async () => {
     renderPurchasingPage();
 
     expect(await screen.findByText('PO-100')).toBeInTheDocument();
 
-    const lineRow = within(confirmPoCard()).getAllByRole('row')[1];
+    const lineRow = confirmPoLinePrimaryRow();
     fireEvent.change(within(lineRow).getByPlaceholderText('Atlantic Salmon'), { target: { value: 'Fresh Clams' } });
     fireEvent.change(within(lineRow).getByDisplayValue('Other'), { target: { value: 'Mollusks' } });
     fireEvent.change(within(lineRow).getAllByRole('spinbutton')[0], { target: { value: '5' } });
@@ -483,7 +506,7 @@ describe('PurchasingPage', () => {
     renderPurchasingPage('/purchasing?item=SAL-1&qty=12');
 
     expect(await screen.findByText('SAL-1', { selector: 'strong' })).toBeInTheDocument();
-    const lineRow = within(confirmPoCard()).getAllByRole('row')[1];
+    const lineRow = confirmPoLinePrimaryRow();
 
     await waitFor(() => {
       expect(within(lineRow).getByDisplayValue('Fresh Salmon')).toBeInTheDocument();
@@ -573,7 +596,7 @@ describe('PurchasingPage', () => {
 
     expect(await screen.findByText('PO-100')).toBeInTheDocument();
 
-    const lineRow = within(confirmPoCard()).getAllByRole('row')[1];
+    const lineRow = confirmPoLinePrimaryRow();
     fireEvent.change(within(lineRow).getByPlaceholderText('Atlantic Salmon'), { target: { value: 'Fresh Salmon' } });
     fireEvent.change(within(lineRow).getAllByRole('spinbutton')[0], { target: { value: '5' } });
 
@@ -592,7 +615,7 @@ describe('PurchasingPage', () => {
 
     fireEvent.change(screen.getByPlaceholderText('Blue Ocean Seafood'), { target: { value: 'Blue Ocean Seafood' } });
     fireEvent.change(screen.getByPlaceholderText('PO-2026-044'), { target: { value: 'PO-300' } });
-    const lineRow = within(confirmPoCard()).getAllByRole('row')[1];
+    const lineRow = confirmPoLinePrimaryRow();
     fireEvent.change(within(lineRow).getByPlaceholderText('Atlantic Salmon'), { target: { value: 'Fresh Salmon' } });
     fireEvent.change(within(lineRow).getAllByRole('spinbutton')[0], { target: { value: '5' } });
 
@@ -806,7 +829,7 @@ describe('PurchasingPage', () => {
     });
     expect(vendorLeadTimeMatches.length).toBeGreaterThan(0);
 
-    const lineRow = within(confirmPoCard()).getAllByRole('row')[1];
+    const lineRow = confirmPoLinePrimaryRow();
     fireEvent.change(within(lineRow).getByPlaceholderText('Atlantic Salmon'), { target: { value: 'Fresh Salmon' } });
     fireEvent.change(within(lineRow).getByPlaceholderText('SAL-01'), { target: { value: 'SAL-1' } });
 
@@ -826,7 +849,7 @@ describe('PurchasingPage', () => {
     const vendorCatalogMatches = await screen.findAllByText((_, element) => (element?.textContent || '').includes('Vendor catalog scoped to 1 SKU'));
     expect(vendorCatalogMatches.length).toBeGreaterThan(0);
 
-    const lineRow = within(confirmPoCard()).getAllByRole('row')[1];
+    const lineRow = confirmPoLinePrimaryRow();
     const descriptionInput = within(lineRow).getByPlaceholderText('Atlantic Salmon');
 
     fireEvent.change(descriptionInput, { target: { value: 'salmon' } });

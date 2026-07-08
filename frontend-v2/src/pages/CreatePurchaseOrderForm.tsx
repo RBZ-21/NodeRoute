@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -588,116 +588,132 @@ export function CreatePurchaseOrderForm({ setNotice, setFormError, editingDraft 
           ) : null}
 
           <div className="table-scroll-container overflow-x-auto rounded-lg border border-border">
-            <Table>
+            <Table className="min-w-[1080px]">
               <TableHeader>
                 <TableRow>
-                  <TableHead>Description</TableHead>
-                  <TableHead>Item #</TableHead>
-                  <TableHead>Qty</TableHead>
-                  <TableHead>Unit Price</TableHead>
-                  <TableHead>Unit</TableHead>
-                  <TableHead>Category</TableHead>
-                  <TableHead>Item Type</TableHead>
-                  <TableHead>Approval</TableHead>
-                  <TableHead>Lot Number <span className="ml-1 text-xs font-normal text-muted-foreground">(FSMA)</span></TableHead>
-                  <TableHead>Expiration <span className="ml-1 text-xs font-normal text-muted-foreground">(optional)</span></TableHead>
-                  <TableHead>Total</TableHead>
-                  <TableHead />
+                  <TableHead className="min-w-[220px]">Description</TableHead>
+                  <TableHead className="min-w-[130px]">Item #</TableHead>
+                  <TableHead className="w-24">Qty</TableHead>
+                  <TableHead className="w-28">Unit Price</TableHead>
+                  <TableHead className="w-24">Unit</TableHead>
+                  <TableHead className="min-w-[150px]">Category</TableHead>
+                  <TableHead className="w-28">Item Type</TableHead>
+                  <TableHead className="min-w-[150px]">Approval</TableHead>
+                  <TableHead className="w-24 text-right"><span className="sr-only">Actions</span></TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {lines.map((line, index) => (
-                  <TableRow key={index}>
-                    <TableCell>
-                      <Combobox
-                        value={line.description}
-                        onChange={(v) => updateLine(index, 'description', v)}
-                        onSelect={(opt) => {
-                          const p = products.find((x) => x.item_number === opt.value);
-                          if (!p) return;
-                          setLines((cur) => cur.map((l, i) => i !== index ? l : {
-                            ...l,
-                            description: p.description,
-                            item_number: p.item_number,
-                            unit: p.unit ?? 'lb',
-                            unit_price: asNumber(p.cost) > 0 ? String(asNumber(p.cost)) : l.unit_price,
-                            category: p.category ?? l.category,
-                          }));
-                        }}
-                        options={productOptions}
-                        placeholder="Atlantic Salmon"
-                      />
-                    </TableCell>
-                    <TableCell>
-                      <div className="space-y-1">
-                        <Input value={line.item_number} onChange={(e) => updateLine(index, 'item_number', e.target.value)} placeholder="SAL-01" />
-                        {lineLeadTimeHistory[index] ? (
-                          <div className="text-[11px] text-emerald-700">
-                            Avg lead time {formatLeadTimeDays(lineLeadTimeHistory[index]?.averageDays)} across {lineLeadTimeHistory[index]?.receiptCount} received PO{lineLeadTimeHistory[index]?.receiptCount === 1 ? '' : 's'}
-                            {lineLeadTimeHistory[index]?.latestDays != null ? ` · latest ${formatLeadTimeDays(lineLeadTimeHistory[index]?.latestDays)}` : ''}
-                          </div>
-                        ) : selectedVendorLeadTimeHistory && (line.item_number.trim() || line.description.trim()) ? (
-                          <div className="text-[11px] text-muted-foreground">
-                            Vendor avg {formatLeadTimeDays(selectedVendorLeadTimeHistory.averageDays)} · no product-specific history yet
-                          </div>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                    <TableCell><Input type="number" min="0" step="0.01" value={line.quantity} onChange={(e) => updateLine(index, 'quantity', e.target.value)} /></TableCell>
-                    <TableCell><Input type="number" min="0" step="0.01" value={line.unit_price} onChange={(e) => updateLine(index, 'unit_price', e.target.value)} /></TableCell>
-                    <TableCell><Input value={line.unit} onChange={(e) => updateLine(index, 'unit', e.target.value)} /></TableCell>
-                    <TableCell><Input value={line.category} onChange={(e) => updateLine(index, 'category', e.target.value)} /></TableCell>
-                    <TableCell>
-                      <span className="text-sm text-muted-foreground">
-                        {scanResult?.items[index]?.item_type
-                          ? `${scanResult.items[index].item_type.charAt(0).toUpperCase()}${scanResult.items[index].item_type.slice(1)}`
-                          : 'Manual'}
-                      </span>
-                    </TableCell>
-                    <TableCell>
-                      {scanResult?.items[index]?.item_type === 'count' ? (
-                        <label className="flex items-start gap-2 text-sm">
-                          <input
-                            type="checkbox"
-                            checked={line.count_item_approved}
-                            onChange={(event) => setCountItemApproval(index, event.target.checked)}
-                            aria-label={`Approve count item ${line.description || `line ${index + 1}`}`}
-                          />
-                          <span>
-                            <span className="block font-medium text-foreground">
-                              {line.count_item_approved ? 'Count verified' : 'Approval required'}
-                            </span>
-                            <span className="block text-[11px] text-muted-foreground">
-                              Count items need a distinct line-by-line confirmation before the PO can be submitted.
-                            </span>
-                          </span>
-                        </label>
-                      ) : (
-                        <span className="text-xs text-muted-foreground">Overall PO review</span>
-                      )}
-                    </TableCell>
-                    <TableCell>
-                      <div className="space-y-1">
-                        <Input
-                          value={line.lot_number}
-                          onChange={(e) => updateLine(index, 'lot_number', e.target.value)}
-                          placeholder={lineRequiresLot(line) ? 'Required for shellfish lots' : 'e.g. SAL-2026-001'}
-                          className="font-mono text-sm"
+                  <Fragment key={index}>
+                    <TableRow data-testid={`po-line-primary-row-${index}`} className="border-b-0 align-top hover:bg-muted/30">
+                      <TableCell className="min-w-[220px]">
+                        <Combobox
+                          value={line.description}
+                          onChange={(v) => updateLine(index, 'description', v)}
+                          onSelect={(opt) => {
+                            const p = products.find((x) => x.item_number === opt.value);
+                            if (!p) return;
+                            setLines((cur) => cur.map((l, i) => i !== index ? l : {
+                              ...l,
+                              description: p.description,
+                              item_number: p.item_number,
+                              unit: p.unit ?? 'lb',
+                              unit_price: asNumber(p.cost) > 0 ? String(asNumber(p.cost)) : l.unit_price,
+                              category: p.category ?? l.category,
+                            }));
+                          }}
+                          options={productOptions}
+                          placeholder="Atlantic Salmon"
                         />
-                        {lineRequiresLot(line) ? (
-                          <div className="text-[11px] text-amber-700">Required before confirming mussel, clam, and oyster receipts.</div>
-                        ) : null}
-                        {String(scanResult?.items[index]?.lot_number || '').trim() ? (
-                          <div className="text-[11px] text-sky-700">
-                            Scan detected lot <span className="font-mono">{scanResult?.items[index]?.lot_number}</span> ({scanResult?.items[index]?.lot_number_confidence} confidence).
+                      </TableCell>
+                      <TableCell className="min-w-[130px]">
+                        <div className="space-y-1">
+                          <Input value={line.item_number} onChange={(e) => updateLine(index, 'item_number', e.target.value)} placeholder="SAL-01" />
+                          {lineLeadTimeHistory[index] ? (
+                            <div className="text-[11px] text-emerald-700">
+                              Avg lead time {formatLeadTimeDays(lineLeadTimeHistory[index]?.averageDays)} across {lineLeadTimeHistory[index]?.receiptCount} received PO{lineLeadTimeHistory[index]?.receiptCount === 1 ? '' : 's'}
+                              {lineLeadTimeHistory[index]?.latestDays != null ? ` · latest ${formatLeadTimeDays(lineLeadTimeHistory[index]?.latestDays)}` : ''}
+                            </div>
+                          ) : selectedVendorLeadTimeHistory && (line.item_number.trim() || line.description.trim()) ? (
+                            <div className="text-[11px] text-muted-foreground">
+                              Vendor avg {formatLeadTimeDays(selectedVendorLeadTimeHistory.averageDays)} · no product-specific history yet
+                            </div>
+                          ) : null}
+                        </div>
+                      </TableCell>
+                      <TableCell className="w-24"><Input type="number" min="0" step="0.01" value={line.quantity} onChange={(e) => updateLine(index, 'quantity', e.target.value)} /></TableCell>
+                      <TableCell className="w-28"><Input type="number" min="0" step="0.01" value={line.unit_price} onChange={(e) => updateLine(index, 'unit_price', e.target.value)} /></TableCell>
+                      <TableCell className="w-24"><Input value={line.unit} onChange={(e) => updateLine(index, 'unit', e.target.value)} /></TableCell>
+                      <TableCell className="min-w-[150px]"><Input value={line.category} onChange={(e) => updateLine(index, 'category', e.target.value)} /></TableCell>
+                      <TableCell className="w-28">
+                        <span className="text-sm text-muted-foreground">
+                          {scanResult?.items[index]?.item_type
+                            ? `${scanResult.items[index].item_type.charAt(0).toUpperCase()}${scanResult.items[index].item_type.slice(1)}`
+                            : 'Manual'}
+                        </span>
+                      </TableCell>
+                      <TableCell className="min-w-[150px]">
+                        {scanResult?.items[index]?.item_type === 'count' ? (
+                          <label className="flex items-start gap-2 text-sm">
+                            <input
+                              type="checkbox"
+                              checked={line.count_item_approved}
+                              onChange={(event) => setCountItemApproval(index, event.target.checked)}
+                              aria-label={`Approve count item ${line.description || `line ${index + 1}`}`}
+                            />
+                            <span>
+                              <span className="block font-medium text-foreground">
+                                {line.count_item_approved ? 'Count verified' : 'Approval required'}
+                              </span>
+                              <span className="block text-[11px] text-muted-foreground">
+                                Count items need a distinct line-by-line confirmation before the PO can be submitted.
+                              </span>
+                            </span>
+                          </label>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">Overall PO review</span>
+                        )}
+                      </TableCell>
+                      <TableCell className="w-24 text-right"><Button variant="ghost" size="sm" onClick={() => removeLine(index)}>Remove</Button></TableCell>
+                    </TableRow>
+                    <TableRow data-testid={`po-line-receiving-row-${index}`} className="bg-muted/20 hover:bg-muted/30">
+                      <TableCell colSpan={9} className="px-2 pb-4 pt-0">
+                        <div className="grid gap-3 rounded-md border border-border/70 bg-background/80 p-3 md:grid-cols-[minmax(18rem,1fr)_minmax(14rem,0.75fr)_minmax(8rem,0.35fr)]">
+                          <label className="space-y-1 text-sm">
+                            <span className="font-semibold text-muted-foreground">Lot Number <span className="text-xs font-normal">(FSMA)</span></span>
+                            <Input
+                              aria-label="Lot Number (FSMA)"
+                              value={line.lot_number}
+                              onChange={(e) => updateLine(index, 'lot_number', e.target.value)}
+                              placeholder={lineRequiresLot(line) ? 'Required for shellfish lots' : 'e.g. SAL-2026-001'}
+                              className="font-mono text-sm"
+                            />
+                            {lineRequiresLot(line) ? (
+                              <div className="text-[11px] text-amber-700">Required before confirming mussel, clam, and oyster receipts.</div>
+                            ) : null}
+                            {String(scanResult?.items[index]?.lot_number || '').trim() ? (
+                              <div className="text-[11px] text-sky-700">
+                                Scan detected lot <span className="font-mono">{scanResult?.items[index]?.lot_number}</span> ({scanResult?.items[index]?.lot_number_confidence} confidence).
+                              </div>
+                            ) : null}
+                          </label>
+                          <label className="space-y-1 text-sm">
+                            <span className="font-semibold text-muted-foreground">Expiration <span className="text-xs font-normal">(optional)</span></span>
+                            <Input
+                              aria-label="Expiration (optional)"
+                              type="date"
+                              value={line.expiration_date}
+                              onChange={(e) => updateLine(index, 'expiration_date', e.target.value)}
+                            />
+                          </label>
+                          <div className="rounded-md border border-border bg-muted/30 px-3 py-2">
+                            <div className="text-xs font-medium text-muted-foreground">Line total</div>
+                            <div className="text-base font-semibold">{money(asNumber(line.quantity) * asNumber(line.unit_price))}</div>
                           </div>
-                        ) : null}
-                      </div>
-                    </TableCell>
-                    <TableCell><Input type="date" value={line.expiration_date} onChange={(e) => updateLine(index, 'expiration_date', e.target.value)} /></TableCell>
-                    <TableCell>{money(asNumber(line.quantity) * asNumber(line.unit_price))}</TableCell>
-                    <TableCell><Button variant="ghost" size="sm" onClick={() => removeLine(index)}>Remove</Button></TableCell>
-                  </TableRow>
+                        </div>
+                      </TableCell>
+                    </TableRow>
+                  </Fragment>
                 ))}
               </TableBody>
             </Table>

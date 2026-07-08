@@ -244,6 +244,27 @@ function applySelect(rows) {
   return rows;
 }
 
+// Conflict targets used by the demo-mode `upsert` implementation. Real Postgres
+// resolves conflicts from the table's primary key; the JSON store has no schema,
+// so tables with non-`id` primary keys are listed here explicitly. Callers can
+// always override with upsert(rows, { onConflict: 'col_a,col_b' }).
+const DEMO_UPSERT_CONFLICT_KEYS = {
+  platform_plan_tiers: ['code'],
+  platform_plan_features: ['code'],
+  platform_addons: ['code'],
+  platform_plan_feature_matrix: ['tier_code', 'feature_code'],
+  platform_plan_limits: ['tier_code', 'metric_code'],
+  company_billing_profiles: ['company_id'],
+  company_feature_entitlements: ['company_id', 'feature_code'],
+  company_addon_entitlements: ['company_id', 'addon_code'],
+};
+
+function parseOnConflict(options) {
+  if (!options || typeof options.onConflict !== 'string') return null;
+  const keys = options.onConflict.split(',').map((key) => key.trim()).filter(Boolean);
+  return keys.length ? keys : null;
+}
+
 class DemoQuery {
   constructor(tableName, options = {}) {
     this.tableName = normalizeTableName(tableName);
@@ -265,6 +286,13 @@ class DemoQuery {
   insert(rows) {
     this.operation = 'insert';
     this.payload = Array.isArray(rows) ? rows : [rows];
+    return this;
+  }
+
+  upsert(rows, options = {}) {
+    this.operation = 'upsert';
+    this.payload = Array.isArray(rows) ? rows : [rows];
+    this.conflictKeys = parseOnConflict(options);
     return this;
   }
 
@@ -363,6 +391,30 @@ class DemoQuery {
       });
       if (this.onWrite) this.onWrite();
       const result = this.shouldSingle ? inserted[0] || null : inserted;
+      return { data: applySelect(clone(result)), error: null };
+    }
+
+    if (this.operation === 'upsert') {
+      const conflictKeys = this.conflictKeys || DEMO_UPSERT_CONFLICT_KEYS[this.tableName] || ['id'];
+      const results = this.payload.map((row) => {
+        const next = clone(row) || {};
+        const hasAllKeys = conflictKeys.every((key) => next[key] !== undefined && next[key] !== null);
+        const idx = hasAllKeys
+          ? table.findIndex((item) => conflictKeys.every((key) => String(item?.[key]) === String(next[key])))
+          : -1;
+        if (idx >= 0) {
+          table[idx] = { ...table[idx], ...next };
+          return clone(table[idx]);
+        }
+        if (conflictKeys.includes('id') && next.id == null) {
+          next.id = `${this.tableName}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
+        }
+        if (!next.created_at) next.created_at = new Date().toISOString();
+        table.push(next);
+        return clone(next);
+      });
+      if (this.onWrite) this.onWrite();
+      const result = this.shouldSingle ? results[0] || null : results;
       return { data: applySelect(clone(result)), error: null };
     }
 
@@ -489,6 +541,13 @@ class ResilientQuery {
     return this;
   }
 
+  upsert(rows, options = {}) {
+    this.operation = 'upsert';
+    this.payload = Array.isArray(rows) ? clone(rows) : [clone(rows)];
+    this.upsertOptions = options && typeof options === 'object' ? clone(options) : {};
+    return this;
+  }
+
   update(fields) {
     this.operation = 'update';
     this.payload = clone(fields) || {};
@@ -575,6 +634,7 @@ class ResilientQuery {
       tableName: this.tableName,
       operation: this.operation,
       payload: clone(this.payload),
+      upsertOptions: clone(this.upsertOptions),
       filters: clone(this.filters),
       orderBy: clone(this.orderBy),
       limitCount: this.limitCount,
@@ -587,6 +647,7 @@ class ResilientQuery {
   static buildQuery(client, spec) {
     let query = client.from(spec.tableName);
     if (spec.operation === 'insert') query = query.insert(spec.payload);
+    if (spec.operation === 'upsert') query = query.upsert(spec.payload, spec.upsertOptions || {});
     if (spec.operation === 'update') query = query.update(spec.payload);
     if (spec.operation === 'delete') query = query.delete();
 
@@ -634,7 +695,7 @@ class ResilientQuery {
       if (!isConnectionError(error)) return { data: null, error };
 
       const localResult = await ResilientQuery.buildQuery(this.localClient, spec);
-      if (!localResult?.error && ['insert', 'update', 'delete'].includes(spec.operation)) {
+      if (!localResult?.error && ['insert', 'upsert', 'update', 'delete'].includes(spec.operation)) {
         pendingSyncQueue.push(spec);
         persistSyncQueue();
         persistLocalState();
