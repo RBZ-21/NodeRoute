@@ -32,7 +32,7 @@
 - Consumes: raw `{ invoice, companySettings, order, customer, stop, route, driver }` records.
 - Produces: `buildInvoiceDocument(input): InvoiceDocument`, `snapshotInvoiceDocument(document): object`, `countInvoicePieces(items): number`.
 
-- [ ] **Step 1: Write the failing pure-model tests**
+- [x] **Step 1: Write the failing pure-model tests**
 
 ```js
 const test = require('node:test');
@@ -85,13 +85,13 @@ test('countInvoicePieces excludes weight units', () => {
 });
 ```
 
-- [ ] **Step 2: Run the tests and verify RED**
+- [x] **Step 2: Run the tests and verify RED**
 
 Run: `node --test backend/tests/invoice-document.test.js`
 
 Expected: FAIL because `backend/services/invoice-document.js` does not exist.
 
-- [ ] **Step 3: Add the migration SQL**
+- [x] **Step 3: Add the migration SQL**
 
 ```sql
 alter table public.invoices
@@ -117,7 +117,7 @@ where id = '00000000-0000-0000-0000-000000000001'
   and lower(coalesce(settings ->> 'business_name', name, '')) like 'crosby%';
 ```
 
-- [ ] **Step 4: Implement the pure document model**
+- [x] **Step 4: Implement the pure document model**
 
 ```js
 function lineQuantity(item, keys) {
@@ -204,13 +204,13 @@ function snapshotInvoiceDocument(document) {
 }
 ```
 
-- [ ] **Step 5: Run the model tests and verify GREEN**
+- [x] **Step 5: Run the model tests and verify GREEN**
 
 Run: `node --test backend/tests/invoice-document.test.js`
 
 Expected: 3 tests pass, 0 fail.
 
-- [ ] **Step 6: Commit the schema and model**
+- [x] **Step 6: Commit the schema and model**
 
 ```bash
 git add supabase/migrations/20260710101729_invoice_document_snapshot.sql backend/services/invoice-document.js backend/tests/invoice-document.test.js
@@ -230,7 +230,7 @@ git commit -m "feat: add invoice document snapshots"
 - Consumes: snake_case values in `companies.settings` and existing company profile columns.
 - Produces: camelCase `CompanySettings` fields including `invoiceAddress`, `invoicePhone`, `invoiceFax`, `invoiceAfterHoursPhone`, `invoiceRemitTo`, `invoiceSalesTerms`, `invoiceCreditTerms`, `invoiceCopyLabel`, and `invoiceSafetyNotice`.
 
-- [ ] **Step 1: Write failing normalization tests**
+- [x] **Step 1: Write failing normalization tests**
 
 ```js
 const test = require('node:test');
@@ -255,13 +255,13 @@ test('normalizes editable invoice identity and legal settings', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and verify RED**
+- [x] **Step 2: Run the test and verify RED**
 
 Run: `node --test backend/tests/company-invoice-settings.test.js`
 
 Expected: FAIL because the normalized invoice fields are undefined.
 
-- [ ] **Step 3: Extend company settings normalization and loading**
+- [x] **Step 3: Extend company settings normalization and loading**
 
 ```js
 function boundedText(value, maxLength) {
@@ -286,7 +286,7 @@ return {
 
 Change the company select to `name,phone,address,city,state,zip,settings` and pass the profile row into `normalizeCompanySettings`.
 
-- [ ] **Step 4: Extend the settings PATCH route**
+- [x] **Step 4: Extend the settings PATCH route**
 
 Write snake_case fields into `mergedSettings` while preserving unrelated keys:
 
@@ -302,13 +302,13 @@ invoice_copy_label: normalized.invoiceCopyLabel,
 invoice_safety_notice: normalized.invoiceSafetyNotice,
 ```
 
-- [ ] **Step 5: Run backend settings tests and verify GREEN**
+- [x] **Step 5: Run backend settings tests and verify GREEN**
 
 Run: `node --test backend/tests/company-invoice-settings.test.js backend/tests/company-config-context.test.js`
 
 Expected: all tests pass.
 
-- [ ] **Step 6: Commit backend settings**
+- [x] **Step 6: Commit backend settings**
 
 ```bash
 git add backend/services/company-settings.js backend/routes/settings.js backend/tests/company-invoice-settings.test.js
@@ -322,6 +322,7 @@ git commit -m "feat: add editable invoice settings"
 **Files:**
 - Create: `frontend-v2/src/pages/InvoiceSettingsFields.tsx`
 - Create: `frontend-v2/src/pages/InvoiceSettingsFields.test.tsx`
+- Create: `frontend-v2/src/components/ui/textarea.tsx`
 - Modify: `frontend-v2/src/hooks/useSettings.ts`
 - Modify: `frontend-v2/src/pages/SettingsPage.tsx`
 
@@ -329,7 +330,7 @@ git commit -m "feat: add editable invoice settings"
 - Consumes: the invoice settings fields from `CompanySettings` and one `onChange(field, value)` callback.
 - Produces: accessible labeled controls embedded in the existing Company Controls card.
 
-- [ ] **Step 1: Write the failing component test**
+- [x] **Step 1: Write the failing component test**
 
 ```tsx
 import { fireEvent, render, screen } from '@testing-library/react';
@@ -348,13 +349,13 @@ describe('InvoiceSettingsFields', () => {
 });
 ```
 
-- [ ] **Step 2: Run the test and verify RED**
+- [x] **Step 2: Run the test and verify RED**
 
 Run: `npm --prefix frontend-v2 run test -- InvoiceSettingsFields.test.tsx`
 
 Expected: FAIL because `InvoiceSettingsFields` does not exist.
 
-- [ ] **Step 3: Implement the field component**
+- [x] **Step 3: Implement the field component**
 
 ```tsx
 import { Input } from '../components/ui/input';
@@ -373,7 +374,7 @@ export function InvoiceSettingsFields({ values, disabled, onChange }: { values: 
 }
 ```
 
-- [ ] **Step 4: Integrate the fields with Settings state and payloads**
+- [x] **Step 4: Integrate the fields with Settings state and payloads**
 
 ```tsx
 const [invoiceSettings, setInvoiceSettings] = useState<CompanySettings | null>(null);
@@ -396,7 +397,7 @@ await saveCompany.mutateAsync({
 
 Render `<InvoiceSettingsFields values={invoiceValues} disabled={isCompanyDisabled} onChange={updateInvoiceSetting} />`, reset `invoiceSettings` to `null` after success, and include `invoiceSettings !== null` in `companyDirty`.
 
-- [ ] **Step 5: Run the component test, TypeScript build, and lint**
+- [x] **Step 5: Run the component test, TypeScript build, and lint**
 
 Run: `npm --prefix frontend-v2 run test -- InvoiceSettingsFields.test.tsx`
 
@@ -410,7 +411,7 @@ Run: `npm --prefix frontend-v2 run lint`
 
 Expected: 0 errors and no new warnings in touched files.
 
-- [ ] **Step 6: Commit the settings UI**
+- [x] **Step 6: Commit the settings UI**
 
 ```bash
 git add frontend-v2/src/pages/InvoiceSettingsFields.tsx frontend-v2/src/pages/InvoiceSettingsFields.test.tsx frontend-v2/src/hooks/useSettings.ts frontend-v2/src/pages/SettingsPage.tsx
@@ -432,7 +433,7 @@ git commit -m "feat: expose invoice document settings"
 - Consumes: invoice id/company/location plus linked order/customer/stop/route/driver records.
 - Produces: `loadInvoiceDocument(invoice, { db, loadSettings }): Promise<InvoiceDocument>` and captures `salesperson_name` when orders or invoices are created.
 
-- [ ] **Step 1: Write failing enrichment and salesperson tests**
+- [x] **Step 1: Write failing enrichment and salesperson tests**
 
 ```js
 test('loadInvoiceDocument reuses an immutable snapshot without querying related records', async () => {
@@ -461,13 +462,13 @@ test('order and invoice creation capture salesperson identity', () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run: `node --test backend/tests/invoice-document.test.js backend/tests/order-fulfillment-email.test.js`
 
 Expected: FAIL on missing `loadInvoiceDocument` and missing salesperson capture.
 
-- [ ] **Step 3: Implement scoped record loading**
+- [x] **Step 3: Implement scoped record loading**
 
 ```js
 async function loadInvoiceDocument(invoice, { db = supabase, loadSettings = loadCompanySettings } = {}) {
@@ -490,7 +491,7 @@ async function loadInvoiceDocument(invoice, { db = supabase, loadSettings = load
 }
 ```
 
-- [ ] **Step 4: Capture salesperson identity**
+- [x] **Step 4: Capture salesperson identity**
 
 ```js
 salesperson_name: req.body?.salesperson_name || req.body?.salespersonName || req.user?.name || null,
@@ -498,13 +499,13 @@ salesperson_name: req.body?.salesperson_name || req.body?.salespersonName || req
 
 Add `salesperson_name: overrides.salesperson_name || order.salesperson_name || null` to `invoicePayloadForOrder`.
 
-- [ ] **Step 5: Run focused tests and verify GREEN**
+- [x] **Step 5: Run focused tests and verify GREEN**
 
 Run: `node --test backend/tests/invoice-document.test.js backend/tests/order-fulfillment-email.test.js`
 
 Expected: all tests pass.
 
-- [ ] **Step 6: Commit enrichment**
+- [x] **Step 6: Commit enrichment**
 
 ```bash
 git add backend/services/invoice-document.js backend/routes/orders.js backend/routes/invoices.js backend/tests/invoice-document.test.js backend/tests/order-fulfillment-email.test.js
@@ -520,12 +521,13 @@ git commit -m "feat: enrich invoice document metadata"
 - Modify: `backend/services/pdf.js`
 - Modify: `backend/tests/html-output-escaping.test.js`
 - Modify: `backend/tests/invoice-lot-forwarding.test.js`
+- Modify: `backend/tests/order-fulfillment-email.test.js`
 
 **Interfaces:**
 - Consumes: `InvoiceDocument` from Task 4.
 - Produces: `renderInvoiceEmailHtml(document): string`, `buildInvoicePDF(invoice, document?): Promise<Buffer>`, and the existing `sendInvoiceEmail(invoice, subjectPrefix)` result.
 
-- [ ] **Step 1: Write failing renderer tests**
+- [x] **Step 1: Write failing renderer tests**
 
 ```js
 test('invoice email contains ordered items and total without attachment-only sections', () => {
@@ -550,13 +552,13 @@ for (const label of ['SOLD TO', 'SHIPPED TO', 'PLEASE REMIT TO', 'CUSTOMER #', '
 }
 ```
 
-- [ ] **Step 2: Run renderer tests and verify RED**
+- [x] **Step 2: Run renderer tests and verify RED**
 
 Run: `node --test backend/tests/html-output-escaping.test.js backend/tests/invoice-lot-forwarding.test.js`
 
 Expected: FAIL because the email renderer export and PDF labels do not exist.
 
-- [ ] **Step 3: Implement concise escaped email HTML**
+- [x] **Step 3: Implement concise escaped email HTML**
 
 ```js
 function renderInvoiceEmailHtml(document) {
@@ -565,7 +567,7 @@ function renderInvoiceEmailHtml(document) {
 }
 ```
 
-- [ ] **Step 4: Implement the approved PDF layout**
+- [x] **Step 4: Implement the approved PDF layout**
 
 ```js
 const metadataLabels = ['CUSTOMER #', 'SALESPERSON', 'TRUCK / ROUTE', 'ORDER DATE', 'DELIVERY DATE', 'TERMS', 'INVOICE #'];
@@ -584,7 +586,7 @@ function drawLabelBand(doc, labels, y, widths) {
 
 Call `drawLabelBand` for both approved bands, draw seller/sold-to/shipped-to/remit-to blocks above them, then draw piece count, signature, totals, sales terms, credit terms, copy label, and safety notice below the line rows. Continue to render the existing signature and proof-of-delivery images from the invoice record and do not render `invoice.notes`.
 
-- [ ] **Step 5: Persist the snapshot only after successful send**
+- [x] **Step 5: Persist the snapshot only after successful send**
 
 Update the invoice with one scoped write:
 
@@ -596,13 +598,13 @@ Update the invoice with one scoped write:
 }
 ```
 
-- [ ] **Step 6: Run renderer and send-path tests and verify GREEN**
+- [x] **Step 6: Run renderer and send-path tests and verify GREEN**
 
 Run: `node --test backend/tests/html-output-escaping.test.js backend/tests/invoice-lot-forwarding.test.js backend/tests/order-fulfillment-email.test.js backend/tests/stop-delivery-email-and-driver-skip.test.js`
 
 Expected: all tests pass.
 
-- [ ] **Step 7: Commit the renderers**
+- [x] **Step 7: Commit the renderers**
 
 ```bash
 git add backend/services/invoice-email.js backend/services/pdf.js backend/tests/html-output-escaping.test.js backend/tests/invoice-lot-forwarding.test.js
@@ -620,19 +622,19 @@ git commit -m "feat: redesign emailed invoice documents"
 - Consumes: all implementation tasks.
 - Produces: verified branch ready for the user-requested push.
 
-- [ ] **Step 1: Run focused backend verification**
+- [x] **Step 1: Run focused backend verification**
 
 Run: `node --test backend/tests/invoice-document.test.js backend/tests/company-invoice-settings.test.js backend/tests/html-output-escaping.test.js backend/tests/invoice-lot-forwarding.test.js backend/tests/order-fulfillment-email.test.js backend/tests/stop-delivery-email-and-driver-skip.test.js`
 
 Expected: 0 failures.
 
-- [ ] **Step 2: Run broad backend verification**
+- [x] **Step 2: Run broad backend verification**
 
 Run: `node --test backend/tests/*.test.js`
 
 Expected: 0 failures.
 
-- [ ] **Step 3: Run frontend verification**
+- [x] **Step 3: Run frontend verification**
 
 Run: `npm --prefix frontend-v2 run test -- InvoiceSettingsFields.test.tsx`
 
@@ -646,13 +648,13 @@ Run: `npm --prefix frontend-v2 run lint`
 
 Expected: 0 errors and no new warnings in touched files.
 
-- [ ] **Step 4: Run the root production build**
+- [x] **Step 4: Run the root production build**
 
 Run: `npm run build`
 
 Expected: all three web applications build successfully.
 
-- [ ] **Step 5: Validate migration state and advisors without mutating production**
+- [x] **Step 5: Validate migration state and advisors without mutating production**
 
 Run: `npx supabase migration list --local`
 
@@ -660,7 +662,7 @@ Expected: `20260710101729` appears in the local migration list.
 
 Use the connected Supabase project to run security and performance advisors. Do not apply the migration during this publish-only task.
 
-- [ ] **Step 6: Inspect the final diff and commit plan tracking**
+- [x] **Step 6: Inspect the final diff and commit plan tracking**
 
 ```bash
 git diff --check
