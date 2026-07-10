@@ -681,6 +681,7 @@ function invoicePayloadForOrder(order, fulfilledItems = null, overrides = {}) {
     tax_enabled: taxEnabled,
     tax_rate: taxRate,
     order_id: order.id,
+    salesperson_name: overrides.salesperson_name || order.salesperson_name || null,
     driver_name: overrides.driverName || order.driver_name || null,
     status: 'pending',
     notes: overrides.notes !== undefined ? overrides.notes : order.notes || 'Awaiting final weights',
@@ -1104,6 +1105,7 @@ router.post('/', validateBody(orderCreateSchema), authenticateToken, requireRole
     driver_name: null,
     route_id: routeId || null,
     stop_id: req.body.stop_id || req.body.stopId || null,
+    salesperson_name: req.body.salesperson_name || req.body.salespersonName || req.user?.name || null,
     tracking_token: trackingToken,
     tracking_expires_at: trackingExpiry(),
   }, req.context);

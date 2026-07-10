@@ -322,6 +322,7 @@ router.post('/', authenticateToken, requireRole('admin', 'manager'), validateBod
     tax_enabled: taxEnabled,
     tax_rate: normalizedTaxRate,
     order_id: orderId,
+    salesperson_name: invoiceBodyValue(body, 'salesperson_name', 'salespersonName') || req.user?.name || null,
     status: 'pending',
     driver_name: invoiceBodyValue(body, 'driver_name', 'driverName'),
     driver_id: invoiceBodyValue(body, 'driver_id', 'driverId'),

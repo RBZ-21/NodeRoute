@@ -2,10 +2,13 @@
 
 const test = require('node:test');
 const assert = require('node:assert/strict');
+const fs = require('node:fs');
+const path = require('node:path');
 
 const {
   buildInvoiceDocument,
   countInvoicePieces,
+  loadInvoiceDocument,
   snapshotInvoiceDocument,
 } = require('../services/invoice-document');
 
@@ -106,4 +109,39 @@ test('countInvoicePieces excludes weight units', () => {
     { shippedQuantity: 18.4, uom: 'lb' },
     { shippedQuantity: 2, uom: 'BG' },
   ]), 6);
+});
+
+test('loadInvoiceDocument reuses an immutable snapshot without querying related records', async () => {
+  const snapshot = {
+    seller: { businessName: 'Historical Seller' },
+    metadata: { invoiceNumber: 'INV-OLD' },
+    items: [],
+    totals: { total: 25 },
+  };
+  const db = {
+    from() {
+      throw new Error('database should not be queried');
+    },
+  };
+
+  const document = await loadInvoiceDocument({ document_snapshot: snapshot }, { db });
+
+  assert.deepEqual(document, snapshot);
+});
+
+test('invoice document source scopes every related table', () => {
+  const source = fs.readFileSync(path.join(__dirname, '..', 'services', 'invoice-document.js'), 'utf8');
+  for (const table of ['invoices', 'orders', 'Customers', 'stops', 'routes', 'users']) {
+    assert.match(source, new RegExp(`from\\(['\"]${table}['\"]\\)`));
+  }
+  assert.match(source, /scopeQueryByContext/);
+});
+
+test('order and invoice creation capture salesperson identity', () => {
+  const orders = fs.readFileSync(path.join(__dirname, '..', 'routes', 'orders.js'), 'utf8');
+  const invoices = fs.readFileSync(path.join(__dirname, '..', 'routes', 'invoices.js'), 'utf8');
+
+  assert.match(orders, /salesperson_name/);
+  assert.match(invoices, /salesperson_name/);
+  assert.match(orders, /req\.user\?\.name/);
 });

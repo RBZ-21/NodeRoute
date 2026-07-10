@@ -1,5 +1,9 @@
 'use strict';
 
+const { loadCompanySettings } = require('./company-settings');
+const { scopeQueryByContext } = require('./operating-context');
+const { supabase } = require('./supabase');
+
 function text(value) {
   return String(value ?? '').trim();
 }
@@ -158,9 +162,100 @@ function snapshotInvoiceDocument(document = {}) {
   };
 }
 
+function firstRow(result) {
+  if (result?.error) throw result.error;
+  if (Array.isArray(result?.data)) return result.data[0] || null;
+  return result?.data || null;
+}
+
+async function loadInvoiceDocument(
+  invoice,
+  { db = supabase, loadSettings = loadCompanySettings } = {},
+) {
+  if (invoice?.document_snapshot && typeof invoice.document_snapshot === 'object') {
+    return invoice.document_snapshot;
+  }
+
+  const context = {
+    companyId: invoice?.company_id || null,
+    locationId: invoice?.location_id || null,
+  };
+  if (!context.companyId) {
+    const companySettings = await loadSettings(null, invoice?.company_name);
+    return buildInvoiceDocument({ invoice, companySettings });
+  }
+
+  const invoiceResult = invoice?.id
+    ? await scopeQueryByContext(db.from('invoices').select('*'), context)
+      .eq('id', invoice.id)
+      .limit(1)
+    : null;
+  const completeInvoice = firstRow(invoiceResult) || invoice;
+  if (completeInvoice?.document_snapshot && typeof completeInvoice.document_snapshot === 'object') {
+    return completeInvoice.document_snapshot;
+  }
+
+  const orderResult = completeInvoice?.order_id
+    ? await scopeQueryByContext(db.from('orders').select('*'), context)
+      .eq('id', completeInvoice.order_id)
+      .limit(1)
+    : null;
+  const order = firstRow(orderResult);
+
+  const customerId = completeInvoice?.customer_id || order?.customer_id;
+  let customerResult = null;
+  if (customerId !== null && customerId !== undefined && customerId !== '') {
+    customerResult = await scopeQueryByContext(db.from('Customers').select('*'), context)
+      .eq('id', customerId)
+      .limit(1);
+  } else if (completeInvoice?.customer_name) {
+    customerResult = await scopeQueryByContext(db.from('Customers').select('*'), context)
+      .eq('company_name', completeInvoice.customer_name)
+      .limit(1);
+  }
+  const customer = firstRow(customerResult);
+
+  const stopResult = order?.stop_id
+    ? await scopeQueryByContext(db.from('stops').select('*'), context)
+      .eq('id', order.stop_id)
+      .limit(1)
+    : null;
+  const stop = firstRow(stopResult);
+
+  const routeId = order?.route_id || stop?.route_id;
+  const routeResult = routeId
+    ? await scopeQueryByContext(db.from('routes').select('*'), context)
+      .eq('id', routeId)
+      .limit(1)
+    : null;
+  const route = firstRow(routeResult);
+
+  const driverResult = route?.driver_id
+    ? await scopeQueryByContext(db.from('users').select('*'), context)
+      .eq('id', route.driver_id)
+      .limit(1)
+    : null;
+  const driver = firstRow(driverResult);
+  const companySettings = await loadSettings(
+    completeInvoice.company_id,
+    completeInvoice.company_name,
+  );
+
+  return buildInvoiceDocument({
+    invoice: completeInvoice,
+    companySettings,
+    order,
+    customer,
+    stop,
+    route,
+    driver,
+  });
+}
+
 module.exports = {
   buildInvoiceDocument,
   countInvoicePieces,
+  loadInvoiceDocument,
   normalizeInvoiceItem,
   snapshotInvoiceDocument,
 };
