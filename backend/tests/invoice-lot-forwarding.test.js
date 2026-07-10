@@ -4,6 +4,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 
 const { invoiceLotEntriesFromItems, normalizeInvoiceLots, invoiceLotSummaryLines } = require('../services/invoice-lots');
+const { formatInvoiceDate } = require('../services/pdf');
 
 const repoRoot = path.resolve(__dirname, '..', '..');
 const ordersRouteSource = fs.readFileSync(path.join(repoRoot, 'backend', 'routes', 'orders.js'), 'utf8');
@@ -86,13 +87,22 @@ test('invoice lot summary lines are customer-readable', () => {
   assert.deepEqual(lines, ['MUS-1 · Mussels · Lot LOT-MUS-123 · 42 lbs']);
 });
 
-test('orders route, invoice email, PDF, and invoice API all include invoice lot forwarding markers', () => {
+test('invoice PDF keeps date-only delivery dates on the supplied calendar day', () => {
+  const originalTimeZone = process.env.TZ;
+  process.env.TZ = 'America/New_York';
+  try {
+    assert.equal(formatInvoiceDate('2026-07-11'), 'Jul 11, 2026');
+  } finally {
+    if (originalTimeZone === undefined) delete process.env.TZ;
+    else process.env.TZ = originalTimeZone;
+  }
+});
+
+test('orders route, invoice PDF, and invoice API all include invoice lot forwarding markers', () => {
   for (const marker of [
     "const { invoiceLotEntriesFromItems } = require('../services/invoice-lots');",
     'lot_numbers: lotNumbers,',
-    'item.lot_number ? `Lot: ${item.lot_number}` : \'\'',
-    "const { normalizeInvoiceLots } = require('./invoice-lots');",
-    'Traceability Lot Summary',
+    'item.lotNumber',
     "const { normalizeInvoiceLots } = require('../services/invoice-lots');",
     'lot_numbers: normalizeInvoiceLots(invoice),',
   ]) {
@@ -105,12 +115,32 @@ test('orders route, invoice email, PDF, and invoice API all include invoice lot 
   }
 });
 
-test('customer invoice PDF uses office contact note and aligned total block', () => {
+test('customer invoice PDF includes the complete approved form labels', () => {
   for (const marker of [
     "const CUSTOMER_INVOICE_NOTE = 'Please contact the office if you have any questions.';",
-    'doc.page.width - 50 - totalBoxX',
-    'totalsAmountWidth = 90',
-    '`Notes: ${CUSTOMER_INVOICE_NOTE}`',
+    'SOLD TO',
+    'SHIPPED TO',
+    'PLEASE REMIT TO',
+    'CUSTOMER #',
+    'SALESPERSON',
+    'TRUCK / ROUTE',
+    'ORDER DATE',
+    'DELIVERY DATE',
+    'TERMS',
+    'INVOICE #',
+    'ITEM NO.',
+    'ORDERED',
+    'SHIPPED',
+    'UOM',
+    'DESCRIPTION',
+    'LOT NO.',
+    'UNIT PRICE',
+    'EXTENSION',
+    'NUMBER OF PCS.',
+    "CUSTOMER'S SIGNATURE",
+    'INVOICE TOTAL',
+    'SALES TERMS',
+    'CREDIT TERMS',
   ]) {
     assert.ok(invoicePdfServiceSource.includes(marker), `invoice PDF missing marker ${marker}`);
   }
