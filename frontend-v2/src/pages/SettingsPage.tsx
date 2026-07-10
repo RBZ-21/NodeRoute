@@ -19,7 +19,9 @@ import {
   useStartBillingCheckout,
   type CutoffOption,
   type BillingConfig,
+  type CompanySettings,
 } from '../hooks/useSettings';
+import { InvoiceSettingsFields, type InvoiceSettingKey } from './InvoiceSettingsFields';
 
 const DEFAULT_HOUR_OPTIONS: CutoffOption[] = [
   { label: '8:00 AM', value: 8 }, { label: '9:00 AM', value: 9 }, { label: '10:00 AM', value: 10 },
@@ -103,6 +105,7 @@ export function SettingsPage() {
   const [invoiceLogoDataUrl, setInvoiceLogoDataUrl] = useState<string | null | undefined>(undefined);
   const [orderCutoffHour, setOrderCutoffHour] = useState<number | null>(null);
   const [orderCutoffDay, setOrderCutoffDay] = useState<string | null>(null);
+  const [invoiceSettings, setInvoiceSettings] = useState<Partial<CompanySettings> | null>(null);
 
   // Use query data as source of truth, override with local state if user has edited
   const sig = forceDriverSignature ?? !!company.forceDriverSignature;
@@ -113,6 +116,7 @@ export function SettingsPage() {
   const cutoffDay = orderCutoffDay ?? (typeof company.orderCutoffDay === 'string' ? company.orderCutoffDay : 'day_of');
   const hourOptions = company.cutoffHourOptions?.length ? company.cutoffHourOptions : DEFAULT_HOUR_OPTIONS;
   const dayOptions = company.cutoffDayOptions?.length ? company.cutoffDayOptions : DEFAULT_DAY_OPTIONS;
+  const invoiceValues: CompanySettings = { ...company, ...(invoiceSettings || {}) };
 
   const effectiveDisplayName = displayName || String(user.name || '');
   const userRole = useMemo(() => normalizeRole(user.role), [user.role]);
@@ -146,6 +150,15 @@ export function SettingsPage() {
         forceDriverProofOfDelivery: pod,
         businessName: biz.trim(),
         invoiceLogoDataUrl: logo,
+        invoiceAddress: invoiceValues.invoiceAddress,
+        invoicePhone: invoiceValues.invoicePhone,
+        invoiceFax: invoiceValues.invoiceFax,
+        invoiceAfterHoursPhone: invoiceValues.invoiceAfterHoursPhone,
+        invoiceRemitTo: invoiceValues.invoiceRemitTo,
+        invoiceSalesTerms: invoiceValues.invoiceSalesTerms,
+        invoiceCreditTerms: invoiceValues.invoiceCreditTerms,
+        invoiceCopyLabel: invoiceValues.invoiceCopyLabel,
+        invoiceSafetyNotice: invoiceValues.invoiceSafetyNotice,
         orderCutoffHour: cutoffHour,
         orderCutoffDay: cutoffDay,
       });
@@ -153,6 +166,7 @@ export function SettingsPage() {
       setForceDriverSignature(null); setForceDriverProofOfDelivery(null);
       setBusinessName(null); setInvoiceLogoDataUrl(undefined);
       setOrderCutoffHour(null); setOrderCutoffDay(null);
+      setInvoiceSettings(null);
       toast.success('Company settings saved.');
     } catch (err) { toast.error(String((err as Error)?.message || 'Failed to save company settings')); }
   }
@@ -178,8 +192,13 @@ export function SettingsPage() {
     reader.readAsDataURL(file);
   }
 
+  function updateInvoiceSetting(field: InvoiceSettingKey, value: string) {
+    setInvoiceSettings((current) => ({ ...(current || {}), [field]: value }));
+  }
+
   const companyDirty = forceDriverSignature !== null || forceDriverProofOfDelivery !== null ||
-    businessName !== null || invoiceLogoDataUrl !== undefined || orderCutoffHour !== null || orderCutoffDay !== null;
+    businessName !== null || invoiceLogoDataUrl !== undefined || orderCutoffHour !== null || orderCutoffDay !== null ||
+    invoiceSettings !== null;
 
   return (
     <div className="space-y-5">
@@ -264,6 +283,12 @@ export function SettingsPage() {
               </div>
             </div>
           </div>
+
+          <InvoiceSettingsFields
+            values={invoiceValues}
+            disabled={isCompanyDisabled}
+            onChange={updateInvoiceSetting}
+          />
 
           <div className="rounded-lg border border-border bg-muted/20 p-4 space-y-3">
             <div>

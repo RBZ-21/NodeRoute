@@ -26,20 +26,33 @@ test('print slip HTML escapes rendered order text before sending text/html', () 
   assert.ok(source.includes('escapeHtml(renderOrderSlip({ ...data, items: data.items || [] }))'));
 });
 
-test('invoice email HTML escapes invoice and lot fields', () => {
-  const source = read('backend', 'services', 'invoice-email.js');
+test('invoice email HTML shows only ordered items and total with escaped values', () => {
+  const { renderInvoiceEmailHtml } = require('../services/invoice-email');
+  const html = renderInvoiceEmailHtml({
+    seller: { businessName: '<Crosby & Sons>' },
+    soldTo: { name: '<Morgan>' },
+    metadata: { invoiceNumber: 'INV-10482' },
+    items: [
+      {
+        description: '<Grouper>',
+        orderedQuantity: 3,
+        uom: 'CS',
+        extension: 435,
+        lotNumber: 'LOT-SECRET',
+      },
+    ],
+    totals: { total: 942.85 },
+  });
 
-  for (const marker of [
-    'escapeHtml(businessName)',
-    "escapeHtml(inv.customer_name || 'there')",
-    "escapeHtml(i.description || '')",
-    "escapeHtml(lot.description || '-')",
-    "escapeHtml(lot.lot_number || '-')",
-  ]) {
-    assert.ok(source.includes(marker), `missing invoice email escaping marker ${marker}`);
+  assert.match(html, /&lt;Crosby &amp; Sons&gt;/);
+  assert.match(html, /Hi &lt;Morgan&gt;/);
+  assert.match(html, /&lt;Grouper&gt;/);
+  assert.match(html, /3 CS/);
+  assert.match(html, /\$435\.00/);
+  assert.match(html, /\$942\.85/);
+  for (const excluded of ['LOT-SECRET', 'Sales Terms', 'Credit Terms', 'Signature', 'Remit To']) {
+    assert.ok(!html.includes(excluded), `email should not include ${excluded}`);
   }
-  assert.ok(!source.includes("${inv.customer_name || 'there'}"));
-  assert.ok(!source.includes("${i.description || ''}"));
 });
 
 test('AI reorder alert email escapes generated text before adding HTML line breaks', () => {

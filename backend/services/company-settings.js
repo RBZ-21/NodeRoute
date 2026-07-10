@@ -35,6 +35,18 @@ function normalizeString(value) {
   return String(value).trim();
 }
 
+function boundedString(value, maxLength) {
+  return normalizeString(value).slice(0, maxLength);
+}
+
+function companyProfileAddress(profile = {}) {
+  const cityLine = [
+    normalizeString(profile.city),
+    [normalizeString(profile.state), normalizeString(profile.zip)].filter(Boolean).join(' '),
+  ].filter(Boolean).join(', ');
+  return [normalizeString(profile.address), cityLine].filter(Boolean).join('\n');
+}
+
 function normalizeLogoDataUrl(value) {
   const raw = normalizeString(value);
   if (!raw) return null;
@@ -54,8 +66,9 @@ function normalizeCutoffDay(value) {
   return valid.includes(value) ? value : DEFAULT_CUTOFF_DAY;
 }
 
-function normalizeCompanySettings(settings, fallbackBusinessName = '') {
+function normalizeCompanySettings(settings, fallbackBusinessName = '', profile = {}) {
   const source = settings && typeof settings === 'object' ? settings : {};
+  const profileAddress = companyProfileAddress(profile);
   const businessName = normalizeString(
     source.business_name
     || source.businessName
@@ -76,6 +89,39 @@ function normalizeCompanySettings(settings, fallbackBusinessName = '') {
     // Order cutoff
     orderCutoffHour: normalizeCutoffHour(source.order_cutoff_hour ?? source.orderCutoffHour),
     orderCutoffDay:  normalizeCutoffDay(source.order_cutoff_day  ?? source.orderCutoffDay),
+    invoiceAddress: boundedString(
+      source.invoice_address ?? source.invoiceAddress ?? profileAddress,
+      500,
+    ),
+    invoicePhone: boundedString(
+      source.invoice_phone ?? source.invoicePhone ?? profile.phone,
+      200,
+    ),
+    invoiceFax: boundedString(source.invoice_fax ?? source.invoiceFax, 200),
+    invoiceAfterHoursPhone: boundedString(
+      source.invoice_after_hours_phone ?? source.invoiceAfterHoursPhone,
+      200,
+    ),
+    invoiceRemitTo: boundedString(
+      source.invoice_remit_to ?? source.invoiceRemitTo ?? profileAddress,
+      500,
+    ),
+    invoiceSalesTerms: boundedString(
+      source.invoice_sales_terms ?? source.invoiceSalesTerms,
+      4000,
+    ),
+    invoiceCreditTerms: boundedString(
+      source.invoice_credit_terms ?? source.invoiceCreditTerms,
+      4000,
+    ),
+    invoiceCopyLabel: boundedString(
+      source.invoice_copy_label ?? source.invoiceCopyLabel,
+      200,
+    ),
+    invoiceSafetyNotice: boundedString(
+      source.invoice_safety_notice ?? source.invoiceSafetyNotice,
+      200,
+    ),
   };
 }
 
@@ -86,7 +132,7 @@ async function loadCompanySettings(companyId, fallbackBusinessName = '') {
 
   const { data, error } = await supabase
     .from('companies')
-    .select('settings')
+    .select('name,phone,address,city,state,zip,settings')
     .eq('id', companyId)
     .single();
 
@@ -94,7 +140,7 @@ async function loadCompanySettings(companyId, fallbackBusinessName = '') {
     return normalizeCompanySettings({}, fallbackBusinessName);
   }
 
-  return normalizeCompanySettings(data?.settings, fallbackBusinessName);
+  return normalizeCompanySettings(data?.settings, fallbackBusinessName || data?.name, data);
 }
 
 /**
@@ -133,6 +179,8 @@ module.exports = {
   DEFAULT_CUTOFF_DAY,
   loadCompanySettings,
   normalizeCompanySettings,
+  boundedString,
+  companyProfileAddress,
   normalizeLogoDataUrl,
   normalizeCutoffHour,
   normalizeCutoffDay,
