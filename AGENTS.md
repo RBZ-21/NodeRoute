@@ -51,6 +51,13 @@ missing, recreate it for offline demo development with these key settings:
 ### Lint / test
 - Lint: `npm --prefix frontend-v2 run lint` (ESLint; currently warnings only).
 - Tests: `npm test` runs backend (`node --test`) + `frontend-v2` Vitest.
+- **`npm test` gotcha:** the demo `.env` sets `DEFAULT_COMPANY_ID`/`DEFAULT_LOCATION_ID`,
+ which leak into the test process and break one auth test
+ (`authenticateToken rejects non-global users without a resolved tenant context`,
+ in `backend/tests/auth-compat.test.js`) — it asserts a tenantless admin is rejected,
+ but the default tenant resolves one. Run tests with those two vars cleared:
+ `DEFAULT_COMPANY_ID= DEFAULT_LOCATION_ID= npm test` (then all pass). This is an
+ env-pollution quirk, not a code bug.
 - The `ios-driver-app/` (SwiftUI) requires macOS + Xcode and is out of scope on Linux.
 
 ### Local reports
