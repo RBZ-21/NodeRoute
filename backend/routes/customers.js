@@ -137,7 +137,17 @@ async function fetchAllCustomers(res) {
 // PATCH/DELETE/hold handlers above, just extracted once for the two new routes
 // so we don't add a fifth/sixth copy of it.
 async function loadCustomerOrRespond(req, res) {
-  const existing = await dbQuery(scopeQueryByContext(supabase.from('Customers').select('*'), req.context).eq('id', req.params.id).single(), res);
+  const { data, error } = await scopeQueryByContext(
+    supabase.from('Customers').select('*'),
+    req.context,
+  )
+    .eq('id', req.params.id)
+    .limit(1);
+  if (error) {
+    res.status(500).json({ error: error.message });
+    return null;
+  }
+  const existing = filterRowsByContext(data || [], req.context)[0] || null;
   if (!existing) {
     res.status(404).json({ error: 'Customer not found' });
     return null;
@@ -147,6 +157,34 @@ async function loadCustomerOrRespond(req, res) {
     return null;
   }
   return existing;
+}
+
+const CUSTOMER_ORDER_PAGE_SIZE = 100;
+
+async function fetchAllCustomerOrders(res, customerId, context, { fields = '*', windowStartIso = null } = {}) {
+  const rows = [];
+  let cursor = null;
+
+  while (true) {
+    let query = scopeQueryByContext(supabase.from('orders').select(fields), context)
+      .eq('customer_id', customerId)
+      .order('id', { ascending: true })
+      .limit(CUSTOMER_ORDER_PAGE_SIZE);
+    if (windowStartIso) query = query.gte('created_at', windowStartIso);
+    if (cursor != null) query = query.gt('id', cursor);
+
+    const page = await dbQuery(query, res);
+    if (!page) return null;
+    if (!page.length) break;
+
+    rows.push(...filterRowsByContext(page, context));
+    if (page.length < CUSTOMER_ORDER_PAGE_SIZE) break;
+
+    cursor = page[page.length - 1]?.id;
+    if (cursor == null) break;
+  }
+
+  return rows;
 }
 
 const FREQUENTLY_ORDERED_WINDOW_DAYS = 90;
@@ -346,15 +384,13 @@ router.get('/:id/orders', authenticateToken, requireRole('admin', 'manager'), as
   const customer = await loadCustomerOrRespond(req, res);
   if (!customer) return;
 
-  const orders = await dbQuery(
-    scopeQueryByContext(supabase.from('orders').select('*'), req.context)
-      .eq('customer_id', customer.id)
-      .order('created_at', { ascending: false })
-      .limit(100),
-    res
-  );
+  const orders = await fetchAllCustomerOrders(res, customer.id, req.context);
   if (!orders) return;
-  res.json(filterRowsByContext(orders || [], req.context));
+  orders.sort((a, b) => {
+    const timeDifference = new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
+    return timeDifference || String(a.id || '').localeCompare(String(b.id || ''));
+  });
+  res.json(orders);
 });
 
 // Customer-specific "frequently ordered" items, aggregated server-side from
@@ -367,15 +403,13 @@ router.get('/:id/frequently-ordered', authenticateToken, requireRole('admin', 'm
 
   const windowStartIso = new Date(Date.now() - FREQUENTLY_ORDERED_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
 
-  const orders = await dbQuery(
-    scopeQueryByContext(supabase.from('orders').select('*'), req.context)
-      .eq('customer_id', customer.id)
-      .gte('created_at', windowStartIso),
-    res
-  );
+  const orders = await fetchAllCustomerOrders(res, customer.id, req.context, {
+    fields: 'id,items,status,created_at,company_id,location_id',
+    windowStartIso,
+  });
   if (!orders) return;
 
-  const qualifyingOrders = filterRowsByContext(orders || [], req.context).filter(
+  const qualifyingOrders = orders.filter(
     (order) => !FREQUENTLY_ORDERED_EXCLUDED_STATUSES.has(String(order?.status || '').toLowerCase())
   );
 

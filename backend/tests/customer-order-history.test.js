@@ -110,6 +110,41 @@ test('GET /api/customers/:id/orders returns only the selected customer\'s orders
   }
 });
 
+test('GET /api/customers/:id/orders returns every page of a large customer history', async () => {
+  const { supabase, baseUrl, teardown } = await setupApp();
+  try {
+    await supabase.from('users').insert([
+      {
+        id: 'admin-a', name: 'Admin A', email: 'admin.a@noderoute.test', role: 'admin', status: 'active',
+        company_id: 'company-a', location_id: 'loc-a',
+        accessible_company_ids: ['company-a'], accessible_location_ids: ['loc-a'],
+      },
+    ]);
+    await supabase.from('Customers').insert([
+      { id: 'cust-many', company_name: 'High Volume Customer', company_id: 'company-a', location_id: 'loc-a' },
+    ]);
+    const createdAt = Date.now();
+    await supabase.from('orders').insert(Array.from({ length: 101 }, (_unused, index) => ({
+      id: `order-${String(index + 1).padStart(3, '0')}`,
+      order_number: `ORD-${String(index + 1).padStart(3, '0')}`,
+      customer_id: 'cust-many', company_id: 'company-a', location_id: 'loc-a',
+      status: 'delivered', items: [],
+      created_at: new Date(createdAt - index * 1000).toISOString(),
+    })));
+
+    const response = await fetch(`${baseUrl}/api/customers/cust-many/orders`, {
+      headers: { Authorization: `Bearer ${tokenFor('admin-a')}` },
+    });
+    assert.equal(response.status, 200);
+    const body = await response.json();
+    assert.equal(body.length, 101, 'history must not silently truncate at the first page');
+    assert.equal(body[0].order_number, 'ORD-001');
+    assert.equal(body.at(-1).order_number, 'ORD-101');
+  } finally {
+    await teardown();
+  }
+});
+
 test('GET /api/customers/:id/orders never returns another tenant\'s order history', async () => {
   const { supabase, baseUrl, teardown } = await setupApp();
   try {
