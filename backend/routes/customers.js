@@ -131,6 +131,61 @@ async function fetchAllCustomers(res) {
   });
 }
 
+// ── CUSTOMER ORDER INSIGHTS helpers ───────────────────────────────────────────
+// Shared by GET /:id/orders and GET /:id/frequently-ordered below. Mirrors the
+// inline load-verify-or-respond pattern already duplicated across the
+// PATCH/DELETE/hold handlers above, just extracted once for the two new routes
+// so we don't add a fifth/sixth copy of it.
+async function loadCustomerOrRespond(req, res) {
+  const existing = await dbQuery(scopeQueryByContext(supabase.from('Customers').select('*'), req.context).eq('id', req.params.id).single(), res);
+  if (!existing) {
+    res.status(404).json({ error: 'Customer not found' });
+    return null;
+  }
+  if (!rowMatchesContext(existing, req.context)) {
+    res.status(403).json({ error: 'Forbidden' });
+    return null;
+  }
+  return existing;
+}
+
+const FREQUENTLY_ORDERED_WINDOW_DAYS = 90;
+// Orders in these statuses are never "active business" — everything else
+// (pending, in_process, processed, delivered, invoiced, and any future status)
+// counts. See backend/routes/sales-reps.js and pages/orders.types.ts for the
+// real status values this repo writes; `rejected`/`draft` belong to the
+// phone-orders staging table, not orders.status, but are excluded defensively
+// since a caller could still hand us that value.
+const FREQUENTLY_ORDERED_EXCLUDED_STATUSES = new Set(['cancelled', 'rejected', 'draft']);
+
+function normalizeKeyPart(value) {
+  return String(value ?? '').trim().toLowerCase();
+}
+
+// Stable product identity when available; otherwise the normalized item
+// number, then normalized description as a safe fallback (per product spec).
+function frequentlyOrderedLineKey(item) {
+  const productId = normalizeKeyPart(item?.product_id);
+  if (productId) return `pid:${productId}`;
+  const itemNumber = normalizeKeyPart(item?.item_number);
+  if (itemNumber) return `item:${itemNumber}`;
+  return `desc:${normalizeKeyPart(item?.description || item?.name)}`;
+}
+
+// orders.items line objects use different quantity fields depending on
+// whether the item is catch-weight/lb-priced (see backend/migrations/add_lot_to_order_items.sql
+// and frontend-v2/src/pages/orders.types.ts's orderItemQty helper for the
+// canonical set). Frequently-ordered ranking only needs a reasonable
+// non-negative quantity, not FSMA-grade weight precision.
+function frequentlyOrderedItemQuantity(item) {
+  const candidates = [item?.quantity, item?.requested_qty, item?.actual_weight, item?.requested_weight, item?.estimated_weight];
+  for (const candidate of candidates) {
+    const num = Number(candidate);
+    if (Number.isFinite(num) && num > 0) return num;
+  }
+  return 0;
+}
+
 // ── ADDRESS LOOKUP via Google Places ──────────────────────────────────────────
 // GET /api/customers/address-lookup?name=<business+name>
 // Returns { address } or { error }
@@ -281,6 +336,95 @@ router.delete('/:id/hold', authenticateToken, requireRole('admin', 'manager'), a
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── CUSTOMER ORDER INSIGHTS ────────────────────────────────────────────────────
+// A more accessible entry point for a single customer's order history from the
+// standard Customers page. This is additive: it does not touch or replace the
+// Sales Rep Hub's own GET /api/sales-reps/order-history/:customerId route.
+router.get('/:id/orders', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const customer = await loadCustomerOrRespond(req, res);
+  if (!customer) return;
+
+  const orders = await dbQuery(
+    scopeQueryByContext(supabase.from('orders').select('*'), req.context)
+      .eq('customer_id', customer.id)
+      .order('created_at', { ascending: false })
+      .limit(100),
+    res
+  );
+  if (!orders) return;
+  res.json(filterRowsByContext(orders || [], req.context));
+});
+
+// Customer-specific "frequently ordered" items, aggregated server-side from
+// that customer's own order history over a trailing 90-day window (from the
+// order-guide UI, not manually-configured Order Guides). Kept on the server so
+// the 90-day rule and the ranking are consistent and testable.
+router.get('/:id/frequently-ordered', authenticateToken, requireRole('admin', 'manager'), async (req, res) => {
+  const customer = await loadCustomerOrRespond(req, res);
+  if (!customer) return;
+
+  const windowStartIso = new Date(Date.now() - FREQUENTLY_ORDERED_WINDOW_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+  const orders = await dbQuery(
+    scopeQueryByContext(supabase.from('orders').select('*'), req.context)
+      .eq('customer_id', customer.id)
+      .gte('created_at', windowStartIso),
+    res
+  );
+  if (!orders) return;
+
+  const qualifyingOrders = filterRowsByContext(orders || [], req.context).filter(
+    (order) => !FREQUENTLY_ORDERED_EXCLUDED_STATUSES.has(String(order?.status || '').toLowerCase())
+  );
+
+  const aggregated = new Map();
+  for (const order of qualifyingOrders) {
+    const items = Array.isArray(order?.items) ? order.items : [];
+    const seenKeysInThisOrder = new Set();
+    for (const item of items) {
+      if (!item || typeof item !== 'object') continue;
+      const key = frequentlyOrderedLineKey(item);
+
+      let entry = aggregated.get(key);
+      if (!entry) {
+        entry = {
+          product_id: item.product_id || null,
+          item_number: item.item_number || null,
+          description: item.description || item.name || 'Unknown item',
+          order_count: 0,
+          total_quantity: 0,
+          last_ordered_at: null,
+        };
+        aggregated.set(key, entry);
+      }
+      if (!entry.product_id && item.product_id) entry.product_id = item.product_id;
+      if (!entry.item_number && item.item_number) entry.item_number = item.item_number;
+
+      entry.total_quantity += frequentlyOrderedItemQuantity(item);
+      if (!seenKeysInThisOrder.has(key)) {
+        entry.order_count += 1;
+        seenKeysInThisOrder.add(key);
+      }
+      if (order.created_at && (!entry.last_ordered_at || new Date(order.created_at) > new Date(entry.last_ordered_at))) {
+        entry.last_ordered_at = order.created_at;
+      }
+    }
+  }
+
+  // Rank by: distinct order count desc, total quantity desc, most recent
+  // order date desc, then name asc for deterministic ties (per product spec).
+  const items = Array.from(aggregated.values()).sort((a, b) => {
+    if (b.order_count !== a.order_count) return b.order_count - a.order_count;
+    if (b.total_quantity !== a.total_quantity) return b.total_quantity - a.total_quantity;
+    const aTime = a.last_ordered_at ? new Date(a.last_ordered_at).getTime() : 0;
+    const bTime = b.last_ordered_at ? new Date(b.last_ordered_at).getTime() : 0;
+    if (bTime !== aTime) return bTime - aTime;
+    return String(a.description).localeCompare(String(b.description));
+  });
+
+  res.json({ items, window_start: windowStartIso });
 });
 
 module.exports = router;

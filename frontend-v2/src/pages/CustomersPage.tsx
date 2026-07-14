@@ -2,6 +2,7 @@
 // "Invoices" tab inside the customer detail slide-over panel.
 // The tab fetches /api/invoices?customer_id=<id> and renders a small table.
 import { useId, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Badge } from '../components/ui/badge';
 import { Button } from '../components/ui/button';
 import { SelectInput } from '../components/ui/select-input';
@@ -20,14 +21,30 @@ import { fetchWithAuth, sendWithAuth } from '../lib/api';
 import {
   type Customer,
   type CustomerInvoice,
+  type FrequentlyOrderedItem,
+  useCustomerFrequentlyOrderedQuery,
   useCustomerInvoicesQuery,
+  useCustomerOrderHistoryQuery,
   useCustomersQuery,
   useDeleteCustomerMutation,
   useSaveCustomerMutation,
 } from '../hooks/useCustomers';
 import { usePagination } from '../hooks/usePagination';
+import { asMoney, calcOrderTotal, orderItemQty } from './orders.types';
 
-type DetailTab = 'info' | 'delivery' | 'billing' | 'invoices';
+type DetailTab = 'info' | 'delivery' | 'billing' | 'invoices' | 'order-history' | 'frequently-ordered';
+
+// Button text content for each tab. The original four keep their historical
+// lowercase text (relied on by existing tests + the `capitalize` CSS class
+// already on the tab button); the two new tabs get proper multi-word labels.
+const DETAIL_TAB_LABELS: Record<DetailTab, string> = {
+  info: 'info',
+  delivery: 'delivery',
+  billing: 'billing',
+  invoices: 'invoices',
+  'order-history': 'Order History',
+  'frequently-ordered': 'Frequently Ordered',
+};
 
 const riskColors = {
   high: 'red',
@@ -74,6 +91,19 @@ export function CustomersPage() {
     detailTab === 'invoices' ? (selected?.id ?? null) : null,
   );
   const invoices: CustomerInvoice[] = invoicesQuery.data ?? [];
+
+  // Order History: a more accessible entry point for a customer's own orders,
+  // alongside (not instead of) the Sales Rep Hub's order-history view.
+  const orderHistoryQuery = useCustomerOrderHistoryQuery(
+    detailTab === 'order-history' ? (selected?.id ?? null) : null,
+  );
+  const orderHistory = orderHistoryQuery.data ?? [];
+
+  // Frequently Ordered: server-aggregated insight over the trailing 90 days.
+  const frequentlyOrderedQuery = useCustomerFrequentlyOrderedQuery(
+    detailTab === 'frequently-ordered' ? (selected?.id ?? null) : null,
+  );
+  const frequentlyOrderedItems: FrequentlyOrderedItem[] = frequentlyOrderedQuery.data?.items ?? [];
 
   // Address lookup state
   const [lookingUpAddress, setLookingUpAddress] = useState(false);
@@ -515,8 +545,8 @@ export function CustomersPage() {
           }
         >
           {/* Tabs */}
-          <div className="-mt-1 mb-3 flex gap-1 border-b">
-            {(['info', 'delivery', 'billing', 'invoices'] as DetailTab[]).map((tab) => (
+          <div className="-mt-1 mb-3 flex flex-wrap gap-1 border-b">
+            {(['info', 'delivery', 'billing', 'invoices', 'order-history', 'frequently-ordered'] as DetailTab[]).map((tab) => (
               <button
                 key={tab}
                 onClick={() => onTabChange(tab)}
@@ -524,7 +554,7 @@ export function CustomersPage() {
                   detailTab === tab ? 'border-primary font-semibold text-primary' : 'border-transparent text-muted-foreground hover:text-foreground'
                 }`}
               >
-                {tab}
+                {DETAIL_TAB_LABELS[tab]}
               </button>
             ))}
           </div>
@@ -681,6 +711,107 @@ export function CustomersPage() {
                             <TableCell>{inv.total != null ? `$${Number(inv.total).toFixed(2)}` : '-'}</TableCell>
                             <TableCell>{inv.created_at || inv.createdAt ? new Date(inv.created_at || inv.createdAt || '').toLocaleDateString() : '-'}</TableCell>
                             <TableCell>{inv.due_date || inv.dueDate ? new Date(inv.due_date || inv.dueDate || '').toLocaleDateString() : '-'}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </div>
+              )}
+
+              {/* Order History Tab */}
+              {detailTab === 'order-history' && (
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm text-muted-foreground">
+                      {orderHistory.length} order{orderHistory.length !== 1 ? 's' : ''} for this customer.
+                    </p>
+                    {selected.id != null ? (
+                      <Link
+                        to={`/orders?customerId=${encodeURIComponent(String(selected.id))}`}
+                        className="text-sm font-medium text-primary hover:underline"
+                      >
+                        View all in Orders
+                      </Link>
+                    ) : null}
+                  </div>
+                  {orderHistoryQuery.isPending ? (
+                    <LoadingSkeleton rows={3} label="Loading order history" />
+                  ) : orderHistoryQuery.isError ? (
+                    <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">
+                      {String((orderHistoryQuery.error as Error)?.message || 'Could not load order history.')}
+                    </div>
+                  ) : orderHistory.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No orders found for this customer.</p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Date</TableHead>
+                          <TableHead>Order #</TableHead>
+                          <TableHead>Status</TableHead>
+                          <TableHead>Items</TableHead>
+                          <TableHead>Total</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {orderHistory.map((order, i) => (
+                          <TableRow key={String(order.id || i)}>
+                            <TableCell>{order.created_at ? new Date(order.created_at).toLocaleDateString() : '-'}</TableCell>
+                            <TableCell className="font-medium">{order.order_number || '-'}</TableCell>
+                            <TableCell><Badge variant="secondary">{order.status || '-'}</Badge></TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {Array.isArray(order.items) && order.items.length
+                                ? order.items.map((item) => `${item.description || item.name || 'Item'} x${orderItemQty(item)}`).join(', ')
+                                : '-'}
+                            </TableCell>
+                            <TableCell>{asMoney(calcOrderTotal(order))}</TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  )}
+                </div>
+              )}
+
+              {/* Frequently Ordered Tab */}
+              {detailTab === 'frequently-ordered' && (
+                <div className="space-y-3">
+                  <p className="text-sm text-muted-foreground">
+                    Based on this customer&apos;s orders from the last 90 days.
+                  </p>
+                  {frequentlyOrderedQuery.isPending ? (
+                    <LoadingSkeleton rows={3} label="Loading frequently ordered items" />
+                  ) : frequentlyOrderedQuery.isError ? (
+                    <div className="rounded-md border border-destructive/25 bg-destructive/5 px-4 py-2 text-sm text-destructive">
+                      {String((frequentlyOrderedQuery.error as Error)?.message || 'Could not load frequently ordered items.')}
+                    </div>
+                  ) : frequentlyOrderedItems.length === 0 ? (
+                    <p className="text-sm text-muted-foreground">No frequently ordered items in the last 90 days.</p>
+                  ) : (
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Item</TableHead>
+                          <TableHead>Orders</TableHead>
+                          <TableHead>Total Qty</TableHead>
+                          <TableHead>Last Ordered</TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {frequentlyOrderedItems.map((item, i) => (
+                          <TableRow key={String(item.product_id || item.item_number || item.description || i)}>
+                            <TableCell className="font-medium">
+                              {item.description}
+                              {item.item_number ? (
+                                <span className="ml-1 text-xs text-muted-foreground">({item.item_number})</span>
+                              ) : null}
+                            </TableCell>
+                            <TableCell>{item.order_count}</TableCell>
+                            <TableCell>{item.total_quantity}</TableCell>
+                            <TableCell>
+                              {item.last_ordered_at ? new Date(item.last_ordered_at).toLocaleDateString() : '-'}
+                            </TableCell>
                           </TableRow>
                         ))}
                       </TableBody>
