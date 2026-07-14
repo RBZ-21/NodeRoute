@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import type { Order } from '../pages/orders.types';
 
 export type Customer = {
   id?: number | string;
@@ -58,6 +59,47 @@ export function useCustomerInvoicesQuery(customerId: number | string | null | un
       fetchWithAuth<CustomerInvoice[]>(`/api/invoices?customer_id=${customerId}`).then(
         (d) => (Array.isArray(d) ? d : []),
       ),
+    enabled: customerId != null,
+    staleTime: 30_000,
+  });
+}
+
+// A single frequently-ordered line, as aggregated server-side from this
+// customer's order history over the trailing 90-day window.
+export type FrequentlyOrderedItem = {
+  product_id?: string | null;
+  item_number?: string | null;
+  description: string;
+  order_count: number;
+  total_quantity: number;
+  last_ordered_at?: string | null;
+};
+
+export type FrequentlyOrderedResponse = {
+  items: FrequentlyOrderedItem[];
+  window_start: string;
+};
+
+// Only fetches when a customerId is provided — pass null to disable (e.g. when
+// the order-history tab is not active). Mirrors useCustomerInvoicesQuery.
+export function useCustomerOrderHistoryQuery(customerId: number | string | null | undefined) {
+  return useQuery({
+    queryKey: ['orders', 'customer', customerId] as const,
+    queryFn: () =>
+      fetchWithAuth<Order[]>(`/api/customers/${customerId}/orders`).then(
+        (d) => (Array.isArray(d) ? d : []),
+      ),
+    enabled: customerId != null,
+    staleTime: 30_000,
+  });
+}
+
+// Only fetches when a customerId is provided — pass null to disable (e.g. when
+// the frequently-ordered tab is not active).
+export function useCustomerFrequentlyOrderedQuery(customerId: number | string | null | undefined) {
+  return useQuery({
+    queryKey: ['frequently-ordered', 'customer', customerId] as const,
+    queryFn: () => fetchWithAuth<FrequentlyOrderedResponse>(`/api/customers/${customerId}/frequently-ordered`),
     enabled: customerId != null,
     staleTime: 30_000,
   });
