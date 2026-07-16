@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchListWithAuth, sendWithAuth } from '../lib/api';
 
 export type Customer = {
   id?: number | string;
@@ -44,7 +44,7 @@ export function useCustomersQuery() {
   return useQuery({
     queryKey: ['customers'] as const,
     queryFn: () =>
-      fetchWithAuth<Customer[]>('/api/customers').then((d) => (Array.isArray(d) ? d : [])),
+      fetchListWithAuth<Customer>('/api/customers'),
     staleTime: 30_000,
   });
 }
@@ -55,9 +55,7 @@ export function useCustomerInvoicesQuery(customerId: number | string | null | un
   return useQuery({
     queryKey: ['invoices', 'customer', customerId] as const,
     queryFn: () =>
-      fetchWithAuth<CustomerInvoice[]>(`/api/invoices?customer_id=${customerId}`).then(
-        (d) => (Array.isArray(d) ? d : []),
-      ),
+      fetchListWithAuth<CustomerInvoice>(`/api/invoices?customer_id=${customerId}`),
     enabled: customerId != null,
     staleTime: 30_000,
   });

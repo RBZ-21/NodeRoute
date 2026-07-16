@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchWithAuth } from '../lib/api';
+import { fetchListWithAuth, fetchWithAuth } from '../lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 
@@ -180,7 +180,7 @@ export function useDeliveriesQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardKeys.deliveries,
     queryFn: () =>
-      fetchWithAuth<Delivery[]>('/api/deliveries').then((d) => (Array.isArray(d) ? d : [])),
+      fetchListWithAuth<Delivery>('/api/deliveries'),
     staleTime: DASHBOARD_STALE_MS,
     refetchInterval: DASHBOARD_REFETCH_MS,
     enabled,
@@ -191,7 +191,7 @@ export function useDriversQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardKeys.drivers,
     queryFn: () =>
-      fetchWithAuth<DriverSummary[]>('/api/drivers').then((d) => (Array.isArray(d) ? d : [])),
+      fetchListWithAuth<DriverSummary>('/api/drivers'),
     staleTime: DASHBOARD_STALE_MS,
     refetchInterval: DASHBOARD_REFETCH_MS,
     enabled,
@@ -202,7 +202,7 @@ export function useRoutesQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardKeys.routes,
     queryFn: () =>
-      fetchWithAuth<RouteRecord[]>('/api/routes').then((d) => (Array.isArray(d) ? d : [])),
+      fetchListWithAuth<RouteRecord>('/api/routes'),
     staleTime: DASHBOARD_STALE_MS,
     refetchInterval: DASHBOARD_REFETCH_MS,
     enabled,
@@ -215,7 +215,7 @@ export function useDashboardOrdersQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardKeys.orders,
     queryFn: () =>
-      fetchWithAuth<OrderRecord[]>('/api/orders').then((d) => (Array.isArray(d) ? d : [])),
+      fetchListWithAuth<OrderRecord>('/api/orders'),
     staleTime: DASHBOARD_STALE_MS,
     refetchInterval: DASHBOARD_REFETCH_MS,
     enabled,
@@ -226,9 +226,7 @@ export function usePurchaseOrdersQuery(enabled = true) {
   return useQuery({
     queryKey: dashboardKeys.purchaseOrders,
     queryFn: () =>
-      fetchWithAuth<VendorPurchaseOrder[]>('/api/ops/vendor-purchase-orders').then((d) =>
-        Array.isArray(d) ? d : [],
-      ),
+      fetchListWithAuth<VendorPurchaseOrder>('/api/ops/vendor-purchase-orders'),
     staleTime: DASHBOARD_STALE_MS,
     enabled,
   });

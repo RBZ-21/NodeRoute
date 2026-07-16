@@ -10,6 +10,11 @@ const { fetchWithAuthMock } = vi.hoisted(() => ({
 
 vi.mock('../lib/api', () => ({
   fetchWithAuth: fetchWithAuthMock,
+  fetchListWithAuth: (url: string) =>
+    fetchWithAuthMock(url).then((d: unknown) => {
+      if (!Array.isArray(d)) throw new Error(`Expected a list response from ${url}`);
+      return d;
+    }),
 }));
 
 function renderWithClient(children: ReactNode) {

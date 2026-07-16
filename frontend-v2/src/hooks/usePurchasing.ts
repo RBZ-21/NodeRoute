@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWithAuth, sendWithAuth, uploadFilesWithAuth } from '../lib/api';
+import { fetchListWithAuth, sendWithAuth, uploadFilesWithAuth } from '../lib/api';
 
 export type PurchaseOrder = {
   id: string;
@@ -215,9 +215,7 @@ export function usePurchaseOrders(vendorParam?: string) {
     queryKey: ['purchase-orders', vendorParam ?? ''],
     queryFn: () => {
       const query = vendorParam ? `?vendor=${encodeURIComponent(vendorParam)}` : '';
-      return fetchWithAuth<PurchaseOrder[]>(`/api/purchase-orders${query}`).then((d) =>
-        Array.isArray(d) ? d : []
-      );
+      return fetchListWithAuth<PurchaseOrder>(`/api/purchase-orders${query}`);
     },
     staleTime: 30_000,
   });
@@ -227,7 +225,7 @@ export function useInventoryProducts() {
   return useQuery<InventoryProduct[]>({
     queryKey: ['inventory-products'],
     queryFn: () =>
-      fetchWithAuth<InventoryProduct[]>('/api/inventory').then((d) => (Array.isArray(d) ? d : [])),
+      fetchListWithAuth<InventoryProduct>('/api/inventory'),
     staleTime: 60_000,
   });
 }
@@ -236,9 +234,7 @@ export function useVendorPurchaseOrders() {
   return useQuery<VendorPurchaseOrder[]>({
     queryKey: ['vendor-purchase-orders'],
     queryFn: () =>
-      fetchWithAuth<VendorPurchaseOrder[]>('/api/ops/vendor-purchase-orders').then((d) =>
-        Array.isArray(d) ? d : []
-      ),
+      fetchListWithAuth<VendorPurchaseOrder>('/api/ops/vendor-purchase-orders'),
     staleTime: 30_000,
   });
 }

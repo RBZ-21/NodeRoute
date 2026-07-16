@@ -10,7 +10,7 @@ import { Input } from '../components/ui/input';
 import { PageSkeleton } from '../components/layout/PageSkeleton';
 import { TableEmptyState } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchListWithAuth, fetchWithAuth, sendWithAuth } from '../lib/api';
 import { ClientBillingDrawer } from './superadmin/ClientBillingDrawer';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -105,10 +105,10 @@ export function CompaniesPage() {
     setError('');
     try {
       const [companiesData, analyticsData] = await Promise.all([
-        fetchWithAuth<Company[]>('/api/superadmin/companies'),
+        fetchListWithAuth<Company>('/api/superadmin/companies'),
         fetchWithAuth<VerticalAnalytics>('/api/superadmin/analytics/verticals').catch(() => null),
       ]);
-      setCompanies(Array.isArray(companiesData) ? companiesData : []);
+      setCompanies(companiesData);
       setAnalytics(analyticsData);
     } catch (err) {
       setError(String((err as Error).message || 'Could not load companies'));

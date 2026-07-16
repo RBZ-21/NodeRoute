@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchWithAuth } from '../lib/api';
+import { fetchListWithAuth, fetchWithAuth } from '../lib/api';
 
 export interface DSROverview {
   order_count: number;
@@ -119,7 +119,7 @@ async function fetchSalesSummary(start: string, end: string) {
 }
 
 async function fetchOrders(start: string, end: string) {
-  return fetchWithAuth<Array<{ status: string; total: number }>>(
+  return fetchListWithAuth<{ status: string; total: number }>(
     `/api/orders?start=${start}&end=${end}`
   );
 }
@@ -154,7 +154,7 @@ export function useDSR(dateKey: string) {
   });
 
   const orderStatusCounts: OrderStatusCount[] = (() => {
-    const orders = Array.isArray(ordersQ.data) ? ordersQ.data : [];
+    const orders = ordersQ.data ?? [];
     const map = new Map<string, { count: number; total: number }>();
     for (const o of orders) {
       const s = o.status || 'unknown';

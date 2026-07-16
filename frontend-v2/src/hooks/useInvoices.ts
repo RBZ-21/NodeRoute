@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchListWithAuth, sendWithAuth } from '../lib/api';
 
 export type InvoiceLotEntry = {
   item_number?: string;
@@ -52,7 +52,7 @@ export type Invoice = {
 export function useInvoices() {
   return useQuery<Invoice[]>({
     queryKey: ['invoices'],
-    queryFn: () => fetchWithAuth<Invoice[]>('/api/invoices').then((d) => (Array.isArray(d) ? d : [])),
+    queryFn: () => fetchListWithAuth<Invoice>('/api/invoices'),
     staleTime: 10_000,
     refetchInterval: 15_000,
   });

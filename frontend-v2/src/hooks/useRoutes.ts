@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchListWithAuth, sendWithAuth } from '../lib/api';
 
 export type RouteRecord = {
   id: string;
@@ -73,7 +73,7 @@ export type AssignmentsResult = {
 export function useRoutes() {
   return useQuery<RouteRecord[]>({
     queryKey: ['routes'],
-    queryFn: () => fetchWithAuth<RouteRecord[]>('/api/routes').then((d) => Array.isArray(d) ? d : []),
+    queryFn: () => fetchListWithAuth<RouteRecord>('/api/routes'),
     staleTime: 30_000,
     refetchInterval: 30_000,
   });
@@ -82,7 +82,7 @@ export function useRoutes() {
 export function useAllStops() {
   return useQuery<StopRecord[]>({
     queryKey: ['stops'],
-    queryFn: () => fetchWithAuth<StopRecord[]>('/api/stops').then((d) => Array.isArray(d) ? d : []),
+    queryFn: () => fetchListWithAuth<StopRecord>('/api/stops'),
     staleTime: 30_000,
     refetchInterval: 30_000,
   });
@@ -92,8 +92,8 @@ export function usePendingOrders() {
   return useQuery<PendingOrder[]>({
     queryKey: ['orders-pending'],
     queryFn: () =>
-      fetchWithAuth<PendingOrder[]>('/api/orders?status=pending')
-        .then((d) => (Array.isArray(d) ? d : []).filter((o) => String(o.status || '').toLowerCase() === 'pending')),
+      fetchListWithAuth<PendingOrder>('/api/orders?status=pending')
+        .then((d) => d.filter((o) => String(o.status || '').toLowerCase() === 'pending')),
     staleTime: 30_000,
   });
 }
@@ -101,7 +101,9 @@ export function usePendingOrders() {
 export function useDrivers() {
   return useQuery<Driver[]>({
     queryKey: ['drivers'],
-    queryFn: () => fetchWithAuth<Driver[]>('/api/users').then((d) => Array.isArray(d) ? d : []).catch(() => []),
+    // .catch(() => []) is deliberate: drivers are an auxiliary lookup that can
+    // 403 for lower roles; the Routes page should still render without it.
+    queryFn: () => fetchListWithAuth<Driver>('/api/users').catch(() => []),
     staleTime: 60_000,
   });
 }
@@ -109,7 +111,7 @@ export function useDrivers() {
 export function useCustomers() {
   return useQuery<Customer[]>({
     queryKey: ['customers'],
-    queryFn: () => fetchWithAuth<Customer[]>('/api/customers').then((d) => Array.isArray(d) ? d : []).catch(() => []),
+    queryFn: () => fetchListWithAuth<Customer>('/api/customers').catch(() => []),
     staleTime: 60_000,
   });
 }

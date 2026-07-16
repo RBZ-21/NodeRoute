@@ -13,6 +13,11 @@ const { fetchWithAuthMock, getUserRoleMock, hasRoleMock, sendWithAuthMock } = vi
 
 vi.mock('../lib/api', () => ({
   fetchWithAuth: fetchWithAuthMock,
+  fetchListWithAuth: (url: string) =>
+    fetchWithAuthMock(url).then((d: unknown) => {
+      if (!Array.isArray(d)) throw new Error(`Expected a list response from ${url}`);
+      return d;
+    }),
   getUserRole: getUserRoleMock,
   hasRole: hasRoleMock,
   sendWithAuth: sendWithAuthMock,

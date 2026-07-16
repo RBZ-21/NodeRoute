@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchListWithAuth, sendWithAuth } from '../lib/api';
 
 export type Role = 'superadmin' | 'admin' | 'manager' | 'driver' | 'rep' | 'warehouse';
 
@@ -27,8 +27,7 @@ export type InviteResult = {
 export function useUsers() {
   return useQuery({
     queryKey: ['users'],
-    queryFn: () => fetchWithAuth<UserRecord[]>('/api/users'),
-    select: (data) => (Array.isArray(data) ? data : []),
+    queryFn: () => fetchListWithAuth<UserRecord>('/api/users'),
     staleTime: 30_000,
   });
 }

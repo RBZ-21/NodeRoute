@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchListWithAuth, sendWithAuth } from '../lib/api';
 
 export type StopStatus = 'pending' | 'arrived' | 'completed' | 'failed' | 'other';
 
@@ -34,7 +34,7 @@ export function useStops(routeIdParam?: string) {
     queryKey: ['stops', routeIdParam ?? ''],
     queryFn: () => {
       const query = routeIdParam ? `?routeId=${encodeURIComponent(routeIdParam)}` : '';
-      return fetchWithAuth<StopRecord[]>(`/api/stops${query}`).then((d) => (Array.isArray(d) ? d : []));
+      return fetchListWithAuth<StopRecord>(`/api/stops${query}`);
     },
     staleTime: 30_000,
   });

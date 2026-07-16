@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchWithAuth } from '../lib/api';
+import { fetchListWithAuth } from '../lib/api';
 
 export type FinancialInvoice = {
   id: string;
@@ -21,9 +21,7 @@ export function useFinancialInvoicesQuery() {
   return useQuery({
     queryKey: ['financial-invoices'] as const,
     queryFn: () =>
-      fetchWithAuth<FinancialInvoice[]>('/api/invoices').then((d) =>
-        Array.isArray(d) ? d : [],
-      ),
+      fetchListWithAuth<FinancialInvoice>('/api/invoices'),
     staleTime: 30_000,
   });
 }
@@ -32,9 +30,7 @@ export function useFinancePOsQuery() {
   return useQuery({
     queryKey: ['finance-purchase-orders'] as const,
     queryFn: () =>
-      fetchWithAuth<FinancePurchaseOrder[]>('/api/purchase-orders').then((d) =>
-        Array.isArray(d) ? d : [],
-      ),
+      fetchListWithAuth<FinancePurchaseOrder>('/api/purchase-orders'),
     staleTime: 30_000,
   });
 }

@@ -22,6 +22,11 @@ vi.mock('../lib/portalApi', () => ({
   clearPortalSession: clearPortalSessionMock,
   fetchPortalBlob: fetchPortalBlobMock,
   fetchWithPortalAuth: fetchWithPortalAuthMock,
+  fetchPortalList: (url: string) =>
+    fetchWithPortalAuthMock(url).then((d: unknown) => {
+      if (!Array.isArray(d)) throw new Error(`Expected a list response from ${url}`);
+      return d;
+    }),
   getPortalToken: getPortalTokenMock,
   sendWithPortalAuth: sendWithPortalAuthMock,
   setPortalToken: setPortalTokenMock,

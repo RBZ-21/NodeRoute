@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { clearPortalSession, fetchPortalBlob, fetchWithPortalAuth, sendWithPortalAuth } from '../lib/portalApi';
+import { clearPortalSession, fetchPortalBlob, fetchPortalList, fetchWithPortalAuth, sendWithPortalAuth } from '../lib/portalApi';
 import type {
   PortalContact,
   PortalInvoice,
@@ -51,13 +51,13 @@ export function usePortalData(token: string, setToken: (t: string) => void, setM
 
     const results = await Promise.allSettled([
       fetchWithPortalAuth<PortalMe>('/api/portal/me'),
-      fetchWithPortalAuth<PortalOrder[]>('/api/portal/orders'),
-      fetchWithPortalAuth<PortalInvoice[]>('/api/portal/invoices'),
+      fetchPortalList<PortalOrder>('/api/portal/orders'),
+      fetchPortalList<PortalInvoice>('/api/portal/invoices'),
       fetchWithPortalAuth<PortalContact>('/api/portal/contact'),
-      fetchWithPortalAuth<SeafoodInventoryItem[]>('/api/portal/inventory'),
+      fetchPortalList<SeafoodInventoryItem>('/api/portal/inventory'),
       fetchWithPortalAuth<PortalPaymentConfig>('/api/portal/payments/config'),
       fetchWithPortalAuth<PortalPaymentProfile>('/api/portal/payments/profile'),
-    ]);
+    ] as const);
 
     if (!isMountedRef.current) return;
 
@@ -72,10 +72,10 @@ export function usePortalData(token: string, setToken: (t: string) => void, setM
     }
 
     if (results[0].status === 'fulfilled') setMe(results[0].value);
-    if (results[1].status === 'fulfilled') setOrders(Array.isArray(results[1].value) ? results[1].value : []);
-    if (results[2].status === 'fulfilled') setInvoices(Array.isArray(results[2].value) ? results[2].value : []);
+    if (results[1].status === 'fulfilled') setOrders(results[1].value);
+    if (results[2].status === 'fulfilled') setInvoices(results[2].value);
     if (results[3].status === 'fulfilled') setContact(results[3].value || {});
-    if (results[4].status === 'fulfilled') setInventory(Array.isArray(results[4].value) ? results[4].value : []);
+    if (results[4].status === 'fulfilled') setInventory(results[4].value);
     if (results[5].status === 'fulfilled') setPaymentsConfig(results[5].value || null);
     if (results[6].status === 'fulfilled') setPaymentsProfile(results[6].value || null);
 

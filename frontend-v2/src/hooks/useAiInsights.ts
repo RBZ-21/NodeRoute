@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWithAuth, getUserRole, sendWithAuth } from '../lib/api';
+import { fetchListWithAuth, getUserRole, sendWithAuth } from '../lib/api';
 
 export type AiInsightType = 'anomaly' | 'reorder' | 'collections';
 
@@ -23,9 +23,9 @@ export function useAiInsights() {
   return useQuery<AiInsight[]>({
     queryKey: ['ai-insights'],
     queryFn: () =>
-      fetchWithAuth<AiInsight[]>('/api/ai-insights')
-        .then((d) => (Array.isArray(d) ? d : []))
-        .catch(() => []),
+      // Insights are a non-critical widget: swallow errors so a failed fetch
+      // never blocks the page, but validate shape at the API boundary.
+      fetchListWithAuth<AiInsight>('/api/ai-insights').catch(() => []),
     enabled: canSeeInsights(),
     staleTime: 60_000,
     refetchInterval: 60_000,

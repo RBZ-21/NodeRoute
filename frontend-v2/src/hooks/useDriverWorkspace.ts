@@ -1,5 +1,5 @@
 import { useCallback, useState } from 'react';
-import { fetchWithAuth } from '../lib/api';
+import { fetchListWithAuth, fetchWithAuth } from '../lib/api';
 import type { CompanySettings, DeliverySummary, DriverInvoice, DriverRoute, DriverStop, DwellRecord } from '../pages/driver.types';
 import { upsertDwell } from '../pages/driver.types';
 
@@ -18,25 +18,25 @@ export function useDriverWorkspace() {
     setLoading(true);
     setError('');
     const results = await Promise.allSettled([
-      fetchWithAuth<DriverRoute[]>('/api/driver/routes'),
-      fetchWithAuth<DwellRecord[]>('/api/dwell'),
-      fetchWithAuth<DeliverySummary[]>('/api/deliveries'),
-      fetchWithAuth<DriverInvoice[]>('/api/driver/invoices'),
+      fetchListWithAuth<DriverRoute>('/api/driver/routes'),
+      fetchListWithAuth<DwellRecord>('/api/dwell'),
+      fetchListWithAuth<DeliverySummary>('/api/deliveries'),
+      fetchListWithAuth<DriverInvoice>('/api/driver/invoices'),
       fetchWithAuth<CompanySettings>('/api/settings/company'),
-    ]);
+    ] as const);
 
     const firstError = results.find((r) => r.status === 'rejected') as PromiseRejectedResult | undefined;
     if (firstError) setError(String(firstError.reason?.message || 'Could not load the driver workspace.'));
 
     if (results[0].status === 'fulfilled') {
-      const loadedRoutes = Array.isArray(results[0].value) ? results[0].value : [];
+      const loadedRoutes = results[0].value;
       setRoutes(loadedRoutes);
       setSelectedRouteId((current) => current || loadedRoutes[0]?.id || '');
       setDriverName(loadedRoutes[0]?.driver || JSON.parse(localStorage.getItem('nr_user') || '{}')?.name || 'Driver');
     }
-    if (results[1].status === 'fulfilled') setDwellRecords(Array.isArray(results[1].value) ? results[1].value : []);
-    if (results[2].status === 'fulfilled') setDeliveries(Array.isArray(results[2].value) ? results[2].value : []);
-    if (results[3].status === 'fulfilled') setDriverInvoices(Array.isArray(results[3].value) ? results[3].value : []);
+    if (results[1].status === 'fulfilled') setDwellRecords(results[1].value);
+    if (results[2].status === 'fulfilled') setDeliveries(results[2].value);
+    if (results[3].status === 'fulfilled') setDriverInvoices(results[3].value);
     if (results[4].status === 'fulfilled') setCompanySettings(results[4].value || {});
 
     setLoading(false);

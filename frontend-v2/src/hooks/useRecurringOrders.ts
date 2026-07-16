@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchListWithAuth, sendWithAuth } from '../lib/api';
 
 export type RecurringOrderItem = {
   item_number?: string | null;
@@ -29,7 +29,7 @@ const KEY = ['recurring-orders'];
 export function useRecurringOrders() {
   return useQuery<RecurringOrder[]>({
     queryKey: KEY,
-    queryFn: () => fetchWithAuth<RecurringOrder[]>('/api/recurring-orders').then((d) => (Array.isArray(d) ? d : [])),
+    queryFn: () => fetchListWithAuth<RecurringOrder>('/api/recurring-orders'),
     staleTime: 30_000,
   });
 }

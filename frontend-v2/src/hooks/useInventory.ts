@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchListWithAuth, fetchWithAuth, sendWithAuth } from '../lib/api';
 import type { InventoryItem, InventoryLotSummary, LedgerResponse, LowStockItem, RecentSoldItemsResponse } from '../types/inventory.types';
 
 export type LedgerParams = {
@@ -12,7 +12,7 @@ export function useInventoryQuery() {
   return useQuery({
     queryKey: ['inventory'] as const,
     queryFn: () =>
-      fetchWithAuth<InventoryItem[]>('/api/inventory').then((d) => (Array.isArray(d) ? d : [])),
+      fetchListWithAuth<InventoryItem>('/api/inventory'),
     staleTime: 30_000,
   });
 }
@@ -21,7 +21,7 @@ export function useActiveInventoryLotsQuery() {
   return useQuery({
     queryKey: ['inventory', 'active-lots'] as const,
     queryFn: () =>
-      fetchWithAuth<InventoryLotSummary[]>('/api/lots?active_only=true').then((d) => (Array.isArray(d) ? d : [])),
+      fetchListWithAuth<InventoryLotSummary>('/api/lots?active_only=true'),
     staleTime: 30_000,
   });
 }
@@ -185,7 +185,7 @@ export function useLowStockQuery(enabled = true) {
   return useQuery({
     queryKey: ['inventory', 'low-stock'] as const,
     queryFn: () =>
-      fetchWithAuth<LowStockItem[]>('/api/inventory/low-stock').then((d) => (Array.isArray(d) ? d : [])),
+      fetchListWithAuth<LowStockItem>('/api/inventory/low-stock'),
     staleTime: 60_000,
     enabled,
   });
