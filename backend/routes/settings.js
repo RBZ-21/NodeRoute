@@ -27,14 +27,14 @@ router.get('/company', authenticateToken, async (req, res) => {
 
   const { data, error } = await supabase
     .from('companies')
-    .select('id, settings')
+    .select('id, name, phone, address, city, state, zip, settings')
     .eq('id', req.context.companyId)
     .single();
 
   if (error) return res.status(500).json({ error: error.message });
 
   res.json({
-    ...normalizeCompanySettings(data?.settings, req.context?.companyName),
+    ...normalizeCompanySettings(data?.settings, req.context?.companyName || data?.name, data),
     cutoffHourOptions: CUTOFF_HOUR_OPTIONS,
     cutoffDayOptions:  CUTOFF_DAY_OPTIONS,
   });
@@ -68,13 +68,30 @@ router.patch('/company', authenticateToken, requireRole('admin', 'manager'), asy
 
   const { data: company, error: loadError } = await supabase
     .from('companies')
-    .select('id, settings')
+    .select('id, name, phone, address, city, state, zip, settings')
     .eq('id', req.context.companyId)
     .single();
 
   if (loadError) return res.status(500).json({ error: loadError.message });
 
   const existing = (company?.settings && typeof company.settings === 'object') ? company.settings : {};
+  const invoiceSource = {
+    ...existing,
+    invoice_address: req.body?.invoiceAddress ?? existing.invoice_address,
+    invoice_phone: req.body?.invoicePhone ?? existing.invoice_phone,
+    invoice_fax: req.body?.invoiceFax ?? existing.invoice_fax,
+    invoice_after_hours_phone: req.body?.invoiceAfterHoursPhone ?? existing.invoice_after_hours_phone,
+    invoice_remit_to: req.body?.invoiceRemitTo ?? existing.invoice_remit_to,
+    invoice_sales_terms: req.body?.invoiceSalesTerms ?? existing.invoice_sales_terms,
+    invoice_credit_terms: req.body?.invoiceCreditTerms ?? existing.invoice_credit_terms,
+    invoice_copy_label: req.body?.invoiceCopyLabel ?? existing.invoice_copy_label,
+    invoice_safety_notice: req.body?.invoiceSafetyNotice ?? existing.invoice_safety_notice,
+  };
+  const normalizedInvoiceSettings = normalizeCompanySettings(
+    invoiceSource,
+    businessName || req.context.companyName || company?.name,
+    company,
+  );
 
   const mergedSettings = {
     ...existing,
@@ -85,6 +102,15 @@ router.patch('/company', authenticateToken, requireRole('admin', 'manager'), asy
     // Preserve existing cutoff values if not supplied in this request
     order_cutoff_hour: cutoffHour !== undefined ? cutoffHour : (existing.order_cutoff_hour ?? 14),
     order_cutoff_day:  cutoffDay  !== undefined ? cutoffDay  : (existing.order_cutoff_day  ?? 'day_of'),
+    invoice_address: normalizedInvoiceSettings.invoiceAddress,
+    invoice_phone: normalizedInvoiceSettings.invoicePhone,
+    invoice_fax: normalizedInvoiceSettings.invoiceFax,
+    invoice_after_hours_phone: normalizedInvoiceSettings.invoiceAfterHoursPhone,
+    invoice_remit_to: normalizedInvoiceSettings.invoiceRemitTo,
+    invoice_sales_terms: normalizedInvoiceSettings.invoiceSalesTerms,
+    invoice_credit_terms: normalizedInvoiceSettings.invoiceCreditTerms,
+    invoice_copy_label: normalizedInvoiceSettings.invoiceCopyLabel,
+    invoice_safety_notice: normalizedInvoiceSettings.invoiceSafetyNotice,
   };
 
   const { data, error } = await supabase

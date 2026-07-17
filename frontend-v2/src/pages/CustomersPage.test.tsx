@@ -49,6 +49,10 @@ function mockCustomersApi(customers = baseCustomers) {
   fetchWithAuthMock.mockImplementation(async (url: string) => {
     if (url === '/api/customers') return customers;
     if (String(url).startsWith('/api/invoices?customer_id=')) return [];
+    if (/^\/api\/customers\/[^/]+\/orders$/.test(String(url))) return [];
+    if (/^\/api\/customers\/[^/]+\/frequently-ordered$/.test(String(url))) {
+      return { items: [], window_start: '2026-04-15T00:00:00.000Z' };
+    }
     return [];
   });
 }
@@ -224,5 +228,139 @@ describe('CustomersPage', () => {
     fetchWithAuthMock.mockRejectedValueOnce(new Error('Customer service unavailable'));
     fireEvent.click(screen.getByRole('button', { name: 'Refresh' }));
     expect(await screen.findByText('Customer service unavailable')).toBeInTheDocument();
+  });
+
+  it('makes both new customer detail tabs available alongside the existing ones', async () => {
+    renderCustomersPage();
+
+    const blueFinRow = (await screen.findByText('Blue Fin')).closest('tr') as HTMLElement | null;
+    if (!blueFinRow) throw new Error('Expected Blue Fin row');
+    fireEvent.click(within(blueFinRow).getByRole('button', { name: 'View / Edit' }));
+    expect(await screen.findByRole('heading', { name: 'Blue Fin' })).toBeInTheDocument();
+
+    expect(screen.getByRole('button', { name: 'Order History' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Frequently Ordered' })).toBeInTheDocument();
+    // The existing tabs (including the Sales Rep Hub's own Invoices tab entry point) are untouched.
+    expect(screen.getByRole('button', { name: 'info' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'delivery' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'billing' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'invoices' })).toBeInTheDocument();
+  });
+
+  it('shows order history for the selected customer, newest first, with a link back to the filtered Orders page', async () => {
+    const orders = [
+      {
+        id: 'order-2',
+        order_number: 'ORD-1002',
+        status: 'delivered',
+        created_at: '2026-07-10T12:00:00.000Z',
+        items: [{ description: 'Halibut', quantity: 5, unit_price: 10 }],
+        charges: [],
+      },
+      {
+        id: 'order-1',
+        order_number: 'ORD-1001',
+        status: 'pending',
+        created_at: '2026-07-01T12:00:00.000Z',
+        items: [{ description: 'Salmon', quantity: 2, unit_price: 20 }],
+        charges: [],
+      },
+    ];
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url === '/api/customers') return baseCustomers;
+      if (url === '/api/customers/cust-1/orders') return orders;
+      return [];
+    });
+
+    renderCustomersPage();
+
+    const blueFinRow = (await screen.findByText('Blue Fin')).closest('tr') as HTMLElement | null;
+    if (!blueFinRow) throw new Error('Expected Blue Fin row');
+    fireEvent.click(within(blueFinRow).getByRole('button', { name: 'View / Edit' }));
+    expect(await screen.findByRole('heading', { name: 'Blue Fin' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Order History' }));
+
+    expect(await screen.findByText('ORD-1002')).toBeInTheDocument();
+    expect(screen.getByText('ORD-1001')).toBeInTheDocument();
+    expect(screen.getByText('Halibut x5')).toBeInTheDocument();
+    expect(screen.getByText('Salmon x2')).toBeInTheDocument();
+    expect(screen.getByText('$50.00')).toBeInTheDocument();
+    expect(screen.getByText('$40.00')).toBeInTheDocument();
+
+    const orderRows = screen.getAllByRole('row').filter((row) => within(row).queryByText(/^ORD-/));
+    expect(within(orderRows[0]).getByText('ORD-1002')).toBeInTheDocument();
+    expect(within(orderRows[1]).getByText('ORD-1001')).toBeInTheDocument();
+
+    const viewAllLink = screen.getByRole('link', { name: 'View all in Orders' });
+    expect(viewAllLink).toHaveAttribute('href', '/orders?customerId=cust-1');
+  });
+
+  it('shows frequently ordered items as returned by the API, with the 90-day explanation', async () => {
+    const frequentlyOrdered = {
+      items: [
+        { product_id: 'p-hal', item_number: 'HAL-001', description: 'Halibut', order_count: 5, total_quantity: 40, last_ordered_at: '2026-07-10T00:00:00.000Z' },
+        { product_id: 'p-sal', item_number: 'SAL-001', description: 'Salmon', order_count: 2, total_quantity: 15, last_ordered_at: '2026-06-20T00:00:00.000Z' },
+      ],
+      window_start: '2026-04-15T00:00:00.000Z',
+    };
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url === '/api/customers') return baseCustomers;
+      if (url === '/api/customers/cust-1/frequently-ordered') return frequentlyOrdered;
+      return [];
+    });
+
+    renderCustomersPage();
+
+    const blueFinRow = (await screen.findByText('Blue Fin')).closest('tr') as HTMLElement | null;
+    if (!blueFinRow) throw new Error('Expected Blue Fin row');
+    fireEvent.click(within(blueFinRow).getByRole('button', { name: 'View / Edit' }));
+    expect(await screen.findByRole('heading', { name: 'Blue Fin' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Frequently Ordered' }));
+
+    expect(await screen.findByText(/last 90 days/i)).toBeInTheDocument();
+    // Wait for the actual data-driven content (the explanatory sentence above
+    // is static and renders before the fetch resolves, so it can't be used to
+    // wait for the table rows).
+    expect(await screen.findByText('Halibut')).toBeInTheDocument();
+
+    const itemRows = screen.getAllByRole('row').filter((row) => within(row).queryByText(/Halibut|Salmon/));
+    expect(within(itemRows[0]).getByText('Halibut')).toBeInTheDocument();
+    expect(within(itemRows[0]).getByText('5')).toBeInTheDocument();
+    expect(within(itemRows[0]).getByText('40')).toBeInTheDocument();
+    expect(within(itemRows[1]).getByText('Salmon')).toBeInTheDocument();
+  });
+
+  it('renders loading and empty states for the new tabs without an error boundary failure', async () => {
+    let resolveOrders: (value: unknown) => void = () => {};
+    fetchWithAuthMock.mockImplementation(async (url: string) => {
+      if (url === '/api/customers') return baseCustomers;
+      if (url === '/api/customers/cust-1/orders') {
+        return new Promise((resolve) => {
+          resolveOrders = resolve;
+        });
+      }
+      if (url === '/api/customers/cust-1/frequently-ordered') {
+        return { items: [], window_start: '2026-04-15T00:00:00.000Z' };
+      }
+      return [];
+    });
+
+    renderCustomersPage();
+
+    const blueFinRow = (await screen.findByText('Blue Fin')).closest('tr') as HTMLElement | null;
+    if (!blueFinRow) throw new Error('Expected Blue Fin row');
+    fireEvent.click(within(blueFinRow).getByRole('button', { name: 'View / Edit' }));
+    expect(await screen.findByRole('heading', { name: 'Blue Fin' })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Order History' }));
+    expect(screen.getByRole('status', { name: 'Loading order history' })).toBeInTheDocument();
+
+    resolveOrders([]);
+    expect(await screen.findByText('No orders found for this customer.')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Frequently Ordered' }));
+    expect(await screen.findByText(/No frequently ordered items/i)).toBeInTheDocument();
   });
 });

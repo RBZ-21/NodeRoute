@@ -17,6 +17,15 @@ export type CompanySettings = {
   forceDriverProofOfDelivery?: boolean;
   businessName?: string;
   invoiceLogoDataUrl?: string | null;
+  invoiceAddress?: string;
+  invoicePhone?: string;
+  invoiceFax?: string;
+  invoiceAfterHoursPhone?: string;
+  invoiceRemitTo?: string;
+  invoiceSalesTerms?: string;
+  invoiceCreditTerms?: string;
+  invoiceCopyLabel?: string;
+  invoiceSafetyNotice?: string;
   orderCutoffHour?: number;
   orderCutoffDay?: string;
   cutoffHourOptions?: CutoffOption[];

@@ -34,9 +34,11 @@ test('shared invoice email service owns delivery logic for invoice attachments',
   for (const marker of [
     "const { createMailer } = require('./email');",
     "const { buildInvoicePDF } = require('./pdf');",
-    "const { loadCompanySettings } = require('./company-settings');",
-    "attachments: [{ filename: `invoice-${inv.invoice_number || inv.id.slice(0, 8)}.pdf`",
-    "update({ status: nextStatus, sent_at: new Date().toISOString() })",
+    "const { loadInvoiceDocument, snapshotInvoiceDocument } = require('./invoice-document');",
+    'html: renderInvoiceEmailHtml(document)',
+    'filename: `invoice-${invoiceLabel}.pdf`',
+    'document_snapshot: snapshotInvoiceDocument(document)',
+    'scopeQueryByContext(updateQuery, context)',
   ]) {
     assert.ok(invoiceEmailServiceSource.includes(marker), `invoice email service missing marker ${marker}`);
   }
