@@ -5,7 +5,7 @@ import { ChevronDown, ChevronUp, Phone } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { PageSkeleton } from '../components/layout/PageSkeleton';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchListWithAuth, sendWithAuth } from '../lib/api';
 import { phoneOrderKeys } from './phone-order-keys';
 
 // ── Types ──────────────────────────────────────────────────────────────────────
@@ -39,7 +39,7 @@ interface PhoneOrder {
 export function PhoneOrdersPage() {
   const { data: orders = [], isLoading, isError } = useQuery({
     queryKey: phoneOrderKeys.all,
-    queryFn: () => fetchWithAuth<PhoneOrder[]>('/api/phone-orders'),
+    queryFn: () => fetchListWithAuth<PhoneOrder>('/api/phone-orders'),
     staleTime: 15_000,
     refetchInterval: 30_000,
   });

@@ -5,7 +5,7 @@ import { SelectInput } from '../ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { TableEmptyState } from '../ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { fetchWithAuth, sendWithAuth } from '../../lib/api';
+import { fetchListWithAuth, sendWithAuth } from '../../lib/api';
 import { RETURN_STATUS_COLORS } from './WarehouseTypes';
 import type { ReturnRecord } from './WarehouseTypes';
 
@@ -33,7 +33,7 @@ export function ReturnsTab({
     try {
       const params = new URLSearchParams();
       if (statusFilter) params.set('status', statusFilter);
-      const data = await fetchWithAuth<ReturnRecord[]>(`/api/warehouse/returns?${params}`);
+      const data = await fetchListWithAuth<ReturnRecord>(`/api/warehouse/returns?${params}`);
       setReturns(data);
     } catch (err) {
       onError(String((err as Error).message));

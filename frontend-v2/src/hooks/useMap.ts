@@ -1,5 +1,5 @@
 import { useQuery } from '@tanstack/react-query';
-import { fetchWithAuth } from '../lib/api';
+import { fetchListWithAuth, fetchWithAuth } from '../lib/api';
 
 export type DriverLocation = {
   id?: string | number;
@@ -63,7 +63,7 @@ export type RoutePolyline = {
 export function useMapDrivers() {
   return useQuery({
     queryKey: ['map-drivers'],
-    queryFn: () => fetchWithAuth<DriverLocation[]>('/api/drivers'),
+    queryFn: () => fetchListWithAuth<DriverLocation>('/api/drivers'),
     refetchInterval: 30_000,
     staleTime: 20_000,
   });
@@ -72,7 +72,7 @@ export function useMapDrivers() {
 export function useMapStops() {
   return useQuery({
     queryKey: ['map-stops'],
-    queryFn: () => fetchWithAuth<StopMarker[]>('/api/stops'),
+    queryFn: () => fetchListWithAuth<StopMarker>('/api/stops'),
     refetchInterval: 30_000,
     staleTime: 20_000,
   });

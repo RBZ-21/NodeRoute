@@ -5,7 +5,7 @@ import { SelectInput } from '../ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { TableEmptyState } from '../ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { fetchWithAuth, sendWithAuth } from '../../lib/api';
+import { fetchListWithAuth, sendWithAuth } from '../../lib/api';
 import { LOCATION_TYPE_LABELS } from './WarehouseTypes';
 import type { Location } from './WarehouseTypes';
 
@@ -22,7 +22,7 @@ export function LocationsTab({ onNotice, onError }: { onNotice: (m: string) => v
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const data = await fetchWithAuth<Location[]>('/api/warehouse/locations');
+      const data = await fetchListWithAuth<Location>('/api/warehouse/locations');
       setLocations(data);
     } catch (err) {
       onError(String((err as Error).message));
