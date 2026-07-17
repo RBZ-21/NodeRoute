@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchListWithAuth, sendWithAuth } from '../lib/api';
 import type { Customer, InventoryProduct, LotCode, Order } from '../pages/orders.types';
 
 export const orderKeys = {
@@ -13,7 +13,7 @@ export function useOrdersQuery(customerIdParam?: string) {
     queryKey: orderKeys.list(customerIdParam),
     queryFn: () => {
       const query = customerIdParam ? `?customerId=${encodeURIComponent(customerIdParam)}` : '';
-      return fetchWithAuth<Order[]>(`/api/orders${query}`).then((d) => (Array.isArray(d) ? d : []));
+      return fetchListWithAuth<Order>(`/api/orders${query}`);
     },
     staleTime: 10_000,
     refetchInterval: 15_000,
@@ -24,7 +24,7 @@ export function useOrdersQuery(customerIdParam?: string) {
 export function useCustomersQuery() {
   return useQuery({
     queryKey: ['customers'] as const,
-    queryFn: () => fetchWithAuth<Customer[]>('/api/customers').then((d) => (Array.isArray(d) ? d : [])),
+    queryFn: () => fetchListWithAuth<Customer>('/api/customers'),
     staleTime: 10_000,
     retry: false,
   });
@@ -34,7 +34,7 @@ export function useInventoryQuery() {
   return useQuery({
     queryKey: ['inventory'] as const,
     queryFn: () =>
-      fetchWithAuth<InventoryProduct[]>('/api/inventory').then((d) => (Array.isArray(d) ? d : [])),
+      fetchListWithAuth<InventoryProduct>('/api/inventory'),
     staleTime: 10_000,
     retry: false,
   });
@@ -49,10 +49,10 @@ export function useLotsCache() {
     async (itemNumber: string) => {
       if (!itemNumber || lotsCache[itemNumber]) return;
       try {
-        const data = await fetchWithAuth<LotCode[]>(
+        const data = await fetchListWithAuth<LotCode>(
           `/api/lots?product_id=${encodeURIComponent(itemNumber)}&active_only=true`,
         );
-        setLotsCache((prev) => ({ ...prev, [itemNumber]: Array.isArray(data) ? data : [] }));
+        setLotsCache((prev) => ({ ...prev, [itemNumber]: data }));
       } catch {
         setLotsCache((prev) => ({ ...prev, [itemNumber]: [] }));
       }

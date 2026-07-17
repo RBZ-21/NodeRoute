@@ -111,9 +111,20 @@ export async function renewSession(): Promise<boolean> {
 }
 
 async function parseResponse<T>(response: Response, url: string): Promise<T> {
-  const data = await response.json().catch(() => ({}));
-  if (!response.ok) throw new Error(data?.error || `Request failed: ${url}`);
-  return data as T;
+  if (!response.ok) {
+    // Error bodies are only mined for a message; tolerate non-JSON ones.
+    const data: { error?: string } = await response.json().catch(() => ({}));
+    throw new Error(data?.error || `Request failed: ${url}`);
+  }
+  if (response.status === 204) return {} as T;
+  try {
+    return await response.json() as T;
+  } catch {
+    // An OK response whose body isn't JSON (e.g. a proxy or SPA fallback
+    // serving HTML on /api/*) is a failure — surface it instead of letting
+    // callers render it as "no data".
+    throw new Error(`Invalid JSON response from ${url}`);
+  }
 }
 
 async function parseResponseWithRefresh<T>(response: Response, url: string, retry: () => Promise<Response>): Promise<T> {
@@ -133,6 +144,18 @@ export async function fetchWithAuth<T>(url: string): Promise<T> {
     credentials: 'include',
   });
   return parseResponseWithRefresh<T>(await makeRequest(), url, makeRequest);
+}
+
+/**
+ * Fetch an endpoint whose contract is a JSON array. Validates the shape once
+ * at the boundary and throws a descriptive error on violation, so callers
+ * don't each need an `Array.isArray(d) ? d : []` guard that would silently
+ * render a broken response as "no data".
+ */
+export async function fetchListWithAuth<T>(url: string): Promise<T[]> {
+  const data = await fetchWithAuth<unknown>(url);
+  if (!Array.isArray(data)) throw new Error(`Expected a list response from ${url}`);
+  return data as T[];
 }
 
 export async function sendWithAuth<T>(url: string, method: 'POST' | 'PUT' | 'PATCH' | 'DELETE', body?: unknown): Promise<T> {

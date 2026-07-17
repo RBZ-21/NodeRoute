@@ -3,7 +3,6 @@ const crypto = require('crypto');
 const { z } = require('zod');
 const { supabase, dbQuery } = require('../services/supabase');
 const { authenticateToken, requireRole } = require('../middleware/auth');
-const { required, maxLen, isArray, maxItems, compose } = require('../lib/validate');
 const { validateBody, validateParams } = require('../lib/zod-validate');
 const { buildTrackingUrl } = require('../lib/tracking-url');
 const {

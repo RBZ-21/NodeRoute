@@ -92,10 +92,6 @@ function extractAuthToken(req) {
   return { token: null, source: null };
 }
 
-function extractToken(req) {
-  return extractAuthToken(req).token;
-}
-
 /**
  * CSRF double-submit check.
  * The server sets a readable `csrf-token` cookie on login.
@@ -199,4 +195,4 @@ function requireSuperadmin(req, res, next) {
   next();
 }
 
-module.exports = { authenticateToken, requireRole, requireSuperadmin, configuredSuperadminEmails, extractToken };
+module.exports = { authenticateToken, requireRole, requireSuperadmin, configuredSuperadminEmails };

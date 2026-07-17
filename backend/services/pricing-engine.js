@@ -1,9 +1,7 @@
 'use strict';
 
 const {
-  buildScopeFields,
   filterRowsByContext,
-  insertRecordWithOptionalScope,
   scopeQueryByContext,
 } = require('./operating-context');
 
@@ -518,38 +516,12 @@ async function enforceMinimumSellBatch({ db, context, refs }) {
   return results;
 }
 
-async function logPriceUpdate(batchIdOrArgs, productId, costField, oldValue, newValue) {
-  const args = batchIdOrArgs && typeof batchIdOrArgs === 'object'
-    ? { ...batchIdOrArgs }
-    : { batchId: batchIdOrArgs, productId, costField, oldValue, newValue };
-  const db = args.db || require('./supabase').supabase;
-  const record = {
-    batch_id: args.batchId,
-    product_id: args.productId,
-    cost_field: args.costField,
-    old_value: args.oldValue,
-    new_value: args.newValue,
-    new_sell_price: args.newSellPrice ?? null,
-  };
-  if (args.companyId && !args.context) record.company_id = args.companyId;
-  if (args.context) {
-    return insertRecordWithOptionalScope(db, 'pricing_update_batch_items', record, args.context);
-  }
-  return db.from('pricing_update_batch_items').insert([record]).select().single();
-}
-
-function buildScopedInsert(record, context) {
-  return buildScopeFields(context || {}, record);
-}
-
 module.exports = {
   PRICE_METHODS,
-  buildScopedInsert,
   calculatePromotionPrice,
   calculateRulePrice,
   enforceMinimumSell,
   enforceMinimumSellBatch,
-  logPriceUpdate,
   productCost,
   productListPrice,
   resolvePrice,

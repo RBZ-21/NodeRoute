@@ -31,6 +31,20 @@ export default tseslint.config(
       '@typescript-eslint/no-explicit-any': 'warn',
       // Empty `catch {}` is an intentional fail-open pattern throughout the codebase.
       'no-empty': ['error', { allowEmptyCatch: true }],
+      // List endpoints must go through fetchListWithAuth/fetchPortalList, which
+      // validate the array contract at the boundary. `fetchWithAuth<T[]>` has no
+      // such guard, so a malformed 200 would reach `.map()` and crash.
+      'no-restricted-syntax': [
+        'error',
+        {
+          selector: "CallExpression[callee.name=/^(fetchWithAuth|fetchWithPortalAuth)$/] > TSTypeParameterInstantiation > TSArrayType",
+          message: 'Use fetchListWithAuth/fetchPortalList for list endpoints — it validates the array contract at the boundary.',
+        },
+        {
+          selector: "CallExpression[callee.name=/^(fetchWithAuth|fetchWithPortalAuth)$/] > TSTypeParameterInstantiation > TSTypeReference[typeName.name='Array']",
+          message: 'Use fetchListWithAuth/fetchPortalList for list endpoints — it validates the array contract at the boundary.',
+        },
+      ],
     },
   },
   // Test files: relax rules that are noisy in test setups.

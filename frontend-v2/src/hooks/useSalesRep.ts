@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchListWithAuth, sendWithAuth } from '../lib/api';
 
 export type Customer = {
   id: string | number;
@@ -35,10 +35,6 @@ export type Order = {
   items?: { description?: string; quantity?: number; total?: number }[];
 };
 
-function arrayResponse<T>(data: unknown): T[] {
-  return Array.isArray(data) ? data as T[] : [];
-}
-
 function stringArray(value: unknown): string[] {
   if (Array.isArray(value)) {
     return value.map((item) => String(item || '').trim()).filter(Boolean);
@@ -69,8 +65,7 @@ function normalizeOrder(order: Order): Order {
 export function useSalesRepCustomers() {
   return useQuery({
     queryKey: ['salesrep-customers'],
-    queryFn: () => fetchWithAuth<Customer[]>('/api/sales-reps/customers'),
-    select: (data) => arrayResponse<Customer>(data),
+    queryFn: () => fetchListWithAuth<Customer>('/api/sales-reps/customers'),
     staleTime: 30_000,
   });
 }
@@ -78,8 +73,7 @@ export function useSalesRepCustomers() {
 export function useVisitLogs() {
   return useQuery({
     queryKey: ['salesrep-visits'],
-    queryFn: () => fetchWithAuth<VisitLog[]>('/api/sales-reps/visit-logs'),
-    select: (data) => arrayResponse<VisitLog>(data),
+    queryFn: () => fetchListWithAuth<VisitLog>('/api/sales-reps/visit-logs'),
     staleTime: 30_000,
   });
 }
@@ -87,8 +81,8 @@ export function useVisitLogs() {
 export function useUpsellAlerts() {
   return useQuery({
     queryKey: ['salesrep-upsell'],
-    queryFn: () => fetchWithAuth<UpsellAlert[]>('/api/sales-reps/upsell-alerts'),
-    select: (data) => arrayResponse<UpsellAlert>(data).map(normalizeUpsellAlert),
+    queryFn: () => fetchListWithAuth<UpsellAlert>('/api/sales-reps/upsell-alerts'),
+    select: (data) => data.map(normalizeUpsellAlert),
     staleTime: 30_000,
   });
 }
@@ -96,9 +90,9 @@ export function useUpsellAlerts() {
 export function useOrderHistory(customerId: string | number | null) {
   return useQuery({
     queryKey: ['salesrep-order-history', customerId],
-    queryFn: () => fetchWithAuth<Order[]>(`/api/sales-reps/order-history/${customerId}`),
+    queryFn: () => fetchListWithAuth<Order>(`/api/sales-reps/order-history/${customerId}`),
     enabled: customerId !== null,
-    select: (data) => arrayResponse<Order>(data).map(normalizeOrder),
+    select: (data) => data.map(normalizeOrder),
     staleTime: 30_000,
   });
 }

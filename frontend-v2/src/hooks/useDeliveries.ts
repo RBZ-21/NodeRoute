@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchListWithAuth, sendWithAuth } from '../lib/api';
 
 export type Delivery = {
   id?: number;
@@ -19,7 +19,7 @@ export type Delivery = {
 export function useDeliveries() {
   return useQuery<Delivery[]>({
     queryKey: ['deliveries'],
-    queryFn: () => fetchWithAuth<Delivery[]>('/api/deliveries').then((d) => (Array.isArray(d) ? d : [])),
+    queryFn: () => fetchListWithAuth<Delivery>('/api/deliveries'),
     staleTime: 30_000,
   });
 }

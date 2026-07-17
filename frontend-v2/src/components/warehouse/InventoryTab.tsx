@@ -5,7 +5,7 @@ import { SelectInput } from '../ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { TableEmptyState } from '../ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { fetchWithAuth, sendWithAuth } from '../../lib/api';
+import { fetchListWithAuth, sendWithAuth } from '../../lib/api';
 import type { InventoryItem } from '../../types/inventory.types';
 
 function asNumber(value: unknown): number {
@@ -53,7 +53,7 @@ export function InventoryTab({
   async function reload() {
     setLoading(true);
     try {
-      const data = await fetchWithAuth<InventoryItem[]>('/api/warehouse/inventory');
+      const data = await fetchListWithAuth<InventoryItem>('/api/warehouse/inventory');
       setInventory(data);
     } catch (err) {
       onError(String((err as Error).message));

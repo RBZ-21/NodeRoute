@@ -6,7 +6,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../co
 import { Input } from '../components/ui/input';
 import { LoadingSkeleton } from '../components/ui/data-state';
 import { useToast } from '../components/ui/toast';
-import { fetchWithPortalAuth, sendWithPortalAuth } from '../lib/portalApi';
+import { fetchPortalList, fetchWithPortalAuth, sendWithPortalAuth } from '../lib/portalApi';
 import { formatMoney } from './portal.types';
 import type { PortalCatalogItem, PortalOrder } from './portal.types';
 
@@ -35,7 +35,7 @@ export function PortalOrderingTab({ pastOrders, onSubmitted }: { pastOrders: Por
         if (cancelled) return;
         setEnabled(status.enabled);
         if (status.enabled) {
-          const items = await fetchWithPortalAuth<PortalCatalogItem[]>('/api/portal/catalog');
+          const items = await fetchPortalList<PortalCatalogItem>('/api/portal/catalog');
           if (!cancelled) setCatalog(items);
         }
       } catch (err) {

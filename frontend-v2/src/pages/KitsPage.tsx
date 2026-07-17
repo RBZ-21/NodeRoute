@@ -3,7 +3,7 @@ import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { TableEmptyState } from '../components/ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../components/ui/table';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchListWithAuth, sendWithAuth } from '../lib/api';
 
 type KitRecipe = {
   id: string;
@@ -32,12 +32,12 @@ export function KitsPage() {
   const queryClient = useQueryClient();
   const recipesQuery = useQuery({
     queryKey: ['kits', 'recipes'] as const,
-    queryFn: () => fetchWithAuth<KitRecipe[]>('/api/kits/recipes').then((rows) => Array.isArray(rows) ? rows : []),
+    queryFn: () => fetchListWithAuth<KitRecipe>('/api/kits/recipes'),
     staleTime: 30_000,
   });
   const runsQuery = useQuery({
     queryKey: ['kits', 'runs'] as const,
-    queryFn: () => fetchWithAuth<KitRun[]>('/api/kits/runs').then((rows) => Array.isArray(rows) ? rows : []),
+    queryFn: () => fetchListWithAuth<KitRun>('/api/kits/runs'),
     staleTime: 30_000,
   });
 

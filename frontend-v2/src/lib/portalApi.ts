@@ -45,7 +45,24 @@ async function parsePortalResponse<T>(response: Response, url: string): Promise<
     throw new Error(String(data?.error || `Request failed: ${url}`));
   }
 
+  if (data === null) {
+    // An OK response that isn't JSON (e.g. a proxy or SPA fallback serving
+    // HTML) is a failure — surface it instead of handing callers null.
+    throw new Error(`Invalid response from ${url}`);
+  }
+
   return data as T;
+}
+
+/**
+ * Fetch a portal endpoint whose contract is a JSON array. Validates the shape
+ * once at the boundary so callers don't each need an Array.isArray guard that
+ * silently renders a broken response as "no data".
+ */
+export async function fetchPortalList<T>(url: string): Promise<T[]> {
+  const data = await fetchWithPortalAuth<unknown>(url);
+  if (!Array.isArray(data)) throw new Error(`Expected a list response from ${url}`);
+  return data as T[];
 }
 
 export async function fetchWithPortalAuth<T>(url: string): Promise<T> {

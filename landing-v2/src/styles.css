@@ -29,16 +29,6 @@
   .text-balance {
     text-wrap: balance;
   }
-  .hairline {
-    border-color: rgba(163, 190, 225, 0.1);
-  }
-  .hairline-strong {
-    border-color: rgba(163, 190, 225, 0.17);
-  }
-  .bg-noise {
-    background-image: radial-gradient(rgba(255, 255, 255, 0.025) 1px, transparent 1px);
-    background-size: 3px 3px;
-  }
   .mask-fade-b {
     -webkit-mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);
     mask-image: linear-gradient(to bottom, #000 60%, transparent 100%);

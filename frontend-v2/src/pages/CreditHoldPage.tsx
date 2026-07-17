@@ -19,7 +19,7 @@ import { LoadingSkeleton } from '../components/ui/data-state';
 import { Modal } from '../components/ui/overlay-panel';
 import { SelectInput } from '../components/ui/select-input';
 import { StatusBadge } from '../components/ui/status-badge';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchListWithAuth, fetchWithAuth, sendWithAuth } from '../lib/api';
 
 // ── Types ─────────────────────────────────────────────────────────────────────
 interface DashboardStats {
@@ -189,7 +189,7 @@ export function CreditHoldPage() {
       const [s, h, o] = await Promise.all([
         fetchWithAuth<DashboardStats>('/api/credit/dashboard'),
         fetchWithAuth<{ holds: ActiveHold[] }>('/api/credit/holds/active'),
-        fetchWithAuth<CreditOverride[]>('/api/credit/overrides'),
+        fetchListWithAuth<CreditOverride>('/api/credit/overrides'),
       ]);
       setStats(s);
       setHolds(h.holds ?? []);

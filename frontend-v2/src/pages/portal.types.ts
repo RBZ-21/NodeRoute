@@ -1,6 +1,6 @@
-import { CreditCard, Fish, LifeBuoy, Mail, Package, Receipt, ShoppingCart } from 'lucide-react';
+import { CreditCard, LifeBuoy, Mail, Package, Receipt, ShoppingCart } from 'lucide-react';
 
-export type PortalTab = 'shop' | 'orders' | 'invoices' | 'payments' | 'contact' | 'pricing' | 'fresh-fish';
+export type PortalTab = 'shop' | 'orders' | 'invoices' | 'payments' | 'contact' | 'pricing';
 
 export type PortalCatalogItem = {
   id: string;
@@ -53,17 +53,6 @@ export type PortalContact = {
   address?: string;
   company?: string;
   door_code?: string;
-};
-
-export type SeafoodInventoryItem = {
-  description?: string;
-  category?: string;
-  unit?: string;
-  on_hand_qty?: number | string;
-  on_hand_weight?: number | string;
-  cost?: number | string;
-  updated_at?: string;
-  created_at?: string;
 };
 
 export type PortalBalance = {
@@ -137,7 +126,6 @@ export const portalTabs: Array<{ id: PortalTab; label: string; icon: typeof Pack
   { id: 'payments', label: 'Payments', icon: CreditCard },
   { id: 'contact', label: 'Contact Info', icon: Mail },
   { id: 'pricing', label: 'Pricing Help', icon: LifeBuoy },
-  { id: 'fresh-fish', label: 'Fresh Fish', icon: Fish },
 ];
 
 // ── Pure helpers ──────────────────────────────────────────────────────────────

@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchListWithAuth, sendWithAuth } from '../lib/api';
 
 export type Vendor = {
   id?: string | number;
@@ -30,7 +30,7 @@ export function useVendorsQuery() {
   return useQuery({
     queryKey: ['vendors'] as const,
     queryFn: () =>
-      fetchWithAuth<Vendor[]>('/api/vendors').then((d) => (Array.isArray(d) ? d : [])),
+      fetchListWithAuth<Vendor>('/api/vendors'),
     staleTime: 30_000,
   });
 }

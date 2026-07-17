@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { fetchWithAuth, sendWithAuth } from '../lib/api';
+import { fetchListWithAuth, fetchWithAuth, sendWithAuth } from '../lib/api';
 import type { Order } from '../pages/orders.types';
 
 export type Customer = {
@@ -45,7 +45,7 @@ export function useCustomersQuery() {
   return useQuery({
     queryKey: ['customers'] as const,
     queryFn: () =>
-      fetchWithAuth<Customer[]>('/api/customers').then((d) => (Array.isArray(d) ? d : [])),
+      fetchListWithAuth<Customer>('/api/customers'),
     staleTime: 30_000,
   });
 }
@@ -56,9 +56,7 @@ export function useCustomerInvoicesQuery(customerId: number | string | null | un
   return useQuery({
     queryKey: ['invoices', 'customer', customerId] as const,
     queryFn: () =>
-      fetchWithAuth<CustomerInvoice[]>(`/api/invoices?customer_id=${customerId}`).then(
-        (d) => (Array.isArray(d) ? d : []),
-      ),
+      fetchListWithAuth<CustomerInvoice>(`/api/invoices?customer_id=${customerId}`),
     enabled: customerId != null,
     staleTime: 30_000,
   });
@@ -86,9 +84,7 @@ export function useCustomerOrderHistoryQuery(customerId: number | string | null 
   return useQuery({
     queryKey: ['orders', 'customer', customerId] as const,
     queryFn: () =>
-      fetchWithAuth<Order[]>(`/api/customers/${customerId}/orders`).then(
-        (d) => (Array.isArray(d) ? d : []),
-      ),
+      fetchListWithAuth<Order>(`/api/customers/${customerId}/orders`),
     enabled: customerId != null,
     staleTime: 30_000,
   });

@@ -181,27 +181,6 @@ export async function clearPodDraftPhotos() {
   });
 }
 
-export async function clearExpiredPodDraftPhotos() {
-  const db = await openPodDraftPhotoDb();
-  if (!db) return;
-  const now = Date.now();
-
-  await new Promise<void>((resolve) => {
-    const tx = db.transaction(POD_DRAFT_PHOTO_STORE_NAME, 'readwrite');
-    const store = tx.objectStore(POD_DRAFT_PHOTO_STORE_NAME);
-    const request = store.openCursor();
-    request.onsuccess = () => {
-      const cursor = request.result;
-      if (!cursor) return;
-      const record = cursor.value as PodDraftPhotoRecord;
-      if (record.expiresAt <= now) cursor.delete();
-      cursor.continue();
-    };
-    tx.oncomplete = () => resolve();
-    tx.onerror = () => resolve();
-  });
-}
-
 function deleteLegacyTokenDb() {
   return new Promise<void>((resolve) => {
     if (!indexedDbAvailable()) {

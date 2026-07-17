@@ -5,7 +5,7 @@ import { SelectInput } from '../ui/select-input';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../ui/card';
 import { TableEmptyState } from '../ui/data-state';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '../ui/table';
-import { fetchWithAuth, sendWithAuth } from '../../lib/api';
+import { fetchListWithAuth, sendWithAuth } from '../../lib/api';
 import { ACTION_COLORS } from './WarehouseTypes';
 import type { ScanEvent } from './WarehouseTypes';
 
@@ -24,7 +24,7 @@ export function ScansTab({ onNotice, onError }: { onNotice: (m: string) => void;
       const params = new URLSearchParams();
       if (actionFilter) params.set('action', actionFilter);
       if (dateFilter) params.set('date', dateFilter);
-      const data = await fetchWithAuth<ScanEvent[]>(`/api/warehouse/scans?${params}`);
+      const data = await fetchListWithAuth<ScanEvent>(`/api/warehouse/scans?${params}`);
       setScans(data);
     } catch (err) {
       onError(String((err as Error).message));

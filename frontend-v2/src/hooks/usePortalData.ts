@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { clearPortalSession, fetchPortalBlob, fetchWithPortalAuth, sendWithPortalAuth } from '../lib/portalApi';
+import { clearPortalSession, fetchPortalBlob, fetchPortalList, fetchWithPortalAuth, sendWithPortalAuth } from '../lib/portalApi';
 import type {
   PortalContact,
   PortalInvoice,
@@ -7,7 +7,6 @@ import type {
   PortalOrder,
   PortalPaymentConfig,
   PortalPaymentProfile,
-  SeafoodInventoryItem,
 } from '../pages/portal.types';
 import { asNumber } from '../pages/portal.types';
 
@@ -27,14 +26,12 @@ export function usePortalData(token: string, setToken: (t: string) => void, setM
   const [orders, setOrders] = useState<PortalOrder[]>([]);
   const [invoices, setInvoices] = useState<PortalInvoice[]>([]);
   const [contact, setContact] = useState<PortalContact>({});
-  const [inventory, setInventory] = useState<SeafoodInventoryItem[]>([]);
   const [paymentsConfig, setPaymentsConfig] = useState<PortalPaymentConfig | null>(null);
   const [paymentsProfile, setPaymentsProfile] = useState<PortalPaymentProfile | null>(null);
   const [paymentBusy, setPaymentBusy] = useState(false);
   const [contactBusy, setContactBusy] = useState(false);
   const [contactNotice, setContactNotice] = useState('');
   const [markupPercent, setMarkupPercent] = useState('18');
-  const [fishSearch, setFishSearch] = useState('');
 
   useEffect(() => {
     isMountedRef.current = true;
@@ -51,13 +48,12 @@ export function usePortalData(token: string, setToken: (t: string) => void, setM
 
     const results = await Promise.allSettled([
       fetchWithPortalAuth<PortalMe>('/api/portal/me'),
-      fetchWithPortalAuth<PortalOrder[]>('/api/portal/orders'),
-      fetchWithPortalAuth<PortalInvoice[]>('/api/portal/invoices'),
+      fetchPortalList<PortalOrder>('/api/portal/orders'),
+      fetchPortalList<PortalInvoice>('/api/portal/invoices'),
       fetchWithPortalAuth<PortalContact>('/api/portal/contact'),
-      fetchWithPortalAuth<SeafoodInventoryItem[]>('/api/portal/inventory'),
       fetchWithPortalAuth<PortalPaymentConfig>('/api/portal/payments/config'),
       fetchWithPortalAuth<PortalPaymentProfile>('/api/portal/payments/profile'),
-    ]);
+    ] as const);
 
     if (!isMountedRef.current) return;
 
@@ -72,12 +68,11 @@ export function usePortalData(token: string, setToken: (t: string) => void, setM
     }
 
     if (results[0].status === 'fulfilled') setMe(results[0].value);
-    if (results[1].status === 'fulfilled') setOrders(Array.isArray(results[1].value) ? results[1].value : []);
-    if (results[2].status === 'fulfilled') setInvoices(Array.isArray(results[2].value) ? results[2].value : []);
+    if (results[1].status === 'fulfilled') setOrders(results[1].value);
+    if (results[2].status === 'fulfilled') setInvoices(results[2].value);
     if (results[3].status === 'fulfilled') setContact(results[3].value || {});
-    if (results[4].status === 'fulfilled') setInventory(Array.isArray(results[4].value) ? results[4].value : []);
-    if (results[5].status === 'fulfilled') setPaymentsConfig(results[5].value || null);
-    if (results[6].status === 'fulfilled') setPaymentsProfile(results[6].value || null);
+    if (results[4].status === 'fulfilled') setPaymentsConfig(results[4].value || null);
+    if (results[5].status === 'fulfilled') setPaymentsProfile(results[5].value || null);
 
     setLoading(false);
     setRefreshing(false);
@@ -91,7 +86,6 @@ export function usePortalData(token: string, setToken: (t: string) => void, setM
   function resetData() {
     setOrders([]);
     setInvoices([]);
-    setInventory([]);
     setPaymentsConfig(null);
     setPaymentsProfile(null);
     setError('');
@@ -193,26 +187,15 @@ export function usePortalData(token: string, setToken: (t: string) => void, setM
     return [...seen.values()].sort((a, b) => a.description.localeCompare(b.description));
   }, [invoices]);
 
-  const filteredFish = useMemo(() => {
-    const query = fishSearch.trim().toLowerCase();
-    if (!query) return inventory;
-    return inventory.filter((item) => {
-      const haystack = `${item.description || ''} ${item.category || ''}`.toLowerCase();
-      return haystack.includes(query);
-    });
-  }, [fishSearch, inventory]);
-
   return {
     loading, refreshing, error,
     orders, invoices,
     contact, setContact,
-    inventory,
     paymentsConfig, paymentsProfile,
     paymentBusy, contactBusy, contactNotice,
     markupPercent, setMarkupPercent,
-    fishSearch, setFishSearch,
     paymentBalance, openInvoiceCount, paymentMethods, autopay,
-    pricingItems, filteredFish,
+    pricingItems,
     loadPortalData, resetData,
     downloadInvoice, startCheckout, runAutopayNow, saveContact,
   };

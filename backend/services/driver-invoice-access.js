@@ -93,14 +93,8 @@ async function loadDriverInvoiceScope(supabase, user, context) {
   };
 }
 
-async function isInvoiceAssignedToDriver(supabase, user, context, invoiceId) {
-  const scope = await loadDriverInvoiceScope(supabase, user, context);
-  return scope.assignedInvoiceIds.has(invoiceId);
-}
-
 module.exports = {
   isRouteAssignedToUser,
-  isInvoiceAssignedToDriver,
   loadDriverInvoiceScope,
   normalize,
   stopMatchesInvoice,

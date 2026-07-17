@@ -3,7 +3,7 @@ import { Building2, Users, TrendingUp, DollarSign, AlertTriangle, CheckCircle2, 
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
 import { Button } from '../components/ui/button';
 import { StatusBadge } from '../components/ui/status-badge';
-import { fetchWithAuth } from '../lib/api';
+import { fetchListWithAuth, fetchWithAuth } from '../lib/api';
 import { SuperadminGuard } from '../components/SuperadminGuard';
 import { BillingDashboardPanel } from './superadmin/BillingDashboardPanel';
 
@@ -101,13 +101,11 @@ function SuperadminDashboard() {
     } catch (err) {
       // Fallback: synthesise from /api/superadmin/companies if dedicated endpoint not yet built
       try {
-        const companies = await fetchWithAuth<{
+        const arr = await fetchListWithAuth<{
           id: string; name: string; admin_email: string;
           plan?: string; status?: string; created_at?: string;
           onboarding_completed?: boolean; user_count?: number;
-        }[]>('/api/superadmin/companies');
-
-        const arr = Array.isArray(companies) ? companies : [];
+        }>('/api/superadmin/companies');
         const tierCounts: Record<string, number> = {};
         arr.forEach((c) => { const t = c.plan ?? 'free'; tierCounts[t] = (tierCounts[t] ?? 0) + 1; });
         const mrr = Object.entries(tierCounts).reduce(
