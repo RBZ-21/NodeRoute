@@ -21,7 +21,6 @@ import type {
   PortalOrder,
   PortalPaymentConfig,
   PortalPaymentReturn,
-  SeafoodInventoryItem,
 } from './portal.types';
 
 // ── Shared mini-components ────────────────────────────────────────────────────
@@ -459,68 +458,3 @@ export function PricingTab({
   );
 }
 
-export function FishTab({
-  items,
-  query,
-  onQueryChange,
-  totalItems,
-}: {
-  items: SeafoodInventoryItem[];
-  query: string;
-  onQueryChange: (value: string) => void;
-  totalItems: number;
-}) {
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Fresh Fish</CardTitle>
-        <CardDescription>
-          {items.length} of {totalItems} seafood item{totalItems === 1 ? '' : 's'} currently visible.
-        </CardDescription>
-      </CardHeader>
-      <CardContent className="space-y-4">
-        <Input
-          placeholder="Search fish or category"
-          value={query}
-          onChange={(e) => onQueryChange(e.target.value)}
-          className="max-w-sm"
-        />
-        <div className="rounded-lg border border-border bg-card p-2">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Item</TableHead>
-                <TableHead>Category</TableHead>
-                <TableHead>Qty</TableHead>
-                <TableHead>Unit</TableHead>
-                <TableHead>Updated</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {items.length ? (
-                items.map((item) => (
-                  <TableRow key={`${item.description}-${item.updated_at || item.created_at || ''}`}>
-                    <TableCell className="font-medium">{item.description || 'Seafood Item'}</TableCell>
-                    <TableCell>{item.category || 'Other'}</TableCell>
-                    <TableCell>
-                      {asNumber(item.on_hand_qty, 0)}
-                      {asNumber(item.on_hand_weight, 0) > 0 ? ` (${asNumber(item.on_hand_weight, 0)} lb)` : ''}
-                    </TableCell>
-                    <TableCell>{item.unit || '—'}</TableCell>
-                    <TableCell>{formatDate(item.updated_at || item.created_at)}</TableCell>
-                  </TableRow>
-                ))
-              ) : (
-                <TableRow>
-                  <TableCell colSpan={5} className="text-muted-foreground">
-                    No seafood inventory matches the current search.
-                  </TableCell>
-                </TableRow>
-              )}
-            </TableBody>
-          </Table>
-        </div>
-      </CardContent>
-    </Card>
-  );
-}

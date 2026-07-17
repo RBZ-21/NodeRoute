@@ -1,4 +1,4 @@
-import { CreditCard, Mail, Receipt, RefreshCw, LogOut, ShieldCheck, Waves } from 'lucide-react';
+import { CreditCard, Mail, Receipt, RefreshCw, LogOut, ShieldCheck } from 'lucide-react';
 import { useState } from 'react';
 import { Button } from '../components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card';
@@ -10,7 +10,6 @@ import type { PortalPaymentReturn, PortalTab } from './portal.types';
 import {
   ContactTab,
   FeatureCard,
-  FishTab,
   InvoicesTab,
   LoadingCard,
   MiniStat,
@@ -73,7 +72,6 @@ export function CustomerPortalPage() {
                 <FeatureCard icon={Receipt} title="Invoice Access" description="Download invoice PDFs, track status, and review order history without waiting on office staff." />
                 <FeatureCard icon={CreditCard} title="Payments Visibility" description="See open balance, payment configuration, and autopay status from the same portal session." />
                 <FeatureCard icon={Mail} title="Contact Updates" description="Keep email, phone, address, and door code synced so deliveries arrive with the right details." />
-                <FeatureCard icon={Waves} title="Fresh Fish Feed" description="Customers can browse in-stock seafood inventory from the portal without calling the office." />
               </CardContent>
             </Card>
 
@@ -276,14 +274,6 @@ export function CustomerPortalPage() {
               items={portal.pricingItems}
               markupPercent={portal.markupPercent}
               onMarkupChange={portal.setMarkupPercent}
-            />
-          ) : null}
-          {!portal.loading && activeTab === 'fresh-fish' ? (
-            <FishTab
-              items={portal.filteredFish}
-              query={portal.fishSearch}
-              onQueryChange={portal.setFishSearch}
-              totalItems={portal.inventory.length}
             />
           ) : null}
         </main>

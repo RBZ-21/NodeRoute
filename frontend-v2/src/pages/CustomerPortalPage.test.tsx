@@ -68,7 +68,6 @@ describe('CustomerPortalPage', () => {
           if (apiUrl === '/api/portal/orders') return [{ id: 'o1', order_number: 'ORD-9', customer_name: 'Blue Fin', status: 'pending', created_at: '2026-04-01T00:00:00Z' }];
           if (apiUrl === '/api/portal/invoices') return [{ id: 'i1', invoice_number: 'INV-9', total: 125, status: 'sent', created_at: '2026-04-02T00:00:00Z' }];
           if (apiUrl === '/api/portal/contact') return { email: 'buyer@example.com', name: 'Blue Fin' };
-          if (apiUrl === '/api/portal/inventory') return [];
           if (apiUrl === '/api/portal/payments/config') return { enabled: false, balance: { openBalance: 125, openInvoiceCount: 1, invoiceCount: 1 }, payment_methods: [] };
           if (apiUrl === '/api/portal/payments/profile') return { payment_methods: [], autopay: { enabled: false }, balance: { openBalance: 125, openInvoiceCount: 1, invoiceCount: 1 } };
           return null;
@@ -108,7 +107,6 @@ describe('CustomerPortalPage', () => {
       if (url === '/api/portal/orders') return [{ id: 'o1', order_number: 'ORD-101', customer_name: 'Harbor Cafe', customer_address: '1 Dock St', status: 'pending', created_at: '2026-04-01T00:00:00Z', items: [{ description: 'Salmon' }] }];
       if (url === '/api/portal/invoices') return [{ id: 'i1', invoice_number: 'INV-101', total: 250, status: 'sent', driver_name: 'Alex', created_at: '2026-04-02T00:00:00Z' }];
       if (url === '/api/portal/contact') return { email: 'buyer@example.com', name: 'Harbor Cafe' };
-      if (url === '/api/portal/inventory') return [];
       if (url === '/api/portal/payments/config') return { enabled: true, provider: 'stripe', balance: { openBalance: 250, openInvoiceCount: 1, invoiceCount: 1 }, payment_methods: [] };
       if (url === '/api/portal/payments/profile') return { payment_methods: [], autopay: { enabled: false }, balance: { openBalance: 250, openInvoiceCount: 1, invoiceCount: 1 } };
       return null;
@@ -137,7 +135,6 @@ describe('CustomerPortalPage', () => {
       if (url === '/api/portal/orders') return [];
       if (url === '/api/portal/invoices') return [{ id: 'i1', invoice_number: 'INV-101', total: 250, status: 'sent', created_at: '2026-04-02T00:00:00Z' }];
       if (url === '/api/portal/contact') return { email: 'buyer@example.com', name: 'Harbor Cafe' };
-      if (url === '/api/portal/inventory') return [];
       if (url === '/api/portal/payments/config') {
         return {
           enabled: true,
@@ -191,7 +188,6 @@ describe('CustomerPortalPage', () => {
       if (url === '/api/portal/orders') return [];
       if (url === '/api/portal/invoices') return [{ id: 'i1', invoice_number: 'INV-101', total: 250, status: 'sent', created_at: '2026-04-02T00:00:00Z' }];
       if (url === '/api/portal/contact') return { email: 'buyer@example.com', name: 'Harbor Cafe' };
-      if (url === '/api/portal/inventory') return [];
       if (url === '/api/portal/payments/config') {
         return {
           enabled: true,
@@ -228,7 +224,6 @@ describe('CustomerPortalPage', () => {
       if (url === '/api/portal/orders') return [];
       if (url === '/api/portal/invoices') return [];
       if (url === '/api/portal/contact') return { email: 'buyer@example.com', name: 'Quiet Account' };
-      if (url === '/api/portal/inventory') return [];
       if (url === '/api/portal/payments/config') return { enabled: false, balance: { openBalance: 0, openInvoiceCount: 0, invoiceCount: 0 }, payment_methods: [] };
       if (url === '/api/portal/payments/profile') return { payment_methods: [], autopay: { enabled: false }, balance: { openBalance: 0, openInvoiceCount: 0, invoiceCount: 0 } };
       return null;
