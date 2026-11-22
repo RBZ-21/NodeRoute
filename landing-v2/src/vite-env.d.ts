@@ -9,3 +9,16 @@ interface ImportMetaEnv {
 interface ImportMeta {
   readonly env: ImportMetaEnv;
 }
+
+/** Vendored scrollcraft engine (src/vendor/scrollcraft), attached to window. */
+interface ScrollCraftInstance {
+  destroy(): void;
+}
+interface Window {
+  ScrollCraft?: {
+    mount(root?: Element | Document | string, opts?: Record<string, unknown>): ScrollCraftInstance;
+    instances: ScrollCraftInstance[];
+  };
+}
+
+declare module '*/scrollcraft.js';

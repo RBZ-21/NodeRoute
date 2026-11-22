@@ -45,7 +45,7 @@ export function WaitlistForm({ source = 'landing', className = '' }: Props) {
     return (
       <div className={`flex items-center gap-3 rounded-lg border border-teal/40 bg-teal/10 px-5 py-4 text-teal-sky ${className}`}>
         <CheckCircle className="h-5 w-5 shrink-0" />
-        <span className="text-[14px] font-medium">You’re on the list — check your email for a confirmation.</span>
+        <span className="text-[14px] font-medium">You’re on the list. Check your email for a confirmation.</span>
       </div>
     );
   }
@@ -93,7 +93,7 @@ export function WaitlistForm({ source = 'landing', className = '' }: Props) {
         </button>
       </div>
       {status === 'duplicate' && (
-        <p className="text-[13px] text-teal-sky">You’re already on the list — I’ll be in touch soon.</p>
+        <p className="text-[13px] text-teal-sky">You’re already on the list. I’ll be in touch soon.</p>
       )}
       {status === 'error' && (
         <p className="text-[13px] text-red-400">
