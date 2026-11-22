@@ -12,7 +12,7 @@ import { prefersReducedMotion, useDayline, useScrollCraft } from './lib/useScrol
 /**
  * Split-stage page: "the usual way" and "On NodeRoute" share the screen for
  * the whole scroll, a day clock runs down the divider, and the page resolves
- * when the divider sweeps to the edge (see Reports/scrollcraft BRIEF.md).
+ * when the divider sweeps to the edge.
  */
 export function App() {
   // Under reduced motion the pinned acts collapse to one screen each and show
